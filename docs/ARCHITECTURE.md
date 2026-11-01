@@ -68,12 +68,27 @@ T08 增加 `closing_odds`，不改变既有 timestamped `odds`。FD 导入每行
 T04不改数据库结构。CLI以query_only连接并显式BEGIN固定读取快照，读取既有Match/Result/Team/Odds。
 公共build_features函数同样确保SQLite实际事务已开始，刷新已有ORM对象以避免混用旧身份与新比分。
 事务结束由调用方负责；Python调用请使用短生命周期、正常autoflush的Session，已有事务会继续使用其快照。
-每场有效截点取min(as_of,kickoff)，结果available与历史开球均严格小于截点；NULL可知时间不入窗口。
-performance按source/league/team分组，rest仅限source/team但跨赛事；H2H按目标主队视角转向。
-统计窗口样本数和assumed数、逐场证据保存于meta_列与DataFrame.attrs/metadata JSON。
-MODEL_FEATURE_COLUMNS仅43个球队数值，MARKET_COLUMNS为四个普通had基准字段，meta_身份/截点列不用于模型。
+T13将feature_version升为t04-v2，MODEL_FEATURE_COLUMNS的43列及顺序保持不变；仅home_rest_days/away_rest_days
+改为赛程开球间隔，其余41列的定义和计算不变。每场有效截点取min(as_of,kickoff)，依赖赛果的历史开球与
+结果available均严格小于截点；NULL可知时间不入赛果窗口。performance按source/league/team分组，
+H2H按目标主队视角转向；原有窗口n/assumed_n与逐场赛果证据继续保存于meta_列及DataFrame.attrs/metadata JSON。
+
+rest直接从matches按source/team跨赛事选取开球严格早于目标kickoff的最近一场，间隔为目标kickoff减前场kickoff的天数。
+scheduled/finished均可，不依赖Result、available_utc或其来源依据，cancelled排除；前场开球可位于as_of与目标kickoff之间。
+meta_home_rest_match_id/meta_away_rest_match_id替代原休息窗口n/assumed_n，审计独立记录赛程证据，不附造出的赛果字段。
+meta_history_n/meta_history_basis/meta_assumed_history_share继续描述有合法可知依据的赛果历史，保持原含义；
+纯赛程休息证据不增加赛果历史数或假设占比分母，strict_availability不排除无赛果的有效赛程。
+
+MARKET_COLUMNS共7列：market_p_home/market_p_draw/market_p_away分别来自普通had最新完整快照；
+market_hhad_line与market_hhad_p_home/market_hhad_p_draw/market_hhad_p_away来自独立选择的hhad最新完整快照。
+两个玩法的报价时刻均严格早于min(as_of,kickoff)，概率分别按逆价比例归一化；hhad三项必须同一时刻、同一整数line，
+禁止跨时刻、跨line或跨玩法拼接。旧market_line删除，market_hhad_line为可空整数；缺完整快照则该组缺失。
+这7个市场字段与meta_身份/截点列均不进入43列模型白名单。
 生成完成时刻与as_of分别保存。独立导出Parquet、metadata JSON及manifest；不自动写Prediction、不触发训练，
-不改变T05/T06现有模型。历史特征是当前数据库版本按可知时间重建，并非可恢复全部历史版本的事件库。
+不改变T05/T06现有模型。本次不新增联网采集。历史特征使用当前数据库版本重建；赛果仍按可知时间过滤，
+赛程当前版本不能证明其在历史as_of已知，亦无法恢复所有改期/取消版本。休息间隔可能漏掉未采集赛事。
+旧T04验收冻结文件保留t04-v1语义，不覆盖。按AGENTS.md第8条，新reports验收只提交README与SHA256清单；
+全量Parquet、metadata和逐场证据归档时放data/football-feeds分支或Release附件，并在README记录位置与哈希。
 
 T07在既有 `sfc_issues` 中新增可空 `observed_utc/source_url/raw_sha256/date_basis/snapshot`。
 `snapshot` 保存14场原始身份、来源fixture/球队ID、匹配状态、候选ID及已匹配的规范身份。

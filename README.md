@@ -171,27 +171,41 @@ zucai features build --db data/zucai.db --out data/features.parquet
 zucai features build --db data/zucai.db --match-id jc:2042428 --as-of 2026-11-01T22:00:00+08:00 --strict-availability --out data/strict-features.parquet
 ```
 
-生成43个球队字段：双方近5/10场进球、失球、积分的均值及90天半衰期加权均值，主队近5主场/客队近5客场，
-距最近已知完赛的开球间隔，以及最近3次交锋的主胜/平/客胜比例和进球均值。每窗记录有效n、assumed数量及所用比赛。
-近况/交锋限同来源同联赛，跨赛季沿用数据；休息间隔使用同来源所有赛事，可能缺失未采集的杯赛，不能当作完整真实休息期。
+`feature_version=t04-v2`保留原有43个球队模型字段及其顺序：双方近5/10场进球、失球、积分的均值及90天半衰期加权均值，
+主队近5主场/客队近5客场、双方休息天数，以及最近3次交锋的主胜/平/客胜比例和进球均值。
+仅`home_rest_days/away_rest_days`改为按赛程计算，其余41列的定义与计算保持不变。
+近况/交锋限同来源同联赛，跨赛季沿用数据；每个赛果窗口记录有效n、assumed数量及所用比赛。
+
+休息天数是“距最近已知开球的间隔”：从`matches`取同来源、同球队、跨所有赛事且开球严格早于**目标开球**的最近一场，
+用目标开球减去该场开球并换算为天。不要求`Result`或`available_utc`，`scheduled/finished`均可，排除`cancelled`。
+该赛程的开球可晚于`as_of`，只要早于目标开球。`meta_home_rest_match_id/meta_away_rest_match_id`记录所用ID，
+替代旧的休息窗口n/assumed_n；休息审计单独保存赛程证据，不伪造比分或赛果可知依据。
+`meta_history_n/meta_history_basis/meta_assumed_history_share`继续描述赛果历史，纯赛程休息证据不计入其样本或假设占比分母。
+库内可能缺失未采集的杯赛，间隔不能当作完整真实休息期。
 Python公共函数也在同一SQLite事务快照内读取并刷新ORM缓存；调用时使用短生命周期、正常autoflush的Session，
 由调用方结束事务。已有事务继续使用其快照，不会被函数提交或回滚。
 
-每场截点是`min(as_of, 开球)`；历史比赛开球、赛果可知时刻、报价均必须严格早于截点。
+每场有效截点是`min(as_of, 开球)`；依赖赛果的历史比赛开球、赛果可知时刻，以及市场报价均必须严格早于截点。
 迟到采集的旧比分不会被放回当时的特征。无样本保留NaN，不用0补均值；不足5/10/3场按实际n计算。
 默认可使用明确标记的assumed数据并披露比例；`--strict-availability`将其排除。NULL旧标记仅在有时间时兼容为captured。
-当前库不保存被覆盖前的全部赛程/比分版本，因此历史提取是重建，不等于当时冻结的未见验证。
+当前库只保留当前赛程/比分版本，不能证明某一赛程及其状态、改期在历史`as_of`时已知；历史提取是重建，不等于当时冻结的未见验证。
 
-`market_p_home/market_p_draw/market_p_away/market_line`只取最新完整且同一时刻的普通胜平负had快照。
-`market_line=0`对应had；没有完整报价时为NaN，不混入hhad。`MODEL_FEATURE_COLUMNS`显式白名单排除全部market_和meta_列。
+`market_p_home/market_p_draw/market_p_away`独立取严格早于有效截点的最新完整普通胜平负`had`快照。
+删除旧`market_line`，新增可空整数`market_hhad_line`及`market_hhad_p_home/market_hhad_p_draw/market_hhad_p_away`。
+`hhad`独立选择严格早于有效截点、同一时刻且同一整数让球线的最新完整三项快照；不跨时刻、跨让球线或与`had`拼接。
+两组概率各自按逆价比例归一化去水，缺完整快照时对应组保持缺失。
+`MARKET_COLUMNS`共7列，`MODEL_FEATURE_COLUMNS`显式白名单仍排除全部market_和meta_列。
 **本次不训练或升级模型，现有Dixon–Coles预测不会自动读取这些特征。**
 
 输出同名前缀的`.parquet`、`.metadata.json`、`.manifest.json`；任何文件已存在就拒绝覆盖。
 metadata含原始精度的证据、提取完成时刻、数据截点、字段名单和逐列缺失率；manifest校验两个文件。
 使用`pandas.read_parquet`读取；Parquet引擎选项依据[pandas官方文档](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_parquet.html)。
-日常新导出尚未自动上传云端，本次验收产物随私有PR保存。
-[真实数据验收与缺失率](reports/2026-11-02-t04-acceptance/README.md)：866场提取成功，但841场在各自截点无可用历史；
-导出成功不表示历史训练数据充足，也不表示模型已验证。
+本次只读已有数据，不新增联网采集；日常新导出尚未自动上传云端。
+按[AGENTS.md第8条](AGENTS.md)，新增`reports/`验收产物只提交README与SHA256清单；全量Parquet、metadata及逐场证据
+归档时放`data/football-feeds`分支或Release附件，在README注明位置和哈希。
+[旧T04验收与缺失率](reports/2026-11-02-t04-acceptance/README.md)为保持原样的`t04-v1`冻结证据：866场提取成功，
+但841场在各自截点无可用赛果历史，不能用其旧休息天数和4列市场统计代表`t04-v2`。导出成功不表示历史训练数据充足或模型已验证。
+[T13修正验收](reports/2026-11-02-t13-acceptance/README.md)披露归档重建库的报价缺口，并在同一重建库比较v1/v2及旧T04冻结统计。
 
 ### 14场胜负彩期次分析（T07）
 

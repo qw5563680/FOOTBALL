@@ -1,4 +1,4 @@
-"""Build traceable team features from outcomes known before each target cutoff."""
+"""Build traceable team features from schedules and pre-cutoff outcomes."""
 
 import json
 import math
@@ -29,8 +29,16 @@ MODEL_FEATURE_COLUMNS = tuple(
     "h2h_last3_home_goals_mean",
     "h2h_last3_away_goals_mean",
 )
-MARKET_COLUMNS = ("market_p_home", "market_p_draw", "market_p_away", "market_line")
-AUDIT_WINDOWS = (*WINDOWS, "home_rest", "away_rest", "h2h_last3")
+MARKET_COLUMNS = (
+    "market_p_home",
+    "market_p_draw",
+    "market_p_away",
+    "market_hhad_line",
+    "market_hhad_p_home",
+    "market_hhad_p_draw",
+    "market_hhad_p_away",
+)
+AUDIT_WINDOWS = (*WINDOWS, "h2h_last3")
 META_COLUMNS = (
     "meta_match_id",
     "meta_source",
@@ -48,6 +56,9 @@ META_COLUMNS = (
     "meta_assumed_history_share",
     "meta_history_n",
     "meta_market_snapshot_utc",
+    "meta_market_hhad_snapshot_utc",
+    "meta_home_rest_match_id",
+    "meta_away_rest_match_id",
     "meta_h2h_outcomes",
 ) + tuple(f"meta_{window}_{field}" for window in AUDIT_WINDOWS for field in ("n", "assumed_n"))
 ALL_COLUMNS = (*META_COLUMNS, *MODEL_FEATURE_COLUMNS, *MARKET_COLUMNS)
@@ -132,6 +143,26 @@ def _evidence(games):
     ]
 
 
+def _schedules(matches):
+    by_team = defaultdict(list)
+    # The target query is ordered oldest first; reverse it for latest schedules.
+    for match in reversed(matches):
+        if match.status == "cancelled":
+            continue
+        for team, venue in ((match.home_team_id, "home"), (match.away_team_id, "away")):
+            by_team[match.source, team].append(
+                dict(
+                    match_id=match.match_id,
+                    source=match.source,
+                    league=match.league,
+                    kickoff_utc=_iso(match.kickoff_utc),
+                    status=match.status,
+                    venue=venue,
+                )
+            )
+    return by_team
+
+
 def _aggregate(row, prefix, games):
     if not games:
         return
@@ -152,24 +183,30 @@ def _quotes(session, target_ids, as_of):
     query = (
         select(Odds)
         .execution_options(populate_existing=True)
-        .where(Odds.pool == "had", Odds.line == 0, Odds.snapshot_utc < as_of.to_pydatetime())
+        .where(Odds.pool.in_(("had", "hhad")), Odds.snapshot_utc < as_of.to_pydatetime())
     )
     for quote in session.scalars(query):
         if quote.match_id in target_ids and quote.selection in {"h", "d", "a"}:
-            grouped[quote.match_id][utc(quote.snapshot_utc)][quote.selection] = quote.price
+            if not math.isfinite(quote.line) or not float(quote.line).is_integer():
+                continue
+            if quote.pool == "had" and quote.line != 0:
+                continue
+            grouped[quote.match_id, quote.pool][utc(quote.snapshot_utc), int(quote.line)][
+                quote.selection
+            ] = quote.price
     return grouped
 
 
 def _market(snapshots, cutoff):
-    for stamp, prices in sorted(snapshots.items(), reverse=True):
+    for (stamp, line), prices in sorted(snapshots.items(), reverse=True):
         if stamp >= cutoff or set(prices) != {"h", "d", "a"}:
             continue
         if not all(math.isfinite(p) and p > 1 for p in prices.values()):
             continue
         inverse = [1 / prices[k] for k in "hda"]
         total = sum(inverse)
-        return [v / total for v in inverse], _iso(stamp), dict(prices)
-    return None, None, None
+        return [v / total for v in inverse], _iso(stamp), dict(prices), line
+    return None, None, None, None
 
 
 def build_features(session, match_ids=None, as_of=None, *, strict_availability=False):
@@ -196,6 +233,7 @@ def build_features(session, match_ids=None, as_of=None, *, strict_availability=F
             .order_by(Match.kickoff_utc, Match.match_id)
         )
     )
+    schedules = _schedules(matches)
     if match_ids is not None:
         if isinstance(match_ids, str):
             raise ValueError("match_ids须为ID列表")
@@ -232,7 +270,7 @@ def build_features(session, match_ids=None, as_of=None, *, strict_availability=F
             meta_as_of_utc=_iso(cutoff),
             meta_generated_utc=_iso(generated),
         )
-        windows = {}
+        windows, rest_windows = {}, {}
         for side, tid, venue in (
             ("home", match.home_team_id, "home"),
             ("away", match.away_team_id, "away"),
@@ -248,9 +286,20 @@ def build_features(session, match_ids=None, as_of=None, *, strict_availability=F
             windows[f"{side}_last5"] = scoped[:5]
             windows[f"{side}_last10"] = scoped[:10]
             windows[f"{side}_{venue}5"] = [g for g in scoped if g["venue"] == venue][:5]
-            windows[f"{side}_rest"] = known[:1]
-            if known:
-                row[f"{side}_rest_days"] = (when - known[0]["kickoff"]).total_seconds() / 86400
+            previous = next(
+                (
+                    g
+                    for g in schedules[match.source, tid]
+                    if g["match_id"] != match.match_id and utc(g["kickoff_utc"]) < when
+                ),
+                None,
+            )
+            rest_windows[f"{side}_rest"] = [previous] if previous else []
+            row[f"meta_{side}_rest_match_id"] = previous["match_id"] if previous else None
+            if previous:
+                row[f"{side}_rest_days"] = (
+                    when - utc(previous["kickoff_utc"])
+                ).total_seconds() / 86400
             if side == "home":
                 windows["h2h_last3"] = [g for g in scoped if g["opponent"] == match.away_team_id][
                     :3
@@ -276,17 +325,34 @@ def build_features(session, match_ids=None, as_of=None, *, strict_availability=F
         row["meta_history_basis"] = (
             "no_usable_history" if not used else "mixed" if assumed else "published_or_captured"
         )
-        probabilities, stamp, prices = _market(quotes.get(match.match_id, {}), effective)
+        probabilities, stamp, prices, _ = _market(
+            quotes.get((match.match_id, "had"), {}), effective
+        )
         row["meta_market_snapshot_utc"] = stamp
         if probabilities is not None:
-            row.update(zip(MARKET_COLUMNS, [*probabilities, 0.0], strict=True))
+            row.update(zip(MARKET_COLUMNS[:3], probabilities, strict=True))
+        hhad_probabilities, hhad_stamp, hhad_prices, hhad_line = _market(
+            quotes.get((match.match_id, "hhad"), {}), effective
+        )
+        row["meta_market_hhad_snapshot_utc"] = hhad_stamp
+        if hhad_probabilities is not None:
+            row["market_hhad_line"] = hhad_line
+            row.update(zip(MARKET_COLUMNS[4:], hhad_probabilities, strict=True))
         audit[match.match_id] = dict(
             cutoff_utc=_iso(effective),
-            windows={key: _evidence(value) for key, value in windows.items()},
+            windows={**{key: _evidence(value) for key, value in windows.items()}, **rest_windows},
             market=dict(
                 snapshot_utc=stamp,
                 pool="had",
                 prices=prices,
+                normalization="inverse_price_proportional",
+                model_input=False,
+            ),
+            market_hhad=dict(
+                snapshot_utc=hhad_stamp,
+                pool="hhad",
+                line=hhad_line,
+                prices=hhad_prices,
                 normalization="inverse_price_proportional",
                 model_input=False,
             ),
@@ -297,10 +363,10 @@ def build_features(session, match_ids=None, as_of=None, *, strict_availability=F
         row["meta_generated_utc"] = _iso(generated)
     frame = pd.DataFrame(rows, columns=ALL_COLUMNS)
     for col in (*MODEL_FEATURE_COLUMNS, *MARKET_COLUMNS):
-        frame[col] = frame[col].astype(float)
+        frame[col] = frame[col].astype("Int64" if col == "market_hhad_line" else float)
     frame.attrs = dict(
         schema_version=1,
-        feature_version="t04-v1",
+        feature_version="t04-v2",
         generated_utc=_iso(generated),
         as_of_utc=_iso(cutoff),
         strict_availability=bool(strict_availability),
@@ -309,7 +375,7 @@ def build_features(session, match_ids=None, as_of=None, *, strict_availability=F
         market_columns=list(MARKET_COLUMNS),
         metadata_columns=list(META_COLUMNS),
         performance_scope="same_source_and_league_across_seasons",
-        rest_scope="same_source_all_competitions_known_finished_kickoff_interval",
+        rest_scope="same_source_all_competitions_non_cancelled_schedule_before_target_kickoff",
         history_versioning="current_db_values_filtered_by_available_time_not_versioned_replay",
         excluded_history_counts=excluded,
         audit=audit,

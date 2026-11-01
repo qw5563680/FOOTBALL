@@ -153,21 +153,37 @@ CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知
 - 状态 `fixture.status.short`：`FT/AET/PEN` 完赛，`PST/CANC/ABD` 延期或取消，`AWD/WO` 判罚不写比分，`NS/TBD` 未赛。
 - 用途以站方当前条款为准，README 须标注来源。
 
-## T04特征提取的数据可知边界（2026-11-02）
+## T04/T13特征提取的数据可知边界（t04-v2）
 
-本任务不新增联网采集；只读T03/T06已归档的公开赛程、赛果及had快照。
-验收库有866场比赛、833个赛果、3450条赔率，赛果的captured时刻集中于
+本任务不新增联网采集；只读T03/T06已归档的公开赛程、赛果及had/hhad快照。
+旧T04验收库有866场比赛、833个赛果、3450条赔率，赛果的captured时刻集中于
 2026-11-01 13:03:07–13:26:51 UTC（北京时间21:03:07–21:26:51）。这些是实际采集时刻，
 不能改成历史开球后固定时间来填满回测特征。结果表没有独立发布时间的行，不能声称当时已经可用。
 
-提取器要求历史开球和赛果available_utc都严格早于目标的min(as_of,kickoff)，
+依赖赛果的特征仍要求历史开球和赛果available_utc都严格早于目标的min(as_of,kickoff)，
 没有可知时间的赛果排除；NULL旧来源标记仅在已有时间时兼容为captured。
 assumed默认可用但逐窗披露，strict模式排除。球队近况/交锋限同来源、同联赛，
-跨赛季不自动重置；休息间隔可能漏掉库里没有的杯赛或未完赛比赛，不能当完整赛程证明。
-市场列只能来自同一完整had快照，line固定0；hhad不混入。数据仅供既有个人分析用途，
-代码依赖的许可不授予额外的数据再分发权。验收文件仅保存在既有私有项目仓库。
+跨赛季不自动重置。t04-v2保留原43个模型字段及顺序，仅两列休息天数改定义，其余41列不变。
 
-完整计数、缺失比例及限制见[实际验收](../reports/2026-11-02-t04-acceptance/README.md)。
+休息天数改为“距最近已知开球的间隔”：从matches取同来源、同球队、所有赛事中开球严格早于目标kickoff的最近一场，
+以目标kickoff减去前场kickoff换算天数。scheduled/finished均可，cancelled排除，不要求Result或available_utc；
+前场开球可晚于as_of但必须早于目标开球。meta_home_rest_match_id/meta_away_rest_match_id替代旧休息窗口n/assumed_n，
+审计只记录赛程依据，不能伪造比分或结果可知时刻。结果历史的计数、依据与assumed占比继续描述赛果，纯赛程休息证据
+不计入meta_history_n或假设占比分母；strict模式不因赛程没有赛果而将其排除。
+当前matches仅保存当前版本，不能证明赛程、状态或改期在历史as_of时已经可知；间隔也可能漏掉未采集的杯赛，不能当完整赛程或真实休息期证明。
+
+市场列独立取各玩法严格早于min(as_of,kickoff)的最新完整快照。普通had仍输出market_p_home/market_p_draw/market_p_away；
+删除market_line，新增可空整数market_hhad_line及market_hhad_p_home/market_hhad_p_draw/market_hhad_p_away。
+hhad三项必须同一snapshot_utc、同一整数line；不跨时刻、跨线或与had拼接。两组概率各自按逆价比例归一化去水，
+无完整快照时对应组缺失。这7列均只在MARKET_COLUMNS，不进入模型白名单。
+数据仅供既有个人分析用途，代码依赖的许可不授予额外的数据再分发权。
+
+[旧T04实际验收](../reports/2026-11-02-t04-acceptance/README.md)的计数、缺失比例及完整文件保持原样，属于t04-v1，
+不代表修正后的休息天数及hhad覆盖。T13归档重建库保留同一批866场比赛及833个赛果，但只有2319条赔率，
+较原库缺少第三批报价采集；不是旧库的完整逐字节副本。[T13验收](../reports/2026-11-02-t13-acceptance/README.md)
+分别列出同一重建库的v1/v2对比及旧T04冻结统计，不把报价缺口归因于特征定义修正。
+按AGENTS.md第8条，新reports验收只提交README与SHA256清单；
+全量Parquet、metadata及逐场证据归档时放data/football-feeds分支或Release附件，并在README写明位置与哈希。
 
 ## 队名对齐
 
