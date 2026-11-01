@@ -190,15 +190,15 @@ def availability(
     last_seen: datetime | None,
 ) -> tuple[datetime, str]:
     published = game.published_utc
+    if old and not changed and old.available_utc:
+        basis = old.available_source or "captured"
+        if basis != "assumed" or published is None:
+            return datetime.fromisoformat(old.available_utc), basis
     if published is not None:
         if not game.kickoff_utc < published <= seen:
             raise ValueError("赛果发布时间早于开球或晚于采集")
         if not changed or last_seen is None or published > last_seen:
             return published, "published"
-    if old and not changed and old.available_utc:
-        basis = old.available_source or "captured"
-        if basis != "assumed" or assume is not None:
-            return datetime.fromisoformat(old.available_utc), basis
     if assume is not None and not changed and game.kickoff_utc + assume <= seen:
         return game.kickoff_utc + assume, "assumed"
     return seen, "captured"
@@ -343,7 +343,7 @@ def apply_result(
         and not changed
         and old.available_utc
         and datetime.fromisoformat(old.available_utc) == when
-        and old.available_source == basis
+        and (old.available_source or "captured") == basis
     ):
         return "unchanged"
     result = old if old else Result(match_id=sid)

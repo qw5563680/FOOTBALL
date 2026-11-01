@@ -104,7 +104,8 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `available_utc` / `available_source` | 当前比分版本的最早可知时刻及依据。可核实发布时刻为 published，本次两个数据源默认用实际采集时刻 captured |
 
 历史批量导入可显式传 `--assume-known-after 3h` 使用开球后延时，写作 assumed，并输出实际写入量。
-相同比分保留已有的真实依据；比分更正时若缺少新的发布依据，改为新版本的实际观察时刻。
+相同比分保留已有依据（含 assumed）和原时刻，按未变化计数。仅来源可核实的 published 时刻可替换 assumed。
+比分更正时若缺少新的发布依据，改为新版本的实际观察时刻。
 旧库按缺列逐项迁移，有日期但没有标记的旧记录按 captured 处理。既缺日期又缺标记的旧行仍为未知。
 取消状态没有比分行。每个自然日的全部分页及详情核验通过后才整体提交，重跑不会改变已冻结预测。
 
