@@ -32,6 +32,7 @@ TABLES = {
         "status",
         "result_checked_utc",
         "result_provider",
+        "counterpart_id",
     ),
     "results": (
         "match_id",
@@ -93,6 +94,7 @@ def export_feeds(source: Path, archive: Path, through: date, run_id: str) -> Non
     if not source.is_file():
         raise ValueError("采集数据库缺失")
     archive.mkdir(parents=True, exist_ok=True)
+    previous = set(archive_info(archive)["files"]) if (archive / MANIFEST).is_file() else set()
     files = []
     totals = {}
     with sqlite3.connect(source) as db:
@@ -130,6 +132,12 @@ def export_feeds(source: Path, archive: Path, through: date, run_id: str) -> Non
         key = "state/unmatched_teams.csv"
         (archive / key).write_bytes(unmatched.read_bytes())
         files.append(key)
+    # Only remove obsolete files owned and checked by the previous archive.
+    for key in previous.difference(files):
+        target = (archive / key).resolve()
+        if not target.is_relative_to(archive.resolve()):
+            raise ValueError("旧档路径超出归档目录")
+        target.unlink()
     manifest = {
         "version": 1,
         "columns": {name: list(cols) for name, cols in TABLES.items()},
@@ -175,6 +183,10 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
         with sqlite3.connect(dbfile) as db:
             db.execute("PRAGMA foreign_keys=ON")
             for table, cols in TABLES.items():
+                legacy = tuple(c for c in cols if c != "counterpart_id")
+                stored = tuple(meta.get("columns", {}).get(table, legacy))
+                if stored not in (cols, legacy):
+                    raise ValueError(f"{table} 字段清单校验失败")
                 names = (
                     [k for k in sorted(meta["files"]) if k.startswith("state/odds/")]
                     if table == "odds"
@@ -183,8 +195,8 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                 for key in names:
                     with (archive / key).open(encoding="utf-8") as f:
                         db.executemany(
-                            f"INSERT INTO {table} ({','.join(cols)}) "
-                            f"VALUES ({','.join('?' for _ in cols)})",
+                            f"INSERT INTO {table} ({','.join(stored)}) "
+                            f"VALUES ({','.join('?' for _ in stored)})",
                             (json.loads(line) for line in f),
                         )
                 count = db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
@@ -231,6 +243,8 @@ def main():
     archive = args.archive.resolve()
     day = args.through or datetime.now(BEIJING).date()
     if args.command == "sync":
+        if target.exists():
+            raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
         if target.parent != Path("data").resolve():
             parser.error("云端同步请在隔离的工作目录运行，数据库放在该目录的 data 下")
         meta = restore_feeds(archive, target)
