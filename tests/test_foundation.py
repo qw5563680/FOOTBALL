@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ def test_cli_initializes_all_tables_without_losing_existing_rows(tmp_path, monke
     with sqlite3.connect(path) as conn:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert tables == {
+            "closing_odds",
             "teams",
             "matches",
             "odds",
@@ -184,6 +186,7 @@ def test_archived_response_parses_twice_offline_with_original_metadata(tmp_path)
         "url": url,
         "fetched_at_utc": "2026-10-31T16:15:00.000000Z",
         "status_code": 200,
+        "sha256": hashlib.sha256(SAMPLE.read_bytes()).hexdigest(),
     }
     assert path.with_suffix(path.suffix + ".meta.json").exists()
     assert (

@@ -30,6 +30,21 @@ def build_parser() -> argparse.ArgumentParser:
     sfc.add_argument("--matches-out", help="另存可直接输入T06的CSV清单，不覆盖已有文件")
     from zucai.sources.results import assumed_delay
 
+    fd = feeds.add_parser("fd", help="导入已核实时区的football-data.co.uk历史赛果")
+    fd_kind = fd.add_mutually_exclusive_group(required=True)
+    fd_kind.add_argument("--div", help="按季联赛代码，例如E0")
+    fd_kind.add_argument("--country", help="合并文件国家代码，例如JPN")
+    fd.add_argument("--season", action="append", help="按季文件四位赛季，可重复")
+    fd.add_argument("--from-season", type=int, help="合并文件起始年份，含当年")
+    fd.add_argument("--to-season", type=int, help="合并文件结束年份，含当年")
+    fd.add_argument("--assume-known-after", type=assumed_delay, required=True, metavar="3h")
+    fd.add_argument("--db", help="目标SQLite文件")
+    fd.add_argument("--leagues-file", help="已验证时区配置JSON")
+    fd.add_argument("--aliases-file", help="有状态的球队别名JSON")
+    fd.add_argument("--raw-file", help="回放已有CSV及同名HTTP/SHA256 sidecar，不联网")
+    fd.add_argument("--raw-root", default="data/raw", help="原始文件存放根目录")
+    fd.add_argument("--audit-dir", default="data", help="拒绝/可疑行审计目录")
+
     results = feeds.add_parser("results", help="回填已开奖场次的常规时间及半场比分")
     span = results.add_mutually_exclusive_group()
     span.add_argument("--days", type=int, help="最近N个北京时间自然日，含今天（默认30）")
@@ -46,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--model", choices=["dixon-coles"], default="dixon-coles")
     train.add_argument("--db", help="SQLite 文件，默认读取 ZUCAI_DB 或 data/zucai.db")
     train.add_argument("--league", help="联赛，库内有多个联赛时指定")
-    train.add_argument("--source", help="数据来源，避免同场比赛被重复统计")
+    train.add_argument("--source", help="数据来源或逗号分隔集合，例如jc,fd；仍须单一联赛")
     train.add_argument("--since", help="回测起始日（含），之前的数据仍用于训练")
     train.add_argument("--as-of", help="数据可知截点，日期按 UTC 零时解释，默认当前时刻")
     train.add_argument(
@@ -170,6 +185,24 @@ def main(argv: list[str] | None = None) -> int:
                 from zucai.sources.sfc import fetch_sfc
 
                 fetch_sfc(args.issue, db=args.db, matches_out=args.matches_out)
+            elif args.feed == "fd":
+                from zucai.sources.fd_ingest import fetch_fd
+                from zucai.sources.football_data import ALIASES_PATH, LEAGUES_PATH
+
+                fetch_fd(
+                    div=args.div,
+                    seasons=args.season,
+                    country=args.country,
+                    from_season=args.from_season,
+                    to_season=args.to_season,
+                    assume=args.assume_known_after,
+                    db=args.db,
+                    leagues_path=args.leagues_file or LEAGUES_PATH,
+                    aliases_path=args.aliases_file or ALIASES_PATH,
+                    raw_file=args.raw_file,
+                    raw_root=args.raw_root,
+                    audit_dir=args.audit_dir,
+                )
             else:
                 today = datetime.now(BEIJING).date()
                 if args.start is not None:

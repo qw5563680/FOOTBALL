@@ -34,6 +34,9 @@ zucai fetch jc --date 2026-11-01      # 抓取该竞彩编号日在售赛程及�
 zucai fetch results --days 30         # 回填最近30个北京时间自然日的已开奖比分
 zucai fetch results --from 2026-10-01 --to 2026-10-31
 zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
+zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
+zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
+zucai train --league 英超 --source jc,fd --since 2026-09-01 --output models/epl-mixed.pkl
 zucai train --model dixon-coles       # 训练并按周回测
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
@@ -78,7 +81,7 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 [英超原始 CSV](https://www.football-data.co.uk/mmz4281/1920/E0.csv) · [数据来源与使用说明](https://www.football-data.co.uk/data.php)
 
 有赛果数据库后，用 `zucai train --model dixon-coles` 训练并保存至 `models/dixon-coles.pkl`。
-`--db` 指定数据库，`--league` 和 `--source` 选择同一赛事和供应方；多个范围须分别训练。
+`--db` 指定数据库，`--league` 选择一个赛事，`--source jc,fd` 可显式选择多个来源；不同联赛须分别训练。
 `--since YYYY-MM-DD` 指定回测开始日，之前的赛果可用于训练。
 `--as-of YYYY-MM-DD` 将所有数据截在当日 UTC 零时。可用 `--output` 另存每次的模型。
 训练输出包含样本数、逐周截点、对数损失、三分类 Brier 及校准分箱。市场样本缺失时指标为 null。
@@ -89,6 +92,28 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 `backtest` 与严格 `strict_backtest`；严格样本不足时返回错误，避免将不完整数据说成复核结果。
 公开 CSV 演示的所有比分均标为 `assumed`，其指标为 `mixed`，训练与评估假设占比均为 100%。
 只加载本项目自行训练、来源可信的模型文件。
+
+### 多赛季历史数据（T08）
+
+`fetch fd` 只导入已核实时区的 football-data.co.uk 常规时间赛果。下载前须具有站方允许的用途和访问许可；
+本次自动访问已获用户确认许可，书面依据尚未独立核阅。原始 CSV 和数据库不上传仓库。
+必须显式设置结果可知时间假设，如 `--assume-known-after 3h`；这不是真实发布时间。
+下载原件附 URL、HTTP 状态、读取时刻与 SHA256。`--raw-file path.csv` 可离线回放同名 `.csv.meta.json`
+完整且哈希、URL、采集时刻有效的原件；主联赛回放每次只选一个赛季。
+新收盘价格存入 `closing_odds`，无报价时刻，模型及正式回测不读取它。
+
+球队只用已批准或比赛证据核对过的别名。同场官方比赛保留 jc 身份和赛果，身份未齐的可疑重复单独隔离。
+未知英文名称保留英文身份并记入 `data/unmatched_teams.csv`；以后批准别名时若同一联赛已有独立身份，需要先核对合并。
+仅其他联赛留有同名英文身份时，当前联赛的已核验别名可正常使用，不擅自合并其他联赛的历史。
+拒绝行与可疑重复写入 `fd_rejected_rows.csv`、`fd_suspected_duplicates.csv`，可用 `--audit-dir` 指定目录。
+单行失败不会丢弃其他合格场次；文件级身份、网络或结构错误仍报错。
+`--leagues-file`、`--aliases-file` 可显式指定经过审查的配置，默认使用本仓库 `data/` 中的版本。
+
+新模型的 `sources` 表示选择的来源范围，`training_source_counts` 表示截点前实际参与拟合的场数。
+T06 对范围内来源可预测，冻结格式升级为 schema 2；旧单来源模型与 schema 1 报告仍能读取。
+T08 未接入定时采集或数据分支恢复；云端持久化当前只有代码、配置与派生验收报告。
+[时区及数据限制](docs/DATA_SOURCES.md#4-football-datacouk历史赛果与收盘赔率t08) ·
+[真实数据验收与缺口](reports/2026-11-02-t08-acceptance/README.md)。
 
 ### 批量预测与冻结报告（T06）
 

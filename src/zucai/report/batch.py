@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from zucai.models import Match, Odds, Prediction, Team
-from zucai.predict.base import utc
+from zucai.predict.base import model_sources, utc
 from zucai.predict.derive import had
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 from zucai.sources.sporttery import BEIJING
@@ -27,8 +27,9 @@ def _models(paths, as_of):
         model = DixonColes.load(path)
         if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise ValueError("模型文件在载入期间发生变化")
-        key = (model.source, model.league)
-        if key in registry:
+        sources = model_sources(model)
+        keys = [(source, model.league) for source in sources]
+        if any(key in registry for key in keys):
             raise ValueError("同一来源/联赛提供了多个模型，请明确选择一个版本")
         error = None
         if utc(model.as_of) > as_of:
@@ -40,7 +41,8 @@ def _models(paths, as_of):
             "model_version": digest,
             "artifact_sha256": digest,
             "artifact_name": path.name,
-            "source": model.source,
+            "sources": sources,
+            "training_source_counts": getattr(model, "training_source_counts", None),
             "league": model.league,
             "model_as_of_utc": utc(model.as_of).isoformat(),
             "training_games": int(model.training_rows),
@@ -48,7 +50,8 @@ def _models(paths, as_of):
             "availability_basis": getattr(model, "availability_basis", "unknown"),
             "assumed_training_share": getattr(model, "assumed_training_share", None),
         }
-        registry[key] = (model, meta, error)
+        for key in keys:
+            registry[key] = (model, meta, error)
     if not registry:
         raise ValueError("请提供至少一个本项目训练的可信模型文件")
     return registry
@@ -142,7 +145,7 @@ def predict_batch(
     if not keys:
         raise ValueError("指定范围没有已核实的比赛")
     batch = {
-        "schema_version": 1,
+        "schema_version": 2,
         "batch_id": uuid4().hex,
         "generated_utc": created.isoformat(),
         "as_of_utc": cutoff.isoformat(),
@@ -156,7 +159,7 @@ def predict_batch(
             "market_weight": market_weight,
             "expected_identities": expected_identities or {},
         },
-        "models": [item[1] for item in registry.values()],
+        "models": list({id(item[0]): item[1] for item in registry.values()}.values()),
         "predictions": [],
     }
     for key in keys:

@@ -33,6 +33,9 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/base.py` | `Source` 抽象类、落盘与重放工具、统一的 `requests.Session`（UA、重试、限速） |
 | `zucai/sources/sporttery.py` | 中国竞彩网：在售赛程 + 各玩法赔率、已完赛结果 |
 | `zucai/sources/c500.py` | 500.com：历史赛果、欧赔/亚盘历史、14 场胜负彩期次 |
+| `zucai/sources/football_data.py` | 历史 CSV 的下载、严格时区转换和解析 |
+| `zucai/sources/fd_ingest.py` | 显式别名、官方优先去重、结果可知时间与独立收盘价归档 |
+| `zucai/sources/fd_verify.py` | 离线复核当前赛季与 jc 的身份图、候选时区和覆盖缺口 |
 | `zucai/features/` | `build_features(session, match_ids=None, as_of=None, *, strict_availability=False) -> DataFrame`；43个球队字段，市场/元信息分离 |
 | `zucai/predict/base.py` | `Model` 抽象类：`fit(df)`、`predict_score_matrix(row) -> ndarray[10,10]`、`save/load` |
 | `zucai/predict/dixon_coles.py` | 基线模型，带时间衰减的泊松攻防强度 |
@@ -42,13 +45,25 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 ### 快照与重放
 
 抓取器用 `RawStore.save_response()` 保存 HTTP 响应的原始字节，同时生成同名的
-`.meta.json`，记录最终 URL、HTTP 状态码和 UTC 采集时刻 `fetched_at_utc`。
+`.meta.json`，记录最终 URL、HTTP 状态码、UTC 采集时刻 `fetched_at_utc` 和原字节 SHA256。
 同一来源同一时刻的多次抓取各有独立文件。原始响应出现时，元数据已可读取。
 单独导入字节可使用 `save(source, name, content, ext)`，缺失的 HTTP 字段保存为 null。
 重放时将 `load(path)` 返回的字节传给纯函数 `parse`，从 `load_metadata(path)` 取回
 原采集时刻，用作赔率的 `snapshot_utc`。测试环境统一阻止未登记的 HTTP 请求。
 
 ## 数据模型
+
+T08 增加 `closing_odds`，不改变既有 timestamped `odds`。FD 导入每行独立 SAVEPOINT，
+文件内合格行在一个外层事务提交；错误行有行号、原件哈希和原因。缺 Time、无赛果、夏令时歧义不造值。
+同联赛、规范主客和三小时内的 jc 比赛优先；只补空 counterpart，不覆盖官方比分。
+身份不完整且存在同联赛同时间官方场次，或有反向主客冲突时隔离。读取历史与直接拟合亦拒绝已知的 jc/fd 重复。
+当前赛季核验得到的别名跨历史赛季使用，球队沿革仍须人工维护。历史结果固定延时只属于 assumed。
+
+模型元数据改用 `sources: list[str]`，旧可信模型的 `source` 读取为单元素列表。
+`training_source_counts` 与范围分开；严格模式或截点过滤后某来源计数可为零，但不能推导模型对未选择来源的支持。
+新 T06 冻结 JSON 为 schema 2，`models[].sources` 必须是非空列表；比赛自身仍用单值 source。
+每个 league/source 只能被一个已加载模型覆盖，交叠时拒绝；T07 按同一集合匹配。schema 1 旧报告保持可读。
+未提供 source 且训练库有多个来源时仍要求显式选择；所有训练保持单一联赛。
 
 T04不改数据库结构。CLI以query_only连接并显式BEGIN固定读取快照，读取既有Match/Result/Team/Odds。
 公共build_features函数同样确保SQLite实际事务已开始，刷新已有ORM对象以避免混用旧身份与新比分。
@@ -95,7 +110,7 @@ CSV独立保留每行的P2、模式、BET/执行禁用、原预测截点/生成�
 | 列 | 说明 |
 | --- | --- |
 | `match_id` | 主键，`来源:来源ID`，如 `jc:2026110101` |
-| `source` | `jc` / `c500` |
+| `source` | `jc` / `c500` / `fd`；FD 主键如 `fd:E0:20250815:liverpool:bournemouth` |
 | `league` | 联赛名 |
 | `home_team_id` / `away_team_id` | 外键 `teams.id` |
 | `kickoff_utc` | 开赛时间 |
@@ -119,6 +134,18 @@ CSV独立保留每行的P2、模式、BET/执行禁用、原预测截点/生成�
 | `snapshot_utc` | 抓取时间，同一场可有多次快照 |
 
 `match_id / pool / line / selection / snapshot_utc` 组合唯一。不同采集时间可保留不同价格。
+
+### `closing_odds`（T08）
+
+| 列 | 说明 |
+| --- | --- |
+| `match_id / bookmaker / pool` | 联合主键，match_id 外键；bookmaker 限 PS/B365/Avg/Max，pool 固定 had |
+| `h / d / a` | 完整、有限且大于1的三项收盘价 |
+| `basis` | 固定 publisher_closing；没有任何报价时间戳列 |
+
+官方已匹配比赛的收盘价可归在 jc ID 下，但不写 `Odds`；仅覆盖这张独立表的同庄家组。
+原始版本保留在 CSV 快照。T05 回测、T06 报告及球队特征不会读取此表，不能当当前可执行 SP。
+T08 不扩展 cloud_feeds 的归档表集合，所以已有数据分支恢复仍只恢复原有表。
 
 ### `results`
 | 列 | 说明 |
