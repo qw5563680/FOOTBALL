@@ -143,5 +143,23 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 
 ## 评估
 
-`zucai train` 必须输出滚动回测指标：对数损失、Brier、按赔率区间分桶的命中率。
-评估只用比赛开始前的信息，严禁使用赛后数据构造特征。
+T05 在单一联赛和来源内封装 `penaltyblog==1.13.1` 的 Dixon–Coles 模型（MIT）。
+每周 UTC 周一前冻结一次参数，只用开球和赛果可知时刻都早于截点的记录。
+每支球队的攻防、主场优势及低比分修正从赛果拟合。时间权重使用
+`exp(-ln(2) × 日数 / 半衰期)`，默认 90 天。预测元数据保留训练截点、最近可知赛果时刻、
+训练场数和 0–9 球截断丢弃的质量。比分矩阵以主队进球为行、客队为列，截断后归一化。
+半全场推导以终场比分为条件，近似假定各粒进球均匀落在上下半场。新球队或样本不足时报告跳过场数。
+
+训练命令按场次选取严格早于开球、三项价格齐全的最后一次 `had` 快照，按倒数价格等比例去水。
+三分类 Brier 为三个类别平方误差之和的场均值。校准表汇总胜平负三类的预测与实际频率。
+市场覆盖不全时分别报告全体模型、同场模型和同场市场三组结果。市场报价可比每周模型训练截点更接近开球。
+
+评估指标包括对数损失、Brier 和按预测概率分桶的校准。评估只用赛前已知的信息构造预测。
+
+`read_history` 同时读取 `available_source`，NULL 兼容为 `captured`。可知时刻未知的行不入训练或评估。
+模型只用严格早于截点已知的赛果；回测按 UTC 周一前一微秒冻结模型，每周单独拟合，市场报价只作对照。
+报告的顶层和每个 fold 均有 `assumed_training_share` 与 `assumed_eval_share`；顶层训练比例按 fold
+训练样本数加权，评估比例覆盖实际成功预测的比赛。任一已使用训练或评估行不是 published/captured 时，
+`availability_basis` 为 mixed，引用指标必须同时引用假设占比。`--strict-availability` 排除全部 assumed
+后训练模型，并在同一 JSON 的 `backtest` / `strict_backtest` 中并列提供两种回测。
+模型文件和预测元数据保存实际训练样本的 `availability_basis` 与 `assumed_training_share`。

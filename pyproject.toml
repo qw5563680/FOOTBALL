@@ -18,7 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+model = ["penaltyblog==1.13.1"]
 dev = [
+    "zucai[model]",
     "pytest>=7.4",
     "ruff>=0.4",
     "responses>=0.25",
@@ -37,7 +39,7 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "examples"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
