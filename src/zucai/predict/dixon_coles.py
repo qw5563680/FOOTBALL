@@ -20,6 +20,7 @@ from zucai.predict.base import (
     reject_cross_source_overlaps,
     utc,
 )
+from zucai.predict.calibration import fit_draw_offset
 
 
 class InsufficientHistory(ValueError):
@@ -27,11 +28,14 @@ class InsufficientHistory(ValueError):
 
 
 class DixonColes(Model):
-    def __init__(self, half_life_days: float = 90, *, unknown_team_prior=True):
+    def __init__(
+        self, half_life_days: float = 90, *, unknown_team_prior=True, draw_calibration=False
+    ):
         if not isfinite(half_life_days) or half_life_days <= 0:
             raise ValueError("半衰期必须是正数")
         self.half_life_days = half_life_days
         self.unknown_team_prior = unknown_team_prior
+        self.draw_calibration = draw_calibration
         self.engine = None
 
     def fit(self, history: pd.DataFrame, *, as_of: datetime) -> Self:
@@ -83,6 +87,11 @@ class DixonColes(Model):
             "defence": float((defence[-count:].mean() + defence.mean()) / 2),
             "method": "weakest_quartile_half_shrinkage",
         }
+        self.draw_offset = 0.0
+        self.calibration_training_rows = 0
+        self.calibration_skipped_training_rows = 0
+        if self.draw_calibration:
+            self._fit_draw_calibration(eligible, weights)
         self.as_of, self.training_rows = cutoff, len(eligible)
         provenance = availability_sources(eligible)
         self.assumed_training_rows = int((provenance == "assumed").sum())
@@ -140,7 +149,17 @@ class DixonColes(Model):
             or not 0 < retained <= 1 + 1e-9
         ):
             raise ValueError("拟合参数未产生有效的比分概率矩阵")
-        return raw / retained, {
+        matrix = raw / retained
+        if getattr(self, "draw_calibration", False):
+            matrix[np.diag_indices(10)] *= np.exp(self.draw_offset)
+            matrix /= matrix.sum()
+        return matrix, {
+            "draw_calibration": getattr(self, "draw_calibration", False),
+            "draw_offset": getattr(self, "draw_offset", 0.0),
+            "calibration_training_rows": getattr(self, "calibration_training_rows", 0),
+            "calibration_skipped_training_rows": getattr(
+                self, "calibration_skipped_training_rows", 0
+            ),
             "unknown_team_prior": unknown,
             "prior_method": self.prior_parameters["method"] if unknown else None,
             "prior_rho_clipped": clipped,
@@ -157,6 +176,30 @@ class DixonColes(Model):
             "availability_basis": getattr(self, "availability_basis", "unknown"),
             "excluded_score_mass": max(0.0, 1.0 - retained),
         }
+
+    def _fit_draw_calibration(self, eligible, weights):
+        probabilities, outcomes, sample_weights = [], [], []
+        pairs = {}
+        for row, weight in zip(eligible.itertuples(), weights, strict=True):
+            key = row.home, row.away
+            if key not in pairs:
+                try:
+                    raw = self.engine.predict(*key, max_goals=15, normalize=False).grid[:10, :10]
+                    pairs[key] = (
+                        float(np.trace(raw) / raw.sum())
+                        if np.isfinite(raw).all() and raw.min() >= 0 and raw.sum() > 0
+                        else None
+                    )
+                except ValueError:
+                    pairs[key] = None
+            probability = pairs[key]
+            if probability is not None:
+                probabilities.append(probability)
+                outcomes.append(row.home_goals == row.away_goals)
+                sample_weights.append(weight)
+        self.draw_offset = fit_draw_offset(probabilities, outcomes, sample_weights)
+        self.calibration_training_rows = len(probabilities)
+        self.calibration_skipped_training_rows = len(eligible) - len(probabilities)
 
     def _prior_grid(self, home, away):
         params = self.engine.get_params()

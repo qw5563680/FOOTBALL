@@ -255,12 +255,14 @@ def test_train_reads_config_keeps_static_db_unchanged_and_records_override(
                     "英超": dict(
                         half_life_days=365,
                         selection_as_of_utc="2025-07-01T00:00Z",
+                        draw_calibration=True,
                         p2_ready=False,
                         evaluation_windows=[
                             dict(
                                 validation_season="2526",
                                 half_life_days=365,
                                 selection_as_of_utc="2025-07-01T00:00Z",
+                                draw_calibration=True,
                             )
                         ],
                     )
@@ -282,6 +284,19 @@ def test_train_reads_config_keeps_static_db_unchanged_and_records_override(
     assert result["half_life_days"] == 365 and result["parameter_source"] == "params.json"
     assert result["database_sha256"] == before == hashlib.sha256(database.read_bytes()).hexdigest()
     assert result["backtest"]["seasons"]["2526"]["model"]["n"] > 0
+    calibrated_override = train(
+        db=database,
+        league="英超",
+        source="fd",
+        seasons=["2526"],
+        fold="monthly",
+        params_file=config,
+        output=tmp_path / "calibrated-override.pkl",
+        as_of="2026-07-01T00:00Z",
+        half_life_days=180,
+    )
+    assert calibrated_override["draw_calibration"] is True
+    assert all(f["draw_calibration"] for f in calibrated_override["backtest"]["folds"])
     assert (
         main(
             [
@@ -302,6 +317,7 @@ def test_train_reads_config_keeps_static_db_unchanged_and_records_override(
                 str(config),
                 "--half-life-days",
                 "180",
+                "--no-draw-calibration",
                 "--output",
                 str(tmp_path / "override.pkl"),
             ]
@@ -309,6 +325,10 @@ def test_train_reads_config_keeps_static_db_unchanged_and_records_override(
         == 0
     )
     assert DixonColes.load(tmp_path / "override.pkl").parameter_source == "cli"
+    overridden = DixonColes.load(tmp_path / "override.pkl")
+    assert overridden.draw_calibration is False
+    assert overridden.parameter_provenance["draw_calibration"] is False
+    assert overridden.parameter_provenance["draw_calibration_source"] == "cli"
     from zucai.predict.tuning import tune
 
     tuned = tune(
@@ -465,3 +485,81 @@ def test_missing_counterparts_survive_pandas_string_nulls(seasons_history):
     report = backtest.evaluate(history, {}, seasons=["2526"], as_of="2025-08-01T00:00Z")
     assert report["model"]["n"] > 0
     assert report["jc_linked"]["n"] == 0
+
+
+def test_draw_intercept_matches_training_frequency_and_stays_finite():
+    from zucai.predict.calibration import fit_draw_offset
+
+    assert fit_draw_offset([0.2] * 4, [0, 1, 1, 0], [1] * 4) == pytest.approx(np.log(4))
+    assert np.isfinite(fit_draw_offset([0.2] * 4, [0] * 4, [1] * 4))
+    assert np.isfinite(fit_draw_offset([0.2] * 4, [1] * 4, [1] * 4))
+
+
+def test_draw_calibration_uses_only_eligible_results_and_no_prices(seasons_history):
+    cutoff = pd.Timestamp("2024-07-01T00:00Z")
+    first = DixonColes(365, draw_calibration=True).fit(seasons_history, as_of=cutoff)
+    changed = seasons_history.copy()
+    future = changed.available_utc >= cutoff
+    changed.loc[future, ["home_goals", "away_goals"]] = [8, 8]
+    changed["closing"] = 0.999
+    changed["market_home"] = 0.001
+    second = DixonColes(365, draw_calibration=True).fit(changed, as_of=cutoff)
+    assert first.draw_offset == second.draw_offset
+    assert first.calibration_training_rows == first.training_rows
+    row = dict(
+        home="A", away="B", source="fd", league="英超", kickoff_utc=cutoff + pd.Timedelta(days=1)
+    )
+    matrix, meta = first.predict_with_metadata(row)
+    np.testing.assert_array_equal(matrix, second.predict_score_matrix(row))
+    assert matrix.min() >= 0 and matrix.sum() == pytest.approx(1)
+    assert meta["draw_calibration"] is True
+    assert meta["draw_offset"] == first.draw_offset
+    baseline = DixonColes(365).fit(seasons_history, as_of=cutoff).predict_score_matrix(row)
+    off_diagonal = ~np.eye(10, dtype=bool)
+    np.testing.assert_allclose(
+        matrix[off_diagonal] / baseline[off_diagonal], np.full(90, matrix[0, 1] / baseline[0, 1])
+    )
+
+
+def test_draw_calibration_discloses_invalid_training_predictions(seasons_history, monkeypatch):
+    from zucai.predict.dixon_coles import DixonColesGoalModel
+
+    original = DixonColesGoalModel.predict
+
+    def some_invalid(engine, home, away, **kwargs):
+        if (home, away) == ("A", "B"):
+            raise ValueError("goal_matrix contains negative probabilities")
+        return original(engine, home, away, **kwargs)
+
+    monkeypatch.setattr(DixonColesGoalModel, "predict", some_invalid)
+    model = DixonColes(365, draw_calibration=True).fit(seasons_history, as_of="2024-07-01T00:00Z")
+    assert 0 < model.calibration_training_rows < model.training_rows
+    assert (
+        model.calibration_skipped_training_rows
+        == model.training_rows - model.calibration_training_rows
+    )
+
+
+def test_auto_calibration_switch_comes_only_from_selection_season(seasons_history, monkeypatch):
+    from zucai.predict import tuning
+
+    calls = []
+
+    def measured(history, market, **kwargs):
+        calls.append(kwargs)
+        return dict(
+            model=dict(n=100, log_loss=1.0, draw_bias=-0.04),
+            in_period=100,
+            unavailable_labels=0,
+            skipped={},
+            folds=[],
+        )
+
+    monkeypatch.setattr(tuning, "evaluate", measured)
+    result = tuning.rolling_origin(
+        seasons_history, {}, grid=[365], seasons=["2425"], as_of="2026-07-01T00:00Z"
+    )
+    assert calls[0]["draw_calibration"] is False
+    assert calls[1]["draw_calibration"] is True
+    assert result["windows"][0]["draw_calibration"] is True
+    assert result["windows"][0]["selection_draw_bias"] == -0.04

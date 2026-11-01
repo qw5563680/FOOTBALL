@@ -216,6 +216,8 @@ def evaluate(
     closing=None,
     unknown_team_prior=True,
     parameters_by_season=None,
+    draw_calibration=False,
+    calibration_by_season=None,
 ):
     if fold not in ("weekly", "monthly"):
         raise ValueError("fold 须为weekly或monthly")
@@ -269,19 +271,21 @@ def evaluate(
     closing = closing or {}
     for (season, boundary), fixtures in evaluation.groupby(["season", "fold_start"], sort=True):
         days = (parameters_by_season or {}).get(season, half_life_days)
+        calibrate = (calibration_by_season or {}).get(season, draw_calibration)
         cutoff = boundary - pd.Timedelta(microseconds=1)
         info = dict(
             season=season,
             cutoff_utc=cutoff.isoformat(),
             half_life_days=days,
+            draw_calibration=calibrate,
             eligible=len(fixtures),
             skipped={},
         )
         folds.append(info)
         try:
-            model = DixonColes(days, unknown_team_prior=unknown_team_prior).fit(
-                history, as_of=cutoff
-            )
+            model = DixonColes(
+                days, unknown_team_prior=unknown_team_prior, draw_calibration=calibrate
+            ).fit(history, as_of=cutoff)
         except (InsufficientHistory, ValueError) as exc:
             reason = "warmup" if isinstance(exc, InsufficientHistory) else "fit_failed"
             skipped[reason] += len(fixtures)
@@ -295,6 +299,9 @@ def evaluate(
             last_available_utc=model.latest_available.isoformat(),
             assumed_training_share=model.assumed_training_share,
             replayed_training_share=model.replayed_training_share,
+            draw_offset=model.draw_offset,
+            calibration_training_rows=model.calibration_training_rows,
+            calibration_skipped_training_rows=model.calibration_skipped_training_rows,
         )
         training_count += model.training_rows
         assumed_training_count += model.assumed_training_rows

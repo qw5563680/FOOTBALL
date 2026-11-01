@@ -95,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--seasons", help="评估赛季，例如2425,2526；自然年联赛用2024,2025")
     train.add_argument("--fold", choices=("weekly", "monthly"), default="weekly")
     train.add_argument("--params-file", help="联赛参数JSON，默认data/model/params.json")
+    train.add_argument(
+        "--draw-calibration",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="覆盖配置中的训练折内单参数平局校准开关",
+    )
     tune = sub.add_parser("tune", help="前一赛季monthly选参、下一赛季验证")
     tune.add_argument("--league", required=True)
     tune.add_argument("--db", help="只读静态SQLite库")
@@ -103,6 +109,12 @@ def build_parser() -> argparse.ArgumentParser:
     tune.add_argument("--seasons", help="选参季，默认最近三个完整赛季")
     tune.add_argument("--as-of", help="数据截止，默认当前UTC")
     tune.add_argument("--params-file", help="更新联赛参数JSON，默认data/model/params.json")
+    tune.add_argument(
+        "--draw-calibration",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="强制开/关校准；默认按选择季偏差是否超过3个百分点决定下一季开关",
+    )
     train.add_argument("--output", default="models/dixon-coles.pkl", help="模型输出文件")
     availability = train.add_mutually_exclusive_group()
     availability.add_argument(
@@ -291,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
                 seasons=args.seasons,
                 as_of=parse_cutoff(args.as_of) if args.as_of else None,
                 params_file=args.params_file,
+                draw_calibration=args.draw_calibration,
             )
         except (ValueError, OSError) as exc:
             logging.getLogger(__name__).error("选参未完成：%s", exc)
@@ -314,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                 seasons=args.seasons,
                 fold=args.fold,
                 params_file=args.params_file,
+                draw_calibration=args.draw_calibration,
             )
         except ModuleNotFoundError as exc:
             if exc.name != "penaltyblog":

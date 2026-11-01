@@ -56,6 +56,7 @@ def train(
     seasons=None,
     fold="weekly",
     params_file=None,
+    draw_calibration=None,
 ):
     if strict_availability and replay_known_after is not None:
         raise ValueError("--strict-availability 与 --replay-known-after 互斥")
@@ -71,7 +72,18 @@ def train(
         league, as_of=cutoff, params_file=params_file, half_life_days=half_life_days
     )
     training = games.loc[availability_sources(games) != "assumed"] if strict_availability else games
-    model = DixonColes(parameters["half_life_days"]).fit(training, as_of=cutoff)
+    calibrate = parameters["draw_calibration"] if draw_calibration is None else draw_calibration
+    parameters["draw_calibration"] = calibrate
+    parameters["draw_calibration_source"] = (
+        "cli"
+        if draw_calibration is not None
+        else "params.json"
+        if parameters["params_sha256"]
+        else "default"
+    )
+    model = DixonColes(parameters["half_life_days"], draw_calibration=calibrate).fit(
+        training, as_of=cutoff
+    )
     model.parameter_source = parameters["source"]
     model.parameter_provenance = parameters
     model.database_sha256 = digest
@@ -81,12 +93,14 @@ def train(
         "replay_known_after": model.replay_delay,
     }
     config, _ = read_parameters(params_file)
-    mapping = {}
-    if half_life_days is None:
-        for window in config["leagues"].get(league, {}).get("evaluation_windows", []):
-            season = window["validation_season"]
-            if utc(window["selection_as_of_utc"]) <= season_bounds(season, league)[0]:
+    mapping, calibration_mapping = {}, {}
+    for window in config["leagues"].get(league, {}).get("evaluation_windows", []):
+        season = window["validation_season"]
+        if utc(window["selection_as_of_utc"]) <= season_bounds(season, league)[0]:
+            if half_life_days is None:
                 mapping[season] = window["half_life_days"]
+            if draw_calibration is None:
+                calibration_mapping[season] = window.get("draw_calibration", False)
     # Do not back-project today's recommended parameter into its own selection data.
     evaluation_days = half_life_days if half_life_days is not None else 90
     options = dict(
@@ -97,6 +111,8 @@ def train(
         fold=fold,
         closing=closing,
         parameters_by_season=mapping,
+        draw_calibration=draw_calibration if draw_calibration is not None else False,
+        calibration_by_season=calibration_mapping,
     )
     report = evaluate(games, prices, **options)
     strict_report = (
@@ -124,7 +140,12 @@ def train(
         "half_life_days": model.half_life_days,
         "parameter_source": model.parameter_source,
         "parameter_provenance": parameters,
+        "draw_calibration": calibrate,
+        "draw_calibration_source": parameters["draw_calibration_source"],
+        "draw_offset": model.draw_offset,
+        "calibration_training_rows": model.calibration_training_rows,
         "evaluation_parameters": mapping,
+        "evaluation_calibration": calibration_mapping,
         "evaluation_fallback_half_life_days": evaluation_days,
         "database_sha256": digest,
         "market_source": "pre-kickoff had snapshots",
