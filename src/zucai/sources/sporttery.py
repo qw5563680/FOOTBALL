@@ -153,17 +153,19 @@ def append_market(
 ) -> int:
     """Save each changed market in full so later comparisons use one observation time."""
     first = quotes[0]
-    where = (Odds.match_id == match_id, Odds.pool == first.pool, Odds.line == first.line)
+    where = (Odds.match_id == match_id, Odds.pool == first.pool)
     previous = session.scalar(
         select(func.max(Odds.snapshot_utc)).where(*where, Odds.snapshot_utc <= captured)
     )
     if previous is not None and captured - datetime.fromisoformat(previous) < timedelta(minutes=10):
-        known = dict(
+        known = set(
             session.execute(
-                select(Odds.selection, Odds.price).where(*where, Odds.snapshot_utc == previous)
+                select(Odds.line, Odds.selection, Odds.price).where(
+                    *where, Odds.snapshot_utc == previous
+                )
             ).all()
         )
-        if known == {q.selection: q.price for q in quotes}:
+        if known == {(q.line, q.selection, q.price) for q in quotes}:
             return 0
         if datetime.fromisoformat(previous) == captured:
             raise ValueError(f"{match_id} 同一时刻出现互相矛盾的报价")
