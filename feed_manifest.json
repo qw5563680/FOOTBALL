@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "columns": {
     "teams": [
       "id",
@@ -36,25 +36,155 @@
       "selection",
       "price",
       "snapshot_utc"
+    ],
+    "closing_odds": [
+      "match_id",
+      "bookmaker",
+      "pool",
+      "h",
+      "d",
+      "a",
+      "basis"
     ]
   },
   "through_beijing": "2026-11-01",
-  "run": "integration-20261101-evening",
-  "created_utc": "2026-11-01T13:27:04.611573+00:00",
+  "run": "41348153330-1",
+  "created_utc": "2026-11-01T20:42:10.997588+00:00",
   "counts": {
-    "teams": 456,
-    "matches": 866,
-    "results": 833,
-    "odds": 2319
+    "teams": 477,
+    "matches": 892,
+    "results": 857,
+    "odds": 2319,
+    "closing_odds": 0
   },
+  "sources": {
+    "apif": {
+      "counts": {
+        "matches": 26,
+        "results": 24,
+        "odds": 0,
+        "closing_odds": 0
+      },
+      "sha256": {
+        "matches": "b9324e74337a16bdf822f56ec6b965113eef2f074fcd5c047b236afce4f3f929",
+        "results": "efc7006ee150175659b1e514682577238e0974211241a6a0b6921f7f0bf30211",
+        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "closing_odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "fd": {
+      "counts": {
+        "matches": 0,
+        "results": 0,
+        "odds": 0,
+        "closing_odds": 0
+      },
+      "sha256": {
+        "matches": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "closing_odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "fdorg": {
+      "counts": {
+        "matches": 0,
+        "results": 0,
+        "odds": 0,
+        "closing_odds": 0
+      },
+      "sha256": {
+        "matches": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "closing_odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "jc": {
+      "counts": {
+        "matches": 866,
+        "results": 833,
+        "odds": 2319,
+        "closing_odds": 0
+      },
+      "sha256": {
+        "matches": "c28f2e62b34e84d38a7c1a45233752de4479d860d5752643d1748e7345cd333b",
+        "results": "dcccca22ceb47f7392fa8793035f5ac8f008a4cf757c98ed3eb80c13729544bb",
+        "odds": "862110cd816f318042501fa6537db556921b1efc4d8c5a930019037ba41aa73d",
+        "closing_odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  },
+  "collection": {
+    "fd": {
+      "status": "skipped",
+      "inserted": 0,
+      "linked_existing": 0,
+      "linked_fd": 0,
+      "linked_fdorg": 0,
+      "rejected_rows": 0,
+      "errors": [],
+      "downloaded_files": 0,
+      "reason": "仅 UTC 周一早班采集"
+    },
+    "fdorg": {
+      "status": "partial",
+      "inserted": 0,
+      "linked_existing": 0,
+      "linked_fd": 0,
+      "linked_fdorg": 0,
+      "rejected_rows": 0,
+      "requests": 0,
+      "errors": [
+        "2026-10-29: 缺少有效的环境凭据"
+      ],
+      "remaining_quota": null,
+      "alias_candidates": 0
+    },
+    "apif": {
+      "status": "partial",
+      "inserted": 26,
+      "linked_existing": 8,
+      "linked_fd": 0,
+      "linked_fdorg": 0,
+      "rejected_rows": 0,
+      "requests": 3,
+      "errors": [
+        "单行拒绝或疑似重复，详见 state/audit",
+        "2026-10-30: 响应、配置或导入校验失败 (ValueError)"
+      ],
+      "remaining_quota": 58,
+      "updated": 0,
+      "corrected": 0,
+      "availability_corrected": 0,
+      "availability_quarantined": 0,
+      "unchanged": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "suspected_duplicates": 16,
+      "assumed": 0,
+      "unmatched_teams": 45,
+      "alias_candidates": 0
+    }
+  },
+  "collection_status": "partial",
+  "pending_result_count": 0,
+  "pending_result_dates": [],
   "files": {
-    "matches/2026-09.csv": "e7af208851acdd03781a1743206e75600a2a7fb765e254eb8f0ca5d7c2a4b590",
-    "matches/2026-10.csv": "2a19f580a55bf436e34b5b5784688042963ea77250d4f1e8927da30fd06af101",
-    "matches/2026-11.csv": "4d5008cdfa2dabfe968048233a19bcdf17971b39176605bb3a1a449efb0a8eba",
-    "state/matches.jsonl": "04f183b2f2fb830dcdf73cc04848ff12d2ab4e1278c669bf6551dd20adb5d7be",
+    "matches/2026-09.csv": "72cf357ddb186a4812c1b1c9915eb2854fe13b262df5ac7bb4d6434a6ed531d0",
+    "matches/2026-10.csv": "536d09289fb390245f760bd09cebd565a8b5710fa55c9f9f17c8e65ca6a2b09f",
+    "matches/2026-11.csv": "95fe5746f8a9078569d6511df3111948b76cd10680000b6a87024562d323e7f6",
+    "state/alias_candidates/apif.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "state/alias_candidates/fdorg.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "state/api_football_quota.json": "b79ff9707b670431089baa93d762f036c8e86dcf12187c7aa1f723d659a371f8",
+    "state/audit/apif_suspected_duplicates.csv": "0f148e8962486bb1d25b5f0d08fe39df48f2fbe5e16dca7e0130e05c8c6772df",
+    "state/audit/apif_unmatched_teams.csv": "454efda97703f8de2b338e4d91f884b2f2ca086ddf40947db4f018cfd514474d",
+    "state/audit/jc_unmatched_teams.csv": "034b0669cbd772d3faf33e305074e310e587db89d92686f9f710c7ad26900278",
+    "state/closing_odds.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "state/matches.jsonl": "96a2937996b8d463f0e6f33a55f6ee8049177f1c7c5702bbdef706f6351b7a54",
     "state/odds/2026-11.jsonl": "862110cd816f318042501fa6537db556921b1efc4d8c5a930019037ba41aa73d",
-    "state/results.jsonl": "dcccca22ceb47f7392fa8793035f5ac8f008a4cf757c98ed3eb80c13729544bb",
-    "state/teams.jsonl": "8dc18f6fea9d99a2a29d308ca76474fc37679c9a1c3da3b06e58dd509b11982f",
+    "state/results.jsonl": "2063610f00fd1ddfbddd1546ca45ab7b3b3dbee871384f8f094cbbf4a646ccce",
+    "state/teams.jsonl": "c56be903d92d8f93b7b1e1c95d9c64de381c5509244d194534b07cc62de57fe5",
     "state/unmatched_teams.csv": "034b0669cbd772d3faf33e305074e310e587db89d92686f9f710c7ad26900278"
   }
 }
