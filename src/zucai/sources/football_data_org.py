@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 import requests
 from requests.adapters import HTTPAdapter
 
-from zucai.sources.api_common import ApiGame
+from zucai.sources.api_common import ApiGame, CredentialError
 from zucai.sources.base import RateLimiter, RawStore, Source, make_session
 from zucai.sources.football_data import CONFIG_ROOT, read_json
 
@@ -346,9 +346,11 @@ class FootballDataOrg(Source[ApiGame]):
     ) -> Path:
         scope = self._scope(competition, season, date_from, date_to, status)
         url = scope.url
-        token = os.environ.get("FOOTBALL_DATA_ORG_TOKEN", "").strip()
-        if not token or not re.fullmatch(r"[\x21-\x7e]+", token):
-            raise ValueError("请设置有效的 FOOTBALL_DATA_ORG_TOKEN")
+        token = os.environ.get("FOOTBALL_DATA_ORG_TOKEN", "")
+        if not token:
+            raise CredentialError("FOOTBALL_DATA_ORG_TOKEN", missing=True)
+        if not re.fullmatch(r"[\x21-\x7e]+", token):
+            raise CredentialError("FOOTBALL_DATA_ORG_TOKEN", missing=False)
         retried = False
         while True:
             self.limiter.wait()

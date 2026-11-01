@@ -6,13 +6,16 @@ import re
 from datetime import UTC, timedelta
 from pathlib import Path
 
+import requests
+
+from zucai.sources.api_common import CredentialError, LocalValidationError
 from zucai.sources.apif_command import fetch_apif
 from zucai.sources.apif_quota import DailyQuota
 from zucai.sources.base import RawStore, _atomic_write
 from zucai.sources.fd_ingest import fetch_fd
 from zucai.sources.fdorg_command import COMPETITIONS, _requests, fetch_fdorg
 from zucai.sources.football_data import LEAGUES_PATH, read_json, verified_league
-from zucai.sources.football_data_org import FootballDataOrg
+from zucai.sources.football_data_org import FdorgHttpError, FootballDataOrg
 
 LOG = logging.getLogger(__name__)
 COMPETITION_CODES = "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA"
@@ -39,16 +42,24 @@ def fd_scopes(today, leagues):
 
 def failure_reason(exc):
     """Bounded diagnostics: never emit a transport exception, body or credentials."""
-    message = str(exc)
+    if isinstance(exc, requests.RequestException):
+        return "网络请求失败"
+    if isinstance(exc, CredentialError):
+        return exc.reason
+    if isinstance(exc, FdorgHttpError):
+        return f"HTTP {exc.status_code}"
+    message = exc.summary if isinstance(exc, LocalValidationError) else str(exc)
     status = re.search(r"HTTP\s+(\d{3})\b", message)
-    if status:
+    if isinstance(exc, LocalValidationError) and status:
         return "HTTP " + status[1]
+    if "网络" in message or isinstance(exc, (ConnectionError, TimeoutError)):
+        return "网络请求失败"
     if "配额" in message or "reserve" in message:
         return "配额不足或配额状态无效"
     if "请设置有效" in message:
         return "缺少有效的环境凭据"
-    if "网络" in message or isinstance(exc, (ConnectionError, TimeoutError)):
-        return "网络请求失败"
+    if isinstance(exc, LocalValidationError):
+        return message[:80]
     return "响应、配置或导入校验失败 (" + type(exc).__name__ + ")"
 
 

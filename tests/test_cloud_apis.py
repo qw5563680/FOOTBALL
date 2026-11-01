@@ -76,7 +76,7 @@ def run_apis(tmp_path, monkeypatch, archive, name, slot="early"):
     return work
 
 
-def mock_apis(api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None):
+def mock_apis(api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None, apif_mode=None):
     if fd:
         api.add(
             responses.GET,
@@ -110,10 +110,19 @@ def mock_apis(api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None
         kickoff = datetime.fromisoformat(day + "T00:00:00+00:00")
         row["fixture"]["timestamp"] = int(kickoff.timestamp())
         row["fixture"]["date"] = kickoff.isoformat()
+        if apif_mode == "unconfigured":
+            row["league"]["id"] = 999999
+        elif apif_mode:
+            doc.update(results=0, response=[])
+        if apif_mode == "plan":
+            doc["errors"] = {"plan": "upstream body must remain private"}
+        if apif_mode == "malformed":
+            doc["results"] = 1
         api.add(
             responses.GET,
             "https://v3.football.api-sports.io/fixtures",
             json=doc,
+            status=401 if apif_mode == "http" else 200,
             headers={}
             if remaining is None
             else {"x-ratelimit-requests-remaining": str(remaining - offset)},
@@ -411,3 +420,77 @@ def test_restored_api_archive_is_readable_by_four_source_training(
         assert set(history.attrs["sources"]) == {"jc", "fd", "fdorg", "apif"}
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("kind", ["unset", "empty", "invalid"])
+def test_fdorg_credential_reason_is_bounded(environment, tmp_path, monkeypatch, kind, caplog):
+    from uuid import uuid4
+
+    if kind == "unset":
+        monkeypatch.delenv("FOOTBALL_DATA_ORG_TOKEN")
+    else:
+        monkeypatch.setenv(
+            "FOOTBALL_DATA_ORG_TOKEN", "" if kind == "empty" else uuid4().hex + "\u4e2d"
+        )
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as api:
+        mock_apis(api)
+        work = run_apis(tmp_path, monkeypatch, environment, "credentials-" + kind, slot="late")
+    report = archive_info(environment)["collection"]["fdorg"]
+    reason = "环境凭据含非法字符" if kind == "invalid" else "环境凭据变量未设置/为空"
+    assert report["errors"] == ["2026-10-30: " + reason]
+    assert report["requests"] == 0
+    assert reason in (work / "summary.md").read_text()
+    assert reason in caplog.text
+
+
+@pytest.mark.parametrize("mode", ["empty", "unconfigured", "plan", "malformed", "http"])
+def test_apif_date_empty_or_local_validation_summary(environment, tmp_path, monkeypatch, mode):
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as api:
+        mock_apis(api, apif_mode=mode)
+        work = run_apis(tmp_path, monkeypatch, environment, "date-" + mode, slot="late")
+    report = archive_info(environment)["collection"]["apif"]
+    assert report["requests"] == 3
+    assert report["inserted"] == 0
+    if mode in ("empty", "unconfigured"):
+        assert report["status"] == "complete"
+        assert report["errors"] == []
+    else:
+        reason = (
+            "API-Football API 错误（权限、限流或参数），已保留安全归档"
+            if mode == "plan"
+            else "API-Football fixtures 结构或 results 不符"
+        )
+        if mode == "http":
+            reason = "HTTP 401"
+        assert report["status"] == "partial"
+        assert all(reason in error for error in report["errors"])
+        summary = (work / "summary.md").read_text()
+        assert reason in summary
+        assert "upstream body" not in summary
+
+
+def test_transport_and_untrusted_value_errors_never_disclose_details():
+    import requests
+
+    from zucai.cloud_apis import failure_reason
+
+    for error in (
+        requests.ConnectionError,
+        requests.Timeout,
+        requests.HTTPError,
+        requests.exceptions.JSONDecodeError,
+    ):
+        exc = (
+            error("private HTTP 401 配额", "response body", 0)
+            if error is requests.exceptions.JSONDecodeError
+            else error("private HTTP 401 配额 https://example.invalid/private")
+        )
+        assert failure_reason(exc) == "网络请求失败"
+    assert failure_reason(ValueError("private HTTP 401")) == "响应、配置或导入校验失败 (ValueError)"
+
+
+def test_trusted_local_validation_summary_is_limited_to_80_characters():
+    from zucai.cloud_apis import failure_reason
+    from zucai.sources.api_common import LocalValidationError
+
+    assert failure_reason(LocalValidationError("校验失败" * 30)) == ("校验失败" * 30)[:80]

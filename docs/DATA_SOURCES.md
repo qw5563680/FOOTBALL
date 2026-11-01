@@ -299,3 +299,14 @@ football-data.org API 返回 404；api-sports API 返回 403，提示缺少应�
 没有为 robots 请求附加 key，也没有试探禁止路径。本轮没有在线请求 fd CSV 或 sporttery。
 API 接口、分页完整性和身份规则沿用 T09/T10；在线冒烟仅各一次 GET，不重试或跟随重定向，
 结果见 T14 验收 README，响应原件不入库。凭据只从环境注入，Actions 仅使用对应的两个 Secrets。
+
+## T14a partial 原因复核（北京时间 2026-11-02）
+
+云端各发送一次 GET：fdorg `--days 1` 返回 HTTP 200、73 场，命令成功；
+apif `--date 2026-10-30` 返回 HTTP 200 但含 `errors.plan`（账户日期访问限制），
+在 `ApiFootball._document()` 的 API 错误检查处抛出 ValueError，不能当无比赛成功。
+这是本次云端复现结果；未下载或重放首次 Actions 运行的 artifact。
+合法空响应、仅含未配置联赛的日期响应仍成功返回零行；权限、结构、分页等失败仍为 partial。
+摘要只展示显式标记的本地校验说明，最多80字；动态外部异常不直接进入摘要，requests 异常使用通用原因。
+fdorg 凭据在请求前区分变量未设置/为空与含非法字符，不输出值、长度或具体字符。
+采集范围、解析、去重、配额和工作流均保持原规则。

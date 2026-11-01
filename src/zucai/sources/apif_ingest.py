@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from zucai.db import upsert_match
 from zucai.models import Match, Result, Team
+from zucai.sources.api_common import LocalValidationError
 from zucai.sources.fd_ingest import WINDOW, _canonical
 from zucai.sources.results import GameResult, apply_result
 from zucai.sources.teams import normalize_team
@@ -69,7 +70,7 @@ class _Teams:
         self.aliases = aliases
         self.collisions = set()
         if not isinstance(aliases, dict):
-            raise ValueError("别名配置必须按联赛和数字ID组织")
+            raise LocalValidationError("别名配置必须按联赛和数字ID组织")
         for league, entries in aliases.items():
             if not isinstance(entries, dict):
                 raise ValueError(f"联赛别名配置无效：{league}")
@@ -105,7 +106,7 @@ class _Teams:
 
     def resolve(self, session, league, provider_id):
         if (league, str(provider_id)) in self.collisions:
-            raise ValueError("同一规范球队对应多个生效的来源球队ID")
+            raise LocalValidationError("同一规范球队对应多个生效的来源球队ID")
         canonical = _canonical(self.aliases, league, str(provider_id))
         provisional = f"apif:team:{provider_id}"
         prefix = f"apif:{league}:team:"
@@ -148,7 +149,7 @@ class _Teams:
             sides.append(side)
         home, away = sides
         if home.name.casefold() == away.name.casefold() or (home.team and home.team == away.team):
-            raise ValueError("两个来源球队ID指向同一球队")
+            raise LocalValidationError("两个来源球队ID指向同一球队")
         return sides
 
 
@@ -167,35 +168,35 @@ def _validate(game, seen):
         type(value) is not int or value <= 0
         for value in (game.provider_match_id, game.home_provider_id, game.away_provider_id)
     ):
-        raise ValueError("来源或比赛/球队数字ID无效")
+        raise LocalValidationError("来源或比赛/球队数字ID无效")
     if game.home_provider_id == game.away_provider_id:
-        raise ValueError("主客球队ID相同")
+        raise LocalValidationError("主客球队ID相同")
     if not all(
         isinstance(value, str) and value.strip()
         for value in (game.league, game.home_raw, game.away_raw)
     ):
-        raise ValueError("缺少联赛或球队名称")
+        raise LocalValidationError("缺少联赛或球队名称")
     if not isinstance(game.kickoff_utc, datetime) or game.kickoff_utc.utcoffset() is None:
-        raise ValueError("开球时刻须含UTC偏移")
+        raise LocalValidationError("开球时刻须含UTC偏移")
     if game.status in {"AWD", "WO"}:
-        raise ValueError("AWD/WO 判罚比分不作为常规时间赛果")
+        raise LocalValidationError("AWD/WO 判罚比分不作为常规时间赛果")
     if game.status in LIVE and game.kickoff_utc > seen:
-        raise ValueError("比赛进行中的观察早于来源开球时间，须核对赛程")
+        raise LocalValidationError("比赛进行中的观察早于来源开球时间，须核对赛程")
     if game.status in TBD | CANC | LIVE:
         return
     if game.status not in FINISHED:
         raise ValueError(f"未知状态：{game.status}")
     if seen <= game.kickoff_utc or game.regular_time_basis not in {"regular", "derived"}:
-        raise ValueError("完赛观察须晚于开球且有明确常规时间比分依据")
+        raise LocalValidationError("完赛观察须晚于开球且有明确常规时间比分依据")
     for score in (game.full,) if game.half is None else (game.full, game.half):
         if (
             not isinstance(score, tuple)
             or len(score) != 2
             or any(type(value) is not int or not 0 <= value <= 99 for value in score)
         ):
-            raise ValueError("无效的常规时间或半场比分")
+            raise LocalValidationError("无效的常规时间或半场比分")
     if game.half and any(a > b for a, b in zip(game.half, game.full, strict=True)):
-        raise ValueError("半场比分大于全场比分")
+        raise LocalValidationError("半场比分大于全场比分")
 
 
 def _check_capture(games, seen):
@@ -317,7 +318,7 @@ def _persist(session, key, game, seen, assume, existing, sides):
         != tuple(side.team.id if side.team else None for side in sides)
         or existing.result_provider not in (None, "apif")
     ):
-        raise ValueError("既有比赛的来源、联赛或主客身份冲突，须人工复核")
+        raise LocalValidationError("既有比赛的来源、联赛或主客身份冲突，须人工复核")
     live = game.status in LIVE
     # The schema uses scheduled for an unsettled fixture. A LIVE row can only have a past kickoff.
     status = "scheduled" if live else STORED_STATUS[game.status]
@@ -356,7 +357,7 @@ def _persist(session, key, game, seen, assume, existing, sides):
         if seen == checked and (
             status != previous or kickoff != game.kickoff_utc or (old and changed)
         ):
-            raise ValueError("同一采集时刻出现冲突的赛程或比分")
+            raise LocalValidationError("同一采集时刻出现冲突的赛程或比分")
         return "unchanged", False, ()
     if (
         status == "scheduled"
@@ -364,7 +365,7 @@ def _persist(session, key, game, seen, assume, existing, sides):
         and game.kickoff_utc <= seen
         and game.kickoff_utc != kickoff
     ):
-        raise ValueError("未结算观察已到开球时间，但与原有赛程的开球时刻不符")
+        raise LocalValidationError("未结算观察已到开球时间，但与原有赛程的开球时刻不符")
     if status == "scheduled" and (
         old or previous == "finished" or (previous == "cancelled" and game.kickoff_utc <= seen)
     ):
@@ -404,7 +405,7 @@ def _persist(session, key, game, seen, assume, existing, sides):
     )
     if old and old.available_utc and status == "finished" and not changed:
         if datetime.fromisoformat(old.available_utc) <= game.kickoff_utc:
-            raise ValueError("开球更改后原比分可知时刻不再有效，须人工复核")
+            raise LocalValidationError("开球更改后原比分可知时刻不再有效，须人工复核")
     # A later known non-final observation rules out an earlier assumed availability.
     if old and (old.available_utc is None or old.available_source in {"published", "captured"}):
         assume = None
@@ -425,11 +426,11 @@ def _persist(session, key, game, seen, assume, existing, sides):
 def import_apif_games(session, games, *, seen, assume, aliases):
     """Import one capture in the caller's transaction, with a savepoint per fixture."""
     if not isinstance(seen, datetime) or seen.utcoffset() is None:
-        raise ValueError("采集时刻须含UTC偏移")
+        raise LocalValidationError("采集时刻须含UTC偏移")
     if assume is not None and (
         not isinstance(assume, timedelta) or not timedelta(0) < assume <= timedelta(days=14)
     ):
-        raise ValueError("--assume-known-after 须为正延时且不超过14天")
+        raise LocalValidationError("--assume-known-after 须为正延时且不超过14天")
     conn = session.connection()
     if conn.dialect.name == "sqlite" and not conn.connection.driver_connection.in_transaction:
         # SQLite can otherwise commit a top-level SAVEPOINT independently of the caller.
