@@ -55,6 +55,9 @@ class Match(Base):
     kickoff_utc: Mapped[str] = mapped_column(UTCString)
     jc_num: Mapped[str | None]
     status: Mapped[str] = mapped_column(default="scheduled")
+    result_checked_utc: Mapped[str | None] = mapped_column(UTCString)
+    result_provider: Mapped[str | None]
+    counterpart_id: Mapped[str | None]
 
 
 class Odds(Base):
@@ -85,13 +88,20 @@ class Result(Base):
     away_goals: Mapped[int]
     ht_home_goals: Mapped[int | None]
     ht_away_goals: Mapped[int | None]
+    available_utc: Mapped[str | None] = mapped_column(UTCString)
+    available_source: Mapped[str | None]
 
 
 class SfcIssue(Base):
     __tablename__ = "sfc_issues"
 
     issue_no: Mapped[str] = mapped_column(primary_key=True)
-    sale_end_utc: Mapped[str] = mapped_column(UTCString)
+    sale_end_utc: Mapped[str | None] = mapped_column(UTCString)
+    observed_utc: Mapped[str | None] = mapped_column(UTCString)
+    source_url: Mapped[str | None]
+    raw_sha256: Mapped[str | None]
+    date_basis: Mapped[str | None]
+    snapshot: Mapped[list[dict] | None] = mapped_column(JSON)
 
 
 class SfcIssueMatch(Base):
@@ -117,6 +127,9 @@ class Prediction(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[str | None]
+    mode: Mapped[str | None]
+    as_of_utc: Mapped[str | None] = mapped_column(UTCString)
     match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"))
     model_name: Mapped[str]
     model_version: Mapped[str]

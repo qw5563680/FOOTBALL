@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
+from datetime import date, datetime, timedelta
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,10 +20,70 @@ def build_parser() -> argparse.ArgumentParser:
     init = db_sub.add_parser("init", help="创建缺失的数据库表")
     init.add_argument("--path", help="SQLite 文件路径，默认读取 ZUCAI_DB 或 data/zucai.db")
 
+    fetch = sub.add_parser("fetch", help="采集赛程、赔率及赛果")
+    feeds = fetch.add_subparsers(dest="feed", required=True)
+    jc = feeds.add_parser("jc", help="采集在售竞彩赛程和固定奖金")
+    jc.add_argument("--date", type=date.fromisoformat, help="北京时间竞彩编号日期 YYYY-MM-DD")
+    sfc = feeds.add_parser("sfc", help="采集当前或指定14场胜负彩期次")
+    sfc.add_argument("--issue", help="5位期号，不填写取来源当前期")
+    sfc.add_argument("--db", help="数据库路径，默认 ZUCAI_DB 或 data/zucai.db")
+    sfc.add_argument("--matches-out", help="另存可直接输入T06的CSV清单，不覆盖已有文件")
+    from zucai.sources.results import assumed_delay
+
+    results = feeds.add_parser("results", help="回填已开奖场次的常规时间及半场比分")
+    span = results.add_mutually_exclusive_group()
+    span.add_argument("--days", type=int, help="最近N个北京时间自然日，含今天（默认30）")
+    span.add_argument("--from", dest="start", type=date.fromisoformat, help="开始日期，含当日")
+    results.add_argument("--to", dest="end", type=date.fromisoformat, help="结束日期，含当日")
+    results.add_argument(
+        "--source", choices=("jc", "c500"), default="jc", help="官方或500比分开奖备用页"
+    )
+    results.add_argument(
+        "--assume-known-after", type=assumed_delay, metavar="3h", help="显式假设历史比分可知时间"
+    )
+
+    train = sub.add_parser("train", help="训练常规时间比分模型，并按周回测")
+    train.add_argument("--model", choices=["dixon-coles"], default="dixon-coles")
+    train.add_argument("--db", help="SQLite 文件，默认读取 ZUCAI_DB 或 data/zucai.db")
+    train.add_argument("--league", help="联赛，库内有多个联赛时指定")
+    train.add_argument("--source", help="数据来源，避免同场比赛被重复统计")
+    train.add_argument("--since", help="回测起始日（含），之前的数据仍用于训练")
+    train.add_argument("--as-of", help="数据可知截点，日期按 UTC 零时解释，默认当前时刻")
+    train.add_argument(
+        "--half-life-days", type=float, default=90, help="时间衰减半衰期，默认 90 天"
+    )
+    train.add_argument("--output", default="models/dixon-coles.pkl", help="模型输出文件")
+    train.add_argument(
+        "--strict-availability",
+        action="store_true",
+        help="排除 assumed 赛果训练，并同时报告默认与严格回测",
+    )
+
+    predict = sub.add_parser("predict", help="运行纯模型批量预测并冻结报告，P2实验")
+    predict.add_argument("--model", choices=["dixon-coles"], default="dixon-coles")
+    predict.add_argument("--db", help="数据库路径，默认 ZUCAI_DB 或 data/zucai.db")
+    predict.add_argument("--model-file", action="append", help="可信模型文件，可按联赛重复指定")
+    selection = predict.add_mutually_exclusive_group()
+    selection.add_argument("--date", type=date.fromisoformat, help="北京时间开球自然日")
+    selection.add_argument("--match-id", action="append", help="已核实比赛ID，可重复指定")
+    selection.add_argument("--matches", help="单列 match_id 的CSV比赛清单")
+    predict.add_argument("--as-of", help="仅历史回放使用，必须是带时区的ISO时间")
+    predict.add_argument("--replay", action="store_true", help="显式标记历史回放")
+    predict.add_argument(
+        "--market-weight", type=float, default=0, help="独立实验混合权重，默认关闭"
+    )
+    predict.add_argument("--out", help="新的报告目录，不覆盖现有批次")
+    report = sub.add_parser("report", help="从冻结JSON校验并重新导出报告")
+    report.add_argument("report_kind", nargs="?", choices=["sfc"], help="14场胜负彩期次分析")
+    report.add_argument("--batch", required=True, help="冻结 forecast.json 路径")
+    report.add_argument("--out", required=True, help="新的导出目录")
+    report.add_argument("--db", help="sfc：期次数据库")
+    report.add_argument("--issue", help="sfc：期号，多期并存时必须明确指定")
+    report.add_argument("--max-lines", type=int, default=64, help="sfc：复式总注数上限，默认64")
+
     # 以下子命令由 docs/tasks 中的任务逐个实现：
     # fetch jc / fetch results / fetch sfc   (T02, T03)
     # features build                          (T04)
-    # train                                   (T05)
     # predict / report                        (T06)
     return parser
 
@@ -37,6 +99,85 @@ def main(argv: list[str] | None = None) -> int:
         from zucai import __version__
 
         print(__version__)
+        return 0
+    if args.command in {"predict", "report"}:
+        from pickle import UnpicklingError
+
+        from sqlalchemy.exc import SQLAlchemyError
+
+        try:
+            from zucai.report.command import run_predict, run_report
+
+            if args.command == "predict":
+                run_predict(args)
+            elif args.report_kind == "sfc":
+                from zucai.report.sfc import run_sfc_report
+
+                run_sfc_report(args)
+            else:
+                run_report(args)
+        except ModuleNotFoundError as exc:
+            if exc.name != "penaltyblog":
+                raise
+            logging.getLogger(__name__).error('请安装模型依赖 python -m pip install -e ".[model]"')
+            return 2
+        except (ValueError, OSError, SQLAlchemyError, TypeError, EOFError, UnpicklingError) as exc:
+            logging.getLogger(__name__).error("预测或导出未完成：%s", exc)
+            return 2
+        return 0
+    if args.command == "fetch":
+        from requests import RequestException
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from zucai.sources.results import fetch_results
+        from zucai.sources.sporttery import BEIJING, fetch_schedule
+
+        try:
+            if args.feed == "jc":
+                fetch_schedule(args.date)
+            elif args.feed == "sfc":
+                from zucai.sources.sfc import fetch_sfc
+
+                fetch_sfc(args.issue, db=args.db, matches_out=args.matches_out)
+            else:
+                today = datetime.now(BEIJING).date()
+                if args.start is not None:
+                    if args.end is None:
+                        raise ValueError("--from 与 --to 须同时给出")
+                    start, end = args.start, args.end
+                else:
+                    days = 30 if args.days is None else args.days
+                    if days < 1 or args.end is not None:
+                        raise ValueError("请使用 --days N 或 --from 日期 --to 日期")
+                    start, end = today - timedelta(days=days - 1), today
+                fetch_results(start, end, args.source, args.assume_known_after)
+        except (RequestException, ValueError, KeyError, TypeError, OSError, SQLAlchemyError) as exc:
+            logging.getLogger(__name__).error("采集未完成：%s", exc)
+            return 1
+        return 0
+    if args.command == "train":
+        try:
+            from zucai.predict.command import parse_cutoff, train
+
+            result = train(
+                db=args.db,
+                league=args.league,
+                source=args.source,
+                since=parse_cutoff(args.since) if args.since else None,
+                as_of=parse_cutoff(args.as_of) if args.as_of else None,
+                output=args.output,
+                half_life_days=args.half_life_days,
+                strict_availability=args.strict_availability,
+            )
+        except ModuleNotFoundError as exc:
+            if exc.name != "penaltyblog":
+                raise
+            logging.getLogger(__name__).error('请先运行 python -m pip install -e ".[model]"')
+            return 2
+        except ValueError as exc:
+            logging.getLogger(__name__).error("%s", exc)
+            return 2
+        print(json.dumps(result, ensure_ascii=False))
         return 0
     if args.command == "db" and args.db_command == "init":
         from zucai.db import get_engine, init_db

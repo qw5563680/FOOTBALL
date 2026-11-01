@@ -50,6 +50,21 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 
 ## 数据模型
 
+T07在既有 `sfc_issues` 中新增可空 `observed_utc/source_url/raw_sha256/date_basis/snapshot`。
+`snapshot` 保存14场原始身份、来源fixture/球队ID、匹配状态、候选ID及已匹配的规范身份。
+`mapping_evidence` 记录counterpart或当前公开竞彩页ID对照（附URL、读取UTC和SHA256）；
+查找不修改Team，仅确需新增未匹配比赛时创建未知球队。原联赛标签与规范身份标签分别保留。
+当前页面移除旧比赛后，重抓同一期复用其snapshot内原ID对照与原读取时刻，再核验球队ID/开球；
+新旧ID冲突须人工核对，不因翻页丢失规范身份或创建简称副本。
+`sale_end_utc` 改为可空，历史页面没有截止时间就保存null；旧库仅重建该表并保留原期号/截止，
+迁移内检查外键，恢复每连接外键开关。`sfc_issue_matches` 的期号/序号/比赛外键关系保留。
+抓取在单事务中替换当期最新映射，原始HTTP快照逐次保留，较旧采集不能倒写；官方比赛不被覆盖。
+`report sfc` 从经哈希核验的T06冻结JSON取纯模型概率，按当期期次映射及数据库再核身份。
+14场概率齐全才计算完整复式覆盖；动态规划每个精确注数保留最大对数覆盖概率状态。
+输出冻结JSON内嵌T06证据批次，Markdown/CSV从同一字节载荷渲染，不改变原预测版本和生成时间。
+CSV独立保留每行的P2、模式、BET/执行禁用、原预测截点/生成时刻、报告时刻和截止状态。
+期次表与报告尚未加入cloud_feeds自动归档，当前真实验收快照通过PR保存在私有仓库。
+
 时间字段接受带时区的 ISO 8601 字符串或 datetime，统一存为固定微秒精度的 UTC 字符串
 （如 `2026-10-31T16:15:00.000000Z`）。不接受无时区的时间。每个 SQLite 连接启用外键检查。
 `zucai db init` 只创建缺失的表。业务写入通过 `session_scope` 一起提交，异常时整批回滚。
@@ -76,6 +91,8 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `kickoff_utc` | 开赛时间 |
 | `jc_num` | 竞彩编号，如 `周六001`，可空 |
 | `status` | `scheduled` / `finished` / `cancelled` |
+| `result_checked_utc` / `result_provider` | 最近一次被接受的赛果或取消状态的观察时间与来源；阻止旧快照倒写 |
+| `counterpart_id` | 备用源报告的候选体彩ID，或官方记录已经核对的备用ID。只有编号、开球、主客均匹配才将同场归一，并保留既有预测和报价 |
 
 `upsert_match(session, match_id=..., **fields)` 接收完整赛程字段，同一主键再次导入时
 更新本次提供的字段。主客队不同，来源前缀与 `source` 一致。
@@ -99,6 +116,20 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `match_id` | 主键 |
 | `home_goals` / `away_goals` | 常规时间含补时，加时及点球分开处理 |
 | `ht_home_goals` / `ht_away_goals` | 半场，可空 |
+| `available_utc` / `available_source` | 当前比分版本的最早可知时刻及依据。可核实发布时刻为 published，本次两个数据源默认用实际采集时刻 captured |
+
+历史批量导入可显式传 `--assume-known-after 3h` 使用开球后延时，写作 assumed，并输出实际写入量。
+相同比分保留已有依据（含 assumed）和原时刻，按未变化计数。仅来源可核实的 published 时刻可替换 assumed。
+比分更正时若缺少新的发布依据，改为新版本的实际观察时刻。
+旧库按缺列逐项迁移，有日期但没有标记的旧记录按 captured 处理。既缺日期又缺标记的旧行仍为未知。
+取消状态没有比分行。官方日期分页必须完整；单场比分或身份冲突记入 `data/rejected_results.csv`，
+其余合格场次继续处理。独立回填命令在有拒绝记录时仍返回非零；仅当请求页全部读完时抛出专门的
+`ResultRowsRejected`。云端只捕获这个异常，继续后续日期窗口并归档有效数据，不捕获网络、分页或结构错误。
+拒绝清单随规范化表按哈希保存和恢复。按 `(日期, 比赛ID)` 取观察时刻最新的拒绝，只有同来源的完赛或取消
+状态有严格更晚的接受时刻才解除；等时刻冲突和后续页面缺行均保留待补抓。`date_windows` 将未解除的旧日期
+加入回看，不依赖该场是否已存在或仍为 scheduled。清单保留历史，manifest 的 `collection_status`、
+`pending_result_count`、`pending_result_dates` 表示当前待补抓状态，Actions 摘要明确显示 partial。
+旧归档没有拒绝清单仍可恢复。当前云端同步只用 jc 官方源。重跑保留已冻结的预测值。
 
 ### `sfc_issues` / `sfc_issue_matches`
 `sfc_issues` 的主键是字符串 `issue_no`，保存截止时间 `sale_end_utc`。
@@ -114,9 +145,18 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `p_home` / `p_draw` / `p_away` | 胜平负概率 |
 | `score_matrix` | JSON，10x10 比分概率 |
 | `created_utc` | 生成时间 |
+| `batch_id` / `mode` / `as_of_utc` | T06冻结批次、prematch/historical_replay模式与数据截止；旧行可空，未知不得算作赛前实录 |
 
 单次预测由比赛、模型名、模型版本和生成时间共同区分。三项概率均在 [0, 1]，
 总和与 1 的误差小于 0.000001。比分矩阵的形状由 T05 的模型层校验。
+
+T06加载同来源同联赛的可信模型文件，以文件SHA256标记版本，完整报价只在报告/显式混合实验使用。
+`report/batch.py` 生成纯模型预测和逐场排除清单，`report/command.py` 管理事务与开球截止复核，
+`report/render.py` 不读取数据库或模型，仅从冻结JSON产生Markdown/CSV并校验清单。
+训练/加载、生成和文件输出的时刻分开记录：固定 as_of 后运行模型，再取真实计算完成时间；
+导出后和数据库提交前仍须早于所有已预测场次开球，超时则回滚本批并清理自己创建的文件。
+比分、赔率、队名的后续更新不改变批次JSON。报告版本只追加，不覆盖。
+预测冻件当前通过私有PR保存，不在 `cloud_feeds.TABLES` 中；feeds同步不承担预测报告归档。
 
 ## 模型路线
 
@@ -127,5 +167,23 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 
 ## 评估
 
-`zucai train` 必须输出滚动回测指标：对数损失、Brier、按赔率区间分桶的命中率。
-评估只用比赛开始前的信息，严禁使用赛后数据构造特征。
+T05 在单一联赛和来源内封装 `penaltyblog==1.13.1` 的 Dixon–Coles 模型（MIT）。
+每周 UTC 周一前冻结一次参数，只用开球和赛果可知时刻都早于截点的记录。
+每支球队的攻防、主场优势及低比分修正从赛果拟合。时间权重使用
+`exp(-ln(2) × 日数 / 半衰期)`，默认 90 天。预测元数据保留训练截点、最近可知赛果时刻、
+训练场数和 0–9 球截断丢弃的质量。比分矩阵以主队进球为行、客队为列，截断后归一化。
+半全场推导以终场比分为条件，近似假定各粒进球均匀落在上下半场。新球队或样本不足时报告跳过场数。
+
+训练命令按场次选取严格早于开球、三项价格齐全的最后一次 `had` 快照，按倒数价格等比例去水。
+三分类 Brier 为三个类别平方误差之和的场均值。校准表汇总胜平负三类的预测与实际频率。
+市场覆盖不全时分别报告全体模型、同场模型和同场市场三组结果。市场报价可比每周模型训练截点更接近开球。
+
+评估指标包括对数损失、Brier 和按预测概率分桶的校准。评估只用赛前已知的信息构造预测。
+
+`read_history` 同时读取 `available_source`，NULL 兼容为 `captured`。可知时刻未知的行不入训练或评估。
+模型只用严格早于截点已知的赛果；回测按 UTC 周一前一微秒冻结模型，每周单独拟合，市场报价只作对照。
+报告的顶层和每个 fold 均有 `assumed_training_share` 与 `assumed_eval_share`；顶层训练比例按 fold
+训练样本数加权，评估比例覆盖实际成功预测的比赛。任一已使用训练或评估行不是 published/captured 时，
+`availability_basis` 为 mixed，引用指标必须同时引用假设占比。`--strict-availability` 排除全部 assumed
+后训练模型，并在同一 JSON 的 `backtest` / `strict_backtest` 中并列提供两种回测。
+模型文件和预测元数据保存实际训练样本的 `availability_basis` 与 `assumed_training_share`。
