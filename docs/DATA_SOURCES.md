@@ -248,7 +248,7 @@ proposed 不生效，未知身份用 `apif:team:<id>` 保存。当前自动核�
 仅jc日职样本不足以完成训练；联合模型已实际回测，不据此宣称效果提升。
 
 用途以站方当前条款为准，标注来源 [API-Football](https://www.api-football.com/)；
-本任务不授予额外的数据再分发许可，也不加入 cloud_feeds 定时采集。
+本任务不授予额外的数据再分发许可；T14 已将最近三天日期增量接入 cloud_feeds 定时采集。
 
 ## T04/T13特征提取的数据可知边界（t04-v2）
 
@@ -290,3 +290,12 @@ hhad三项必须同一snapshot_utc、同一整数line；不跨时刻、跨线或
 ## 合规
 
 只抓公开页面，遵守各站 robots 和限速，抓取结果仅用于个人分析。
+
+## T14 定时采集的访问复核（北京时间 2026-11-02）
+
+实现前匿名各读取一次 robots.txt：football-data.co.uk 返回 200，通配 UA 没有禁止路径，
+具名 AI 爬虫仍全站禁止；与既有记录一致，工作流沿用项目 ZucaiResearch UA，仅采已核验配置的 CSV。
+football-data.org API 返回 404；api-sports API 返回 403，提示缺少应用凭据，无法读取 robots 规则。
+没有为 robots 请求附加 key，也没有试探禁止路径。本轮没有在线请求 fd CSV 或 sporttery。
+API 接口、分页完整性和身份规则沿用 T09/T10；在线冒烟仅各一次 GET，不重试或跟随重定向，
+结果见 T14 验收 README，响应原件不入库。凭据只从环境注入，Actions 仅使用对应的两个 Secrets。
