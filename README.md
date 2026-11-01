@@ -92,14 +92,16 @@ pytest -q
 每次恢复并继续扣减，默认保留 10 次；损坏时拒绝重新假定完整预算。
 各源拒绝、疑似重复、未对齐 CSV 保存为 `state/audit/<source>_*.csv`，保留已有历史。
 竞彩旧 `state/rejected_results.csv` / `state/unmatched_teams.csv` 继续兼容。
-API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`；摘要列入库、链接、拒绝、请求数、
+API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`；摘要列入库、链接、拒绝、请求数（fd 列为成功下载文件数）、
 剩余配额和脱敏失败原因。单行拒绝/疑似重复也标记 partial。
 数据库、归档校验和写回冲突仍使对应 job 失败。安全检查通过的原始响应和审计状态作为 Actions artifact 保留 90 天，
 可见性继承仓库权限；工作流不会将原始响应提交到 main。
 
 每次 API 采集后，仅对本次完整且可核验的响应离线执行 T09/T10 主客方向身份图，
 以恢复后的 jc 记录为证据。fdorg 复用 `fdorg_verify` 图与证据生成函数，apif 调用 `apif_verify.infer_aliases`；
-不把日期窗口当作完整赛季，存在解析拒绝的窗口不生成候选。新增 `auto_verified` 候选及原件 SHA256、
+不把日期窗口当作完整赛季；同次运行的完整响应按联赛合并、按比赛 ID 去重后统一核验。
+解析拒绝会留下覆盖缺口；若相关 jc 比赛的 ±180 分钟邻域没有完整覆盖，本次该联赛不产生新候选。
+跨原件身份冲突或候选反向名称冲突须人工核验，不覆盖已有候选文件。新增 `auto_verified` 候选及原件 SHA256、
 jc 比赛 ID、UTC 时间差追加到 `state/alias_candidates/fdorg.json` 和 `apif.json`。
 候选不参与后续自动导入；审查方定期核对证据后另开 PR 合入 main 的正式别名文件。
 

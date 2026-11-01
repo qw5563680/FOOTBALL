@@ -116,3 +116,26 @@ def test_corrupt_archive_never_replaces_destination(tmp_path, damage):
     with pytest.raises(ValueError):
         restore_feeds(archive, dest)
     assert dest.read_bytes() == b"keep"
+
+
+@pytest.mark.parametrize("provider", ["fd", "fdorg", "apif"])
+def test_official_reconciliation_ignores_stale_api_schedules(tmp_path, provider):
+    from zucai.cloud_feeds import date_windows
+
+    database = tmp_path / "data/zucai.db"
+    seed_database(database)
+    with sqlite3.connect(database) as db:
+        db.execute("DELETE FROM results WHERE match_id IN (?, 'jc:1')", (provider + ":1",))
+        db.execute(
+            "UPDATE matches SET status='scheduled',kickoff_utc='2026-09-01T12:00:00Z' "
+            "WHERE source=?",
+            (provider,),
+        )
+        db.execute(
+            "UPDATE matches SET status='scheduled',kickoff_utc='2026-09-02T12:00:00Z' "
+            "WHERE source='jc'"
+        )
+    assert date_windows(database, date(2026, 11, 1), date(2026, 11, 2), 3) == [
+        (date(2026, 9, 2), date(2026, 9, 2)),
+        (date(2026, 10, 31), date(2026, 11, 2)),
+    ]

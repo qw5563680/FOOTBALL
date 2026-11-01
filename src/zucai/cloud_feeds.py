@@ -355,7 +355,7 @@ def date_windows(database: Path, previous: date, today: date, days: int) -> list
             date.fromisoformat(row[0])
             for row in db.execute(
                 "SELECT DISTINCT date(kickoff_utc,'+8 hours') FROM matches "
-                "WHERE status='scheduled' "
+                "WHERE source='jc' AND status='scheduled' "
                 "AND date(kickoff_utc,'+8 hours') < ?",
                 (start.isoformat(),),
             )
@@ -429,20 +429,26 @@ def main():
             )
             if collection:
                 summary.write(
-                    "\n| 来源 | 状态 | 入库 | 链接 | 拒绝 | 请求 | 剩余配额 |\n"
+                    "\n| 来源 | 状态 | 入库 | 链接 | 拒绝 | 请求/文件 | 剩余配额 |\n"
                     "| --- | --- | ---: | ---: | ---: | ---: | ---: |\n"
                 )
                 for provider, result in collection.items():
+                    calls = (
+                        result.get("downloaded_files", 0)
+                        if provider == "fd"
+                        else result["requests"]
+                    )
                     linked = sum(
                         result.get(k, 0) for k in ("linked_existing", "linked_fd", "linked_fdorg")
                     )
                     summary.write(
                         f"| {provider} | {result['status']} | {result['inserted']} | "
-                        f"{linked} | {result['rejected_rows']} | {result['requests']} | "
+                        f"{linked} | {result['rejected_rows']} | {calls} | "
                         f"{result.get('remaining_quota', '—')} |\n"
                     )
                     for error in result["errors"]:
                         summary.write(f"\n- {provider}: {error}\n")
+                summary.write("\n次数口径：fd 为成功下载文件数；API 为请求数（含失败请求）。\n")
 
 
 if __name__ == "__main__":

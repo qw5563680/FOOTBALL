@@ -97,6 +97,8 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
         for source in ("fd", "fdorg", "apif")
     }
     captures = {"fdorg": [], "apif": []}
+    reports["fd"].pop("requests")
+    reports["fd"]["downloaded_files"] = 0
     common = dict(db=database, audit_dir=audit, raw_root=raw)
 
     # Higher-priority FD is imported first; a bad league does not stop other scopes.

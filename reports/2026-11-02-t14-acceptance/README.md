@@ -5,11 +5,14 @@
 
 ## 已完成的本地验证
 
-- 全量离线 `pytest -q -o addopts=''`：**636 passed**。778 条现有 penaltyblog / NumPy 弃用警告；基线也有相同警告。
+- 全量离线 `pytest -q -o addopts=''`：**653 passed**。778 条现有 penaltyblog / NumPy 弃用警告；基线也有相同警告。
 - `ruff check src tests examples`、`ruff format --check src tests`、actionlint 1.7.7 与 `git diff --check` 均通过。
 - `responses` 合成 fixture 完成恢复 → fd/fdorg/apif 导入 → 导出 → 写回目录 → 再恢复，五表逐行一致。
   覆盖 v1 升级、UTC 月界、closing_odds、每来源计数/哈希、损坏归档拒绝、候选证据持续保留且不激活、
   配额跨运行/保留额度/损坏状态、周一早晚班和 UTC 时区、单源与后续窗口失败、partial、训练历史读取。
+- 独立审查后的回归覆盖：跨日/相邻窗口的别名歧义、覆盖外沿 ±180 分钟缺口、候选反向冲突、
+  重复比赛 ID 与跨原件身份冲突、每条证据指向真实原件；旧 API 赛程不触发竞彩补抓。
+  fd 次数列明确表示成功下载文件数，API 次数包含失败请求。
 - 本地裸 Git remote 运行工作流实际写回脚本：不同文件变更先 rebase 再 push；同文件冲突非零退出，远端提交不变。
 - 模拟缺少 Unix `fcntl` 的环境可导入 sporttery/verify 入口；Windows 真机 Actions 仍待审查方验证。
 - 所有测试进程移除真实 API 凭据；HTTP 由 `responses` 拦截。提交文件扫描未发现环境 key 的值。

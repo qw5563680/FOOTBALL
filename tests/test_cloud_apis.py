@@ -136,6 +136,8 @@ def test_full_chain_restores_three_sources_closing_prices_and_reuses_quota(
     assert meta["collection"]["apif"]["requests"] == 3
     assert meta["collection"]["fdorg"]["requests"] == 1
     assert meta["collection"]["fd"]["inserted"] == 1
+    assert meta["collection"]["fd"]["downloaded_files"] == 1
+    assert "requests" not in meta["collection"]["fd"]
     quota = environment / "state/api_football_quota.json"
     assert json.loads(quota.read_bytes())["used"] == 3
     assert json.loads(quota.read_bytes())["remaining"] == 97
