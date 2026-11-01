@@ -76,6 +76,26 @@ class Odds(Base):
     snapshot_utc: Mapped[str] = mapped_column(UTCString)
 
 
+class ClosingOdds(Base):
+    """Publisher closing prices with no independently known quote timestamp."""
+
+    __tablename__ = "closing_odds"
+    __table_args__ = (
+        CheckConstraint("pool = 'had'"),
+        CheckConstraint("basis = 'publisher_closing'"),
+        CheckConstraint("bookmaker IN ('PS', 'B365', 'Avg', 'Max')"),
+        CheckConstraint("h > 1 AND d > 1 AND a > 1"),
+    )
+
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"), primary_key=True)
+    bookmaker: Mapped[str] = mapped_column(primary_key=True)
+    pool: Mapped[str] = mapped_column(primary_key=True, default="had")
+    h: Mapped[float]
+    d: Mapped[float]
+    a: Mapped[float]
+    basis: Mapped[str] = mapped_column(default="publisher_closing")
+
+
 class Result(Base):
     __tablename__ = "results"
     __table_args__ = (

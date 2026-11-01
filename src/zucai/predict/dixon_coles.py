@@ -12,7 +12,13 @@ import numpy as np
 import pandas as pd
 from penaltyblog.models import DixonColesGoalModel, dixon_coles_weights
 
-from zucai.predict.base import Model, availability_sources, utc
+from zucai.predict.base import (
+    Model,
+    availability_sources,
+    model_sources,
+    reject_cross_source_overlaps,
+    utc,
+)
 
 
 class InsufficientHistory(ValueError):
@@ -28,13 +34,18 @@ class DixonColes(Model):
 
     def fit(self, history: pd.DataFrame, *, as_of: datetime) -> Self:
         cutoff = utc(as_of)
+        if history.league.nunique() > 1:
+            raise ValueError("每个模型须指定一个联赛，不能混合多个联赛")
+        sources = model_sources(
+            {"sources": history.attrs.get("sources", sorted(history.source.unique()))}
+        )
+        if not history.source.isin(sources).all():
+            raise ValueError("历史数据来源超出显式选择的来源范围")
+        reject_cross_source_overlaps(history)
         known = history["available_utc"]
         eligible = history.loc[
             (history.kickoff_utc < cutoff) & (known < cutoff) & (known > history.kickoff_utc)
         ].copy()
-        scope = eligible[["league", "source"]].drop_duplicates()
-        if len(scope) > 1:
-            raise ValueError("每个模型须指定一个联赛和一个数据来源")
         teams = set(eligible.home) | set(eligible.away)
         if len(teams) < 2 or len(eligible) < 2 * len(teams) + 1:
             raise InsufficientHistory("截点前可用赛果不足以拟合球队参数")
@@ -67,7 +78,13 @@ class DixonColes(Model):
             "strict" if provenance.isin(("published", "captured")).all() else "mixed"
         )
         self.latest_available = eligible.available_utc.max()
-        self.league, self.source = scope.iloc[0]
+        self.league = eligible.league.iloc[0]
+        # sources is the selected corpus, including sources without eligible rows.
+        self.sources = sources
+        self.training_source_counts = {
+            source: int(count)
+            for source, count in eligible.source.value_counts().sort_index().items()
+        }
         return self
 
     def predict_score_matrix(self, row: Mapping) -> np.ndarray:
@@ -78,9 +95,8 @@ class DixonColes(Model):
             raise ValueError("请先训练或载入模型")
         if utc(row["kickoff_utc"]) <= self.as_of:
             raise ValueError("模型截点必须早于开球")
-        if (
-            row.get("league", self.league) != self.league
-            or row.get("source", self.source) != self.source
+        if row.get("league", self.league) != self.league or (
+            "source" in row and row["source"] not in model_sources(self)
         ):
             raise ValueError("联赛或数据来源与模型不一致")
         home, away = row["home"], row["away"]
@@ -101,6 +117,7 @@ class DixonColes(Model):
             "as_of_utc": self.as_of.isoformat(),
             "last_available_utc": self.latest_available.isoformat(),
             "training_games": self.training_rows,
+            "training_source_counts": getattr(self, "training_source_counts", None),
             "assumed_training_share": getattr(self, "assumed_training_share", None),
             "availability_basis": getattr(self, "availability_basis", "unknown"),
             "excluded_score_mass": max(0.0, 1.0 - retained),
@@ -127,4 +144,5 @@ class DixonColes(Model):
             model = pickle.load(stream)
         if not isinstance(model, cls) or model.engine is None:
             raise ValueError("模型文件类型不正确")
+        model.sources = model_sources(model)
         return model

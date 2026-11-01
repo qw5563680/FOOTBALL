@@ -1,5 +1,6 @@
 """下载、不可覆盖的原始快照和离线解析约定。"""
 
+import hashlib
 import json
 import math
 import re
@@ -87,6 +88,7 @@ class RawStore:
             "url": url,
             "fetched_at_utc": utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
             "status_code": status_code,
+            "sha256": hashlib.sha256(content).hexdigest(),
         }
         sidecar = dest.with_suffix(dest.suffix + ".meta.json")
         _atomic_write(sidecar, json.dumps(metadata, ensure_ascii=False).encode("utf-8"))

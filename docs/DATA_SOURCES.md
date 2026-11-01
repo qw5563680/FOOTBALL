@@ -65,7 +65,10 @@
 
 ## 4. football-data.co.uk（历史赛果与收盘赔率，T08）
 
-- 免费、无 key、静态 CSV，站方声明"My data is free"，另有法律免责页面；仅供个人分析，不转发原始文件。请求间隔 ≥ 2 秒。
+- 无 key、静态 CSV；用途仍受站方条款约束，不能把免费读取视为任意自动访问或再分发授权。
+  2026-11-02 读取的 robots 禁止 AI 客户端自动访问；用户随后在本聊天明确确认已获站方许可，才继续本次下载。
+  许可状态为 user-confirmed，尚未独立核阅书面依据。只 GET，请求开始间隔至少2秒，不转发完整原始文件。
+  [来源说明](https://www.football-data.co.uk/data.php) · [字段说明](https://www.football-data.co.uk/notes.txt)。
 - 主联赛按季文件：`https://www.football-data.co.uk/mmz4281/{SSSS}/{DIV}.csv`，`SSSS` 为两位起止年份（`2526`），
   `DIV` 为 `E0 E1 E2 E3 EC SC0 D1 D2 I1 I2 SP1 SP2 F1 F2 N1 B1 P1 T1 G1`（2026-11-02 核实英格兰页面，其余需验证）。
   列头以 `Div, Date, Time, HomeTeam, AwayTeam, FTHG, FTAG, FTR, HTHG, HTAG, HTR` 开头，`Date` 为 `dd/mm/yyyy`，
@@ -75,6 +78,49 @@
   `CCC` 候选：`JPN SWE NOR FIN USA BRA CHN DNK AUT SWZ POL MEX ARG IRL ROU RUS`（需验证）。
 - `Time` 的时区基准无官方说明，必须用当季文件与库中 jc 场次比对后逐联赛写进 `data/football_data_co_uk/leagues.json`。
 - 队名为英文，与 sporttery 中文缩写的对齐只走 `data/team_aliases/football_data_co_uk.json`，规则见 T08 任务单。
+
+### T08 实际核验（北京时间 2026-11-02）
+
+已下载主文件 `E0 E1 SP1 I1 D1 D2 F1 F2 N1 P1` 的2627样本；除D2外各再下载2122–2526。
+已下载合并文件 `JPN SWE NOR FIN USA BRA`，导入按 Season 起始年2021–2026筛选。
+其余代码仍未核验。主文件最终URL会重定向到无 www 的同站地址，回放仅接受这两种相同路径。
+验收初次下载时只限制文件请求，内部重定向未等待；审查发现后改为每一跳单独限速并留原件。
+修复后实际复抓E0/2122，302到200两跳最小单调时钟间隔2.0秒、CSV哈希与原件一致。
+这次复核不改变早期下载记录，完整证据见验收中的 `redirect_smoke.json`。
+JPN当前标记为 `2026/2027`，保留该原值，不改写为2026。合并文件 Country/League 的边缘空格被清理后核验。
+
+| 代码 | 联赛 | Time 基准 | 精确UTC比对场数 | 说明 |
+| --- | --- | --- | ---: | --- |
+| E0 | 英超 | Europe/London | 54 | 验证通过 |
+| E1 | 英冠 | Europe/London | 30 | 验证通过 |
+| SP1 | 西甲 | Europe/London | 69 | 验证通过 |
+| I1 | 意甲 | Europe/London | 70 | 验证通过 |
+| D1 | 德甲 | Europe/London | 54 | 验证通过 |
+| D2 | 德乙 | 未确定 | 0 | 同时段候选歧义，无唯一锚点，禁止导入 |
+| F1 | 法甲 | Europe/London | 33 | 验证通过 |
+| F2 | 法乙 | Europe/London | 5 | 单场身份仍待核对 |
+| N1 | 荷甲 | Europe/London | 27 | 验证通过 |
+| P1 | 葡超 | Europe/London | 22 | 样本内与 Europe/Lisbon 等价，不能识别唯一地理时区 |
+| JPN | 日职 | Europe/London | 28 | 验证通过 |
+| SWE | 瑞超 | Europe/London | 18 | 另1场差15分钟，仅身份链接，不算精确时区证据 |
+| NOR | 挪超 | Europe/London | 17 | 验证通过 |
+| FIN | 芬超 | Europe/London | 11 | 验证通过 |
+| USA | 美职 | Europe/London | 16 | 3场尚未唯一对齐 |
+| BRA | 巴甲 | Europe/London | 27 | 另1场落在英国回拨歧义时刻，拒绝猜测fold |
+
+以上为本批逐场实证的时间转换规则，站方没有公布 Time 的基准；用于历史季还含规则跨季稳定假设。
+P1 导入逐行再次检查 London/Lisbon 是否仍给出同一UTC，遇到差异拒绝。所有代码拒绝夏令时不存在或二义时刻。
+离线核验脚本 `examples/t08_verify_identity.py` 对候选时区分别建立双向唯一的±3小时有向比赛图；
+只由身份一致的唯一配对逐步传播别名，不使用名称相似度或比分挑选。比分只用于匹配后的反证。
+至少两场UTC完全相同且优于非等价候选时区才能标 verified；冲突别名不部分激活。
+249条 auto_verified 别名有SHA与jc ID证据，没有 proposed 条目。完整证据、未知英文名称和未匹配场次见
+[T08验收](../reports/2026-11-02-t08-acceptance/README.md)。英文未对齐历史球队仍可建独立身份，不能据此声称跨源全部统一。
+
+`PSC* / B365C* / AvgC* / MaxC*` 仅在完整且有限、大于1时存 `closing_odds`。
+本轮字段说明提示2025-07-23之后Pinnacle报价可能失准；保留原件，不用于模型或正式市场基准。
+正式回测仍只读有赛前时间戳的普通had快照，缺少配对市场样本时指标为null。
+CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知时间，更正使用新采集时刻，旧快照不能倒写。
+未来结果、空比分、空Time、CSV结构或身份冲突均保留拒绝原因，不能转为0:0或午夜开球。
 
 ## 5. football-data.org v4（欧洲主流联赛全量赛程与赛果，T09）
 

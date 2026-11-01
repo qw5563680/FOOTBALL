@@ -10,6 +10,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from zucai.predict.base import model_sources
+
 BEIJING = timezone(timedelta(hours=8))
 EXPORT_FILES = ("forecast.json", "report.md", "report.csv")
 OUTCOMES = ("h", "d", "a")
@@ -51,9 +53,9 @@ def _triplet(value: object, field: str, *, probabilities: bool = False) -> None:
 def _validate_batch(batch: object) -> None:
     """Check the interchange contract without loading a model or consulting a DB."""
     if not isinstance(batch, dict) or type(batch.get("schema_version")) is not int:
-        raise ValueError("schema_version 必须为 1")
-    if batch["schema_version"] != 1:
-        raise ValueError("不支持的 schema_version，必须为 1")
+        raise ValueError("schema_version 必须为 1 或 2")
+    if batch["schema_version"] not in (1, 2):
+        raise ValueError("不支持的 schema_version，必须为 1 或 2")
     _text(batch.get("batch_id"), "batch_id")
     for key in ("generated_utc", "as_of_utc"):
         _timestamp(batch.get(key))
@@ -72,8 +74,14 @@ def _validate_batch(batch: object) -> None:
     for model in batch["models"]:
         if not isinstance(model, dict):
             raise ValueError("models 项必须为对象")
-        for key in ("model_name", "model_version", "source", "league", "availability_basis"):
+        for key in ("model_name", "model_version", "league", "availability_basis"):
             _text(model.get(key), key)
+        if batch["schema_version"] == 1:
+            _text(model.get("source"), "source")
+        else:
+            if not isinstance(model.get("sources"), list) or not model["sources"]:
+                raise ValueError("schema_version 2 模型必须包含非空 sources 来源列表")
+            model_sources(model)
         for key in ("model_as_of_utc", "last_available_utc"):
             _timestamp(model.get(key))
         if type(model.get("training_games")) is not int or model["training_games"] < 0:
@@ -202,7 +210,7 @@ def _markdown(batch: dict) -> str:
         values = [
             _md(model["model_name"]),
             _md(model["model_version"]),
-            _md(model["source"]),
+            _md(",".join(model_sources(model))),
             _md(model["league"]),
             _beijing(model["model_as_of_utc"]),
             str(model["training_games"]),
@@ -211,6 +219,14 @@ def _markdown(batch: dict) -> str:
             _percent(model.get("assumed_training_share")),
         ]
         lines.append("| " + " | ".join(values) + " |")
+    if batch["schema_version"] >= 2:
+        lines.extend(
+            [
+                "",
+                "来源列为显式选择的训练语料范围；实际符合截点的训练来源及场数"
+                "见 forecast.json 的 training_source_counts（null 表示旧模型未记录）。",
+            ]
+        )
     lines.extend(
         [
             "",

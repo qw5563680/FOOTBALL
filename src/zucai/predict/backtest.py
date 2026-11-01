@@ -10,7 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
 from zucai.models import Match, Odds, Result, Team
-from zucai.predict.base import availability_sources, utc
+from zucai.predict.base import (
+    availability_sources,
+    normalize_sources,
+    reject_cross_source_overlaps,
+    utc,
+)
 from zucai.predict.derive import had
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 
@@ -18,6 +23,7 @@ LOG = logging.getLogger(__name__)
 
 
 def read_history(session: Session, league=None, source=None) -> pd.DataFrame:
+    sources = normalize_sources(source)
     home, away = aliased(Team), aliased(Team)
     query = (
         select(
@@ -40,16 +46,20 @@ def read_history(session: Session, league=None, source=None) -> pd.DataFrame:
     )
     if league is not None:
         query = query.where(Match.league == league)
-    if source is not None:
-        query = query.where(Match.source == source)
+    if sources is not None:
+        query = query.where(Match.source.in_(sources))
     result = session.execute(query.order_by(Match.kickoff_utc, Match.match_id))
     frame = pd.DataFrame(result.all(), columns=result.keys())
     if frame.empty:
         raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
-    if len(frame[["league", "source"]].drop_duplicates()) > 1:
-        raise ValueError("存在多个联赛或来源，请用 --league 和 --source 选择单一范围")
+    if frame.league.nunique() > 1:
+        raise ValueError("存在多个联赛，请用 --league 选择单一联赛")
+    if sources is None and frame.source.nunique() > 1:
+        raise ValueError("存在多个来源，请用 --source 显式选择来源范围")
+    frame.attrs["sources"] = sources or sorted(frame.source.unique())
     for key in ("kickoff_utc", "available_utc"):
         frame[key] = pd.to_datetime(frame[key], utc=True, format="ISO8601")
+    reject_cross_source_overlaps(frame)
     frame["available_source"] = availability_sources(frame)
     return frame
 
@@ -74,13 +84,11 @@ def market_probabilities(rows, kickoffs):
 
 
 def read_market(session: Session, games: pd.DataFrame):
-    first = games.iloc[0]
     query = (
         select(Odds.match_id, Odds.snapshot_utc, Odds.selection, Odds.price)
         .join(Match, Match.match_id == Odds.match_id)
         .where(
-            Match.league == first.league,
-            Match.source == first.source,
+            Match.match_id.in_(games.match_id.tolist()),
             Odds.pool == "had",
             Odds.line == 0,
             Odds.snapshot_utc < Match.kickoff_utc,
