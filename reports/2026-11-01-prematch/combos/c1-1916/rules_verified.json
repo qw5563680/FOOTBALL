@@ -1,0 +1,264 @@
+{
+  "as_of_utc": "2026-11-01 11:25:18 UTC",
+  "scope": "全国竞彩足球不让球胜平负 HAD，2串1。研究核验，当期出票和结算由国家体彩系统认定。",
+  "game": {
+    "unit_yuan": 2,
+    "market": "全场90分钟含伤停补时，主胜、平或客胜，不含加时及点球。普通2串1每注选择不同两场的一种赛果，两场均有效时必须全部命中。",
+    "price": "使用已成功出票时所锁定的各腿固定奖金。后续变化不影响该票，未出票报价不锁价。",
+    "max_multiplier_per_ticket": 50,
+    "max_purchase_yuan_per_ticket": 6000,
+    "limits": "基本一倍，复倍投入2至50倍（2019-02-11起）。6000元单票购买额上限自2020-11-01起。",
+    "day_sales_bj": "国家竞彩网11月1日当日唯一有效公告指竞彩11:00开售、23:00停售。单场或具体选项可以更早停售。",
+    "sources": [
+      "had",
+      "mof2019",
+      "mof2020",
+      "live"
+    ]
+  },
+  "payout": {
+    "order": "2元 × 所有命中有效腿出票SP的连续乘积 → 单注取到分 → 每2元单注封顶 → 中奖各注金额相加 → 乘实际票倍数。不得另加本金。",
+    "cent_rounding": "先看小数第3位。0–4舍，6–9进；若为5，第2位奇数进1、偶数舍，余下位数全部舍弃。第4位以后非零时也执行该分支，与无限精度标准 ROUND_HALF_EVEN 可不同。",
+    "two_leg_integer": "Let a=SP1*100, b=SP2*100 as integers. n=2*a*b, q=n//100, d=(n//10)%10. Payout in fen per valid winning unit=min(20000000,q+int(d>5 or (d==5 and q%2==1))).",
+    "unit_cap_yuan": {
+      "one": 100000,
+      "two_or_three": 200000,
+      "four_or_five": 500000,
+      "six_or_more": 1000000
+    },
+    "official_js_tests": [
+      {
+        "sps": [
+          "1.36",
+          "1.98"
+        ],
+        "raw": "5.3856",
+        "copies": 1,
+        "paid_yuan": "5.38"
+      },
+      {
+        "sps": [
+          "1.25",
+          "1.65"
+        ],
+        "raw": "4.125",
+        "copies": 1,
+        "paid_yuan": "4.12"
+      },
+      {
+        "sps": [
+          "1.65",
+          "1.75"
+        ],
+        "raw": "5.775",
+        "copies": 1,
+        "paid_yuan": "5.78"
+      },
+      {
+        "sps": [
+          "1.36",
+          "1.98"
+        ],
+        "copies": 5,
+        "paid_yuan": "26.90"
+      },
+      {
+        "sps": [
+          "1000",
+          "1000"
+        ],
+        "copies": 2,
+        "paid_yuan": "400000.00",
+        "synthetic_cap_test": true
+      }
+    ],
+    "sources": [
+      "fujian",
+      "had",
+      "js"
+    ]
+  },
+  "settlement": {
+    "valid_wins": "R(2×SP1×SP2)，以两场过关每注上限为限。",
+    "valid_loss": "任一剩余有效腿猜错，该注为0。",
+    "pending": "延期或中断在正式认定前保留待定。正常延期不超过原定开赛时间36小时调整时间；超过36小时、补赛时间不明或取消，按规则认定无效。赛中中断从中断时计36小时，时限内继续完成通常有效，未完成或无具体补赛时间按规则处理。国家体彩中心最终认定。",
+    "one_void": "去除无效腿。另一腿命中，按该腿原出票SP计奖，实际为每2元 R(2×SP)；另一腿猜错则为0。正式单关无效按退票。",
+    "both_void": {
+      "status": "not explicitly verified for an all-void nationwide HAD 2x1",
+      "cash_model": "按两腿中性、无有效选择的数学延伸可模拟返还原注资金，但所查全国竞彩足球法规和官方示例未明确举出两腿均无效的2串1。应列为未证实情景并以终端退票/计奖为准。",
+      "tax_limit": "真实退票本金与奖金分栏。双腿无效的官方税务归类未查到，禁止将假设退款直接计作确定的免税或应税中奖。"
+    },
+    "sources": [
+      "basic",
+      "had",
+      "void"
+    ]
+  },
+  "promotions": {
+    "ordinary_bonus_yuan": 0,
+    "law": "财综〔2019〕4号第五部分第（九）项，自公布之日起禁止彩票销售机构对全国联网单场竞猜游戏开展任何形式的派奖和促销活动。未查到本案后续特批或覆盖本场次的有效奖金加成。",
+    "checked_national": "11月1日仅一条有效公告，为销售时间。8月4日至11月1日所查100条国家竞彩网赛事公告中，派奖、加奖、酬宾、促销均无命中。其他类别彩票的活动不可并入HAD奖金。",
+    "sources": [
+      "mof2019",
+      "mof2020",
+      "live",
+      "history"
+    ]
+  },
+  "tax": {
+    "group": "同一人、同一游戏、同一期的全部奖金。全国联网单场竞猜分别按足球、篮球、冠军、冠亚军设期。以每张票所涉场次的最晚比赛编号日期确定该票期次。相同编号日期的票合并。不是出票日、自然开球日、领奖日或每张票单独计税。",
+    "rate": 0.2,
+    "threshold_yuan": 10000,
+    "inclusive_exemption": true,
+    "formula": "T(X)=0 for X<=10000 else 0.20*X (entire gross amount). Costs and losing stakes do not reduce taxable prizes. Registration threshold over ¥3000 does not change the tax threshold.",
+    "marginal": "B为同一人同游戏同期的外部中奖金额，W为本组合在本赛果情景的中奖金额。新增税额=T(B+W)-T(B)，税后增量现金=W-[T(B+W)-T(B)]，独立核实的退票款另列。须先按具体赛果合并，不先对奖金取期望再算税。",
+    "examples": [
+      {
+        "B": 0,
+        "W": 10000,
+        "incremental_tax": 0
+      },
+      {
+        "B": 9900,
+        "W": 200,
+        "incremental_tax": 2020,
+        "incremental_after_tax_cash": -1820
+      },
+      {
+        "B": 12000,
+        "W": 200,
+        "incremental_tax": 40,
+        "incremental_after_tax_cash": 160
+      }
+    ],
+    "freshness": "2024年第12号自2024-09-01执行；财综〔2024〕34号同步废止原游戏有关涉税条款。国家税务总局广西税务局2026-07-01仍沿用。所查官方规范未发现后续改变本口径。税款最终按代扣申报结果；上述公告未规定税款自身适用体彩奖金进位规则。",
+    "scope_today": "官方实时报文19:13:56北京时间更新。以下13个目标的 matchNumDate 都是261101，taxDateNo 都是2611011，跨零点的周日编号仍同一期。",
+    "eligible_target_id_to_sunday_number": {
+      "1": "007",
+      "2": "008",
+      "3": "012",
+      "4": "013",
+      "6": "014",
+      "8": "016",
+      "9": "017",
+      "10": "018",
+      "11": "019",
+      "13": "020",
+      "14": "021",
+      "15": "022",
+      "16": "023"
+    },
+    "not_listed_had_target_ids": [
+      5,
+      7,
+      12
+    ],
+    "sources": [
+      "tax2024",
+      "repeal",
+      "tax1998",
+      "law",
+      "tax2026",
+      "today"
+    ],
+    "tax_group_for_scope": {
+      "scope": [
+        2,
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        14,
+        15,
+        16
+      ],
+      "latest_number_date": "261101",
+      "official_taxDateNo": "2611011"
+    }
+  },
+  "sources": {
+    "fujian": {
+      "title": "福建体彩《竞彩彩票奖金计算方法》",
+      "published": "2024-04-01",
+      "url": "https://www.fjtc.com.cn/2024-04/01/content_31550891.htm"
+    },
+    "had": {
+      "title": "福建体彩《胜平负游戏规则》",
+      "published": "2024-04-01",
+      "url": "https://www.fjtc.com.cn/2024-04/01/content_31550872.htm"
+    },
+    "js": {
+      "title": "国家体彩竞彩计算器在用程序，lotFunc.rundFunc 与 oddsMNLimit",
+      "url": "https://static.sporttery.cn/res_1_0/jcw/default/jc/jsq/lotJs.js"
+    },
+    "basic": {
+      "title": "财政部财办综〔2013〕21号基础规则，第二十一条特别情形",
+      "issued": "2013-03-27",
+      "url": "https://zhs.mof.gov.cn/zhengcefabu/201401/t20140117_1036648.htm"
+    },
+    "void": {
+      "title": "中国竞彩网《关于取消场次处理的解释》",
+      "url": "https://m.sporttery.cn/bzzx/20210118/3002863.html?gid=7"
+    },
+    "mof2019": {
+      "title": "财政部、民政部、体育总局财综〔2019〕4号",
+      "issued": "2019-01-28",
+      "url": "https://www.sport.gov.cn/cpzx/n5656/c897408/content.html"
+    },
+    "mof2020": {
+      "title": "财政部、体育总局财综〔2020〕42号",
+      "issued": "2020-10-19",
+      "effective": "2020-11-01",
+      "url": "https://www.mof.gov.cn/gp/xxgkml/zhs/202010/t20201023_3609894.htm"
+    },
+    "tax2024": {
+      "title": "财政部、税务总局、民政部、体育总局公告2024年第12号",
+      "issued": "2024-08-15",
+      "published": "2024-08-16",
+      "effective": "2024-09-01",
+      "url": "https://szs.mof.gov.cn/zhengcefabu/202406/t20240621_3937768.htm"
+    },
+    "repeal": {
+      "title": "财政部财综〔2024〕34号及四部门说明，原游戏涉税条款同步废止",
+      "issued": "2024-08-07",
+      "effective": "2024-09-01",
+      "url": "https://www.gstc.org.cn/newsDetail/010600/72664",
+      "qa": "https://szs.mof.gov.cn/zhengcejiedu/202406/t20240621_3937771.htm"
+    },
+    "tax1998": {
+      "title": "财政部、国家税务总局财税字〔1998〕12号",
+      "issued": "1998-04-27",
+      "effective": "1998-04-01",
+      "url": "https://fgk.chinatax.gov.cn/zcfgk/c102416/c5202586/content.html"
+    },
+    "law": {
+      "title": "个人所得税法第二、三、六条，偶然所得税率20%",
+      "url": "https://www.chinatax.gov.cn/n810219/n810744/n3752930/n3752974/c3970366/content.html"
+    },
+    "tax2026": {
+      "title": "国家税务总局广西税务局《个人取得体育彩票中奖收入如何缴纳个人所得税？》",
+      "published": "2026-07-01",
+      "url": "https://guangxi.chinatax.gov.cn/nsfw/nszx/rdwd/202607/t20260701_435187.html"
+    },
+    "live": {
+      "title": "中国竞彩网当日有效公告",
+      "date_bj": "2026-11-01",
+      "url": "https://webapi.sporttery.cn/gateway/jc/common/gmBulletin.qry?page=1&pageSize=100&isShowHis=0",
+      "public_page": "https://www.sporttery.cn/ssgg/"
+    },
+    "history": {
+      "title": "中国竞彩网最近100条公告，2026-08-04至2026-11-01",
+      "url": "https://webapi.sporttery.cn/gateway/jc/common/gmBulletin.qry?page=1&pageSize=100&isShowHis=1"
+    },
+    "today": {
+      "title": "中国竞彩网官方胜平负/让球胜平负计算器实时报文",
+      "provider_updated_bj": "2026-11-01 19:13:56",
+      "retrieved_utc": "2026-11-01T11:23:27Z",
+      "url": "https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?channel=c&poolCode=hhad,had",
+      "public_page": "https://www.sporttery.cn/jc/jsq/zqspf/index.html"
+    }
+  }
+}
