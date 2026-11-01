@@ -40,7 +40,11 @@ def init_db(engine: Engine) -> None:
         Base.metadata.create_all(conn)
         for table, columns in {
             "results": {"available_utc": "VARCHAR(27)", "available_source": "VARCHAR"},
-            "matches": {"result_checked_utc": "VARCHAR(27)", "result_provider": "VARCHAR"},
+            "matches": {
+                "result_checked_utc": "VARCHAR(27)",
+                "result_provider": "VARCHAR",
+                "counterpart_id": "VARCHAR",
+            },
         }.items():
             existing = {col["name"] for col in inspect(conn).get_columns(table)}
             for column, datatype in columns.items():
