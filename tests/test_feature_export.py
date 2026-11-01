@@ -1,13 +1,15 @@
 import hashlib
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from test_features import CUTOFF, game
+from test_features import CUTOFF, KICKOFF, game, quotes
 from test_features import feature_db as feature_db
 from zucai.db import session_scope
+from zucai.models import Match
 
 
 def example_frame(feature_db):
@@ -33,6 +35,59 @@ def test_parquet_round_trip_keeps_feature_values_evidence_and_hashes(feature_db,
     assert metadata["market_missing_rates"]["market_p_home"] == 1
     assert metadata["audit"]["jc:target"]["windows"]["home_last5"][0]["match_id"] == "jc:known"
     assert metadata["model_feature_columns"] == frame.attrs["model_feature_columns"]
+    assert manifest == json.loads(out.with_suffix(".manifest.json").read_bytes())
+    for name, digest in manifest["files"].items():
+        assert hashlib.sha256((out.parent / name).read_bytes()).hexdigest() == digest
+
+
+def test_parquet_preserves_nullable_integer_hhad_line_and_schedule_only_rest_evidence(
+    feature_db, tmp_path
+):
+    from zucai.features.build import MARKET_COLUMNS, MODEL_FEATURE_COLUMNS, build_features
+    from zucai.features.command import write_features
+
+    engine, teams = feature_db
+    stamp = CUTOFF - timedelta(hours=1)
+    with session_scope(engine) as s:
+        recent = game(s, teams, "cup", 1, league="Cup", goals=None, status="scheduled")
+        s.add(
+            Match(
+                match_id="jc:no-quote",
+                source="jc",
+                league="L",
+                home_team_id=teams["X"],
+                away_team_id=teams["Y"],
+                kickoff_utc=KICKOFF + timedelta(days=1),
+                status="scheduled",
+            )
+        )
+        quotes(s, stamp, {"h": 3.0, "d": 4.0, "a": 5.0}, line=-2)
+        frame = build_features(s, ["jc:target", "jc:no-quote"], as_of=CUTOFF)
+    out = tmp_path / "v2.parquet"
+    manifest = write_features(frame, out)
+    read = pd.read_parquet(out)
+    pd.testing.assert_frame_equal(read, frame)
+    assert read["market_hhad_line"].dtype == pd.Int64Dtype()
+    assert read.loc[0, "market_hhad_line"] == -2
+    assert pd.isna(read.loc[1, "market_hhad_line"])
+    assert read.loc[0, "meta_home_rest_match_id"] == recent
+    assert read.loc[0, "home_rest_days"] == 1
+    assert set(MARKET_COLUMNS).isdisjoint(MODEL_FEATURE_COLUMNS)
+    metadata = json.loads(out.with_suffix(".metadata.json").read_bytes())
+    assert metadata["schema_version"] == manifest["schema_version"] == 1
+    assert metadata["feature_version"] == "t04-v2"
+    assert metadata["market_missing_rates"]["market_hhad_line"] == 0.5
+    assert metadata["market_missing_rates"]["market_hhad_p_home"] == 0.5
+    assert metadata["market_columns"] == list(MARKET_COLUMNS)
+    assert "market_line" not in metadata["columns"]
+    hhad = metadata["audit"]["jc:target"]["market_hhad"]
+    assert hhad["line"] == -2 and isinstance(hhad["line"], int)
+    assert hhad["prices"] == {"h": 3.0, "d": 4.0, "a": 5.0}
+    assert pd.Timestamp(hhad["snapshot_utc"]) == stamp
+    rest = metadata["audit"]["jc:target"]["windows"]["home_rest"]
+    assert len(rest) == 1 and rest[0]["match_id"] == recent
+    assert set(rest[0]) == {"match_id", "source", "league", "kickoff_utc", "status", "venue"}
+    assert metadata["audit"] == frame.attrs["audit"]
     assert manifest == json.loads(out.with_suffix(".manifest.json").read_bytes())
     for name, digest in manifest["files"].items():
         assert hashlib.sha256((out.parent / name).read_bytes()).hexdigest() == digest
