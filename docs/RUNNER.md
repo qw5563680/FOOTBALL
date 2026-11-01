@@ -11,7 +11,7 @@
 ## 软件与首次注册
 
 1. 安装 Git for Windows，保证运行器进程的 PATH 能找到 `git`（默认安装即可）；工作流会按 `git` 的位置自行定位 Git Bash，
-   不需要把 `Gitbin` 加进 PATH，运行器目录下的 `.path` 文件在 Windows 上也不生效。
+   不需要把 Git 的 bin 目录加进 PATH，运行器目录下的 `.path` 文件在 Windows 上也不生效。
    运行器压缩包自带 Node；工作流的 `actions/setup-python@v5` 安装 **Python 3.12**，
    不假设电脑已安装 Python。运行账号须能写运行器目录、Python 工具缓存，并访问 GitHub、PyPI 和体彩域名。
    sporttery 所有命令步骤明确使用 `shell: bash`。
