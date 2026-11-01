@@ -95,3 +95,26 @@ def test_api_failure_and_malformed_live_rows_do_not_create_partial_matches(tmp_p
     with responses.RequestsMock() as api:
         api.add(responses.GET, API, json=error)
         assert main(["fetch", "jc"]) != 0
+
+
+def test_handicap_switch_back_is_a_new_market_even_at_its_previous_price(tmp_path, monkeypatch):
+    from zucai.db import get_engine, init_db, session_scope
+    from zucai.sources.sporttery import SportteryCalculator, save_schedule
+
+    monkeypatch.chdir(tmp_path)
+    engine = get_engine()
+    init_db(engine)
+    blob = json.loads(FIXTURE.read_bytes())
+    row = blob["value"]["matchInfoList"][0]["subMatchList"][0]
+    row["poolList"] = [p for p in row["poolList"] if p["poolCode"] == "HHAD"]
+    base = datetime(2026, 11, 1, 12, tzinfo=UTC)
+    for minute, line in [(0, "-1"), (2, "-2"), (4, "-1")]:
+        row["hhad"]["goalLine"] = line
+        game = SportteryCalculator().parse(json.dumps(blob).encode())[0]
+        with session_scope(engine) as s:
+            save_schedule(s, [game], base + timedelta(minutes=minute))
+    with sqlite3.connect("data/zucai.db") as db:
+        assert db.execute(
+            "select line from odds where selection='h' order by snapshot_utc"
+        ).fetchall() == [(-1,), (-2,), (-1,)]
+    engine.dispose()

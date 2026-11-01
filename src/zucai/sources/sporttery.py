@@ -153,17 +153,19 @@ def append_market(
 ) -> int:
     """Save each changed market in full so later comparisons use one observation time."""
     first = quotes[0]
-    where = (Odds.match_id == match_id, Odds.pool == first.pool, Odds.line == first.line)
+    where = (Odds.match_id == match_id, Odds.pool == first.pool)
     previous = session.scalar(
         select(func.max(Odds.snapshot_utc)).where(*where, Odds.snapshot_utc <= captured)
     )
     if previous is not None and captured - datetime.fromisoformat(previous) < timedelta(minutes=10):
-        known = dict(
+        known = set(
             session.execute(
-                select(Odds.selection, Odds.price).where(*where, Odds.snapshot_utc == previous)
+                select(Odds.line, Odds.selection, Odds.price).where(
+                    *where, Odds.snapshot_utc == previous
+                )
             ).all()
         )
-        if known == {q.selection: q.price for q in quotes}:
+        if known == {(q.line, q.selection, q.price) for q in quotes}:
             return 0
         if datetime.fromisoformat(previous) == captured:
             raise ValueError(f"{match_id} 同一时刻出现互相矛盾的报价")
@@ -187,7 +189,14 @@ def save_schedule(session: Session, fixtures: list[JcMatch], captured: datetime)
         if item.kickoff_utc <= captured:
             continue
         current = session.get(Match, item.match_id)
-        if current and current.status != "scheduled":
+        rescheduled = bool(
+            current
+            and current.status == "cancelled"
+            and current.result_checked_utc
+            and captured > datetime.fromisoformat(current.result_checked_utc)
+            and item.kickoff_utc > datetime.fromisoformat(current.kickoff_utc)
+        )
+        if current and current.status != "scheduled" and not rescheduled:
             continue
         newest = session.scalar(
             select(func.max(Odds.snapshot_utc)).where(Odds.match_id == item.match_id)
@@ -195,6 +204,8 @@ def save_schedule(session: Session, fixtures: list[JcMatch], captured: datetime)
         if newest is None or datetime.fromisoformat(newest) <= captured:
             home = upsert_team(session, item.home, "jc")
             away = upsert_team(session, item.away, "jc")
+            if current and (home.id, away.id) != (current.home_team_id, current.away_team_id):
+                raise ValueError(f"{item.match_id} 在售场次与原有主客队身份不符")
             upsert_match(
                 session,
                 match_id=item.match_id,
@@ -205,6 +216,7 @@ def save_schedule(session: Session, fixtures: list[JcMatch], captured: datetime)
                 kickoff_utc=item.kickoff_utc,
                 jc_num=item.jc_num,
                 status="scheduled",
+                **({"result_checked_utc": captured} if rescheduled else {}),
             )
         for _, group in groupby(item.odds, key=lambda q: (q.pool, q.line)):
             quotes += append_market(session, item.match_id, list(group), captured)

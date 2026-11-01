@@ -77,6 +77,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `jc_num` | 竞彩编号，如 `周六001`，可空 |
 | `status` | `scheduled` / `finished` / `cancelled` |
 | `result_checked_utc` / `result_provider` | 最近一次被接受的赛果或取消状态的观察时间与来源；阻止旧快照倒写 |
+| `counterpart_id` | 备用源报告的候选体彩ID，或官方记录已经核对的备用ID。只有编号、开球、主客均匹配才将同场归一，并保留既有预测和报价 |
 
 `upsert_match(session, match_id=..., **fields)` 接收完整赛程字段，同一主键再次导入时
 更新本次提供的字段。主客队不同，来源前缀与 `source` 一致。

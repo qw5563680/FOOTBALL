@@ -259,3 +259,77 @@ def test_backup_can_fill_identical_fixture_but_cannot_replace_official_score(tmp
         assert s.get(Result, b.official_id).away_goals == 4
         assert s.get(Result, b.match_id) is None
     engine.dispose()
+
+
+def test_fallback_first_reconciles_canonical_id_without_losing_frozen_predictions(
+    tmp_path, monkeypatch
+):
+    from sqlalchemy import func, select
+
+    from zucai.db import get_engine, init_db, session_scope
+    from zucai.models import Match, Prediction, Result
+    from zucai.sources.c500 import C500JcHistory
+    from zucai.sources.results import apply_result
+
+    monkeypatch.chdir(tmp_path)
+    engine = get_engine()
+    init_db(engine)
+    b = C500JcHistory().parse((FIX / "c500_20261031.html").read_bytes())[0]
+    t = datetime(2026, 11, 1, 12, tzinfo=UTC)
+    with session_scope(engine) as s:
+        apply_result(s, b, t)
+        s.add(
+            Prediction(
+                match_id=b.match_id,
+                model_name="archive",
+                model_version="original",
+                p_home=0.5,
+                p_draw=0.2,
+                p_away=0.3,
+                score_matrix=[],
+                created_utc=b.kickoff_utc - timedelta(days=1),
+            )
+        )
+        s.flush()
+        apply_result(
+            s,
+            replace(b, match_id=b.official_id, official_id=None, half=(0, 1)),
+            t + timedelta(hours=1),
+        )
+        apply_result(s, b, t + timedelta(hours=2))
+        assert s.scalar(select(func.count()).select_from(Match)) == 1
+        assert s.scalar(select(func.count()).select_from(Result)) == 1
+        assert s.get(Match, b.official_id).counterpart_id == b.match_id
+        assert (s.get(Prediction, 1).match_id, s.get(Prediction, 1).p_home) == (b.official_id, 0.5)
+    engine.dispose()
+
+
+def test_later_relisting_with_new_kickoff_reopens_a_deferred_fixture(tmp_path, monkeypatch):
+    from zucai.db import get_engine, init_db, session_scope
+    from zucai.models import Match
+    from zucai.sources.results import GameResult, apply_result
+    from zucai.sources.sporttery import JcMatch, OddsQuote, save_schedule
+
+    monkeypatch.chdir(tmp_path)
+    engine = get_engine()
+    init_db(engine)
+    t = datetime(2026, 11, 1, 12, tzinfo=UTC)
+    g = GameResult("jc:1", "联赛", "周日001", "主队", "客队", t.date(), "cancelled", None, None, t)
+    q = JcMatch(
+        g.match_id,
+        g.play_date,
+        g.jc_num,
+        g.league,
+        g.home,
+        g.away,
+        t + timedelta(days=4),
+        [OddsQuote("had", 0, opt, 2.0) for opt in "hda"],
+    )
+    with session_scope(engine) as s:
+        apply_result(s, g, t + timedelta(hours=1))
+        assert save_schedule(s, [q], t) == (0, 0)
+        assert save_schedule(s, [q], t + timedelta(hours=2)) == (1, 3)
+        apply_result(s, g, t + timedelta(hours=3))
+        m = s.get(Match, g.match_id)
+        assert m.status == "scheduled" and datetime.fromisoformat(m.kickoff_utc) == q.kickoff_utc
+    engine.dispose()

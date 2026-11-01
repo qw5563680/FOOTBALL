@@ -6,10 +6,11 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from zucai.db import get_engine, init_db, session_scope, upsert_match
-from zucai.models import Match, Result
+from zucai.models import Match, Odds, Prediction, Result, SfcIssueMatch
 from zucai.sources.base import RateLimiter, RawStore, Source, make_session
 from zucai.sources.sporttery import API, BEIJING, beijing_kickoff, official_value
 from zucai.sources.teams import upsert_team
@@ -203,6 +204,52 @@ def availability(
     return seen, "captured"
 
 
+def reconcile_backup(session: Session, game: GameResult, home_id: int, away_id: int) -> None:
+    """Promote one corroborated backup ID; keep historical quote/forecast values and row IDs."""
+    old = session.scalars(
+        select(Match).where(
+            Match.source == "c500",
+            Match.counterpart_id == game.match_id,
+            Match.home_team_id == home_id,
+            Match.away_team_id == away_id,
+            Match.jc_num == game.jc_num,
+            Match.kickoff_utc == game.kickoff_utc,
+        )
+    ).one_or_none()
+    if old is None:
+        return
+    canonical = session.get(Match, game.match_id)
+    if canonical is None:
+        canonical = upsert_match(
+            session,
+            match_id=game.match_id,
+            source="jc",
+            league=game.league,
+            jc_num=game.jc_num,
+            kickoff_utc=game.kickoff_utc,
+            home_team_id=home_id,
+            away_team_id=away_id,
+            status=old.status,
+            result_provider=old.result_provider,
+            result_checked_utc=old.result_checked_utc,
+        )
+    if canonical.counterpart_id not in (None, old.match_id):
+        raise ValueError(f"{game.match_id} 同时对应多个备用ID，请人工核对")
+    canonical.counterpart_id = old.match_id
+    session.flush()
+    for dep in (Odds, Prediction, SfcIssueMatch, Result):
+        table = dep.__table__
+        if dep is Result and session.get(Result, game.match_id) is not None:
+            session.execute(delete(table).where(table.c.match_id == old.match_id))
+        else:
+            session.execute(
+                update(table).where(table.c.match_id == old.match_id).values(match_id=game.match_id)
+            )
+    session.delete(old)
+    session.flush()
+    session.expire_all()
+
+
 def apply_result(
     session: Session, game: GameResult, seen: datetime, assume: timedelta | None = None
 ) -> str:
@@ -214,6 +261,8 @@ def apply_result(
     home = upsert_team(session, game.home, provider)
     away = upsert_team(session, game.away, provider)
     sid = game.match_id
+    if provider == "jc":
+        reconcile_backup(session, game, home.id, away.id)
     if provider == "c500" and game.official_id:
         linked = session.get(Match, game.official_id)
         if (
@@ -224,6 +273,14 @@ def apply_result(
         ):
             sid = linked.match_id
     match = session.get(Match, sid)
+    if (
+        match
+        and match.status == "scheduled"
+        and match.result_checked_utc
+        and game.status == "cancelled"
+        and game.kickoff_utc < datetime.fromisoformat(match.kickoff_utc)
+    ):
+        return "unchanged"  # the old date's void notice does not void a verified later re-listing
     last_seen = (
         datetime.fromisoformat(match.result_checked_utc)
         if match and match.result_checked_utc
@@ -261,6 +318,11 @@ def apply_result(
         status=game.status,
         result_provider=provider,
         result_checked_utc=seen,
+        counterpart_id=(
+            (game.official_id if sid == game.match_id else game.match_id)
+            if provider == "c500"
+            else (match.counterpart_id if match else None)
+        ),
     )
     if game.status == "cancelled":
         if old:

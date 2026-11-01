@@ -57,6 +57,7 @@ class Match(Base):
     status: Mapped[str] = mapped_column(default="scheduled")
     result_checked_utc: Mapped[str | None] = mapped_column(UTCString)
     result_provider: Mapped[str | None]
+    counterpart_id: Mapped[str | None]
 
 
 class Odds(Base):
