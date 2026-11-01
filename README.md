@@ -30,6 +30,7 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e ".[dev]"
 zucai --help
 zucai db init                         # 建表，已有比赛和快照会保留
+zucai fetch jc --date 2026-11-01      # 抓取该竞彩编号日在售赛程及各玩法报价
 pytest -q
 ```
 
@@ -40,7 +41,6 @@ pytest -q
 以下命令随相应任务合并后提供：
 
 ```bash
-zucai fetch jc --date 2026-11-01      # 抓竞彩赛程与赔率
 zucai fetch results --days 30         # 回填已完赛结果
 zucai features build                  # 生成特征
 zucai train --model dixon-coles       # 训练

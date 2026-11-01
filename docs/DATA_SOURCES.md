@@ -4,11 +4,18 @@
 
 ## 1. 中国竞彩网 sporttery.cn（竞彩官方）
 
-- 在售赛程与各玩法赔率（需验证）：
-  `GET https://webapi.sporttery.cn/gateway/jc/football/getMatchCalculatorV1.qry?poolCode=hhad,had,crs,ttg,hafu&channel=c`
+- 在售赛程与各玩法赔率（2026-11-01 已核实，中国竞彩网当前计算器的接口）：
+  `GET https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?poolCode=had,hhad,crs,ttg,hafu&channel=c`
   返回 JSON，`value.matchInfoList[]` 按日期分组，每场含 `matchId`、`matchNumStr`（周六001）、
   `leagueAbbName`、`homeTeamAbbName`、`awayTeamAbbName`、`matchDate`、`matchTime`，
   以及 `had`、`hhad`（含 `goalLine`）、`crs`、`ttg`、`hafu` 各玩法赔率对象。
+  `--date` 按组内 `businessDate`（竞彩编号日）筛选。开球使用北京时间
+  `matchDate + matchTime`，跨午夜时两日期可以不同。按 `poolList` 的具体玩法、固定奖、
+  在售及单关/过关字段核对，采集时已经开赛的比赛不记作赛前。
+  `ttg.s7` 是 7 球及以上。比分的 `s1sh/s1sd/s1sa` 是胜其他/平其他/负其他，
+  入库选项分别为 `5+`、`draw_other`、`away_other`。字段尾部的 f 是变化标记，不是报价。
+  原始快照每次保留；相同市场十分钟内原价重采不重复入库，变价时整组同时记录，
+  以便还原同一时刻的完整赔率。报价时间使用实际采集时间，源站更新时间随原件保存。
 - 已完赛结果（需验证）：
   `GET https://webapi.sporttery.cn/gateway/jc/football/getMatchResultV1.qry?matchPage=1&matchBeginDate=YYYY-MM-DD&matchEndDate=YYYY-MM-DD&leagueId=&pageSize=30&pageNo=1&isFix=0&pcOrWap=1`
   返回 `value.matchResult[]`，含 `matchId`、`sectionsNo999`（全场比分如 `2:1`）、`sectionsNo1`（半场）。
