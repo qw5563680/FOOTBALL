@@ -343,15 +343,122 @@ def test_schedule_postpone_relist_and_finish_never_regress_on_late_or_stale_sche
         assert s.get(Result, KEY).available_utc.startswith("2026-10-12T12:00:00")
 
 
-@pytest.mark.parametrize(
-    "status", ["POSTPONED", "CANCELLED", "IN_PLAY", "PAUSED", "SUSPENDED", "AWARDED"]
-)
+@pytest.mark.parametrize("status", ["POSTPONED", "CANCELLED", "AWARDED"])
 def test_non_final_observations_cannot_create_a_result_or_a_cancelled_fixture(db, status):
     with session_scope(db) as s:
         summary = ingest(s, game(status=status), mapping={})
         assert summary["rejected_rows" if status == "AWARDED" else "skipped"] == 1
         assert s.get(Match, KEY) is None and s.get(Result, KEY) is None
         assert s.scalar(select(func.count()).select_from(Team)) == 4
+
+
+@pytest.mark.parametrize("prior_schedule", [True, False])
+@pytest.mark.parametrize(
+    "status",
+    ["IN_PLAY", "PAUSED", "EXTRA_TIME", "PENALTY_SHOOTOUT", "SUSPENDED", "TIMED", "SCHEDULED"],
+)
+def test_observed_unsettled_fixture_blocks_an_earlier_assumed_finish(db, prior_schedule, status):
+    timeline = {k: datetime.fromisoformat(v) for k, v in SAMPLE["delayed_finish"].items()}
+    if prior_schedule:
+        with session_scope(db) as s:
+            ingest(s, game(status="TIMED"), seen=timeline["scheduled_seen"])
+    with session_scope(db) as s:
+        summary = ingest(s, game(status=status), seen=timeline["unsettled_seen"])
+        assert summary["rejected_rows"] == summary["suspected_duplicates"] == 0
+        pending = s.get(Match, KEY)
+        assert pending.status == "scheduled" and s.get(Result, KEY) is None
+        assert datetime.fromisoformat(pending.kickoff_utc) == WHEN <= timeline["unsettled_seen"]
+        assert datetime.fromisoformat(pending.result_checked_utc) == timeline["unsettled_seen"]
+    with session_scope(db) as s:
+        assert ingest(s, game(), seen=timeline["older_finish_seen"], assume=DELAY)["unchanged"] == 1
+        assert s.get(Result, KEY) is None
+    with session_scope(db) as s:
+        summary = ingest(s, game(), seen=timeline["finish_seen"], assume=DELAY)
+        assert summary["assumed"] == 0
+        score = s.get(Result, KEY)
+        assert score.available_source == "captured"
+        assert datetime.fromisoformat(score.available_utc) == timeline["finish_seen"]
+
+
+def test_live_before_kickoff_or_with_changed_identity_or_kickoff_cannot_advance_the_clock(db):
+    seen = WHEN - timedelta(hours=1)
+    with session_scope(db) as s:
+        assert ingest(s, game(status="IN_PLAY"), seen=seen)["rejected_rows"] == 1
+        assert s.get(Match, KEY) is None
+        ingest(s, game(status="TIMED"), seen=seen)
+        for changed in (
+            {"kickoff_utc": WHEN + timedelta(hours=1)},
+            {"home_provider_id": 553},
+        ):
+            result = ingest(s, game(status="SUSPENDED", **changed), seen=WHEN + 2 * DELAY)
+            assert result["rejected_rows"] == 1
+            assert datetime.fromisoformat(s.get(Match, KEY).result_checked_utc) == seen
+        assert s.get(Result, KEY) is None
+
+
+@pytest.mark.parametrize("status", ["IN_PLAY", "TIMED"])
+def test_replaying_disproved_assumption_uses_later_confirmed_finish_without_changing_score(
+    db, status
+):
+    with session_scope(db) as s:
+        assert ingest(s, game(), seen=SEEN, assume=DELAY)["assumed"] == 1
+        later_than_assumed = WHEN + timedelta(hours=4)
+        replay = ingest(s, game(status=status), seen=later_than_assumed)
+        assert (
+            replay["availability_corrected"] == 1
+            and replay["assumed"] == replay["rejected_rows"] == 0
+        )
+        score = s.get(Result, KEY)
+        assert (score.home_goals, score.away_goals, score.available_source) == (2, 1, "captured")
+        assert (score.ht_home_goals, score.ht_away_goals) == (1, 0)
+        assert datetime.fromisoformat(score.available_utc) == SEEN
+        assert s.get(Match, KEY).status == "finished"
+        assert datetime.fromisoformat(s.get(Match, KEY).result_checked_utc) == SEEN
+        ingest(s, game(status=status), seen=later_than_assumed)
+        assert datetime.fromisoformat(score.available_utc) == SEEN
+
+
+@pytest.mark.parametrize(
+    "recorded,provider", [(None, "fdorg"), (SEEN, None), (WHEN + DELAY, "fdorg")]
+)
+def test_disproved_assumption_without_later_final_is_quarantined_until_a_fresh_finish(
+    db, recorded, provider
+):
+    with session_scope(db) as s:
+        ingest(s, game(), seen=SEEN, assume=DELAY)
+        match = s.get(Match, KEY)
+        match.result_checked_utc, match.result_provider = recorded, provider
+    disputed = WHEN + DELAY
+    with session_scope(db) as s:
+        first = ingest(s, game(status="SUSPENDED"), seen=disputed)
+        assert first["rejected_rows"] == first["availability_quarantined"] == 1
+        assert first["rejected"][0]["reason"]
+        score = s.get(Result, KEY)
+        assert score.available_utc is score.available_source is None
+        assert (score.home_goals, score.away_goals, s.get(Match, KEY).status) == (2, 1, "finished")
+    with session_scope(db) as s:
+        ingest(s, game(status="IN_PLAY"), seen=SEEN + DELAY)
+        ingest(s, game(), seen=SEEN, assume=DELAY)
+        assert s.get(Result, KEY).available_utc is None
+        later = SEEN + 2 * DELAY
+        fresh = ingest(s, game(), seen=later, assume=DELAY)
+        score = s.get(Result, KEY)
+        assert fresh["assumed"] == 0 and score.available_source == "captured"
+        assert datetime.fromisoformat(score.available_utc) == later
+
+
+@pytest.mark.parametrize(
+    "changed", [{"kickoff_utc": WHEN + timedelta(hours=1)}, {"home_provider_id": 553}]
+)
+def test_conflicting_identity_cannot_retime_a_stored_assumed_finish(db, changed):
+    with session_scope(db) as s:
+        ingest(s, game(), assume=DELAY)
+        ingest(s, game(status="IN_PLAY", **changed), seen=WHEN + timedelta(hours=4))
+        score = s.get(Result, KEY)
+        assert (
+            score.available_source == "assumed"
+            and datetime.fromisoformat(score.available_utc) == WHEN + DELAY
+        )
 
 
 @pytest.mark.parametrize("status", ["EXTRA_TIME", "PENALTY_SHOOTOUT"])

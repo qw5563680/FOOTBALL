@@ -372,7 +372,52 @@ def test_json_escape_cannot_hide_a_credential_in_a_value_or_key(
     assert dummy_key not in "".join(traceback.format_exception(err.value))
 
 
-@pytest.mark.parametrize("reset", ["999999999", "300000000000", "malformed"])
+@pytest.mark.parametrize(
+    ("status", "name", "marker"),
+    [(403, "http_error", b"message"), (200, "season", b"Example North")],
+)
+def test_invalid_json_with_an_escaped_key_cannot_enter_or_erase_the_archive(
+    tmp_path, dummy_key, status, name, marker
+):
+    escaped = "".join(f"\\u{ord(c):04x}" for c in dummy_key).encode("ascii")
+    payload = fixture(name).replace(marker, escaped, 1).rstrip()
+    invalid = payload[:-1] if status == 403 else payload + b"!"
+    assert escaped in invalid and dummy_key.encode() not in invalid
+    safe = fixture("season")
+    source = feed(
+        store=RawStore(tmp_path), session=FixtureTransport((200, safe, {}), (status, invalid, {}))
+    )
+    earlier = source.fetch_raw(**SEASON)
+    previous = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    with pytest.raises(ValueError, match=f"HTTP {status}") as err:
+        source.fetch_raw(**SEASON)
+    assert earlier.read_bytes() == safe
+    assert {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == previous
+    assert [e["status_code"] for e in source.rate_events] == [200, status]
+    error = "".join(traceback.format_exception(err.value))
+    assert dummy_key not in error and escaped.decode("ascii") not in error
+    assert "Synthetic error body" not in error and "Example South" not in error
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(lambda raw: b"not-json " + raw, id="non-json"),
+        pytest.param(lambda raw: raw.decode("utf-8").encode("utf-16"), id="utf-16"),
+        pytest.param(lambda raw: raw.replace(b"Synthetic", b"\xff"), id="invalid-utf-8"),
+        pytest.param(lambda raw: raw.rstrip()[:-1] + b',"invalid":NaN}', id="non-json-number"),
+        pytest.param(lambda raw: raw.replace(b"Synthetic", b"\\ud800"), id="unpaired-surrogate"),
+    ],
+)
+def test_unverifiable_encoding_or_json_is_never_archived(tmp_path, dummy_key, corrupt):
+    reply = (403, corrupt(fixture("http_error")), {})
+    source = feed(store=RawStore(tmp_path), session=FixtureTransport(reply))
+    with pytest.raises(ValueError, match="HTTP 403"):
+        source.fetch_raw(**SEASON)
+    assert not list(tmp_path.rglob("*"))
+
+
+@pytest.mark.parametrize("reset", ["malformed", "-1", "+121", "1.5", "12\n"])
 def test_unusable_reset_fails_without_a_blind_wait_or_early_retry(tmp_path, dummy_key, reset):
     from zucai.sources.football_data_org import FdorgHttpError
 
@@ -383,6 +428,28 @@ def test_unusable_reset_fails_without_a_blind_wait_or_early_retry(tmp_path, dumm
         source.fetch_raw(**SEASON)
     assert err.value.status_code == 429 and waits == []
     assert source.request_count == 1 and len(snapshots(tmp_path)) == 1
+
+
+@pytest.mark.parametrize(
+    ("reset", "seconds"),
+    [
+        (None, 60),
+        ("121", 121),
+        ("86400", 86400),
+        ("300000000000", 300000000000),
+        ("1000000000000000", 1000000000000000),
+    ],
+)
+def test_429_honors_the_entire_reported_reset_before_its_single_retry(
+    tmp_path, dummy_key, reset, seconds
+):
+    headers = {} if reset is None else {"X-RequestCounter-Reset": reset}
+    raw = fixture("season")
+    transport = FixtureTransport((429, fixture("http_error"), headers), (200, raw, {}))
+    waits = []
+    source = feed(store=RawStore(tmp_path), session=transport, sleep=waits.append)
+    assert source.fetch_raw(**SEASON).read_bytes() == raw
+    assert waits == [seconds] and source.request_count == 2
 
 
 @pytest.mark.parametrize(("value", "expected"), [("7", 7), ("untrusted-value", None), ("-1", None)])

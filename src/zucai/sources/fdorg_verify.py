@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,7 +15,14 @@ from zucai.sources.base import RawStore
 from zucai.sources.fd_ingest import _canonical
 from zucai.sources.fd_verify import _compatible, _read_official, _utc, infer_oriented_pairs
 from zucai.sources.football_data import CONFIG_ROOT, read_json
-from zucai.sources.football_data_org import COMPETITIONS_PATH, FootballDataOrg
+from zucai.sources.football_data_org import (
+    COMPETITIONS_PATH,
+    FootballDataOrg,
+    _code,
+    _id,
+    _kickoff,
+    _season,
+)
 
 # A 200 from a season URL can still be a cut-down sample. Verify every regular-season
 # home/away pairing for these domestic formats before any fixture can become an anchor.
@@ -30,6 +38,56 @@ CLUB_COUNTS = {
     "BSA": 20,
 }
 DEFAULT_ALIASES = CONFIG_ROOT / "team_aliases/football_data_org.json"
+
+
+@dataclass(frozen=True)
+class _Fixture:
+    """Schedule identity only. No score or result availability can enter the graph."""
+
+    provider_match_id: int
+    home_provider_id: int
+    away_provider_id: int
+    kickoff_utc: datetime
+    home_raw: str | None
+    away_raw: str | None
+    provider_status: str | None
+    import_rejection: str | None
+
+
+def _identity_team(team):
+    if not isinstance(team, dict) or _id(team.get("id")) is None:
+        raise ValueError("missing or invalid provider team ID")
+    # Display names never select an edge; the same ID may have a label on another match.
+    label = team.get("name")
+    return team["id"], label.strip() if isinstance(label, str) and label.strip() else None
+
+
+def _fixtures(document, code, season, rejected):
+    fallback_code = _code(document)
+    fallback_season = str(document.get("filters", {}).get("season", ""))
+    reasons = {r["row_number"]: r["reason"] for r in rejected}
+    fixtures = {}
+    for n, row in enumerate(document["matches"], 1):
+        key = _id(row.get("id")) if isinstance(row, dict) else None
+        if key is None or key in fixtures:
+            raise ValueError(f"missing, invalid or duplicate match ID at row {n}")
+        if _code(row, fallback_code) != code or (_season(row) or fallback_season) != str(season):
+            raise ValueError(f"unconfirmed competition or season at row {n}")
+        home, home_raw = _identity_team(row.get("homeTeam"))
+        away, away_raw = _identity_team(row.get("awayTeam"))
+        if home == away:
+            raise ValueError(f"identical home and away IDs at row {n}")
+        fixtures[key] = _Fixture(
+            provider_match_id=key,
+            home_provider_id=home,
+            away_provider_id=away,
+            kickoff_utc=_kickoff(row.get("utcDate")),
+            home_raw=home_raw,
+            away_raw=away_raw,
+            provider_status=row.get("status") if isinstance(row.get("status"), str) else None,
+            import_rejection=reasons.get(n),
+        )
+    return list(fixtures.values())
 
 
 def _index(store, source, season):
@@ -86,7 +144,7 @@ def _full_schedule(source, code, season, archive):
     if hashlib.sha256(raw).hexdigest() != archive["raw_sha256"]:
         raise ValueError(f"SHA256 mismatch for {archive['sidecar']}")
     try:
-        games = source.parse(raw, competition=code, season=season)
+        source.parse(raw, competition=code, season=season)
     except ValueError as exc:
         return [], f"season response failed scope or structure checks: {exc}"
     document = json.loads(raw)
@@ -97,8 +155,10 @@ def _full_schedule(source, code, season, archive):
     count = document.get("resultSet", {}).get("count")
     if type(count) is not int or count != len(matches):
         return [], "resultSet.count does not confirm the archived row count"
-    if source.rejected or len(games) != len(matches):
-        return [], "unparsed rows could be concurrent fixtures"
+    try:
+        games = _fixtures(document, code, season, source.rejected)
+    except ValueError as exc:
+        return [], f"season fixture identity is incomplete: {exc}"
     regular_ids = {m["id"] for m in matches if m.get("stage") == "REGULAR_SEASON"}
     regular = [g for g in games if g.provider_match_id in regular_ids]
     clubs = {t for g in regular for t in (g.home_provider_id, g.away_provider_id)}
@@ -173,12 +233,29 @@ def _witness(g, j, delta, archive):
         difference_minutes=delta,
         raw_sha256=archive["raw_sha256"],
         sidecar=archive["sidecar"],
+        **_import_note(g),
+    )
+
+
+def _import_note(g):
+    return (
+        dict(provider_status=g.provider_status, import_rejection=g.import_rejection)
+        if g.import_rejection
+        else {}
     )
 
 
 def _new_aliases(games, official, entries, graph, archive):
     by_id = {g.provider_match_id: g for g in games}
     by_jc = {j["match_id"]: j for j in official}
+    labels = {}
+    for game in games:
+        for team, name in (
+            (game.home_provider_id, game.home_raw),
+            (game.away_provider_id, game.away_raw),
+        ):
+            if name:
+                labels.setdefault(team, name)
     updated = dict(entries)
     for key, origin in graph["alias_origin"].items():
         witness = origin["witnesses"][0]
@@ -186,7 +263,8 @@ def _new_aliases(games, official, entries, graph, archive):
         evidence = _witness(g, j, witness["difference_minutes"], archive)
         evidence["iteration"] = origin["iteration"]
         updated[key] = dict(
-            name=g.home_raw if key == str(g.home_provider_id) else g.away_raw,
+            name=(g.home_raw if key == str(g.home_provider_id) else g.away_raw)
+            or labels.get(int(key)),
             canonical=graph["aliases"][key],
             status="auto_verified",
             evidence=[evidence],
@@ -225,6 +303,7 @@ def _coverage(games, official, graph, archive):
                 difference_minutes=delta,
                 compatible=(i, k) in eligible,
                 reverse_jc_ids=reverse[i],
+                **_import_note(g),
             )
         )
     conflicts = {c["jc_match_id"] for c in graph["conflicts"]}
@@ -253,6 +332,11 @@ def _coverage(games, official, graph, archive):
             coverage_start_date=low.isoformat(),
             coverage_end_date=high.isoformat(),
             fdorg_rows=len(games),
+            identity_only_rows=[
+                dict(fdorg_id=f"fdorg:{g.provider_match_id}", **_import_note(g))
+                for g in games
+                if g.import_rejection
+            ],
             all_jc=len(official),
             comparable_jc=len(comparable),
             matched_jc=matched,
@@ -296,6 +380,7 @@ def verify_inputs(db, raw_dir, aliases_file, competitions_file, output, season=N
                     coverage_start_date=None,
                     coverage_end_date=None,
                     fdorg_rows=None,
+                    identity_only_rows=None,
                     all_jc=len(jc),
                     comparable_jc=None,
                     matched_jc=None,

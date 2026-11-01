@@ -226,9 +226,12 @@ def _scores(row, state):
 
 
 def _header_count(value):
-    if isinstance(value, str) and re.fullmatch(r"[0-9]{1,15}", value.strip()):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+", value.strip(" \t")):
+        return None
+    try:
         return int(value)
-    return None
+    except ValueError:  # Python refuses excessively long decimal strings.
+        return None
 
 
 def _rate_headers(headers, token):
@@ -246,29 +249,39 @@ def _reset_seconds(headers):
     if RESET_HEADER not in headers:
         return 60
     reset = _header_count(headers[RESET_HEADER])
-    # The free quota resets each minute. Do not shorten a long or unknowable wait.
-    if reset is None or reset > 120:
-        raise FdorgHttpError(429, "重置间隔无效或超过两分钟，已停止重试")
+    if reset is None:
+        raise FdorgHttpError(429, "重置秒数必须为无符号整数，已停止重试")
     return reset
 
 
-def _contains_token(raw, token):
+def _reject_json_constant(_):
+    raise ValueError("非标准 JSON 数值")
+
+
+def safe_json_for_archive(raw, token):
+    """Require an intact UTF-8 JSON document containing no raw or decoded credential."""
+    if not isinstance(token, str) or not re.fullmatch(r"[!-~]+", token):
+        return False
     if token.encode("ascii") in raw:
-        return True
-    if b"\\" not in raw and b"\x00" not in raw:
         return False
     try:
-        # Preserve duplicate keys too; any occurrence would persist in the raw file.
-        values = [json.loads(raw, object_pairs_hook=list)]
+        # Inspect the complete UTF-8 JSON, including values shadowed by duplicate keys.
+        values = [
+            json.loads(
+                raw.decode("utf-8"), object_pairs_hook=list, parse_constant=_reject_json_constant
+            )
+        ]
+        while values:
+            value = values.pop()
+            if isinstance(value, str):
+                value.encode("utf-8")  # Reject lone surrogates introduced by JSON escapes.
+                if token in value:
+                    return False
+            elif isinstance(value, (list, tuple)):
+                values.extend(value)
     except (ValueError, UnicodeError, RecursionError):
         return False
-    while values:
-        value = values.pop()
-        if isinstance(value, str) and token in value:
-            return True
-        if isinstance(value, (list, tuple)):
-            values.extend(value)
-    return False
+    return True
 
 
 class FootballDataOrg(Source[ApiGame]):
@@ -359,8 +372,12 @@ class FootballDataOrg(Source[ApiGame]):
             )
             by_name = {key.lower(): value for key, value in rates.items()}
             self.remaining_quota = next((by_name[k] for k in QUOTA_HEADERS if k in by_name), None)
-            if response.url != url or token in url or _contains_token(response.content, token):
-                raise ValueError("未能安全归档 football-data.org 响应")
+            if (
+                response.url != url
+                or token in url
+                or not safe_json_for_archive(response.content, token)
+            ):
+                raise ValueError(f"football-data.org HTTP {response.status_code} 响应未能安全归档")
             path = self.store.save_response(
                 self.name, "matches", response, "json", captured_at=seen
             )

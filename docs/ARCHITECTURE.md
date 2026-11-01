@@ -64,7 +64,9 @@ T09 用 `FootballDataOrg` 下载原始响应，用 `ApiGame` 传递 UTC 赛程�
 `jc`，其次链接 `fd`，不覆盖其比分。只匹配一队或主客冲突的候选隔离到
 `fdorg_suspected_duplicates.csv`。新比赛的键为 `fdorg:<数字比赛ID>`。预定比赛没有
 `Result`；历史导入须显式标为假设，增量使用抓取时间，比分更正按 T03 规则重新计时。
-`lastUpdated` 和返回的赔率字段都不进模型。读取训练历史和直接拟合均拒绝三个来源间已知的同场重复。
+`lastUpdated` 和返回的赔率字段都不进模型。若可信观察显示开球后比赛仍未结束，历史假设不可早于或等于这次观察。
+读取训练历史和直接拟合均拒绝三个来源间已知的同场重复。较高优先级赛程晚到时，如果 fdorg 场次只有部分球队
+已对齐、主客颠倒，或临时球队身份无法排除同窗候选，会报告比赛 ID 并阻止这些身份进入同一训练集。
 
 模型元数据改用 `sources: list[str]`，旧可信模型的 `source` 读取为单元素列表。
 `training_source_counts` 与范围分开；严格模式或截点过滤后某来源计数可为零，但不能推导模型对未选择来源的支持。
@@ -123,7 +125,7 @@ CSV独立保留每行的P2、模式、BET/执行禁用、原预测截点/生成�
 | `kickoff_utc` | 开赛时间 |
 | `jc_num` | 竞彩编号，如 `周六001`，可空 |
 | `status` | `scheduled` / `finished` / `cancelled` |
-| `result_checked_utc` / `result_provider` | 最近一次被接受的赛果或取消状态的观察时间与来源；阻止旧快照倒写 |
+| `result_checked_utc` / `result_provider` | 最近一次被接受的状态观察时间与来源；fdorg 未结算观察还限定赛果可知时间。旧快照不得倒写比分 |
 | `counterpart_id` | 备用源报告的候选体彩ID，或官方记录已经核对的备用ID。只有编号、开球、主客均匹配才将同场归一，并保留既有预测和报价 |
 
 `upsert_match(session, match_id=..., **fields)` 接收完整赛程字段，同一主键再次导入时

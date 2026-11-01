@@ -3,6 +3,8 @@
 import hashlib
 import json
 import logging
+import runpy
+import secrets
 import sqlite3
 from pathlib import Path
 
@@ -129,3 +131,124 @@ def test_later_higher_priority_source_cannot_double_train(peer, delta, conflict)
             reject_cross_source_overlaps(frame)
     else:
         reject_cross_source_overlaps(frame)
+
+
+def test_acceptance_census_and_crop_isolate_malformed_observations(tmp_path, monkeypatch):
+    from zucai.sources.base import RawStore
+    from zucai.sources.football_data_org import FootballDataOrg
+
+    monkeypatch.setenv("FOOTBALL_DATA_ORG_TOKEN", secrets.token_hex(24))
+    fields = json.loads((SAMPLE.parent / "synthetic_capture_edges.json").read_bytes())
+    payload = json.loads(SAMPLE.read_bytes())
+    scheduled = payload["matches"][1]
+    scheduled["score"] = fields["non_object_score"]
+    payload["matches"] += [
+        fields["bad_row"],
+        dict(scheduled, id=scheduled["id"] + 1, score={"duration": fields["non_string_duration"]}),
+    ]
+    payload["resultSet"]["count"] = len(payload["matches"])
+    source = FootballDataOrg(store=RawStore(tmp_path / "raw"))
+    helpers = runpy.run_path(str(SAMPLE.parents[3] / "examples/t09_capture.py"))
+    try:
+        path = source.store.save(
+            source.name,
+            "matches",
+            json.dumps(payload).encode(),
+            "json",
+            url=API + "/competitions/PL/matches?season=2026",
+            status_code=200,
+        )
+        rows, durations, rejected = helpers["_observations"](
+            source, path, competition="PL", season=2026
+        )
+        assert len(rows) == 3 and len(rejected) == 1
+        assert durations == {"REGULAR": 1, "missing": 2}
+        dest = tmp_path / "cropped.json"
+        info = helpers["_crop"](source, path, dest)
+        assert info["source_rows"] == 4 and info["valid_rows"] == 3 and info["rejected_rows"] == 1
+        assert json.loads(dest.read_bytes())["resultSet"]["count"] == len(info["copied_ids"])
+        assert not any(
+            game.status == "FINISHED" and game.full is None
+            for game in source.parse(dest.read_bytes())
+        )
+        assert source.rejected == []
+    finally:
+        source.session.close()
+
+
+@pytest.mark.parametrize(
+    "home,away,delta,conflict",
+    [
+        ("same", "unmapped", 180, True),
+        ("unmapped", "same", 180, True),
+        ("different", "unmapped", 180, True),
+        ("different", "verified", 180, False),
+        ("same", "unmapped", 181, False),
+    ],
+)
+def test_later_official_fixture_cannot_double_train_partial_or_reversed_ids(
+    home, away, delta, conflict
+):
+    event = json.loads(SAMPLE.read_bytes())["matches"][0]
+    stamp = pd.Timestamp(event["utcDate"])
+    labels = {
+        "same": event["homeTeam"]["name"],
+        "unmapped": f"fdorg:team:{event['awayTeam']['id']}",
+        "different": "Separate home",
+        "verified": "Separate away",
+    }
+    frame = pd.DataFrame(
+        [
+            dict(
+                league="PL",
+                source="fdorg",
+                match_id=f"fdorg:{event['id']}",
+                kickoff_utc=stamp,
+                home=labels[home],
+                away=labels[away],
+            ),
+            dict(
+                league="PL",
+                source="jc",
+                match_id="jc:later",
+                kickoff_utc=stamp + pd.Timedelta(minutes=delta),
+                home=event["homeTeam"]["name"],
+                away=event["awayTeam"]["name"],
+            ),
+        ]
+    )
+    if conflict:
+        with pytest.raises(ValueError, match="重复|重叠"):
+            reject_cross_source_overlaps(frame)
+    else:
+        reject_cross_source_overlaps(frame)
+
+
+def test_crop_retains_verified_top_level_scope(tmp_path, monkeypatch):
+    from zucai.sources.base import RawStore
+    from zucai.sources.football_data_org import FootballDataOrg
+
+    monkeypatch.setenv("FOOTBALL_DATA_ORG_TOKEN", secrets.token_hex(24))
+    payload = json.loads(SAMPLE.read_bytes())
+    payload["competition"] = payload["matches"][0]["competition"]
+    payload["filters"] = {"season": "2026"}
+    for row in payload["matches"]:
+        row.pop("competition")
+        row.pop("season")
+    source = FootballDataOrg(store=RawStore(tmp_path / "raw"))
+    try:
+        path = source.store.save(
+            source.name,
+            "matches",
+            json.dumps(payload).encode(),
+            "json",
+            url=API + "/competitions/PL/matches?season=2026",
+            status_code=200,
+        )
+        crop = runpy.run_path(str(SAMPLE.parents[3] / "examples/t09_capture.py"))["_crop"]
+        dest = tmp_path / "clean.json"
+        crop(source, path, dest)
+        games = source.parse(dest.read_bytes(), competition="PL", season=2026)
+        assert len(games) == len(payload["matches"]) and not source.rejected
+    finally:
+        source.session.close()

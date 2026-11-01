@@ -306,9 +306,7 @@ def test_cross_midnight_first_game_inside_window_counts_in_both_numerator_and_de
     assert (summary["matched_jc"], summary["comparable_jc"]) == (2, 6)
 
 
-@pytest.mark.parametrize(
-    "bad_data", ["status_filter", "malformed_body", "wrong_season", "rejected_row"]
-)
+@pytest.mark.parametrize("bad_data", ["status_filter", "malformed_body", "wrong_season"])
 def test_valid_hash_for_malformed_or_wrong_scope_data_does_not_certify_a_league(tmp_path, bad_data):
     db, aliases = setup_inputs(tmp_path)
     payload = synthetic_season()
@@ -316,11 +314,119 @@ def test_valid_hash_for_malformed_or_wrong_scope_data_does_not_certify_a_league(
         payload["filters"]["status"] = "TIMED"
     elif bad_data == "malformed_body":
         payload = {"errorCode": 403}
-    elif bad_data == "wrong_season":
-        payload["filters"]["season"] = "2025"
     else:
-        payload["matches"][1]["status"] = "AWARDED"
+        payload["filters"]["season"] = "2025"
     save_archive(tmp_path, payload)
     audit = verify(tmp_path, db, aliases)
     assert audit["coverage"]["PL"]["status"] == "incomplete"
+    assert audit["aliases"]["英超"] == {}
+
+
+def test_awarded_competitor_still_prevents_an_ambiguous_jc_link(tmp_path):
+    db, aliases = setup_inputs(tmp_path)
+    payload = synthetic_season()
+    awarded = next(m for m in payload["matches"] if m["id"] == 108109)
+    awarded.update(
+        status="AWARDED", score={"duration": "REGULAR", "fullTime": {"home": 3, "away": 0}}
+    )
+    save_archive(tmp_path, payload)
+    audit = verify(tmp_path, db, aliases)
+    summary = audit["coverage"]["PL"]
+    assert (
+        summary["status"],
+        summary["fdorg_rows"],
+        summary["comparable_jc"],
+        summary["matched_jc"],
+    ) == (
+        "complete",
+        380,
+        6,
+        2,
+    )
+    assert len(summary["identity_only_rows"]) == 1
+    row = summary["identity_only_rows"][0]
+    assert (row["fdorg_id"], row["provider_status"]) == ("fdorg:108109", "AWARDED")
+    assert "AWARDED" in row["import_rejection"]
+    gap = next(g for g in audit["unlinked"]["PL"] if g["jc_id"] == "jc:forward-ambiguous")
+    assert {c["fdorg_id"] for c in gap["candidates"]} == {"fdorg:106107", "fdorg:108109"}
+    assert (
+        "AWARDED"
+        in next(c for c in gap["candidates"] if c["fdorg_id"] == "fdorg:108109")["import_rejection"]
+    )
+    assert set(audit["aliases"]["英超"]) == {"101", "102", "103"}
+
+
+def test_extra_time_without_90_minute_score_can_prove_fixture_identity_but_remains_rejected(
+    tmp_path,
+):
+    from zucai.sources.football_data_org import FootballDataOrg
+
+    db, aliases = setup_inputs(tmp_path)
+    payload = synthetic_season()
+    anchor = next(m for m in payload["matches"] if m["id"] == 101102)
+    anchor.update(
+        status="FINISHED", score={"duration": "EXTRA_TIME", "fullTime": {"home": 3, "away": 2}}
+    )
+    raw = save_archive(tmp_path, payload)
+    source = FootballDataOrg()
+    try:
+        importable = source.parse(raw.read_bytes(), competition="PL", season=2026)
+        assert all(g.provider_match_id != 101102 for g in importable)
+        assert "regularTime" in source.rejected[0]["reason"]
+    finally:
+        source.session.close()
+    audit = verify(tmp_path, db, aliases)
+    summary = audit["coverage"]["PL"]
+    assert (summary["status"], summary["comparable_jc"], summary["matched_jc"]) == (
+        "complete",
+        6,
+        2,
+    )
+    assert set(audit["aliases"]["英超"]) == {"101", "102", "103"}
+    link = audit["aliases"]["英超"]["101"]["evidence"][0]
+    assert (link["jc_id"], link["fdorg_id"]) == ("jc:anchor", "fdorg:101102")
+    assert "regularTime" in link["import_rejection"]
+    assert summary["identity_only_rows"][0]["import_rejection"] == link["import_rejection"]
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM results").fetchone() == (0,)
+
+
+def test_missing_display_label_reuses_observed_name_for_the_same_numeric_id(tmp_path):
+    db, aliases = setup_inputs(tmp_path)
+    payload = synthetic_season()
+    anchor = next(m for m in payload["matches"] if m["id"] == 101102)
+    del anchor["homeTeam"]["name"]
+    save_archive(tmp_path, payload)
+    audit = verify(tmp_path, db, aliases)
+    home = audit["aliases"]["英超"]["101"]
+    assert (home["name"], home["canonical"]) == ("Club 101", "甲")
+    assert home["evidence"][0]["import_rejection"]
+    assert audit["coverage"]["PL"]["matched_jc"] == 2
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["team_id", "duplicate_match", "same_sides", "naive_kickoff", "wrong_season", "wrong_code"],
+)
+def test_a_score_rejection_cannot_hide_a_damaged_fixture_identity(tmp_path, damage):
+    db, aliases = setup_inputs(tmp_path)
+    payload = synthetic_season()
+    row = payload["matches"][0]
+    row["status"] = "AWARDED"
+    if damage == "team_id":
+        row["homeTeam"]["id"] = None
+    elif damage == "duplicate_match":
+        row["id"] = payload["matches"][1]["id"]
+    elif damage == "same_sides":
+        row["awayTeam"]["id"] = row["homeTeam"]["id"]
+    elif damage == "naive_kickoff":
+        row["utcDate"] = "2026-08-01T18:00:00"
+    elif damage == "wrong_season":
+        row["season"] = {"startDate": "2025-08-01"}
+    else:
+        row["competition"] = {"code": "ELC"}
+    save_archive(tmp_path, payload)
+    audit = verify(tmp_path, db, aliases)
+    summary = audit["coverage"]["PL"]
+    assert summary["status"] == "incomplete" and summary["comparable_jc"] is None
     assert audit["aliases"]["英超"] == {}

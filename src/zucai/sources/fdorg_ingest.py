@@ -17,6 +17,8 @@ COUNT_KEYS = (
     "inserted",
     "updated",
     "corrected",
+    "availability_corrected",
+    "availability_quarantined",
     "unchanged",
     "cancelled",
     "skipped",
@@ -172,6 +174,8 @@ def _validate(game, seen):
         raise ValueError("开球时刻须含UTC偏移")
     if game.status == "AWARDED":
         raise ValueError("AWARDED 判罚比分不作为常规时间赛果")
+    if game.status in LIVE and game.kickoff_utc > seen:
+        raise ValueError("比赛进行中的观察早于来源开球时间，须核对赛程")
     if game.status in SCHEDULED | CANCELLED | LIVE:
         return
     if game.status != "FINISHED":
@@ -199,7 +203,7 @@ def _check_capture(games, seen):
             rows.append((game, str(exc)))
             continue
         rows.append((game, None))
-        if game.status in SCHEDULED or game.status == "FINISHED":
+        if game.status not in CANCELLED:
             for team_id in (game.home_provider_id, game.away_provider_id):
                 per_team[game.league, team_id].append((game.kickoff_utc, game.provider_match_id))
     return rows, per_team
@@ -272,16 +276,44 @@ def _link_target(session, key, game, sides, existing, per_team):
     return target
 
 
-def _persist(session, key, game, seen, assume, existing, teams):
+def _reconcile_unsettled(match, score, seen):
+    """Reconcile an independently identified, post-kickoff non-final observation with a score."""
+    last = datetime.fromisoformat(match.result_checked_utc) if match.result_checked_utc else None
+    if score.available_utc is not None:
+        if score.available_source != "assumed" or seen < datetime.fromisoformat(
+            score.available_utc
+        ):
+            return None
+        if last is not None and match.result_provider == "fdorg":
+            if last < seen:
+                return (
+                    None  # A final score was already observed before this later status regression.
+                )
+            if last > seen:
+                score.available_utc = match.result_checked_utc
+                score.available_source = "captured"
+                return "availability_corrected"
+        score.available_utc = score.available_source = None
+    elif last is not None and seen <= last:
+        return None  # Already excluded from training; retain the newer observation.
+    if last is None or seen > last:
+        match.result_checked_utc = seen
+    return "availability_quarantined"
+
+
+def _persist(session, key, game, seen, assume, existing, sides):
     old = session.get(Result, key, populate_existing=True)
     if existing and (
         existing.source != "fdorg"
         or existing.league != game.league
-        or (existing.home_team_id, existing.away_team_id) != (teams[0].id, teams[1].id)
+        or (existing.home_team_id, existing.away_team_id)
+        != tuple(side.team.id if side.team else None for side in sides)
         or existing.result_provider not in (None, "fdorg")
     ):
         raise ValueError("既有比赛的来源、联赛或主客身份冲突，须人工复核")
-    status = STORED_STATUS[game.status]
+    live = game.status in LIVE
+    # The schema uses scheduled for an unsettled fixture. A LIVE row can only have a past kickoff.
+    status = "scheduled" if live else STORED_STATUS[game.status]
     previous = existing.status if existing else None
     kickoff = datetime.fromisoformat(existing.kickoff_utc) if existing else None
     checked = max(
@@ -295,6 +327,17 @@ def _persist(session, key, game, seen, assume, existing, teams):
         ),
         default=None,
     )
+    if (
+        status == "scheduled"
+        and old
+        and previous == "finished"
+        and game.kickoff_utc == kickoff <= seen
+    ):
+        resolution = _reconcile_unsettled(existing, old, seen)
+        if resolution:
+            return resolution, False, ()
+    if live and (old or previous in {"finished", "cancelled"}):
+        return "skipped", False, ()
     changed = bool(
         old
         and (
@@ -307,10 +350,21 @@ def _persist(session, key, game, seen, assume, existing, teams):
             status != previous or kickoff != game.kickoff_utc or (old and changed)
         ):
             raise ValueError("同一采集时刻出现冲突的赛程或比分")
-        return "unchanged", False
+        return "unchanged", False, ()
+    if (
+        status == "scheduled"
+        and kickoff
+        and game.kickoff_utc <= seen
+        and game.kickoff_utc != kickoff
+    ):
+        raise ValueError("未结算观察已到开球时间，但与原有赛程的开球时刻不符")
+    if status == "scheduled" and (
+        old or previous == "finished" or (previous == "cancelled" and game.kickoff_utc <= seen)
+    ):
+        return "unchanged", False, ()
+    teams = [_materialize(session, side) for side in sides]
+    session.flush()
     if status == "scheduled":
-        if old or previous == "finished" or (previous == "cancelled" and game.kickoff_utc <= seen):
-            return "unchanged", False
         upsert_match(
             session,
             match_id=key,
@@ -324,10 +378,11 @@ def _persist(session, key, game, seen, assume, existing, teams):
             result_provider="fdorg",
         )
         if previous is None:
-            return "inserted", False
-        return (
-            "unchanged" if previous == status and kickoff == game.kickoff_utc else "updated"
-        ), False
+            return "inserted", False, teams
+        outcome = (
+            "updated" if live or previous != status or kickoff != game.kickoff_utc else "unchanged"
+        )
+        return outcome, False, teams
     observed = GameResult(
         key,
         game.league,
@@ -344,20 +399,20 @@ def _persist(session, key, game, seen, assume, existing, teams):
         if datetime.fromisoformat(old.available_utc) <= game.kickoff_utc:
             raise ValueError("开球更改后原比分可知时刻不再有效，须人工复核")
     # A later known non-final observation rules out an earlier assumed availability.
-    if old and old.available_source in {"published", "captured"}:
+    if old and (old.available_utc is None or old.available_source in {"published", "captured"}):
         assume = None
     elif checked and assume and not old and game.kickoff_utc + assume <= checked:
         assume = None
     state = apply_result(session, observed, seen, assume)
     if state in {"unchanged", "cancelled"}:
-        return state, False
+        return state, False, teams
     if old:
         session.flush()
         session.refresh(old)  # Expose the persisted UTC strings and any DB correction trigger.
     outcome = "inserted" if previous is None else "updated"
     if changed or previous == "cancelled":
         outcome = "corrected"
-    return outcome, state == "assumed"
+    return outcome, state == "assumed", teams
 
 
 def import_fdorg_games(session, games, *, seen, assume, aliases):
@@ -401,7 +456,7 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
                 if invalid:
                     raise ValueError(invalid)
                 existing = session.get(Match, key, populate_existing=True)
-                if game.status in LIVE or (game.status in CANCELLED and existing is None):
+                if game.status in CANCELLED and existing is None:
                     outcome = "skipped"
                 else:
                     sides = index.sides(session, game, unknown)
@@ -412,10 +467,8 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
                         if target.source == "jc" and target.counterpart_id is None:
                             target.counterpart_id = key
                     else:
-                        teams = [_materialize(session, side) for side in sides]
-                        session.flush()
-                        outcome, assumed = _persist(
-                            session, key, game, seen, assume, existing, teams
+                        outcome, assumed, teams = _persist(
+                            session, key, game, seen, assume, existing, sides
                         )
                 session.flush()
         except _Suspected as exc:
@@ -433,6 +486,16 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
         counts[outcome] += 1
         counts["assumed"] += int(assumed)
         record = dict(audit, fdorg_id=key, match_id=match_id, outcome=outcome)
+        if outcome in {"availability_corrected", "availability_quarantined"}:
+            result = session.get(Result, key)
+            record.update(
+                available_utc=result.available_utc, available_source=result.available_source
+            )
+        if outcome == "availability_quarantined":
+            counts["rejected_rows"] += 1
+            rejected.append(
+                dict(audit, reason="已知该时仍未结算，缺可靠的更晚终场采集时刻，已隔离比分可知时间")
+            )
         outcomes.append(record)
         if outcome in {"linked_existing", "linked_fd"}:
             field = "jc_id" if outcome == "linked_existing" else "fd_id"

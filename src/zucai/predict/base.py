@@ -1,6 +1,7 @@
 """Model contract for an explicit pre-match cutoff and a regular-time score matrix."""
 
 from abc import ABC, abstractmethod
+from collections import defaultdict, deque
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -42,17 +43,28 @@ def reject_cross_source_overlaps(frame: pd.DataFrame) -> None:
     if selected.source.nunique() < 2:
         return
     window = pd.Timedelta(hours=3)
-    latest = {}
+    recent = defaultdict(deque)
     for row in selected.sort_values("kickoff_utc").itertuples():
-        pair = (row.league, row.home, row.away)
-        peers = latest.setdefault(pair, {})
-        for source, (time, other_id) in peers.items():
-            if source != row.source and row.kickoff_utc - time <= window:
+        group = recent[row.league]
+        while group and group[0].kickoff_utc < row.kickoff_utc - window:
+            group.popleft()
+        for other in group:
+            if row.source == other.source:
+                continue
+            same_pair = (row.home, row.away) == (other.home, other.away)
+            api = row if row.source == "fdorg" else other if other.source == "fdorg" else None
+            # Follow the importer's quarantine when higher-priority data arrives afterwards.
+            # An opaque provider team cannot clear an official fixture in the same time window.
+            unresolved = api is not None and (
+                any(str(name).startswith("fdorg:team:") for name in (api.home, api.away))
+                or not {row.home, row.away}.isdisjoint((other.home, other.away))
+            )
+            if same_pair or unresolved:
                 raise ValueError(
-                    "同联赛同主客队在3小时内存在跨来源重复/重叠比赛，请先核对身份："
-                    f"{other_id} / {row.match_id}"
+                    "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                    f"{other.match_id} / {row.match_id}"
                 )
-        peers[row.source] = (row.kickoff_utc, row.match_id)
+        group.append(row)
 
 
 def utc(value) -> pd.Timestamp:
