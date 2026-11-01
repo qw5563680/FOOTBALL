@@ -95,6 +95,7 @@
 - 时间优先 `fixture.timestamp`（Unix UTC）。常规时间比分只取 `score.fulltime`；`goals` 可能含加时（需验证）。
 - 状态 `fixture.status.short`：`FT/AET/PEN` 完赛，`PST/CANC/ABD` 延期或取消，`AWD/WO` 判罚不写比分，`NS/TBD` 未赛。
 - 用途以站方当前条款为准，README 须标注来源。
+
 ## T04特征提取的数据可知边界（2026-11-02）
 
 本任务不新增联网采集；只读T03/T06已归档的公开赛程、赛果及had快照。
