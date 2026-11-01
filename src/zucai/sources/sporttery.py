@@ -22,6 +22,7 @@ LOGGER = logging.getLogger(__name__)
 BEIJING = timezone(timedelta(hours=8))
 API = "https://webapi.sporttery.cn/gateway/uniform/football/"
 POOLS = ("had", "hhad", "crs", "ttg", "hafu")
+MARKET_SIZE = {"had": 3, "hhad": 3, "crs": 31, "ttg": 8, "hafu": 9}
 OTHER_SCORES = {"s1sh": "5+", "s1sd": "draw_other", "s1sa": "away_other"}
 
 
@@ -78,18 +79,22 @@ def market_quotes(row: dict, pool: str) -> list[OddsQuote]:
     if not values:
         return []
     if pool == "hhad" and not re.fullmatch(r"[+-]?\d+", str(values.get("goalLine", ""))):
-        raise ValueError(f"{row['matchId']} 让球线缺失或无效")
+        LOGGER.warning("%s 让球线缺失或无效，跳过让球玩法", row["matchId"])
+        return []
     line = int(values["goalLine"]) if pool == "hhad" else 0
     quotes = []
     for key, raw_price in values.items():
         opt = selection(pool, key)
         if opt is None or raw_price in (None, "", "--", "-"):
             continue
-        price = float(raw_price)
+        try:
+            price = float(raw_price)
+        except (ValueError, TypeError):
+            continue
         if math.isfinite(price) and price > 0:
             quotes.append(OddsQuote(pool, line, opt, price))
-    if pool in {"had", "hhad"} and len(quotes) != 3:
-        LOGGER.warning("%s %s 三项报价不全，跳过此玩法", row["matchId"], pool)
+    if len(quotes) != MARKET_SIZE[pool]:
+        LOGGER.warning("%s %s 报价不全，跳过此玩法", row["matchId"], pool)
         return []
     return quotes
 
