@@ -40,6 +40,26 @@
 - `Time` 的时区基准无官方说明，必须用当季文件与库中 jc 场次比对后逐联赛写进 `data/football_data_co_uk/leagues.json`。
 - 队名为英文，与 sporttery 中文缩写的对齐只走 `data/team_aliases/football_data_co_uk.json`，规则见 T08 任务单。
 
+## 5. football-data.org v4（欧洲主流联赛全量赛程与赛果，T09）
+
+- 基地址 `https://api.football-data.org/v4/`，请求头 `X-Auth-Token`，key 来自环境变量 `FOOTBALL_DATA_ORG_TOKEN`，不进仓库、日志与 sidecar。
+- 免费档 12 项赛事永久免费：`PL ELC PD SA BL1 FL1 DED PPL BSA CL EC WC`（2026-11-02 核实 coverage 页）；约 10 次/分钟，超限 429（需验证响应头 `X-RequestCounter-Reset`）。
+  免费档可回溯的最早赛季无官方说明，实现时用真实请求确认。
+- 端点：`GET /competitions/{code}/matches?season=YYYY[&status=FINISHED]`、`GET /matches?dateFrom&dateTo&competitions=`。
+- 时间 `utcDate` 为 UTC ISO。比分含 `score.duration`，加时赛时常规时间取 `regularTime`，不得用 `fullTime`（需验证字段）。
+- `lastUpdated` 是记录修改时间，不是赛果发布时间，不能作为路线 B 的 `published`。
+- 免费档限非商业使用，README 须标注来源。
+
+## 6. API-Football v3 / api-sports.io（亚洲与北欧联赛，T10）
+
+- 基地址 `https://v3.football.api-sports.io/`，请求头 `x-apisports-key`，key 来自环境变量 `API_FOOTBALL_KEY`，不进仓库、日志与 sidecar。
+- 免费档 100 次/天，UTC 零点重置，响应头 `x-ratelimit-requests-remaining`（需验证）。第三方资料称免费档仅开放部分历史赛季，实现时逐联赛用真实请求确认。
+- 端点：`GET /fixtures?league={id}&season={YYYY}`（整季一次请求）、`GET /fixtures?date=`、`GET /leagues`。
+  联赛 ID 候选（需验证）：日职 98、韩职 292、澳超 188、瑞超 113、挪超 103、芬超 244、丹超 119、美职足 253、中超 169。
+- 时间优先 `fixture.timestamp`（Unix UTC）。常规时间比分只取 `score.fulltime`；`goals` 可能含加时（需验证）。
+- 状态 `fixture.status.short`：`FT/AET/PEN` 完赛，`PST/CANC/ABD` 延期或取消，`AWD/WO` 判罚不写比分，`NS/TBD` 未赛。
+- 用途以站方当前条款为准，README 须标注来源。
+
 ## 队名对齐
 
 不同来源的队名写法不同（如「曼联」「曼彻斯特联」）。`teams.aliases` 存所有见过的别名，

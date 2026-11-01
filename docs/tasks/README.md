@@ -12,3 +12,5 @@
 | T06 | 预测报告与赔率对比 | T02, T05 |
 | T07 | 14 场胜负彩期次支持 | T01, T06 |
 | T08 | 接入 football-data.co.uk 历史赛果 | T03, T05, T06 |
+| T09 | 接入 football-data.org v4 全量赛程与赛果 | T08 |
+| T10 | 接入 API-Football v3 亚洲与北欧联赛 | T08, T09 |
