@@ -106,6 +106,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Expose Git Bash to the bash steps below
+        # Windows runners only put Gitd on PATH; the runner resolves `shell: bash` from PATH.
+        shell: powershell
+        run: |
+          $git = (Get-Command git).Source
+          $bin = Join-Path (Split-Path (Split-Path $git -Parent) -Parent) 'bin'
+          if (-not (Test-Path (Join-Path $bin 'bash.exe'))) { throw "Git Bash not found under $bin" }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
       - name: Install project
         shell: bash
         run: python -m pip install -e ./app
