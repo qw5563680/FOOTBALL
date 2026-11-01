@@ -1,7 +1,9 @@
 """500 竞彩比分玩法的已结算选项。页面缺少精确半场比分。"""
 
 import logging
-from datetime import date, datetime
+import re
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from lxml import html
@@ -82,3 +84,203 @@ class C500JcHistory(Source[GameResult]):
         ids = set(doc.xpath("//tr[@data-processdate=$day]/@data-fixtureid", day=day.isoformat()))
         captured = datetime.fromisoformat(self.store.load_metadata(path)["fetched_at_utc"])
         return [(g, captured) for g in self.parse(raw) if g.match_id.split(":")[1] in ids]
+
+
+@dataclass(frozen=True)
+class SfcFixture:
+    seq: int
+    fixture_id: str
+    league: str
+    home: str
+    away: str
+    kickoff_utc: datetime
+    ended: bool
+    home_id: str | None = None
+    away_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SfcSnapshot:
+    issue_no: str
+    sale_end_utc: datetime | None
+    fixtures: list[SfcFixture]
+    date_basis: str
+
+
+def issue_number(value: str) -> str:
+    if not re.fullmatch(r"[0-9]{5}", value) or value.endswith("000"):
+        raise ValueError("期号须为5位YYNNN，例如26156")
+    return value
+
+
+def _cell(row, class_name):
+    nodes = row.xpath(
+        ".//*[contains(concat(' ',normalize-space(@class),' '), $c)]", c=f" {class_name} "
+    )
+    if len(nodes) != 1:
+        raise ValueError(f"14场页面字段缺失或重复：{class_name}")
+    return nodes[0].text_content().strip()
+
+
+class C500Sfc(Source[SfcSnapshot]):
+    """Read fixture identity only; never interpret page odds or ranks as a model."""
+
+    name = "c500-sfc"
+    url = "https://trade.500.com/sfc/"
+
+    def __init__(self, store=None, session=None):
+        self.store = store if store is not None else RawStore()
+        self.session = session if session is not None else make_session()
+        self.limiter = RateLimiter(1)
+
+    def fetch_raw(self, *, issue: str | None = None) -> Path:
+        if issue is not None:
+            issue_number(issue)
+        self.limiter.wait()
+        response = self.session.get(self.url, params={"expect": issue} if issue else {})
+        path = self.store.save_response(self.name, f"issue-{issue or 'current'}", response, "html")
+        response.raise_for_status()
+        return path
+
+    def parse(self, raw: bytes) -> list[SfcSnapshot]:
+        doc = html.fromstring(raw.decode("gb18030"))
+        numbers = doc.xpath("//input[@id='expect']/@value")
+        ends = doc.xpath("//input[@id='buyendtime']/@value")
+        if len(numbers) != 1 or len(ends) != 1:
+            raise ValueError("不是完整的14场期次页面")
+        number = issue_number(numbers[0])
+        year = 2000 + int(number[:2])
+        end = beijing_kickoff(ends[0]) if ends[0] else None
+        if end and abs(end.astimezone(BEIJING).year - year) > 1:
+            raise ValueError("截止年份与期号冲突")
+        rows = doc.xpath("//table[@id='vsTable']//tr[@data-cid]")
+        if len(rows) != 14 or sorted(int(r.get("data-cid")) for r in rows) != list(range(1, 15)):
+            raise ValueError("期次必须包含不重复的1至14场")
+        fixtures = []
+        for row in rows:
+            links = row.xpath(".//a[contains(@href,'/fenxi/shuju-')]/@href")
+            ids = [re.search(r"/fenxi/shuju-([0-9]+)\.shtml$", x) for x in links]
+            if len(ids) != 1 or ids[0] is None:
+                raise ValueError("比赛分析ID缺失或不唯一")
+            names = [row.xpath(f".//a[@class='team-{side}']/text()") for side in ("l", "r")]
+            if any(len(n) != 1 or not n[0].strip() for n in names):
+                raise ValueError("主客队字段不完整")
+            team_ids = []
+            for side in ("l", "r"):
+                team_links = row.xpath(f".//a[@class='team-{side}']/@href")
+                provider_id = (
+                    re.search(r"/team/([0-9]+)/?$", team_links[0]) if len(team_links) == 1 else None
+                )
+                if provider_id is None:
+                    raise ValueError("主客球队ID缺失")
+                team_ids.append(provider_id[1])
+            short = _cell(row, "td-endtime")
+            if not re.fullmatch(r"\d{2}-\d{2} \d{2}:\d{2}", short):
+                raise ValueError("比赛时间未知或格式发生变化")
+            if end:
+                # The full source deadline anchors short dates across December/January.
+                anchor = end.astimezone(BEIJING).year
+                dates = []
+                for y in (anchor - 1, anchor, anchor + 1):
+                    try:
+                        dates.append(beijing_kickoff(f"{y}-{short}"))
+                    except ValueError:
+                        continue
+                candidates = [
+                    d for d in dates if end - timedelta(days=7) < d < end + timedelta(days=30)
+                ]
+                if len(candidates) != 1:
+                    raise ValueError("无法根据截止时间确定比赛年份")
+                kickoff = candidates[0]
+            else:
+                # No full date anchors the year. Boundary-month historical pages
+                # may contain only the next/previous year, so span checks alone
+                # cannot detect an off-by-one year. Require better evidence.
+                if short[:2] in {"01", "12"}:
+                    raise ValueError("历史年末/年初比赛年份未核实，需完整来源日期")
+                kickoff = beijing_kickoff(f"{year}-{short}")
+            fixtures.append(
+                SfcFixture(
+                    int(row.get("data-cid")),
+                    ids[0][1],
+                    _cell(row, "td-evt"),
+                    names[0][0].strip(),
+                    names[1][0].strip(),
+                    kickoff.astimezone(UTC),
+                    row.get("data-isend") == "1",
+                    *team_ids,
+                )
+            )
+        if len({f.fixture_id for f in fixtures}) != 14:
+            raise ValueError("期次包含重复的比赛ID")
+        if not end and max(f.kickoff_utc for f in fixtures) - min(
+            f.kickoff_utc for f in fixtures
+        ) > timedelta(days=30):
+            raise ValueError("历史跨年日期存在歧义，需完整来源日期")
+        return [
+            SfcSnapshot(
+                number,
+                end,
+                sorted(fixtures, key=lambda f: f.seq),
+                "deadline_anchored" if end else "issue_year_assumed",
+            )
+        ]
+
+
+class C500FixtureBridge(Source[dict]):
+    """The public current JC page links provider fixture/team IDs to sporttery IDs."""
+
+    name = "c500-sfc-bridge"
+
+    def __init__(self, store=None, session=None):
+        self.store = store if store is not None else RawStore()
+        self.session = session if session is not None else make_session()
+        self.limiter = RateLimiter(1)
+
+    def fetch_raw(self) -> Path:
+        self.limiter.wait()
+        response = self.session.get(URL)  # Root only; robots excludes /jczq/? queries.
+        path = self.store.save_response(self.name, "current", response, "html")
+        response.raise_for_status()
+        return path
+
+    def parse(self, raw: bytes) -> list[dict]:
+        # Ads can contain non-GB bytes. Reject replacement characters in consumed
+        # identity fields, while ignoring unrelated ad content.
+        doc = html.fromstring(raw.decode("gb18030", errors="replace"))
+        if not doc.xpath('//*[@id="betTbThead"]'):
+            raise ValueError("500比赛ID对照页不完整")
+        out = []
+        for row in doc.xpath("//tr[@data-fixtureid and @data-id]"):
+            values = {
+                key: row.get(attr, "")
+                for key, attr in {
+                    "fixture_id": "data-fixtureid",
+                    "jc_id": "data-id",
+                    "home_id": "data-homeid",
+                    "away_id": "data-awayid",
+                    "home": "data-homesxname",
+                    "away": "data-awaysxname",
+                    "league": "data-simpleleague",
+                    "jc_num": "data-matchnum",
+                }.items()
+            }
+            if not values["jc_id"].isdigit() or int(values["jc_id"]) <= 0:
+                continue
+            if any(
+                not values[k].isdigit() or int(values[k]) <= 0
+                for k in ("fixture_id", "home_id", "away_id")
+            ):
+                raise ValueError("比赛ID对照缺少球队ID")
+            if any(not values[k] or "\ufffd" in values[k] for k in ("home", "away", "league")):
+                raise ValueError("比赛ID对照身份缺失或解码失败")
+            values["kickoff_utc"] = beijing_kickoff(
+                f"{row.get('data-matchdate', '')} {row.get('data-matchtime', '')}"
+            ).isoformat()
+            values["jc_id"] = "jc:" + values["jc_id"]
+            out.append(values)
+        if len({x["fixture_id"] for x in out}) != len(out) or len({x["jc_id"] for x in out}) != len(
+            out
+        ):
+            raise ValueError("比赛ID对照重复，不能自动匹配")
+        return out

@@ -35,10 +35,46 @@ def get_engine(path: str | Path | None = None) -> Engine:
 
 
 def init_db(engine: Engine) -> None:
+    # Historical SFC pages omit their old deadline. Migrate the legacy NOT NULL
+    # column without inventing a timestamp; keep issue-match foreign keys intact.
+    with engine.connect() as conn:
+        tables = inspect(conn).get_table_names()
+        if "sfc_issues" in tables and any(
+            col["name"] == "sale_end_utc" and not col["nullable"]
+            for col in inspect(conn).get_columns("sfc_issues")
+        ):
+            conn.commit()
+            conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            conn.commit()
+            try:
+                with conn.begin():
+                    conn.exec_driver_sql("BEGIN IMMEDIATE")
+                    conn.exec_driver_sql(
+                        "CREATE TABLE sfc_issues_nullable "
+                        "(issue_no VARCHAR PRIMARY KEY NOT NULL, sale_end_utc VARCHAR(27))"
+                    )
+                    conn.exec_driver_sql(
+                        "INSERT INTO sfc_issues_nullable "
+                        "SELECT issue_no, sale_end_utc FROM sfc_issues"
+                    )
+                    conn.exec_driver_sql("DROP TABLE sfc_issues")
+                    conn.exec_driver_sql("ALTER TABLE sfc_issues_nullable RENAME TO sfc_issues")
+                    if conn.exec_driver_sql("PRAGMA foreign_key_check").fetchone():
+                        raise ValueError("期次迁移外键校验失败")
+            finally:
+                conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+                conn.commit()
     with engine.begin() as conn:
         conn.exec_driver_sql("BEGIN IMMEDIATE")
         Base.metadata.create_all(conn)
         for table, columns in {
+            "sfc_issues": {
+                "observed_utc": "VARCHAR(27)",
+                "source_url": "VARCHAR",
+                "raw_sha256": "VARCHAR",
+                "date_basis": "VARCHAR",
+                "snapshot": "JSON",
+            },
             "predictions": {"batch_id": "VARCHAR", "mode": "VARCHAR", "as_of_utc": "VARCHAR(27)"},
             "results": {"available_utc": "VARCHAR(27)", "available_source": "VARCHAR"},
             "matches": {

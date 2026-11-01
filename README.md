@@ -33,6 +33,7 @@ zucai db init                         # 建表，已有比赛和快照会保留
 zucai fetch jc --date 2026-11-01      # 抓取该竞彩编号日在售赛程及各玩法报价
 zucai fetch results --days 30         # 回填最近30个北京时间自然日的已开奖比分
 zucai fetch results --from 2026-10-01 --to 2026-10-31
+zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai train --model dixon-coles       # 训练并按周回测
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
 pytest -q
@@ -129,6 +130,40 @@ Markdown/CSV 从同一 JSON 生成，后续改价或回填比分不会改变旧�
 ```bash
 zucai features build                  # 生成特征
 ```
+
+### 14场胜负彩期次分析（T07）
+
+与竞彩足球二串一分开：按期号读取14场对阵，复用T06已冻结的**纯球队模型**概率。
+先抓取并导出比赛清单，再使用相应来源/联赛的可信模型；模型可以重复指定。
+
+```bash
+zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
+zucai predict --matches inputs/26156.csv --model-file models/epl.pkl --out reports/26156-model
+zucai report sfc --issue 26156 --batch reports/26156-model/forecast.json --max-lines 64 --out reports/26156-sfc
+```
+
+`fetch sfc` 不指定期号时取500页面当前期；`report sfc` 仅在库中恰有一期时可以省略期号。
+`--db` 指定独立数据库；CSV和报告均拒绝覆盖已有文件/目录。普通 `report --batch ... --out ...` 保持原用法。
+
+优先用已归档的比赛对照或500当前竞彩页的比赛/主客球队ID连接已有竞彩记录，再核对联赛与开球时间；
+没有可靠ID对照时才按已知队名/别名、主客、联赛和时间精确匹配。仅接受已核实的“瑞典超/瑞超”名称对照。
+其余以 `c500:fixtureID` 保存，报告列出 `unmatched/ambiguous`。查找期间不创建简称球队或添加别名，
+不把jc模型直接套到不同来源/联赛。ID对照页只请求公开根路径，不请求其robots禁止的历史查询路径。
+补齐并核实球队别名/赛程或提供对应历史数据训练模型后，重新抓期次、重新预测，保留旧报告。
+
+报告始终有14行；缺少任一场可用概率或身份冲突时，整期覆盖与复式留空。输入齐全时用动态规划
+求不超过上限的最优**完整复式**覆盖（每场选1/2/3项，注数为各场选项数之积；不研究过滤缩水票）。
+覆盖概率使用跨场独立近似，仅指14/14赛果均在覆盖范围内，不是含13场奖的中奖概率或净盈利概率。
+页面赔率、平均概率、混合模型不进入计算，计算不需要蒙特卡洛模拟。所有结果仍为P2，BET禁用。
+
+来源截止是第三方页面转述，官方资格和出票窗口未核实；历史页缺截止时保留未知。
+缺完整年份时，历史短日期用期号年份解释并披露 `issue_year_assumed`；涉及1月/12月或跨度超过30天则拒绝，要求补充完整日期依据。
+`historical_replay` 继续标为事后重建。期次来源采集时间和原预测生成时间分别显示；
+报告新生成不代表在当时已获得完整期次或在售资格。
+
+导出 `sfc.json/report.md/report.csv/manifest.json`。JSON内含完整期次映射、引用预测批次、模型依据
+与SHA256，便于离开本机后复核；后续改库不会覆盖旧版。[真实验收报告](reports/2026-11-01-t07-acceptance/README.md)
+随PR进入私有GitHub。当前feeds自动归档**不包含**期次表和这些报告，尚未启用自动同步。
 
 ## 目录结构
 

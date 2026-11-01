@@ -96,7 +96,12 @@ class SfcIssue(Base):
     __tablename__ = "sfc_issues"
 
     issue_no: Mapped[str] = mapped_column(primary_key=True)
-    sale_end_utc: Mapped[str] = mapped_column(UTCString)
+    sale_end_utc: Mapped[str | None] = mapped_column(UTCString)
+    observed_utc: Mapped[str | None] = mapped_column(UTCString)
+    source_url: Mapped[str | None]
+    raw_sha256: Mapped[str | None]
+    date_basis: Mapped[str | None]
+    snapshot: Mapped[list[dict] | None] = mapped_column(JSON)
 
 
 class SfcIssueMatch(Base):

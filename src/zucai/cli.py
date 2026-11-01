@@ -24,6 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
     feeds = fetch.add_subparsers(dest="feed", required=True)
     jc = feeds.add_parser("jc", help="采集在售竞彩赛程和固定奖金")
     jc.add_argument("--date", type=date.fromisoformat, help="北京时间竞彩编号日期 YYYY-MM-DD")
+    sfc = feeds.add_parser("sfc", help="采集当前或指定14场胜负彩期次")
+    sfc.add_argument("--issue", help="5位期号，不填写取来源当前期")
+    sfc.add_argument("--db", help="数据库路径，默认 ZUCAI_DB 或 data/zucai.db")
+    sfc.add_argument("--matches-out", help="另存可直接输入T06的CSV清单，不覆盖已有文件")
     from zucai.sources.results import assumed_delay
 
     results = feeds.add_parser("results", help="回填已开奖场次的常规时间及半场比分")
@@ -70,8 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     predict.add_argument("--out", help="新的报告目录，不覆盖现有批次")
     report = sub.add_parser("report", help="从冻结JSON校验并重新导出报告")
+    report.add_argument("report_kind", nargs="?", choices=["sfc"], help="14场胜负彩期次分析")
     report.add_argument("--batch", required=True, help="冻结 forecast.json 路径")
     report.add_argument("--out", required=True, help="新的导出目录")
+    report.add_argument("--db", help="sfc：期次数据库")
+    report.add_argument("--issue", help="sfc：期号，多期并存时必须明确指定")
+    report.add_argument("--max-lines", type=int, default=64, help="sfc：复式总注数上限，默认64")
 
     # 以下子命令由 docs/tasks 中的任务逐个实现：
     # fetch jc / fetch results / fetch sfc   (T02, T03)
@@ -102,6 +110,10 @@ def main(argv: list[str] | None = None) -> int:
 
             if args.command == "predict":
                 run_predict(args)
+            elif args.report_kind == "sfc":
+                from zucai.report.sfc import run_sfc_report
+
+                run_sfc_report(args)
             else:
                 run_report(args)
         except ModuleNotFoundError as exc:
@@ -123,6 +135,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.feed == "jc":
                 fetch_schedule(args.date)
+            elif args.feed == "sfc":
+                from zucai.sources.sfc import fetch_sfc
+
+                fetch_sfc(args.issue, db=args.db, matches_out=args.matches_out)
             else:
                 today = datetime.now(BEIJING).date()
                 if args.start is not None:
@@ -135,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
                         raise ValueError("请使用 --days N 或 --from 日期 --to 日期")
                     start, end = today - timedelta(days=days - 1), today
                 fetch_results(start, end, args.source, args.assume_known_after)
-        except (RequestException, ValueError, KeyError, TypeError, SQLAlchemyError) as exc:
+        except (RequestException, ValueError, KeyError, TypeError, OSError, SQLAlchemyError) as exc:
             logging.getLogger(__name__).error("采集未完成：%s", exc)
             return 1
         return 0
