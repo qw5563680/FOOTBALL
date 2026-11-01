@@ -39,3 +39,8 @@
 3. 已有 `published` 或 `captured` 的行，回填不得降级为 `assumed`；比分更正时若没有新的依据时间，沿用 T05 的触发器记更正时刻，`available_source = 'captured'`。
 4. 加列要走 `init_db` 的"缺列即 ALTER"路径，旧行 `available_source` 为 NULL 时视同 `captured`，并同步更新 `docs/ARCHITECTURE.md` 数据模型。
 5. 本节取代本文上方任何"固定延时只用于示例"的限制：固定延时允许用于真实数据回填，但必须带 `assumed` 标记，且 T05 回测报告必须披露其占比。
+6. 比分未变时，无论旧行依据是 `published`、`captured` 还是 `assumed`，都保留原 `available_utc` 和 `available_source`，
+   并按"未变化"计数，不计入本次完赛数；唯一允许的替换是用来源给出的 `published` 时间替换 `assumed`。
+   原因：历史回填用 `--assume-known-after` 写入 `assumed` 后，日常不带开关的增量重跑若把这些行改成当前采集时刻，
+   T05 的 `available_utc < cutoff` 过滤会把它们从所有历史折中剔除，回测数据集随之失效。
+   `docs/ARCHITECTURE.md` 对应表述为"相同比分保留已有依据（含 assumed）"。
