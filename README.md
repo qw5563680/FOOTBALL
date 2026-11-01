@@ -33,6 +33,7 @@ zucai db init                         # 建表，已有比赛和快照会保留
 zucai fetch jc --date 2026-11-01      # 抓取该竞彩编号日在售赛程及各玩法报价
 zucai fetch results --days 30         # 回填最近30个北京时间自然日的已开奖比分
 zucai fetch results --from 2026-10-01 --to 2026-10-31
+zucai fetch results --source c500 --from 2026-11-02 --to 2026-11-02  # 仅根页近期备用
 zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
 zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
@@ -46,6 +47,15 @@ pytest -q
 数据库默认位于 `data/zucai.db`。可以设置 `ZUCAI_DB`，也可用
 `zucai db init --path /path/to/football.db` 明确指定文件。
 同一场比赛可以保存不同采集时间的赔率和不同模型版本的预测。
+
+500.com 赛果源定位为**近期备用**，每批只 GET 一次 `https://trade.500.com/jczq/`，不带查询串。
+2026-11-02 实读 robots.txt：禁止 `/jczq/?` 和 `/zc6/index.php?expect=*`，未禁止竞彩根路径；
+14场 `/sfc/?expect=` 未被禁止。`--from/--to` 仍按北京时间开球自然日筛选，范围内每一天必须出现在
+根页比赛行中，否则整批报错并提示使用 jc；不再查询前一编号日的历史页面。根页覆盖随时间变化，
+示例日期也可能已移出。覆盖仅代表当前页可见场次，不保证该自然日全部比赛仍在页内。
+只有精确的已结算比分选项可入库，“其他”、未结算、半场比分保持未知；有场次但无精确赛果时明确记录零场。
+本次实抓根页有14场、没有精确已结算赛果，详情见 [T12验收](reports/2026-11-02-t12-acceptance/README.md)。
+云端自动归档当前仅调用 jc 官方赛果，无 c500 自动备用查询。
 
 ### 云端采集
 

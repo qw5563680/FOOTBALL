@@ -379,11 +379,13 @@ def fetch_results(
     counts = {"finished": 0, "cancelled": 0, "assumed": 0, "unchanged": 0}
     try:
         init_db(engine)
-        # 500 groups by the sales day, which can contain next-calendar-day kickoffs.
-        day = start if source == "jc" else start - timedelta(days=1)
+        day = start
         while day <= end:
             ready = []
-            for game, seen in feed.day_results(day):
+            # One current 500 snapshot includes adjacent number days. Validate the
+            # whole kickoff-date range before any write, including unsettled rows.
+            entries = feed.day_results(day) if source == "jc" else feed.range_results(start, end)
+            for game, seen in entries:
                 if not start <= game.play_date <= end:
                     continue
                 if game.kickoff_utc is None:
@@ -407,6 +409,8 @@ def fetch_results(
                     else:
                         counts["finished"] += 1
                         counts["assumed"] += int(state == "assumed")
+            if source != "jc":
+                break
             day += timedelta(days=1)
     finally:
         feed.session.close()
