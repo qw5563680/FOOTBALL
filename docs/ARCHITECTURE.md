@@ -130,9 +130,18 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `p_home` / `p_draw` / `p_away` | 胜平负概率 |
 | `score_matrix` | JSON，10x10 比分概率 |
 | `created_utc` | 生成时间 |
+| `batch_id` / `mode` / `as_of_utc` | T06冻结批次、prematch/historical_replay模式与数据截止；旧行可空，未知不得算作赛前实录 |
 
 单次预测由比赛、模型名、模型版本和生成时间共同区分。三项概率均在 [0, 1]，
 总和与 1 的误差小于 0.000001。比分矩阵的形状由 T05 的模型层校验。
+
+T06加载同来源同联赛的可信模型文件，以文件SHA256标记版本，完整报价只在报告/显式混合实验使用。
+`report/batch.py` 生成纯模型预测和逐场排除清单，`report/command.py` 管理事务与开球截止复核，
+`report/render.py` 不读取数据库或模型，仅从冻结JSON产生Markdown/CSV并校验清单。
+训练/加载、生成和文件输出的时刻分开记录：固定 as_of 后运行模型，再取真实计算完成时间；
+导出后和数据库提交前仍须早于所有已预测场次开球，超时则回滚本批并清理自己创建的文件。
+比分、赔率、队名的后续更新不改变批次JSON。报告版本只追加，不覆盖。
+预测冻件当前通过私有PR保存，不在 `cloud_feeds.TABLES` 中；feeds同步不承担预测报告归档。
 
 ## 模型路线
 

@@ -1,2 +1,8 @@
 * text=auto eol=lf
 *.sh text eol=lf
+
+# Frozen report hashes must survive Windows/Linux checkout without newline conversion.
+reports/**/forecast.json -text
+reports/**/report.md -text
+reports/**/report.csv -text whitespace=cr-at-eol
+reports/**/manifest.json -text

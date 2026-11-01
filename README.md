@@ -88,11 +88,46 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 公开 CSV 演示的所有比分均标为 `assumed`，其指标为 `mixed`，训练与评估假设占比均为 100%。
 只加载本项目自行训练、来源可信的模型文件。
 
-以下命令随相应任务合并后提供：
+### 批量预测与冻结报告（T06）
+
+使用项目训练出的可信模型文件。按来源和联赛分别训练，多个模型可重复指定 `--model-file`。
+新结果统一为 **P2 实验概率**，BET 禁用；仅历史比分模型，不含伤停、正式首发或天气等输入。
+
+```bash
+zucai train --league 英超 --source jc --strict-availability --output models/epl.pkl
+zucai predict --match-id jc:2042428 --model-file models/epl.pkl --out reports/my-batch
+zucai predict --matches matches.csv --model-file models/epl.pkl --out reports/another-batch
+zucai predict --date 2026-11-02 --model-file models/epl.pkl --out reports/by-kickoff-day
+zucai report --batch reports/my-batch/forecast.json --out reports/another-export
+python examples/t06_public_replay.py --out reports/public-replay
+```
+
+`matches.csv` 必须有 `match_id` 列，可附 `home,away,league,source,kickoff_utc` 核对身份；有冲突的场次
+列明原因并排除，不根据相似队名换场。`--date` 是北京时间**开球自然日**，竞彩编号单独展示。
+无输入选择器时默认当天；历史回放默认截点的北京时间开球日。
+
+每批输出 `forecast.json`、`report.md`、`report.csv`、`manifest.json`，目录必须为新目录。
+冻结 JSON 保存原精度比分矩阵、模型文件 SHA256、训练范围/数量/可知时间依据，以及当次完整 SP 快照。
+Markdown/CSV 从同一 JSON 生成，后续改价或回填比分不会改变旧报告，重新导出前核对 SHA256。
+数据库的 `batch_id/mode/as_of_utc` 将预测关联到冻结报告，旧行保持未知，不自动当作赛前实录。
+真实生成时间在模型计算完成时记录；写报告后和提交前再次检查开球，跨过开球则取消本批并回滚。
+
+模型与赔率概率分列。报价须为单个时刻完整的普通胜平负三项，早于开球且不晚于预测截点；
+无报价时仍可做纯模型预测，市场栏留空。EV 只是点估计，突出显示不表示通过验证或具备可购买价值。
+`--market-weight w` 默认0；显式开启另存市场相关实验模型和独立版本，不覆盖纯模型行，缺完整SP则报错。
+
+历史回放必须同时给出 `--replay --as-of 带时区的ISO时间`，保留真实生成时间并明确标为事后重建。
+当前比赛表保留最新赛程/状态，不能证明历史改期或取消在当时是否已知；回放不能重新称为未见验证。
+公开样例使用2019/20英超真实比分，假设赛果开球3小时后可知，`mixed/assumed=100%`；不伪填官方SP。
+
+当前 PR 中的实际验收报告保存在 `reports/2026-11-01-t06-acceptance/`，可直接在私有 GitHub 查看。
+日常命令生成的新报告需提交私有仓库后才能长期云端保存；现有 feeds 自动归档只包含赛程/报价/赛果，
+不自动同步预测文件。可视化窗口和预测定时任务属于后续交付。
+
+以下特征命令随后续任务提供：
 
 ```bash
 zucai features build                  # 生成特征
-zucai predict --date 2026-11-01       # 输出预测表（markdown + csv）
 ```
 
 ## 目录结构

@@ -122,6 +122,9 @@ class Prediction(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[str | None]
+    mode: Mapped[str | None]
+    as_of_utc: Mapped[str | None] = mapped_column(UTCString)
     match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"))
     model_name: Mapped[str]
     model_version: Mapped[str]

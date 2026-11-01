@@ -55,6 +55,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="排除 assumed 赛果训练，并同时报告默认与严格回测",
     )
 
+    predict = sub.add_parser("predict", help="运行纯模型批量预测并冻结报告，P2实验")
+    predict.add_argument("--model", choices=["dixon-coles"], default="dixon-coles")
+    predict.add_argument("--db", help="数据库路径，默认 ZUCAI_DB 或 data/zucai.db")
+    predict.add_argument("--model-file", action="append", help="可信模型文件，可按联赛重复指定")
+    selection = predict.add_mutually_exclusive_group()
+    selection.add_argument("--date", type=date.fromisoformat, help="北京时间开球自然日")
+    selection.add_argument("--match-id", action="append", help="已核实比赛ID，可重复指定")
+    selection.add_argument("--matches", help="单列 match_id 的CSV比赛清单")
+    predict.add_argument("--as-of", help="仅历史回放使用，必须是带时区的ISO时间")
+    predict.add_argument("--replay", action="store_true", help="显式标记历史回放")
+    predict.add_argument(
+        "--market-weight", type=float, default=0, help="独立实验混合权重，默认关闭"
+    )
+    predict.add_argument("--out", help="新的报告目录，不覆盖现有批次")
+    report = sub.add_parser("report", help="从冻结JSON校验并重新导出报告")
+    report.add_argument("--batch", required=True, help="冻结 forecast.json 路径")
+    report.add_argument("--out", required=True, help="新的导出目录")
+
     # 以下子命令由 docs/tasks 中的任务逐个实现：
     # fetch jc / fetch results / fetch sfc   (T02, T03)
     # features build                          (T04)
@@ -73,6 +91,27 @@ def main(argv: list[str] | None = None) -> int:
         from zucai import __version__
 
         print(__version__)
+        return 0
+    if args.command in {"predict", "report"}:
+        from pickle import UnpicklingError
+
+        from sqlalchemy.exc import SQLAlchemyError
+
+        try:
+            from zucai.report.command import run_predict, run_report
+
+            if args.command == "predict":
+                run_predict(args)
+            else:
+                run_report(args)
+        except ModuleNotFoundError as exc:
+            if exc.name != "penaltyblog":
+                raise
+            logging.getLogger(__name__).error('请安装模型依赖 python -m pip install -e ".[model]"')
+            return 2
+        except (ValueError, OSError, SQLAlchemyError, TypeError, EOFError, UnpicklingError) as exc:
+            logging.getLogger(__name__).error("预测或导出未完成：%s", exc)
+            return 2
         return 0
     if args.command == "fetch":
         from requests import RequestException

@@ -39,6 +39,7 @@ def init_db(engine: Engine) -> None:
         conn.exec_driver_sql("BEGIN IMMEDIATE")
         Base.metadata.create_all(conn)
         for table, columns in {
+            "predictions": {"batch_id": "VARCHAR", "mode": "VARCHAR", "as_of_utc": "VARCHAR(27)"},
             "results": {"available_utc": "VARCHAR(27)", "available_source": "VARCHAR"},
             "matches": {
                 "result_checked_utc": "VARCHAR(27)",
