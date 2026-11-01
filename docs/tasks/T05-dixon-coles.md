@@ -29,3 +29,15 @@
 ## 验收标准
 - 在 T03 的真实数据上回测，PR 里分别给出纯模型和赔率基准的指标，并说明时间划分方式（训练截止时刻早于每场开赛）。
 - 封装第三方库时，PR 描述附许可证名称和版本号。
+
+## 回测对"假设可知时间"的披露（路线 B，2026-11-01 定稿）
+
+T03 允许历史回填用 `available_source = 'assumed'` 标记"赛后固定延时已知"的赛果。T05 的回测必须让读者一眼看出这类样本的影响：
+
+1. `read_history` 带出 `available_source`，NULL 视同 `captured`。
+2. 回测报告新增：
+   - 总体与每个 fold 的 `assumed_training_share`（训练样本中 `assumed` 占比）和 `assumed_eval_share`（评估样本中占比）；
+   - 顶层字段 `availability_basis`：全部为 `published`/`captured` 时为 `strict`，否则为 `mixed`，并附占比。
+3. `zucai train` 加开关 `--strict-availability`：排除所有 `assumed` 行后重跑同一回测，用于日后用真实采集时间复核。两种模式的指标在同一份输出里并列。
+4. 验收测试：构造一半 `assumed` 的历史，默认模式报告 `mixed` 与正确占比；严格模式训练样本数减半且不含任何 `assumed` 行。
+5. 文档与报告模板里，凡引用 `mixed` 模式的指标，必须同时写出 `assumed` 占比。
