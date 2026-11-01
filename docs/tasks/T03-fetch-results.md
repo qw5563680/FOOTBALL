@@ -8,6 +8,9 @@
 2. `zucai fetch results [--days 30 | --from YYYY-MM-DD --to YYYY-MM-DD]`：
    - 逐日请求，限速 ≥ 1 秒；
    - 比赛不存在时先 upsert `matches`（`status=finished`），再写 `results`；
+   - 写入或更正全场比分时显式传入 `results.available_utc`。优先用来源可核实的发布时间；
+     缺失时用原始快照的 UTC 采集时刻，并记录来源。历史批量回填只证明导入时已知，
+     回测须报告因此缺少的样本。固定赛后延时只用于明确标记的示例回放。
    - 取消/延期的比赛 `status=cancelled`，不写 `results`。
 3. 备用来源：`src/zucai/sources/c500.py` 的 `C500JcHistory(Source)` 解析 `trade.500.com/jczq/?date=`
    页面（需验证，注意 GBK 编码），`zucai fetch results --source c500`。
