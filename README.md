@@ -39,6 +39,7 @@ zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-
 zucai train --league 英超 --source jc,fd --since 2026-09-01 --output models/epl-mixed.pkl
 zucai train --model dixon-coles       # 训练并按周回测
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
+zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶段历史回放
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
 pytest -q
 ```
@@ -91,6 +92,17 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 `--strict-availability` 排除所有 `assumed` 行后训练并保存模型，在同一 JSON 中并列输出默认
 `backtest` 与严格 `strict_backtest`；严格样本不足时返回错误，避免将不完整数据说成复核结果。
 公开 CSV 演示的所有比分均标为 `assumed`，其指标为 `mixed`，训练与评估假设占比均为 100%。
+`--replay-known-after 3h`（也支持如 `90m`，默认关闭）只在内存中将晚于开球加延时的
+`captured/published` 赛果提前到该假设时刻，标为 `replayed`；不改变 `assumed`、未知可知时间或库中数据。
+它与 `--strict-availability` 互斥。训练命令只读已有数据库，不建库或迁移；旧库须先显式运行 `db init`。
+回测顶层与每折披露 `replayed_training_share`、`replayed_eval_share`，分母分别沿用上述训练加权及
+成功评估样本口径。只要实际使用过重放的训练或评估行，`availability_basis` 就为 `replayed`，优先于 `mixed`；
+原有 `assumed` 占比仍独立保留。**带 `replayed` 的指标只能叫“开发阶段历史回放”，不能当作前瞻验证。**
+模型保存实际训练重放占比及延时；模型元数据的 `replayed_eval_share` 指本次训练命令关联的周滚动回测占比，
+不是最终拟合模型的留出测试。单独调用 `fit` 或旧模型没有关联回测时该字段为 null。
+报告的 `uniform` 为与模型同一批成功评分比赛的等概率参照（主/平/客各 1/3），顶层和每折均有
+对数损失与 Brier：非空集分别为 `ln(3) ≈ 1.098612`、`2/3 ≈ 0.666667`，空集为 null。
+这是固定比较参照，不是可达到误差的数学下限，也不代表市场概率。
 只加载本项目自行训练、来源可信的模型文件。
 
 ### 多赛季历史数据（T08）

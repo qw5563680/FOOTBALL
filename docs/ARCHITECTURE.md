@@ -224,3 +224,20 @@ T05 在单一联赛和来源内封装 `penaltyblog==1.13.1` 的 Dixon–Coles �
 `availability_basis` 为 mixed，引用指标必须同时引用假设占比。`--strict-availability` 排除全部 assumed
 后训练模型，并在同一 JSON 的 `backtest` / `strict_backtest` 中并列提供两种回测。
 模型文件和预测元数据保存实际训练样本的 `availability_basis` 与 `assumed_training_share`。
+
+T11 的 `train --replay-known-after 3h` 默认关闭，与 `--strict-availability` 互斥。`read_history`
+在读出后仅对 `captured/published` 且 `available_utc - kickoff_utc > 延时` 的行创建内存重放副本，
+将可知时间设为开球加延时，来源标为 `replayed`，并通过 `attrs["replay_delay"]` 保存延时。
+时间未知、恰好等于延时、其他来源的行不重放。训练入口只读已有库，不初始化、不迁移、不写赛果。
+T06 真实预测路径不应用这项转换，仍使用库中的可知时间。
+
+回测顶层及每折新增 `replayed_training_share`、`replayed_eval_share`，分别按实际训练样本数加权、
+按成功预测的评估样本数计算；未知球队等跳过样本不计入评估分母。任一已使用训练或评估行被重放，
+`availability_basis` 为 `replayed`，优先于 `mixed`；`assumed` 占比照常独立披露。
+模型文件及元数据保留训练重放占比、延时，以及训练命令关联的周滚动回测 `replayed_eval_share`；
+单独 `fit` 或旧模型没有关联回测时后者为 null，不声称是最终模型的独立留出结果。
+**带 `replayed` 的指标只能叫“开发阶段历史回放”，不能当作前瞻验证。**
+
+报告顶层及每折的 `uniform` 使用与模型完全相同的成功评估集，主/平/客概率各为 1/3，
+非空集的对数损失为 ln(3)，三分类 Brier 为 2/3；空集保持 n=0、指标 null。
+这是固定参照，不是误差的数学下限；市场基准仍单独报告，不参与拟合。

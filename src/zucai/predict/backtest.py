@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
 from zucai.models import Match, Odds, Result, Team
+from zucai.predict.availability import replay_history
 from zucai.predict.base import (
     availability_sources,
     normalize_sources,
@@ -22,7 +23,9 @@ from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 LOG = logging.getLogger(__name__)
 
 
-def read_history(session: Session, league=None, source=None) -> pd.DataFrame:
+def read_history(
+    session: Session, league=None, source=None, *, replay_known_after=None
+) -> pd.DataFrame:
     sources = normalize_sources(source)
     home, away = aliased(Team), aliased(Team)
     query = (
@@ -61,6 +64,9 @@ def read_history(session: Session, league=None, source=None) -> pd.DataFrame:
         frame[key] = pd.to_datetime(frame[key], utc=True, format="ISO8601")
     reject_cross_source_overlaps(frame)
     frame["available_source"] = availability_sources(frame)
+    frame.attrs["replay_delay"] = None
+    if replay_known_after is not None:
+        return replay_history(frame, replay_known_after)
     return frame
 
 
@@ -140,6 +146,11 @@ def evaluate(
     if start >= end:
         raise ValueError("回测开始时间须早于截止时间")
     if strict_availability:
+        if (
+            history.attrs.get("replay_delay") is not None
+            or (availability_sources(history) == "replayed").any()
+        ):
+            raise ValueError("--strict-availability 与 --replay-known-after 互斥")
         history = history.loc[availability_sources(history) != "assumed"]
     period = history.loc[(history.kickoff_utc >= start) & (history.kickoff_utc < end)]
     evaluation = period.loc[
@@ -152,6 +163,7 @@ def evaluate(
     folds = []
     skipped = Counter()
     training_count = assumed_training_count = evaluated_count = assumed_eval_count = 0
+    replayed_training_count = replayed_eval_count = 0
     basis = "strict"
     for week, fixtures in evaluation.groupby(weeks, sort=True):
         try:
@@ -171,13 +183,19 @@ def evaluate(
             "last_available_utc": model.latest_available.isoformat(),
             "assumed_training_share": model.assumed_training_share,
             "assumed_eval_share": 0.0,
+            "replayed_training_share": model.replayed_training_share,
+            "replayed_eval_share": 0.0,
         }
         folds.append(fold)
         training_count += model.training_rows
         assumed_training_count += model.assumed_training_rows
+        replayed_training_count += model.replayed_training_rows
         if model.availability_basis != "strict":
             basis = "mixed"
         fold_evaluated = fold_assumed = 0
+        fold_replayed = 0
+        fold_mixed = model.availability_basis != "strict"
+        fold_observations = []
         for row in fixtures.to_dict("records"):
             try:
                 probs = had(model.predict_score_matrix(row))
@@ -192,19 +210,40 @@ def evaluate(
             actual = 0 if result > 0 else 1 if result == 0 else 2
             observation = (actual, tuple(probs[k] for k in "hda"))
             all_model.append(observation)
+            fold_observations.append(observation)
             fold_evaluated += 1
             source = row.get("available_source") or "captured"
             fold_assumed += source == "assumed"
+            fold_replayed += source == "replayed"
             if source not in ("published", "captured"):
                 basis = "mixed"
+                fold_mixed = True
             if row["match_id"] in market:
                 paired_model.append(observation)
                 baseline.append((actual, market[row["match_id"]]))
         fold["assumed_eval_share"] = fold_assumed / fold_evaluated if fold_evaluated else 0.0
+        fold["replayed_eval_share"] = fold_replayed / fold_evaluated if fold_evaluated else 0.0
+        fold["availability_basis"] = (
+            "replayed"
+            if model.replayed_training_rows or fold_replayed
+            else "mixed"
+            if fold_mixed
+            else "strict"
+        )
+        fold["model"] = _metrics(fold_observations)
+        fold["uniform"] = _metrics([(actual, (1 / 3,) * 3) for actual, _ in fold_observations])
         evaluated_count += fold_evaluated
         assumed_eval_count += fold_assumed
+        replayed_eval_count += fold_replayed
     return {
-        "availability_basis": basis,
+        "availability_basis": "replayed"
+        if replayed_training_count or replayed_eval_count
+        else basis,
+        "replayed_training_share": replayed_training_count / training_count
+        if training_count
+        else 0.0,
+        "replayed_eval_share": replayed_eval_count / evaluated_count if evaluated_count else 0.0,
+        "replay_delay": history.attrs.get("replay_delay"),
         "assumed_training_share": assumed_training_count / training_count
         if training_count
         else 0.0,
@@ -216,6 +255,7 @@ def evaluate(
         "skipped": dict(skipped),
         "folds": folds,
         "model": _metrics(all_model),
+        "uniform": _metrics([(actual, (1 / 3,) * 3) for actual, _ in all_model]),
         "paired_model": _metrics(paired_model),
         "market": _metrics(baseline),
     }
