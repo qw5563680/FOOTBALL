@@ -1,5 +1,6 @@
 """按日归档官方开奖页，验证分页，再把常规时间比分与赛前场次对应。"""
 
+import csv
 import logging
 import re
 from dataclasses import dataclass, replace
@@ -7,6 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from zucai.db import get_engine, init_db, session_scope, upsert_match
@@ -46,6 +48,7 @@ class SportteryResults(Source[GameResult]):
     name = "sporttery-results"
 
     def __init__(self, store=None, session=None):
+        self.rejected = []
         self.store = store if store is not None else RawStore()
         self.session = session if session is not None else make_session()
         self.session.headers["Referer"] = "https://www.sporttery.cn/"
@@ -75,33 +78,32 @@ class SportteryResults(Source[GameResult]):
         value = official_value(raw)
         if not value:
             return []
-        records = []
-        for item in value["matchResult"]:
-            ft_text = item.get("sectionsNo999", "")
-            void = ft_text in VOID or item.get("poolStatus") == "Refund"
-            if not void and str(item["matchResultStatus"]) != "2":
-                continue
-            ft = None if void else score(ft_text)
-            if not void and ft is None:
-                raise ValueError(f"{item['matchId']} 已结算但没有明确常规时间比分")
-            half = None if void else score(item.get("sectionsNo1", ""))
-            if ft and half and (half[0] > ft[0] or half[1] > ft[1]):
-                raise ValueError(f"{item['matchId']} 半场比分大于全场比分")
-            records.append(
-                GameResult(
-                    f"jc:{int(item['matchId'])}",
-                    item["leagueNameAbbr"],
-                    item["matchNumStr"],
-                    item["homeTeam"],
-                    item["awayTeam"],
-                    date.fromisoformat(item["matchDate"]),
-                    "cancelled" if void else "finished",
-                    ft,
-                    half,
-                    team_ids=(int(item["homeTeamId"]), int(item["awayTeamId"])),
-                )
-            )
-        return records
+        return [g for item in value["matchResult"] if (g := self._row(item)) is not None]
+
+    @staticmethod
+    def _row(item: dict) -> GameResult | None:
+        ft_text = item.get("sectionsNo999", "")
+        void = ft_text in VOID or item.get("poolStatus") == "Refund"
+        if not void and str(item["matchResultStatus"]) != "2":
+            return None
+        ft = None if void else score(ft_text)
+        if not void and ft is None:
+            raise ValueError("已结算但没有明确常规时间比分")
+        half = None if void else score(item.get("sectionsNo1", ""))
+        if ft and half and (half[0] > ft[0] or half[1] > ft[1]):
+            raise ValueError("半场比分大于全场比分")
+        return GameResult(
+            f"jc:{int(item['matchId'])}",
+            item["leagueNameAbbr"],
+            item["matchNumStr"],
+            item["homeTeam"],
+            item["awayTeam"],
+            date.fromisoformat(item["matchDate"]),
+            "cancelled" if void else "finished",
+            ft,
+            half,
+            team_ids=(int(item["homeTeamId"]), int(item["awayTeamId"])),
+        )
 
     def day_results(self, day: date) -> list[tuple[GameResult, datetime]]:
         observations = []
@@ -136,7 +138,14 @@ class SportteryResults(Source[GameResult]):
                 raise ValueError(f"{day} 接口返回了其他日期")
             ids.update(new_ids)
             observed = datetime.fromisoformat(self.store.load_metadata(path)["fetched_at_utc"])
-            observations.extend((r, observed) for r in self.parse(raw))
+            for row in rows:
+                try:
+                    game = self._row(row)
+                except (ValueError, KeyError, TypeError) as exc:
+                    self.rejected.append((day, f"jc:{row['matchId']}", observed, str(exc)))
+                    continue
+                if game is not None:
+                    observations.append((game, observed))
             if page >= int(value["pages"]):
                 if len(ids) != total:
                     raise ValueError(f"{day} 共{total}场，仅取得{len(ids)}场")
@@ -374,12 +383,21 @@ def fetch_results(
                 if not start <= game.play_date <= end:
                     continue
                 if game.kickoff_utc is None:
-                    game = replace(game, kickoff_utc=feed.kickoff(game))
+                    try:
+                        game = replace(game, kickoff_utc=feed.kickoff(game))
+                    except (ValueError, KeyError, TypeError) as exc:
+                        feed.rejected.append((day, game.match_id, seen, str(exc)))
+                        continue
                 ready.append((game, seen))
             with session_scope(engine) as s:
                 s.connection().exec_driver_sql("BEGIN IMMEDIATE")
                 for game, seen in ready:
-                    state = apply_result(s, game, seen, assume)
+                    try:
+                        with s.begin_nested():
+                            state = apply_result(s, game, seen, assume)
+                    except (ValueError, IntegrityError) as exc:
+                        feed.rejected.append((day, game.match_id, seen, str(exc)))
+                        continue
                     if state in {"unchanged", "cancelled"}:
                         counts[state] += 1
                     else:
@@ -389,6 +407,14 @@ def fetch_results(
     finally:
         feed.session.close()
         engine.dispose()
+        if feed.rejected:
+            audit = Path("data/rejected_results.csv")
+            audit.parent.mkdir(parents=True, exist_ok=True)
+            with audit.open("a", encoding="utf-8", newline="") as out:
+                writer = csv.writer(out)
+                if out.tell() == 0:
+                    writer.writerow(["date", "match_id", "observed_utc", "reason"])
+                writer.writerows(feed.rejected)
     LOGGER.info(
         "回填 %s 至 %s，来源 %s，完赛 %d，取消/无效 %d，assumed %d，跳过 %d",
         start,
@@ -399,6 +425,8 @@ def fetch_results(
         counts["assumed"],
         counts["unchanged"],
     )
+    if feed.rejected:
+        raise ValueError(f"{len(feed.rejected)} 场未通过核验，见 data/rejected_results.csv")
     return counts
 
 

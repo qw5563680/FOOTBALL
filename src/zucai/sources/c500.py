@@ -18,6 +18,7 @@ class C500JcHistory(Source[GameResult]):
     name = "c500-results"
 
     def __init__(self, store=None, session=None):
+        self.rejected = []
         self.store = store if store is not None else RawStore()
         self.session = session if session is not None else make_session()
         self.limiter = RateLimiter(1)

@@ -167,6 +167,50 @@ def test_pending_cup_and_refunds_do_not_import_an_extra_time_or_placeholder_scor
     ]
 
 
+def test_real_settlements_include_void_and_shootout_draw():
+    from zucai.sources.results import SportteryResults
+
+    observed = {}
+    for day in json.loads((FIX / "sporttery_settlements_2026.json").read_bytes()):
+        (g,) = SportteryResults().parse(json.dumps(day).encode())
+        observed[g.match_id] = (g.status, g.full, g.half)
+    assert observed == {
+        "jc:2041478": ("cancelled", None, None),
+        "jc:2041724": ("cancelled", None, None),
+        "jc:2042315": ("finished", (1, 1), (1, 1)),
+    }
+
+
+def test_bad_row_is_reported_but_valid_games_and_later_dates_are_stored(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = json.loads((FIX / "sporttery_results_20261031.json").read_bytes())
+    item = p["value"]["matchResult"][0]
+    p["value"]["matchResult"].append(dict(item, matchId=5, sectionsNo1="9:0"))
+    p["value"]["total"] = 2
+    second = json.loads(json.dumps(p))
+    second["value"].update(
+        total=1,
+        matchResult=[
+            dict(item, matchDate="2026-11-01", matchId=7, sectionsNo1="1:0", sectionsNo999="2:0")
+        ],
+    )
+    h = json.loads((FIX / "sporttery_head_2042404.json").read_bytes())
+    hh = json.loads(json.dumps(h))
+    hh["value"].update(sportteryMatchId=7, matchDateTime="2026-11-01 10:30")
+    with responses.RequestsMock() as api:
+        for v in (p, second):
+            api.add(responses.GET, PAGE, json=v)
+        for v in (h, hh):
+            api.add(responses.GET, HEAD, json=v)
+        assert main(["fetch", "results", "--from", DAY, "--to", "2026-11-01"]) != 0
+    with sqlite3.connect("data/zucai.db") as s:
+        assert s.execute("select match_id from results order by match_id").fetchall() == [
+            ("jc:2042404",),
+            ("jc:7",),
+        ]
+    assert "jc:5" in Path("data/rejected_results.csv").read_text(encoding="utf8")
+
+
 def test_unchanged_assumptions_are_not_counted_as_new_and_void_reversal_is_timed(
     tmp_path, monkeypatch
 ):

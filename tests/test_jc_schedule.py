@@ -118,3 +118,17 @@ def test_handicap_switch_back_is_a_new_market_even_at_its_previous_price(tmp_pat
             "select line from odds where selection='h' order by snapshot_utc"
         ).fetchall() == [(-1,), (-2,), (-1,)]
     engine.dispose()
+
+
+def test_incomplete_extra_markets_are_omitted_without_losing_valid_had_or_other_games():
+    from zucai.sources.sporttery import SportteryCalculator
+
+    data = json.loads(FIXTURE.read_bytes())
+    r = data["value"]["matchInfoList"][0]["subMatchList"][0]
+    r["crs"]["s01s00"] = "--"
+    r["ttg"]["s7"] = "NaN"
+    r["hafu"]["da"] = "bad"
+    r["hhad"]["goalLine"] = ""
+    games = SportteryCalculator().parse(json.dumps(data).encode())
+    assert {q.pool for q in games[0].odds} == {"had"}
+    assert {q.pool for q in games[1].odds} == {"had", "hhad", "hafu", "crs", "ttg"}

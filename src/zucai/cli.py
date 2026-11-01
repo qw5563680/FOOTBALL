@@ -59,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "fetch":
         from requests import RequestException
+        from sqlalchemy.exc import SQLAlchemyError
 
         from zucai.sources.results import fetch_results
         from zucai.sources.sporttery import BEIJING, fetch_schedule
@@ -78,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
                         raise ValueError("请使用 --days N 或 --from 日期 --to 日期")
                     start, end = today - timedelta(days=days - 1), today
                 fetch_results(start, end, args.source, args.assume_known_after)
-        except (RequestException, ValueError, KeyError) as exc:
+        except (RequestException, ValueError, KeyError, TypeError, SQLAlchemyError) as exc:
             logging.getLogger(__name__).error("采集未完成：%s", exc)
             return 1
         return 0
