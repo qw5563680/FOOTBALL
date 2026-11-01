@@ -107,7 +107,8 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 相同比分保留已有依据（含 assumed）和原时刻，按未变化计数。仅来源可核实的 published 时刻可替换 assumed。
 比分更正时若缺少新的发布依据，改为新版本的实际观察时刻。
 旧库按缺列逐项迁移，有日期但没有标记的旧记录按 captured 处理。既缺日期又缺标记的旧行仍为未知。
-取消状态没有比分行。每个自然日的全部分页及详情核验通过后才整体提交，重跑不会改变已冻结预测。
+取消状态没有比分行。官方日期分页必须完整；单场比分或身份冲突记入 `data/rejected_results.csv`，
+其余合格场次继续处理。存在拒绝记录时命令返回非零，云端不发布该批。重跑保留已冻结的预测值。
 
 ### `sfc_issues` / `sfc_issue_matches`
 `sfc_issues` 的主键是字符串 `issue_no`，保存截止时间 `sale_end_utc`。
