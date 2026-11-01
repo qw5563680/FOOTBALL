@@ -14,3 +14,6 @@
 | T08 | 接入 football-data.co.uk 历史赛果 | T03, T05, T06 |
 | T09 | 接入 football-data.org v4 全量赛程与赛果 | T08 |
 | T10 | 接入 API-Football v3 亚洲与北欧联赛 | T08, T09 |
+| T11 | 回测用的赛果可知时间重放 | T05, T08 |
+| T12 | 500.com 备用赛果源的 robots 合规整改 | T03 |
+| T13 | 特征表的两处修正（T04 后续） | T04 |

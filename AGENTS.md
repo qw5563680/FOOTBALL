@@ -22,6 +22,10 @@
 6. 不要提交 `data/raw/`、`data/*.db`、`.venv/`，`.gitignore` 已覆盖。
 7. 不要引入重型依赖（深度学习框架、浏览器自动化）。抓取只用 `requests` + `lxml`。
    如果某个页面必须执行 JS 才能拿到数据，停下来在 PR 里说明，不要自行上 Playwright。
+8. 验收产物只把 `README.md` 和 SHA256 清单提交到 `reports/`；逐场证据、全量 JSON、parquet、模型文件等
+   大体积文件放 `data/football-feeds` 分支或 Release 附件，并在 README 里写明位置与哈希。单个 PR 新增的
+   `reports/` 内容不超过 200 KB。
+9. 遵守各站 robots.txt：实现前先读一次并把结论写进 `docs/DATA_SOURCES.md`，禁止路径不请求。
 
 ## 代码约定
 

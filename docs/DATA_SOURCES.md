@@ -66,8 +66,8 @@
 ## 4. football-data.co.uk（历史赛果与收盘赔率，T08）
 
 - 无 key、静态 CSV；用途仍受站方条款约束，不能把免费读取视为任意自动访问或再分发授权。
-  2026-11-02 读取的 robots 禁止 AI 客户端自动访问；用户随后在本聊天明确确认已获站方许可，才继续本次下载。
-  许可状态为 user-confirmed，尚未独立核阅书面依据。只 GET，请求开始间隔至少2秒，不转发完整原始文件。
+  2026-11-02 核对 robots.txt：`User-agent: *` 不设 Disallow，仅对 GPTBot、ClaudeBot、CCBot 等具名 AI 爬虫全站禁止；
+  本项目采集器 UA 为 `ZucaiResearch`，不在禁止名单内，按普通访客规则访问。只 GET，请求开始间隔至少 2 秒，不转发完整原始文件。
   [来源说明](https://www.football-data.co.uk/data.php) · [字段说明](https://www.football-data.co.uk/notes.txt)。
 - 主联赛按季文件：`https://www.football-data.co.uk/mmz4281/{SSSS}/{DIV}.csv`，`SSSS` 为两位起止年份（`2526`），
   `DIV` 为 `E0 E1 E2 E3 EC SC0 D1 D2 I1 I2 SP1 SP2 F1 F2 N1 B1 P1 T1 G1`（2026-11-02 核实英格兰页面，其余需验证）。
