@@ -51,7 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     span.add_argument("--from", dest="start", type=date.fromisoformat, help="开始日期，含当日")
     results.add_argument("--to", dest="end", type=date.fromisoformat, help="结束日期，含当日")
     results.add_argument(
-        "--source", choices=("jc", "c500"), default="jc", help="官方或500比分开奖备用页"
+        "--source",
+        choices=("jc", "c500"),
+        default="jc",
+        help="jc官方历史赛果；c500仅根页近期备用，日期超出覆盖范围报错",
     )
     results.add_argument(
         "--assume-known-after", type=assumed_delay, metavar="3h", help="显式假设历史比分可知时间"

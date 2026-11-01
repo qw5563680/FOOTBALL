@@ -1,4 +1,4 @@
-"""500 竞彩比分玩法的已结算选项。页面缺少精确半场比分。"""
+"""500 根页的近期备用赛果。只取已结算精确选项，不支持历史查询。"""
 
 import logging
 import re
@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from lxml import html
+from lxml.etree import ParserError
 
 from zucai.sources.base import RateLimiter, RawStore, Source, make_session
 from zucai.sources.results import VOID, GameResult, score
@@ -25,11 +26,13 @@ class C500JcHistory(Source[GameResult]):
         self.session = session if session is not None else make_session()
         self.limiter = RateLimiter(1)
 
-    def fetch_raw(self, *, day: date) -> Path:
+    def fetch_raw(self) -> Path:
         self.limiter.wait()
-        r = self.session.get(URL, params={"playid": 271, "g": 2, "date": day.isoformat()})
-        path = self.store.save_response(self.name, f"scores-{day}", r, "html")
+        r = self.session.get(URL, allow_redirects=False)
+        path = self.store.save_response(self.name, "current", r, "html")
         r.raise_for_status()
+        if 300 <= r.status_code < 400:
+            raise ValueError("500根页发生重定向，拒绝跟随未核实的路径")
         return path
 
     def parse(self, raw: bytes) -> list[GameResult]:
@@ -76,14 +79,40 @@ class C500JcHistory(Source[GameResult]):
             )
         return out
 
-    def day_results(self, day: date) -> list[tuple[GameResult, datetime]]:
-        path = self.fetch_raw(day=day)
+    def range_results(self, start: date, end: date) -> list[tuple[GameResult, datetime]]:
+        """Validate the entire kickoff-date request before returning any results."""
+        path = self.fetch_raw()
         raw = self.store.load(path)
-        # Historical pages can include links and matches from other number dates.
-        doc = html.fromstring(raw, parser=html.HTMLParser(encoding="gbk"))
-        ids = set(doc.xpath("//tr[@data-processdate=$day]/@data-fixtureid", day=day.isoformat()))
+        try:
+            doc = html.fromstring(raw, parser=html.HTMLParser(encoding="gbk"))
+        except ParserError as exc:
+            raise ValueError("500近期备用根页为空或无法解析，无法确定日期覆盖范围") from exc
+        rows = doc.xpath("//tr[@data-fixtureid]")
+        if not doc.xpath("//*[@id='betTbThead']") or not rows:
+            raise ValueError(
+                "500近期备用根页没有比赛，无法确定日期覆盖范围；历史回填请用 --source jc"
+            )
+        try:
+            covered = {date.fromisoformat(row.attrib["data-matchdate"]) for row in rows}
+            number_days = {date.fromisoformat(row.attrib["data-processdate"]) for row in rows}
+        except (KeyError, ValueError) as exc:
+            raise ValueError("500近期备用根页比赛日期缺失或无效，无法确定覆盖范围") from exc
+        requested = {start + timedelta(days=i) for i in range((end - start).days + 1)}
+        if start > end or not requested <= covered:
+            raise ValueError(
+                f"500仅为近期备用，根页开球自然日覆盖 {', '.join(map(str, sorted(covered)))}；"
+                f"请求 {start} 至 {end} 超出覆盖范围，历史回填请用 --source jc"
+            )
         captured = datetime.fromisoformat(self.store.load_metadata(path)["fetched_at_utc"])
-        return [(g, captured) for g in self.parse(raw) if g.match_id.split(":")[1] in ids]
+        games = [g for g in self.parse(raw) if start <= g.play_date <= end]
+        LOGGER.info(
+            "500近期备用根页：编号日 %s，开球自然日 %s，%d 场，范围内已结算精确赛果/无效 %d 场",
+            ", ".join(map(str, sorted(number_days))),
+            ", ".join(map(str, sorted(covered))),
+            len(rows),
+            len(games),
+        )
+        return [(g, captured) for g in games]
 
 
 @dataclass(frozen=True)
@@ -239,7 +268,7 @@ class C500FixtureBridge(Source[dict]):
 
     def fetch_raw(self) -> Path:
         self.limiter.wait()
-        response = self.session.get(URL)  # Root only; robots excludes /jczq/? queries.
+        response = self.session.get(URL)  # Root only; robots excludes historical query strings.
         path = self.store.save_response(self.name, "current", response, "html")
         response.raise_for_status()
         return path
