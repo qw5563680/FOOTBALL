@@ -16,6 +16,25 @@ HEAD = BASE + "getMatchHeadV1.qry"
 DAY = "2026-10-31"
 
 
+def test_real_zero_match_day_uses_page_number_zero(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    empty = {
+        "success": True,
+        "errorCode": "0",
+        "value": {
+            "pageNo": 0,
+            "pages": 0,
+            "pageSize": 0,
+            "resultCount": 0,
+            "total": 0,
+            "matchResult": [],
+        },
+    }
+    with responses.RequestsMock() as api:
+        api.add(responses.GET, PAGE, json=empty)
+        assert main(["fetch", "results", "--from", "2026-10-01", "--to", "2026-10-01"]) == 0
+
+
 def test_backfill_official_page_links_real_kickoff_and_preserves_first_observation(
     tmp_path, monkeypatch
 ):

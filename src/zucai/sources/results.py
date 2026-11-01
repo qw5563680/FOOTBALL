@@ -113,6 +113,14 @@ class SportteryResults(Source[GameResult]):
             value = official_value(raw)
             if not value and page == 1:
                 return []
+            if (
+                page == 1
+                and value.get("matchResult") == []
+                and int(value["total"]) == 0
+                and int(value["pages"]) == 0
+                and int(value["pageNo"]) in (0, 1)
+            ):
+                return []
             if int(value["pageNo"]) != page:
                 raise ValueError(f"{day} 分页号不符，请重试")
             total = int(value["total"])
