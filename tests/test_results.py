@@ -109,7 +109,7 @@ def test_corrections_voids_and_stale_imports_leave_frozen_predictions_alone(tmp_
                 created_utc=kickoff - timedelta(hours=1),
             )
         )
-    assert write(game, 1) == "captured"
+    assert write(game, 1) == "unchanged"
     changed = replace(game, full=(1, 1))
     assert write(changed, 2, timedelta(hours=3)) == "captured"
     write(game, 1)
@@ -209,6 +209,38 @@ def test_an_invalid_archived_header_does_not_block_later_valid_retry(tmp_path, m
     with responses.RequestsMock() as api:
         api.add(responses.GET, HEAD, body=(FIX / "sporttery_head_2042404.json").read_bytes())
         assert feed.kickoff(g) == datetime(2026, 10, 31, 15, 15, tzinfo=UTC)
+
+
+def test_only_verified_publication_replaces_unchanged_assumed_time(tmp_path, monkeypatch):
+    from zucai.db import get_engine, init_db, session_scope
+    from zucai.models import Result
+    from zucai.sources.results import SportteryResults, apply_result
+
+    monkeypatch.chdir(tmp_path)
+    eng = get_engine()
+    init_db(eng)
+    k = datetime(2026, 10, 31, 15, 15, tzinfo=UTC)
+    t = k + timedelta(days=2)
+    game = replace(
+        SportteryResults().parse((FIX / "sporttery_results_20261031.json").read_bytes())[0],
+        kickoff_utc=k,
+    )
+    with session_scope(eng) as s:
+        assert apply_result(s, game, t, timedelta(hours=3)) == "assumed"
+        assert apply_result(s, game, t + timedelta(hours=1)) == "unchanged"
+        assert s.get(Result, game.match_id).available_source == "assumed"
+        pub = k + timedelta(hours=2)
+        assert (
+            apply_result(s, replace(game, published_utc=pub), t + timedelta(hours=2)) == "published"
+        )
+        assert (
+            apply_result(
+                s, replace(game, published_utc=pub + timedelta(minutes=8)), t + timedelta(hours=3)
+            )
+            == "unchanged"
+        )
+        assert datetime.fromisoformat(s.get(Result, game.match_id).available_utc) == pub
+    eng.dispose()
 
 
 def test_legacy_database_keeps_old_rows_and_clocks_score_corrections(tmp_path):
