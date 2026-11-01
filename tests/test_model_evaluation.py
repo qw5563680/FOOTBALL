@@ -455,3 +455,13 @@ def test_readiness_rejects_replay_other_corpus_and_expired_seasons(seasons_histo
     model.replayed_training_share = 1.0
     model.availability_basis = "replayed"
     assert not model_readiness(model, as_of="2026-11-01T00:00Z", params_file=config)["p2_ready"]
+
+
+def test_missing_counterparts_survive_pandas_string_nulls(seasons_history):
+    history = seasons_history.copy()
+    # pandas 3 converts SQL NULL to NaN in a mixed string column.
+    history["counterpart_id"] = pd.Series([None] * len(history), dtype="str")
+    history.loc[0, "counterpart_id"] = "jc:older-link"
+    report = backtest.evaluate(history, {}, seasons=["2526"], as_of="2025-08-01T00:00Z")
+    assert report["model"]["n"] > 0
+    assert report["jc_linked"]["n"] == 0

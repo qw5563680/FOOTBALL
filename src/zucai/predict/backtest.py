@@ -311,7 +311,8 @@ def evaluate(
                 info["skipped"][reason] = info["skipped"].get(reason, 0) + 1
                 continue
             score = row["home_goals"] - row["away_goals"]
-            counterpart = row.get("counterpart_id") or ""
+            counterpart = row.get("counterpart_id")
+            counterpart = counterpart if isinstance(counterpart, str) else ""
             record = dict(
                 match_id=row["match_id"],
                 season=season,

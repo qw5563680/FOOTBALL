@@ -42,7 +42,13 @@ def main():
         )
         if any(path.exists() for path in (report, params, log)):
             raise ValueError(f"{league}: output exists; use a new --out directory")
-        env = dict(os.environ, OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
+        env = dict(
+            os.environ,
+            OPENBLAS_NUM_THREADS="1",
+            OMP_NUM_THREADS="1",
+            MKL_NUM_THREADS="1",
+            MPLCONFIGDIR=str((args.out / "mpl-cache" / key).resolve()),
+        )
         command = [
             sys.executable,
             "-m",
