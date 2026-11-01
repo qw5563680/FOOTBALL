@@ -51,6 +51,8 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 ## 数据模型
 
 T04不改数据库结构。CLI以query_only连接并显式BEGIN固定读取快照，读取既有Match/Result/Team/Odds。
+公共build_features函数同样确保SQLite实际事务已开始，刷新已有ORM对象以避免混用旧身份与新比分。
+事务结束由调用方负责；Python调用请使用短生命周期、正常autoflush的Session，已有事务会继续使用其快照。
 每场有效截点取min(as_of,kickoff)，结果available与历史开球均严格小于截点；NULL可知时间不入窗口。
 performance按source/league/team分组，rest仅限source/team但跨赛事；H2H按目标主队视角转向。
 统计窗口样本数和assumed数、逐场证据保存于meta_列与DataFrame.attrs/metadata JSON。

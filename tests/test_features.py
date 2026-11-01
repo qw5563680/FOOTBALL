@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
+from sqlalchemy import event, update
+from sqlalchemy.orm import Session
 
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, Odds, Result, Team
@@ -81,6 +83,60 @@ def build(session, ids=None, **kwargs):
     from zucai.features.build import build_features
 
     return build_features(session, ["jc:target"] if ids is None else ids, as_of=CUTOFF, **kwargs)
+
+
+@pytest.mark.parametrize("correction_timing", ["between_reads", "cached_before_call"])
+def test_public_builder_does_not_mix_match_and_score_versions(feature_db, correction_timing):
+    engine, teams = feature_db
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql("PRAGMA journal_mode=WAL").scalar() == "wal"
+    with session_scope(engine) as session:
+        game(session, teams, "corrected", 5, goals=(2, 0))
+
+    corrected = False
+
+    def correct_identity_and_score():
+        nonlocal corrected
+        with engine.begin() as writer:
+            writer.execute(
+                update(Match)
+                .where(Match.match_id == "jc:corrected")
+                .values(home_team_id=teams["X"], away_team_id=teams["A"])
+            )
+            writer.execute(
+                update(Result)
+                .where(Result.match_id == "jc:corrected")
+                .values(
+                    home_goals=0,
+                    away_goals=2,
+                    available_utc=KICKOFF - timedelta(days=4),
+                    available_source="published",
+                )
+            )
+        corrected = True
+
+    def interleave(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if not corrected and "FROM teams" in statement:
+            correct_identity_and_score()
+
+    with Session(engine) as reader:
+        if correction_timing == "cached_before_call":
+            cached = reader.get(Match, "jc:corrected")
+            correct_identity_and_score()
+            assert cached.home_team_id == teams["A"]  # Keep the stale ORM object alive.
+        else:
+            event.listen(engine, "before_cursor_execute", interleave)
+        try:
+            frame = build(reader)
+        finally:
+            if correction_timing == "between_reads":
+                event.remove(engine, "before_cursor_execute", interleave)
+    assert corrected
+    # A scored two goals in BOTH committed versions. Mixing identity/score gives zero.
+    assert frame.iloc[0]["home_last5_goals_for_mean"] == 2, frame.attrs["excluded_history_counts"]
+    used = frame.attrs["audit"]["jc:target"]["windows"]["home_last5"][0]
+    assert used["goals_for"] == 2
+    assert used["venue"] == ("home" if correction_timing == "between_reads" else "away")
 
 
 def test_last5_last10_means_and_decay_are_hand_checkable(feature_db):

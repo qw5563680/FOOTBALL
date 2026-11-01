@@ -62,6 +62,7 @@ def _histories(session, as_of, strict):
     excluded = Counter()
     query = (
         select(Match, Result)
+        .execution_options(populate_existing=True)
         .join(Result, Result.match_id == Match.match_id)
         .where(Match.status == "finished", Match.kickoff_utc < as_of.to_pydatetime())
         .order_by(Match.kickoff_utc.desc(), Match.match_id)
@@ -148,8 +149,10 @@ def _aggregate(row, prefix, games):
 
 def _quotes(session, target_ids, as_of):
     grouped = defaultdict(lambda: defaultdict(dict))
-    query = select(Odds).where(
-        Odds.pool == "had", Odds.line == 0, Odds.snapshot_utc < as_of.to_pydatetime()
+    query = (
+        select(Odds)
+        .execution_options(populate_existing=True)
+        .where(Odds.pool == "had", Odds.line == 0, Odds.snapshot_utc < as_of.to_pydatetime())
     )
     for quote in session.scalars(query):
         if quote.match_id in target_ids and quote.selection in {"h", "d", "a"}:
@@ -174,12 +177,25 @@ def build_features(session, match_ids=None, as_of=None, *, strict_availability=F
 
     Historical reconstruction filters the database's current versions; it does
     not recover superseded schedules/results or prove historical availability.
+    Use a short-lived Session with normal autoflush; its transaction stays owned
+    by the caller. Existing ORM entities are refreshed within that transaction.
     """
     generated = utc(datetime.now(UTC))
     cutoff = generated if as_of is None else utc(as_of)
     if cutoff > generated:
         raise ValueError("as_of不能晚于实际提取时刻")
-    matches = list(session.scalars(select(Match).order_by(Match.kickoff_utc, Match.match_id)))
+    conn = session.connection()
+    # SQLAlchemy's logical transaction alone does not begin a SQLite snapshot
+    # in sqlite3 legacy transaction mode. Keep every read on the same version.
+    if conn.dialect.name == "sqlite" and not conn.connection.driver_connection.in_transaction:
+        conn.exec_driver_sql("BEGIN")
+    matches = list(
+        session.scalars(
+            select(Match)
+            .execution_options(populate_existing=True)
+            .order_by(Match.kickoff_utc, Match.match_id)
+        )
+    )
     if match_ids is not None:
         if isinstance(match_ids, str):
             raise ValueError("match_ids须为ID列表")
@@ -191,7 +207,10 @@ def build_features(session, match_ids=None, as_of=None, *, strict_availability=F
         if unknown:
             raise ValueError("未知比赛ID：" + ", ".join(sorted(unknown)))
         matches = [lookup[key] for key in ids]
-    teams = {t.id: t.name for t in session.scalars(select(Team))}
+    teams = {
+        t.id: t.name
+        for t in session.scalars(select(Team).execution_options(populate_existing=True))
+    }
     history, excluded = _histories(session, cutoff, strict_availability)
     quotes = _quotes(session, {m.match_id for m in matches}, cutoff)
     rows, audit = [], {}
