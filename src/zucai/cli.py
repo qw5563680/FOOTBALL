@@ -81,6 +81,21 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--issue", help="sfc：期号，多期并存时必须明确指定")
     report.add_argument("--max-lines", type=int, default=64, help="sfc：复式总注数上限，默认64")
 
+    features = sub.add_parser("features", help="提取严格赛前球队特征，市场列独立")
+    feature_commands = features.add_subparsers(dest="feature_command", required=True)
+    feature_build = feature_commands.add_parser("build", help="只读数据库并冻结Parquet特征表")
+    feature_build.add_argument("--db", help="已有数据库路径，默认 ZUCAI_DB 或 data/zucai.db")
+    feature_build.add_argument(
+        "--match-id", action="append", help="目标比赛ID，可重复指定；默认全库"
+    )
+    feature_build.add_argument("--as-of", help="带时区的ISO可知截点，默认提取时刻")
+    feature_build.add_argument(
+        "--strict-availability", action="store_true", help="排除assumed可知时间"
+    )
+    feature_build.add_argument(
+        "--out", default="data/features.parquet", help="新Parquet文件，拒绝覆盖"
+    )
+
     # 以下子命令由 docs/tasks 中的任务逐个实现：
     # fetch jc / fetch results / fetch sfc   (T02, T03)
     # features build                          (T04)
@@ -99,6 +114,22 @@ def main(argv: list[str] | None = None) -> int:
         from zucai import __version__
 
         print(__version__)
+        return 0
+    if args.command == "features":
+        from sqlalchemy.exc import SQLAlchemyError
+
+        try:
+            from zucai.features.command import run_features
+
+            run_features(args)
+        except ImportError:
+            logging.getLogger(__name__).error(
+                '请安装Parquet依赖：python -m pip install -e ".[features]"'
+            )
+            return 2
+        except (ValueError, OSError, TypeError, SQLAlchemyError) as exc:
+            logging.getLogger(__name__).error("特征提取或导出未完成：%s", exc)
+            return 2
         return 0
     if args.command in {"predict", "report"}:
         from pickle import UnpicklingError

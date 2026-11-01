@@ -33,7 +33,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/base.py` | `Source` 抽象类、落盘与重放工具、统一的 `requests.Session`（UA、重试、限速） |
 | `zucai/sources/sporttery.py` | 中国竞彩网：在售赛程 + 各玩法赔率、已完赛结果 |
 | `zucai/sources/c500.py` | 500.com：历史赛果、欧赔/亚盘历史、14 场胜负彩期次 |
-| `zucai/features/` | `build_features(match_ids) -> DataFrame` |
+| `zucai/features/` | `build_features(session, match_ids=None, as_of=None, *, strict_availability=False) -> DataFrame`；43个球队字段，市场/元信息分离 |
 | `zucai/predict/base.py` | `Model` 抽象类：`fit(df)`、`predict_score_matrix(row) -> ndarray[10,10]`、`save/load` |
 | `zucai/predict/dixon_coles.py` | 基线模型，带时间衰减的泊松攻防强度 |
 | `zucai/predict/derive.py` | 由比分矩阵推导各玩法概率 |
@@ -49,6 +49,16 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 原采集时刻，用作赔率的 `snapshot_utc`。测试环境统一阻止未登记的 HTTP 请求。
 
 ## 数据模型
+
+T04不改数据库结构。CLI以query_only连接并显式BEGIN固定读取快照，读取既有Match/Result/Team/Odds。
+公共build_features函数同样确保SQLite实际事务已开始，刷新已有ORM对象以避免混用旧身份与新比分。
+事务结束由调用方负责；Python调用请使用短生命周期、正常autoflush的Session，已有事务会继续使用其快照。
+每场有效截点取min(as_of,kickoff)，结果available与历史开球均严格小于截点；NULL可知时间不入窗口。
+performance按source/league/team分组，rest仅限source/team但跨赛事；H2H按目标主队视角转向。
+统计窗口样本数和assumed数、逐场证据保存于meta_列与DataFrame.attrs/metadata JSON。
+MODEL_FEATURE_COLUMNS仅43个球队数值，MARKET_COLUMNS为四个普通had基准字段，meta_身份/截点列不用于模型。
+生成完成时刻与as_of分别保存。独立导出Parquet、metadata JSON及manifest；不自动写Prediction、不触发训练，
+不改变T05/T06现有模型。历史特征是当前数据库版本按可知时间重建，并非可恢复全部历史版本的事件库。
 
 T07在既有 `sfc_issues` 中新增可空 `observed_utc/source_url/raw_sha256/date_basis/snapshot`。
 `snapshot` 保存14场原始身份、来源fixture/球队ID、匹配状态、候选ID及已匹配的规范身份。
