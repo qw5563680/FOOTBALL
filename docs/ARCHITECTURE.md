@@ -10,7 +10,7 @@
    ▼
 SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
    ▼
-特征工程 features/  ── 按比赛生成特征行（近期状态、主客场、历史交锋、市场赔率隐含概率）
+特征工程 features/  ── 按比赛生成特征行（近期状态、主客场、历史交锋；赔率隐含概率单独放 market_ 列，不入模）
    ▼
 模型 predict/  ── 输出每场比赛的比分概率矩阵 P(home_goals, away_goals)
    ▼
@@ -20,6 +20,8 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 ```
 
 一个核心原则：**模型只负责比分分布**，各玩法的概率全部从分布推导。这样新增玩法只需加一个推导函数。
+
+第二条原则：**预测概率只来自球队数据与模型**。官方赔率的隐含概率只作为比较基准和期望值计算的分母，不作先验、不默认融合、不进入模型输入；融合实验必须显式开启并以独立模型名另存。
 
 ## 模块
 
