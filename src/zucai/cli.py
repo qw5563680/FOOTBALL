@@ -93,10 +93,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--half-life-days", type=float, default=90, help="时间衰减半衰期，默认 90 天"
     )
     train.add_argument("--output", default="models/dixon-coles.pkl", help="模型输出文件")
-    train.add_argument(
+    availability = train.add_mutually_exclusive_group()
+    availability.add_argument(
         "--strict-availability",
         action="store_true",
         help="排除 assumed 赛果训练，并同时报告默认与严格回测",
+    )
+    availability.add_argument(
+        "--replay-known-after",
+        type=assumed_delay,
+        metavar="3h",
+        help="仅在内存中重放迟到赛果的可知时间（开发阶段历史回放）",
     )
 
     predict = sub.add_parser("predict", help="运行纯模型批量预测并冻结报告，P2实验")
@@ -272,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
                 output=args.output,
                 half_life_days=args.half_life_days,
                 strict_availability=args.strict_availability,
+                replay_known_after=args.replay_known_after,
             )
         except ModuleNotFoundError as exc:
             if exc.name != "penaltyblog":

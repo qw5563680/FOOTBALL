@@ -74,8 +74,17 @@ class DixonColes(Model):
         provenance = availability_sources(eligible)
         self.assumed_training_rows = int((provenance == "assumed").sum())
         self.assumed_training_share = self.assumed_training_rows / self.training_rows
+        self.replayed_training_rows = int((provenance == "replayed").sum())
+        self.replayed_training_share = self.replayed_training_rows / self.training_rows
+        # Only the training command can associate a walk-forward evaluation with this artifact.
+        self.replayed_eval_share = None
+        self.replay_delay = history.attrs.get("replay_delay")
         self.availability_basis = (
-            "strict" if provenance.isin(("published", "captured")).all() else "mixed"
+            "replayed"
+            if self.replayed_training_rows
+            else "strict"
+            if provenance.isin(("published", "captured")).all()
+            else "mixed"
         )
         self.latest_available = eligible.available_utc.max()
         self.league = eligible.league.iloc[0]
@@ -119,6 +128,9 @@ class DixonColes(Model):
             "training_games": self.training_rows,
             "training_source_counts": getattr(self, "training_source_counts", None),
             "assumed_training_share": getattr(self, "assumed_training_share", None),
+            "replayed_training_share": getattr(self, "replayed_training_share", 0.0),
+            "replayed_eval_share": getattr(self, "replayed_eval_share", None),
+            "replay_delay": getattr(self, "replay_delay", None),
             "availability_basis": getattr(self, "availability_basis", "unknown"),
             "excluded_score_mass": max(0.0, 1.0 - retained),
         }

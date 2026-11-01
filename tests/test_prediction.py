@@ -360,3 +360,191 @@ def test_train_strict_cli_saves_strict_model_and_reports_both_modes(
     )
     assert metadata["assumed_training_share"] == 0
     assert metadata["availability_basis"] == "strict"
+
+
+def test_replay_changes_only_late_observed_rows_in_memory(games):
+    from zucai.predict.availability import replay_history
+
+    games["available_source"] = "captured"
+    games.loc[:7, "available_source"] = [
+        "captured",
+        "published",
+        None,
+        "assumed",
+        "replayed",
+        "other",
+        "captured",
+        "published",
+    ]
+    games.loc[:5, "available_utc"] = games.loc[:5, "kickoff_utc"] + timedelta(hours=8)
+    games.loc[6, "available_utc"] = games.loc[6, "kickoff_utc"] + timedelta(hours=3)
+    games.loc[7, "available_utc"] = pd.NaT
+    original = games.copy(deep=True)
+    replayed = replay_history(games, timedelta(hours=3))
+    assert replayed.attrs["replay_delay"] == "0 days 03:00:00"
+    assert replayed.loc[:2, "available_source"].tolist() == ["replayed"] * 3
+    pd.testing.assert_series_equal(
+        replayed.loc[:2, "available_utc"],
+        games.loc[:2, "kickoff_utc"] + timedelta(hours=3),
+        check_names=False,
+    )
+    pd.testing.assert_frame_equal(replayed.loc[3:], original.loc[3:])
+    pd.testing.assert_frame_equal(games, original)
+    assert "replay_delay" not in games.attrs
+    for invalid in (timedelta(0), timedelta(hours=-1), pd.NaT):
+        with pytest.raises(ValueError, match="延时"):
+            replay_history(games, invalid)
+
+
+def test_read_history_replay_and_train_do_not_change_database(availability_db, tmp_path):
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    from zucai.db import session_scope
+    from zucai.predict.backtest import read_history
+    from zucai.predict.command import train
+
+    with session_scope(availability_db) as session:
+        session.execute(
+            text(
+                "UPDATE results SET available_utc='2020-03-01T00:00:00Z' "
+                "WHERE available_source IS NULL"
+            )
+        )
+        # A training command must not silently repair an old schema or trigger.
+        session.execute(text("DROP TRIGGER result_correction_clock"))
+    database = Path(availability_db.url.database)
+    before = database.read_bytes()
+    with session_scope(availability_db) as session:
+        original = read_history(session)
+        replayed = read_history(session, replay_known_after=timedelta(hours=3))
+    assert replayed.attrs["replay_delay"] == "0 days 03:00:00"
+    assert (replayed.available_source == "replayed").sum() == 60
+    assert (original.available_source == "captured").sum() == 60
+    report = train(
+        db=database,
+        since="2020-02-03T00:00:00Z",
+        as_of="2020-03-02T00:00:00Z",
+        output=tmp_path / "replay.pkl",
+        replay_known_after=timedelta(hours=3),
+    )
+    assert database.read_bytes() == before
+    assert report["availability_basis"] == "replayed"
+    assert report["replayed_training_share"] == 0.5
+    assert report["replayed_eval_share"] == 0.5
+    model = DixonColes.load(tmp_path / "replay.pkl")
+    _, meta = model.predict_with_metadata(
+        {"home": "A", "away": "B", "kickoff_utc": "2020-03-03T00:00:00Z"}
+    )
+    assert meta["availability_basis"] == "replayed"
+    assert meta["replayed_training_share"] == 0.5
+    assert meta["replayed_eval_share"] == 0.5
+    assert meta["replay_delay"] == "0 days 03:00:00"
+
+
+def test_replay_disclosures_uniform_reference_and_legacy_metrics(games):
+    games["available_source"] = ["replayed", "assumed", "captured", "published"] * 30
+    since, end = START + timedelta(days=33), START + timedelta(days=60)
+    report = evaluate(games, {}, since=since, as_of=end)
+    assert report["availability_basis"] == "replayed"
+    assert report["replayed_eval_share"] == pytest.approx(13 / 54)
+    assert report["assumed_eval_share"] == pytest.approx(13 / 54)
+    assert report["replayed_training_share"] == pytest.approx(88 / 348)
+    folds = report["folds"]
+    assert folds[0]["replayed_training_share"] == pytest.approx(17 / 66)
+    assert report["replayed_training_share"] == pytest.approx(
+        sum(f["training_games"] * f["replayed_training_share"] for f in folds)
+        / sum(f["training_games"] for f in folds)
+    )
+    for scored in [report, *folds]:
+        assert scored["availability_basis"] == "replayed"
+        assert scored["uniform"]["n"] == scored["model"]["n"]
+        assert scored["uniform"]["log_loss"] == pytest.approx(np.log(3))
+        assert scored["uniform"]["brier"] == pytest.approx(2 / 3)
+    unchanged = games.copy()
+    unchanged["available_source"] = unchanged.available_source.replace("replayed", "captured")
+    legacy = evaluate(unchanged, {}, since=since, as_of=end)
+    assert legacy["model"] == report["model"]
+    assert legacy["assumed_training_share"] == report["assumed_training_share"]
+    assert legacy["replayed_training_share"] == legacy["replayed_eval_share"] == 0
+    assert legacy["availability_basis"] == "mixed"
+
+
+def test_replay_eval_share_excludes_unknown_teams_and_ignores_unused_rows(games):
+    since, end = START + timedelta(days=33), START + timedelta(days=60)
+    games["available_source"] = "captured"
+    games.loc[119, "available_source"] = "replayed"
+    games.loc[119, "home"] = "unknown"
+    report = evaluate(games, {}, since=since, as_of=end)
+    assert report["availability_basis"] == "strict"
+    assert report["replayed_eval_share"] == report["replayed_training_share"] == 0
+    assert report["uniform"]["n"] == report["model"]["n"] == 53
+    games.loc[118, "available_source"] = "replayed"
+    report = evaluate(games, {}, since=since, as_of=end)
+    assert report["availability_basis"] == "replayed"
+    assert report["replayed_eval_share"] == pytest.approx(1 / 53)
+    assert report["replayed_training_share"] == 0
+    empty = evaluate(games, {}, since=START, as_of=START + timedelta(days=2))
+    assert empty["uniform"]["n"] == 0
+    assert empty["uniform"]["log_loss"] is empty["uniform"]["brier"] is None
+    assert empty["availability_basis"] == "strict"
+
+
+def test_replay_strict_mutually_exclusive_before_io(tmp_path, capsys):
+    from zucai.cli import main
+    from zucai.predict.command import train
+
+    db = tmp_path / "absent.db"
+    with pytest.raises(SystemExit) as exc:
+        main(["train", "--db", str(db), "--replay-known-after", "3h", "--strict-availability"])
+    assert exc.value.code == 2
+    error = capsys.readouterr().err
+    assert "--replay-known-after" in error and "--strict-availability" in error
+    with pytest.raises(ValueError, match="互斥"):
+        train(db=db, strict_availability=True, replay_known_after=timedelta(hours=3))
+    assert not db.exists()
+
+
+def test_replay_cli_accepts_delay_and_preserves_input(availability_db, tmp_path, capsys):
+    import json
+    from pathlib import Path
+
+    from zucai.cli import main
+
+    database = Path(availability_db.url.database)
+    before = database.read_bytes()
+    assert (
+        main(
+            [
+                "train",
+                "--db",
+                str(database),
+                "--replay-known-after",
+                "90m",
+                "--since",
+                "2020-02-03",
+                "--as-of",
+                "2020-03-02",
+                "--output",
+                str(tmp_path / "cli.pkl"),
+            ]
+        )
+        == 0
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["replay_delay"] == "0 days 01:30:00"
+    assert report["backtest"]["availability_basis"] == "replayed"
+    assert database.read_bytes() == before
+
+
+def test_fold_discloses_unknown_eval_provenance_and_strict_rejects_replayed(games):
+    since, end = START + timedelta(days=33), START + timedelta(days=60)
+    games["available_source"] = "captured"
+    games.loc[119, "available_source"] = "other"
+    report = evaluate(games, {}, since=since, as_of=end)
+    assert report["availability_basis"] == "mixed"
+    assert report["folds"][-1]["availability_basis"] == "mixed"
+    games.loc[119, "available_source"] = "replayed"
+    with pytest.raises(ValueError, match="互斥"):
+        evaluate(games, {}, since=since, as_of=end, strict_availability=True)
