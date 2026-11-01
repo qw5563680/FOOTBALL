@@ -30,9 +30,9 @@
    把新产生的 `auto_verified` 候选写到数据分支 `state/alias_candidates/<source>.json`（含证据），**不改 main 上的正式别名文件**；
    正式别名由审查方定期从候选合并到 main。README 写明这条流程。
 5. **文档**：README 的「云端采集」改写为两条腿的说明；`docs/ARCHITECTURE.md` 的模块表加 `cloud_feeds apis` 模式；
-   新增 `docs/RUNNER.md`：在 Windows 电脑上注册自托管运行器的步骤（下载、`config.cmd --unattended --labels football-local`、
-   `--runasservice`）、需要哪些软件（Git、运行器自带 Node，Python 由 setup-python 安装）、如何停用；
-   仓库变量 `FOOTBALL_FEEDS_RUNNER` 应设为 `self-hosted,football-local`。
+   新增 `docs/RUNNER.md`：在 Windows 电脑上注册自托管运行器的步骤（下载、`config.cmd --unattended --labels football-local`，启动方式两种：管理员用
+   `--runasservice` 装成服务，非管理员用"用户登录时触发"的计划任务运行 `run.cmd`，当前这台电脑采用计划任务）、需要哪些软件（Git、运行器自带 Node，Python 由 setup-python 安装）、如何停用；
+   仓库变量 `FOOTBALL_FEEDS_RUNNER` 设为单个标签 `football-local`（`runs-on` 直接用该字符串，不按逗号列表处理；变量由审查方在合并后设置）。
 6. **测试**：`cloud_feeds apis` 用离线 fixture 和 `responses` 走通恢复 → 三源导入 → 导出 → 写回目录的全链路；
    配额文件跨运行持久化；fd 仅周一执行的判断；partial 标记；`closing_odds` 往返。
 
