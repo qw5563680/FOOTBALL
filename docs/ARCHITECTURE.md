@@ -59,6 +59,13 @@ T08 增加 `closing_odds`，不改变既有 timestamped `odds`。FD 导入每行
 身份不完整且存在同联赛同时间官方场次，或有反向主客冲突时隔离。读取历史与直接拟合亦拒绝已知的 jc/fd 重复。
 当前赛季核验得到的别名跨历史赛季使用，球队沿革仍须人工维护。历史结果固定延时只属于 assumed。
 
+T09 用 `FootballDataOrg` 下载原始响应，用 `ApiGame` 传递 UTC 赛程和常规时间比分。
+`fdorg_ingest` 以联赛和本源**数字球队 ID**解析别名，优先链接同一联赛、同主客、开球相差不超过三小时的
+`jc`，其次链接 `fd`，不覆盖其比分。只匹配一队或主客冲突的候选隔离到
+`fdorg_suspected_duplicates.csv`。新比赛的键为 `fdorg:<数字比赛ID>`。预定比赛没有
+`Result`；历史导入须显式标为假设，增量使用抓取时间，比分更正按 T03 规则重新计时。
+`lastUpdated` 和返回的赔率字段都不进模型。读取训练历史和直接拟合均拒绝三个来源间已知的同场重复。
+
 模型元数据改用 `sources: list[str]`，旧可信模型的 `source` 读取为单元素列表。
 `training_source_counts` 与范围分开；严格模式或截点过滤后某来源计数可为零，但不能推导模型对未选择来源的支持。
 新 T06 冻结 JSON 为 schema 2，`models[].sources` 必须是非空列表；比赛自身仍用单值 source。
@@ -110,7 +117,7 @@ CSV独立保留每行的P2、模式、BET/执行禁用、原预测截点/生成�
 | 列 | 说明 |
 | --- | --- |
 | `match_id` | 主键，`来源:来源ID`，如 `jc:2026110101` |
-| `source` | `jc` / `c500` / `fd`；FD 主键如 `fd:E0:20250815:liverpool:bournemouth` |
+| `source` | `jc` / `c500` / `fd` / `fdorg`；FD 主键如 `fd:E0:20250815:liverpool:bournemouth`，FDORG 使用来源数字比赛 ID |
 | `league` | 联赛名 |
 | `home_team_id` / `away_team_id` | 外键 `teams.id` |
 | `kickoff_utc` | 开赛时间 |

@@ -37,27 +37,22 @@ def model_sources(model) -> list[str]:
 
 
 def reject_cross_source_overlaps(frame: pd.DataFrame) -> None:
-    """Reject canonical jc/fd overlaps from SQL or unsorted public fitting frames."""
-    selected = frame.loc[frame.source.isin(("jc", "fd"))]
+    """Reject known canonical fixtures duplicated across any training feeds."""
+    selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg"))]
     if selected.source.nunique() < 2:
         return
-    selected = selected.sort_values("kickoff_utc")
     window = pd.Timedelta(hours=3)
-    for _, group in selected.groupby(["league", "home", "away"], sort=False):
-        official = list(group.loc[group.source == "jc"].itertuples())
-        if not official:
-            continue
-        cursor = 0
-        for row in group.loc[group.source == "fd"].itertuples():
-            while (
-                cursor < len(official) and official[cursor].kickoff_utc < row.kickoff_utc - window
-            ):
-                cursor += 1
-            if cursor < len(official) and official[cursor].kickoff_utc <= row.kickoff_utc + window:
+    latest = {}
+    for row in selected.sort_values("kickoff_utc").itertuples():
+        pair = (row.league, row.home, row.away)
+        peers = latest.setdefault(pair, {})
+        for source, (time, other_id) in peers.items():
+            if source != row.source and row.kickoff_utc - time <= window:
                 raise ValueError(
-                    "jc/fd 同联赛同主客队在3小时内存在重复/重叠比赛，请先核对身份："
-                    f"{official[cursor].match_id} / {row.match_id}"
+                    "同联赛同主客队在3小时内存在跨来源重复/重叠比赛，请先核对身份："
+                    f"{other_id} / {row.match_id}"
                 )
+        peers[row.source] = (row.kickoff_utc, row.match_id)
 
 
 def utc(value) -> pd.Timestamp:

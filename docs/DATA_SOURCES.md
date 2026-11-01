@@ -128,9 +128,29 @@ CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知
 - 免费档 12 项赛事永久免费：`PL ELC PD SA BL1 FL1 DED PPL BSA CL EC WC`（2026-11-02 核实 coverage 页）；约 10 次/分钟，超限 429（需验证响应头 `X-RequestCounter-Reset`）。
   免费档可回溯的最早赛季无官方说明，实现时用真实请求确认。
 - 端点：`GET /competitions/{code}/matches?season=YYYY[&status=FINISHED]`、`GET /matches?dateFrom&dateTo&competitions=`。
-- 时间 `utcDate` 为 UTC ISO。比分含 `score.duration`，加时赛时常规时间取 `regularTime`，不得用 `fullTime`（需验证字段）。
+- 时间 `utcDate` 为 UTC ISO。[v4 发布说明](https://docs.football-data.org/general/v4/index.html)明确 `dateTo` 排他，
+  加时和点球的 90 分钟结果取 `score.regularTime.{home,away}`；常规结束只取 `fullTime`，不从点球或加时比分反推。
+  [官方比赛对象](https://docs.football-data.org/general/v4/match.html)与实采样本是两类证据。
 - `lastUpdated` 是记录修改时间，不是赛果发布时间，不能作为路线 B 的 `published`。
 - 免费档限非商业使用，README 须标注来源。
+
+### T09 核验记录（北京时间 2026-11-02）
+
+- 2026-11-01 18:18:13 / 18:18:14 UTC，从开发端发出两个无认证 GET：
+  `/v4/competitions/PL/matches?season=2026` 和 `/v4/competitions/PL` 均返回 HTTP 403，
+  响应含 `errorCode/message`，`X-RequestCounter-Reset: 86400`。这是**匿名 403** 的头，
+  不能当作登录后免费档的历史边界、成功的比分样本或实测 429。
+- 同日又逐个匿名请求 ELC、PD、SA、BL1、FL1、DED、PPL、BSA 的 2026 赛季端点，均返回 403。
+  [官方枚举与响应头表](https://docs.football-data.org/general/v4/lookup_tables.html)列出
+  `X-RequestCounter-Reset`（秒）和 `X-RequestsAvailable`（余量）；文档示例不是本账户的 429。
+- 本源只启用九个国内联赛；欧冠、欧洲杯、世界杯不入库。配置中的 `earliest_season: null`
+  表示没有该联赛带凭据的赛季边界证据。历史端点的 403、404、200 空列表和网络失败须分别记录。
+- 只接受 `FINISHED` 的 90 分钟比分，`AWARDED` 拒绝；`POSTPONED/CANCELLED` 只处理已有本源赛程。
+  `IN_PLAY/PAUSED/SUSPENDED` 及比赛进行中的 `EXTRA_TIME/PENALTY_SHOOTOUT` 都不产生赛果。加时、点球和 429 退避可由 T09 离线样本复核；
+  它们不代表免费档中实际观察到了这些情形。
+- 逐联赛实测状态、当季链接率、样本来源和固定截点回测见
+  [T09 验收记录](../reports/2026-11-02-t09-acceptance/README.md)。
+  来源署名及使用条件以[站方条款](https://www.football-data.org/client/register)为准。
 
 ## 6. API-Football v3 / api-sports.io（亚洲与北欧联赛，T10）
 
