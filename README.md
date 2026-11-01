@@ -40,6 +40,15 @@ pytest -q
 `zucai db init --path /path/to/football.db` 明确指定文件。
 同一场比赛可以保存不同采集时间的赔率和不同模型版本的预测。
 
+### 云端采集
+
+在 GitHub 的 `data/football-feeds` 分支打开 [按月赛程和赛果](https://github.com/qw5563680/FOOTBALL/tree/data/football-feeds/matches)。
+同分支 `state/odds/` 按采集月份保留完整赔率。数据分支保存规范化表和校验值，可在其他机器恢复。
+工作流合入默认分支后，每日计划北京时间 11:17、18:17 在 GitHub 运行。Actions 里选择
+**Football cloud feeds → Run workflow** 也可立即启动；维护者推送 `football-ingest-run-*` 标签
+可验证指定提交。工作流恢复上次成功提交的数据，复查最近三天、遗漏日期及逾期未结场次。
+任何校验、采集或推送失败均保留原云端版本。原始 HTTP 响应作为该次 Actions 的私有附件保留 90 天。
+
 以下命令随相应任务合并后提供：
 
 ```bash
