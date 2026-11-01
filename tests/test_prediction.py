@@ -55,7 +55,7 @@ def test_fit_cutoff_model_roundtrip_and_unknown_team(games, tmp_path):
     games.loc[0, "available_utc"] = CUTOFF
     games.loc[1, "available_utc"] = pd.NaT
     target = {"home": "A", "away": "B", "kickoff_utc": CUTOFF + timedelta(hours=1)}
-    model = DixonColes().fit(games, as_of=CUTOFF)
+    model = DixonColes(unknown_team_prior=False).fit(games, as_of=CUTOFF)
     before = model.predict_score_matrix(target)
     assert model.training_rows == 68 and before.shape == (10, 10)
     assert before.min() >= 0 and np.isclose(before.sum(), 1)
@@ -476,12 +476,12 @@ def test_replay_eval_share_excludes_unknown_teams_and_ignores_unused_rows(games)
     games["available_source"] = "captured"
     games.loc[119, "available_source"] = "replayed"
     games.loc[119, "home"] = "unknown"
-    report = evaluate(games, {}, since=since, as_of=end)
+    report = evaluate(games, {}, since=since, as_of=end, unknown_team_prior=False)
     assert report["availability_basis"] == "strict"
     assert report["replayed_eval_share"] == report["replayed_training_share"] == 0
     assert report["uniform"]["n"] == report["model"]["n"] == 53
     games.loc[118, "available_source"] = "replayed"
-    report = evaluate(games, {}, since=since, as_of=end)
+    report = evaluate(games, {}, since=since, as_of=end, unknown_team_prior=False)
     assert report["availability_basis"] == "replayed"
     assert report["replayed_eval_share"] == pytest.approx(1 / 53)
     assert report["replayed_training_share"] == 0

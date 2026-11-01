@@ -16,10 +16,11 @@ from zucai.models import Match, Odds, Prediction, Team
 from zucai.predict.base import model_sources, utc
 from zucai.predict.derive import had
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
+from zucai.predict.parameters import model_readiness
 from zucai.sources.sporttery import BEIJING
 
 
-def _models(paths, as_of):
+def _models(paths, as_of, params_file=None):
     registry = {}
     for path in paths:
         path = Path(path)
@@ -50,6 +51,7 @@ def _models(paths, as_of):
             "availability_basis": getattr(model, "availability_basis", "unknown"),
             "assumed_training_share": getattr(model, "assumed_training_share", None),
         }
+        meta.update(model_readiness(model, as_of=as_of, params_file=params_file))
         for key in keys:
             registry[key] = (model, meta, error)
     if not registry:
@@ -118,6 +120,7 @@ def predict_batch(
     match_ids: list[str] | None = None,
     market_weight: float = 0,
     expected_identities: dict | None = None,
+    params_file=None,
 ) -> dict:
     cutoff, created = utc(as_of), utc(generated)
     if cutoff > created:
@@ -130,7 +133,7 @@ def predict_batch(
         raise ValueError("比赛ID清单不能为空或重复")
     if not math.isfinite(market_weight) or not 0 <= market_weight <= 1:
         raise ValueError("市场实验权重必须在0至1之间")
-    registry = _models(model_files, cutoff)
+    registry = _models(model_files, cutoff, params_file)
     if day is not None:
         start = datetime.combine(day, time(), BEIJING)
         keys = list(
@@ -151,7 +154,7 @@ def predict_batch(
         "as_of_utc": cutoff.isoformat(),
         "mode": "historical_replay" if replay else "prematch",
         "probability_type": "P2",
-        "validation_status": "experimental_unadopted",
+        "validation_status": "league_gated",
         "bet_allowed": False,
         "input": {
             "match_ids": keys,
@@ -217,6 +220,8 @@ def predict_batch(
                 "probability_type": "P2",
                 "model_name": "dixon-coles",
                 "model_version": provenance["model_version"],
+                "p2_ready": provenance["p2_ready"],
+                "p2_label": provenance["p2_label"],
                 "model_probabilities": probs,
                 "score_matrix": grid.tolist(),
                 "metadata": metadata,

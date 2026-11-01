@@ -90,8 +90,19 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--since", help="回测起始日（含），之前的数据仍用于训练")
     train.add_argument("--as-of", help="数据可知截点，日期按 UTC 零时解释，默认当前时刻")
     train.add_argument(
-        "--half-life-days", type=float, default=90, help="时间衰减半衰期，默认 90 天"
+        "--half-life-days", type=float, help="覆盖params.json中的时间衰减半衰期；无配置默认90天"
     )
+    train.add_argument("--seasons", help="评估赛季，例如2425,2526；自然年联赛用2024,2025")
+    train.add_argument("--fold", choices=("weekly", "monthly"), default="weekly")
+    train.add_argument("--params-file", help="联赛参数JSON，默认data/model/params.json")
+    tune = sub.add_parser("tune", help="前一赛季monthly选参、下一赛季验证")
+    tune.add_argument("--league", required=True)
+    tune.add_argument("--db", help="只读静态SQLite库")
+    tune.add_argument("--source", default="jc,fd")
+    tune.add_argument("--grid", default="90,180,270,365,540,730")
+    tune.add_argument("--seasons", help="选参季，默认最近三个完整赛季")
+    tune.add_argument("--as-of", help="数据截止，默认当前UTC")
+    tune.add_argument("--params-file", help="更新联赛参数JSON，默认data/model/params.json")
     train.add_argument("--output", default="models/dixon-coles.pkl", help="模型输出文件")
     availability = train.add_mutually_exclusive_group()
     availability.add_argument(
@@ -109,6 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
     predict = sub.add_parser("predict", help="运行纯模型批量预测并冻结报告，P2实验")
     predict.add_argument("--model", choices=["dixon-coles"], default="dixon-coles")
     predict.add_argument("--db", help="数据库路径，默认 ZUCAI_DB 或 data/zucai.db")
+    predict.add_argument("--params-file", help="P2门槛配置；不会修改已拟合的模型权重")
     predict.add_argument("--model-file", action="append", help="可信模型文件，可按联赛重复指定")
     selection = predict.add_mutually_exclusive_group()
     selection.add_argument("--date", type=date.fromisoformat, help="北京时间开球自然日")
@@ -266,6 +278,25 @@ def main(argv: list[str] | None = None) -> int:
             logging.getLogger(__name__).error("采集未完成：%s", exc)
             return 1
         return 0
+    if args.command == "tune":
+        try:
+            from zucai.predict.command import parse_cutoff
+            from zucai.predict.tuning import tune
+
+            result = tune(
+                db=args.db,
+                league=args.league,
+                source=args.source,
+                grid=[float(v) for v in args.grid.split(",")],
+                seasons=args.seasons,
+                as_of=parse_cutoff(args.as_of) if args.as_of else None,
+                params_file=args.params_file,
+            )
+        except (ValueError, OSError) as exc:
+            logging.getLogger(__name__).error("选参未完成：%s", exc)
+            return 2
+        print(json.dumps(result, ensure_ascii=False, allow_nan=False))
+        return 0
     if args.command == "train":
         try:
             from zucai.predict.command import parse_cutoff, train
@@ -280,6 +311,9 @@ def main(argv: list[str] | None = None) -> int:
                 half_life_days=args.half_life_days,
                 strict_availability=args.strict_availability,
                 replay_known_after=args.replay_known_after,
+                seasons=args.seasons,
+                fold=args.fold,
+                params_file=args.params_file,
             )
         except ModuleNotFoundError as exc:
             if exc.name != "penaltyblog":

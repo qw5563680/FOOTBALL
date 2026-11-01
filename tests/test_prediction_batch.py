@@ -36,7 +36,9 @@ def setup_batch(tmp_path):
             }
         )
     path = tmp_path / "dc.pkl"
-    model = DixonColes().fit(pd.DataFrame(records), as_of=CUTOFF - timedelta(days=1))
+    model = DixonColes(unknown_team_prior=False).fit(
+        pd.DataFrame(records), as_of=CUTOFF - timedelta(days=1)
+    )
     model.save(path)
     db = tmp_path / "matches.db"
     engine = get_engine(db)
@@ -507,3 +509,48 @@ def test_legacy_prediction_rows_remain_unknown_after_batch_columns_are_added(set
             None,
             None,
         )
+
+
+def test_t15_prior_readiness_and_frozen_render_keep_bet_disabled(setup_batch, tmp_path):
+    from zucai.report.batch import predict_batch
+    from zucai.report.render import _csv_bytes, _markdown, _validate_batch
+
+    engine, path, model, _ = setup_batch
+    model.unknown_team_prior = True
+    policy = dict(history_scope="cumulative", strict_availability=False, replay_known_after=None)
+    model.database_sha256 = "a" * 64
+    model.training_policy = policy
+    model.save(path)
+    config = tmp_path / "params.json"
+    entry = dict(
+        half_life_days=model.half_life_days,
+        selection_as_of_utc="2026-07-01T00:00Z",
+        generated_utc="2026-07-01T00:00Z",
+        sources=["jc"],
+        unknown_team_prior="weakest_quartile_half_shrinkage",
+        draw_calibration=False,
+        p2_ready=True,
+        database_sha256="a" * 64,
+        training_policy=policy,
+        p2_evidence={"as_of_utc": "2026-07-01T00:00Z", "seasons": ["2425", "2526"]},
+    )
+    config.write_text(json.dumps({"schema_version": 1, "leagues": {"L": entry}}))
+    with session_scope(engine) as session:
+        batch = predict_batch(
+            session,
+            model_files=[path],
+            as_of=CUTOFF,
+            generated=CUTOFF,
+            match_ids=["jc:1", "jc:2"],
+            params_file=config,
+        )
+    assert batch["predictions"][1]["metadata"]["unknown_team_prior"] is True
+    assert all(row["p2_ready"] for row in batch["predictions"])
+    _validate_batch(batch)
+    assert "P2 可用" in _markdown(batch)
+    assert "p2_ready" in _csv_bytes(batch).decode("utf-8-sig")
+    assert batch["bet_allowed"] is False
+    # Rendering freezes the decision; changing a config does not rewrite old reports.
+    original = _markdown(batch)
+    config.unlink()
+    assert _markdown(batch) == original

@@ -11,6 +11,7 @@ from typing import Self
 import numpy as np
 import pandas as pd
 from penaltyblog.models import DixonColesGoalModel, dixon_coles_weights
+from penaltyblog.models.probabilities import compute_dixon_coles_probabilities
 
 from zucai.predict.base import (
     Model,
@@ -26,10 +27,11 @@ class InsufficientHistory(ValueError):
 
 
 class DixonColes(Model):
-    def __init__(self, half_life_days: float = 90):
+    def __init__(self, half_life_days: float = 90, *, unknown_team_prior=True):
         if not isfinite(half_life_days) or half_life_days <= 0:
             raise ValueError("半衰期必须是正数")
         self.half_life_days = half_life_days
+        self.unknown_team_prior = unknown_team_prior
         self.engine = None
 
     def fit(self, history: pd.DataFrame, *, as_of: datetime) -> Self:
@@ -70,6 +72,17 @@ class DixonColes(Model):
         if not np.isfinite(engine.loglikelihood):
             raise ValueError("拟合未得到有限的对数似然")
         self.engine, self.teams = engine, teams
+        params = engine.get_params()
+        attack = np.sort([params[f"attack_{team}"] for team in teams])
+        defence = np.sort([params[f"defence_{team}"] for team in teams])
+        count = max(1, int(np.ceil(len(teams) / 4)))
+        # Weak attack and weak defence, each halfway back to the league mean.
+        # Higher log defence means more goals conceded in penaltyblog.
+        self.prior_parameters = {
+            "attack": float((attack[:count].mean() + attack.mean()) / 2),
+            "defence": float((defence[-count:].mean() + defence.mean()) / 2),
+            "method": "weakest_quartile_half_shrinkage",
+        }
         self.as_of, self.training_rows = cutoff, len(eligible)
         provenance = availability_sources(eligible)
         self.assumed_training_rows = int((provenance == "assumed").sum())
@@ -109,11 +122,16 @@ class DixonColes(Model):
         ):
             raise ValueError("联赛或数据来源与模型不一致")
         home, away = row["home"], row["away"]
-        if home not in self.teams or away not in self.teams:
+        unknown = home not in self.teams or away not in self.teams
+        if unknown and not getattr(self, "unknown_team_prior", False):
             raise InsufficientHistory(f"模型缺少球队历史记录：{home} / {away}")
         if home == away:
             raise ValueError("主客队不能相同")
-        raw = self.engine.predict(home, away, max_goals=15, normalize=False).grid[:10, :10]
+        clipped = False
+        if unknown:
+            raw, clipped = self._prior_grid(home, away)
+        else:
+            raw = self.engine.predict(home, away, max_goals=15, normalize=False).grid[:10, :10]
         retained = float(raw.sum())
         if (
             raw.shape != (10, 10)
@@ -123,6 +141,11 @@ class DixonColes(Model):
         ):
             raise ValueError("拟合参数未产生有效的比分概率矩阵")
         return raw / retained, {
+            "unknown_team_prior": unknown,
+            "prior_method": self.prior_parameters["method"] if unknown else None,
+            "prior_rho_clipped": clipped,
+            "half_life_days": self.half_life_days,
+            "parameter_source": getattr(self, "parameter_source", "explicit"),
             "as_of_utc": self.as_of.isoformat(),
             "last_available_utc": self.latest_available.isoformat(),
             "training_games": self.training_rows,
@@ -134,6 +157,37 @@ class DixonColes(Model):
             "availability_basis": getattr(self, "availability_basis", "unknown"),
             "excluded_score_mass": max(0.0, 1.0 - retained),
         }
+
+    def _prior_grid(self, home, away):
+        params = self.engine.get_params()
+        attack_home = params.get(f"attack_{home}", self.prior_parameters["attack"])
+        attack_away = params.get(f"attack_{away}", self.prior_parameters["attack"])
+        defence_home = params.get(f"defence_{home}", self.prior_parameters["defence"])
+        defence_away = params.get(f"defence_{away}", self.prior_parameters["defence"])
+        home_rate = np.exp(attack_home + defence_away + params["home_advantage"])
+        away_rate = np.exp(attack_away + defence_home)
+        # A synthetic team pair may exceed the fitted pairs' valid rho interval.
+        rho = float(
+            np.clip(
+                params["rho"],
+                max(-1 / home_rate, -1 / away_rate),
+                min(1.0, 1 / (home_rate * away_rate)),
+            )
+        )
+        grid = np.empty(15 * 15, dtype=np.float64)
+        compute_dixon_coles_probabilities(
+            float(attack_home),
+            float(attack_away),
+            float(defence_home),
+            float(defence_away),
+            float(params["home_advantage"]),
+            rho,
+            15,
+            grid,
+            np.empty(1),
+            np.empty(1),
+        )
+        return grid.reshape(15, 15)[:10, :10], rho != params["rho"]
 
     def save(self, path: Path) -> None:
         if self.engine is None:

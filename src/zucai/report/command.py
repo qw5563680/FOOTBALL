@@ -84,6 +84,7 @@ def run_predict(args):
                 match_ids=keys,
                 market_weight=args.market_weight,
                 expected_identities=expected,
+                params_file=args.params_file,
             )
             completed = datetime.now(UTC)
             _deadline(batch, completed)

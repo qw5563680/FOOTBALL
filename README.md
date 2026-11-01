@@ -45,6 +45,8 @@ zucai fetch apif --league 98 --season 2024 --assume-known-after 3h --reserve 10
 zucai fetch apif --date 2026-11-01  # UTC 日期；免费档当前仅最近三天可用
 zucai train --league 英超 --source jc,fd,fdorg --since 2026-09-01 --output models/epl-mixed.pkl
 zucai train --model dixon-coles       # 训练并按周回测
+zucai tune --league 英超 --source jc,fd --db work/t15/static.db --grid 90,180,270,365,540,730
+zucai train --league 英超 --source jc,fd --db work/t15/static.db --seasons 2425,2526 --fold weekly
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
 zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶段历史回放
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
@@ -159,6 +161,45 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 这是固定比较参照，不是可达到误差的数学下限，也不代表市场概率。
 只加载本项目自行训练、来源可信的模型文件。
 
+### 评估、选参与 P2 门槛（T15）
+
+`train --seasons 2425,2526 --fold weekly` 按欧洲联赛 UTC 七月换季；日职/瑞超/挪超/芬超/美职/巴甲
+按自然年，例如 `--seasons 2024,2025`。每折累积截点前所有跨季历史，开球和赛果可知时间均须严格早于截点。
+weekly 在周一冻结；跨季的一周在赛季边界再切开，monthly 在月初冻结。`--since` 可进一步缩小评估范围，
+部分赛季不能通过完整赛季门槛。默认不重放 jc 的晚到可知时间。
+
+`zucai tune` 默认用最近三个完整赛季分别选参（当前欧洲为2324/2425/2526），每季六候选在 monthly
+walk-forward 上按模型 LogLoss 选择；同分选更短半衰期，候选须覆盖同一完整可评分集。
+下一赛季单独验证，最终用 weekly 折重新评估；因此完整2425和2526分别使用2324和2425选出的参数，
+2627使用2526选出的参数。当前季只报部分季指标，不算完整季。选择过程中不读取价格。
+结果写 `data/model/params.json`，stdout 为全量 JSON（建议重定向到 `work/`）。
+
+`train` 默认读取联赛推荐半衰期，`--half-life-days` 覆盖并在模型和 JSON 标记 `parameter_source=cli`。
+`--params-file` 可指定另一份配置；无有效配置或配置选择时刻晚于训练截点则回落90天。
+历史评估使用配置中的上一季选择映射；未覆盖季为明确披露的90天回落，显式 CLI 参数为固定参数评估。
+T06 读取配置核对门槛；已加载模型保持实际拟合参数，要改变半衰期须重新训练，不能仅改配置。
+已冻结报告保留当时 P2 状态，不随配置变化重写。
+
+未知球队默认使用训练联赛最弱四分位攻击参数均值、最弱四分位防守参数均值，各向全联赛均值收缩50%。
+较高 defence 表示较弱防守；必要时仅把该未知对阵的 rho 限制在非负比分矩阵的合法区间。
+元数据披露 `unknown_team_prior`、先验方法和 rho 是否裁剪。已知球队预测保持原模型路径。
+评估另列未知球队、跳过先验前的已知球队集、counterpart_id 链接的 jc 子集（小样本参考），
+逐折披露 warmup/fit_failed/unknown_team/invalid_grid；空集指标为 null。
+10桶校准同时报告 `draw_mean`、`draw_rate` 和预测减实际的 `draw_bias`。
+
+三列对照是模型、等概率、收盘基准；Brier 为三分类平方误差之和。收盘组只取完整有限且大于1的
+B365、其次PS、其次Avg，按倒数归一化去水，缺失时为空；另列相同收盘覆盖样本上的模型指标。
+**收盘价是赛前最后报价，由出版方赛后发布，仅作参照上限**，不能作为当时可执行赔率。
+无市场信息进入模型、先验、参数选择或校准；原有带时间戳 had 基准仍单独保留。
+
+`p2_ready` 只看最近两个完整赛季的 weekly 验证：两季均有有效评分且无跳过或不可知赛果，评分数量须与范围内场数一致，合计 n≥500，
+模型 LogLoss 比等概率低≥0.05，且相同比赛上的模型 LogLoss 不比收盘基准高超过0.05。
+收盘配对集也要求 n≥500，防止用少量行情认证整个联赛；缺失证据、部分季或 monthly 结果均不通过。
+门槛按两季合并场均指标计算，完整规则和理由在 params.json 中。
+T06 只有与已验收来源、半衰期、先验及校准配置相符、且门槛证据在预测时已存在的模型显示“P2 可用”，
+还须与评估库SHA256及累计训练策略相同，不能使用重放模型；跨季后证据必须覆盖最新两完整季。
+更换训练库或策略须重新评估，其余显示“P2 实验”。**BET 始终禁用，P2 达标不授予任何执行权限。**
+
 ### 多赛季历史数据（T08）
 
 `fetch fd` 只导入已核实时区的 football-data.co.uk 常规时间赛果。下载前须具有站方允许的用途和访问许可；
@@ -166,7 +207,7 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 必须显式设置结果可知时间假设，如 `--assume-known-after 3h`；这不是真实发布时间。
 下载原件附 URL、HTTP 状态、读取时刻与 SHA256。`--raw-file path.csv` 可离线回放同名 `.csv.meta.json`
 完整且哈希、URL、采集时刻有效的原件；主联赛回放每次只选一个赛季。
-新收盘价格存入 `closing_odds`，无报价时刻，模型及正式回测不读取它。
+新收盘价格存入 `closing_odds`，无报价时刻。T15 仅允许回测对照读取，模型、先验、校准和实盘报价不读取。
 
 球队只用已批准或比赛证据核对过的别名。同场官方比赛保留 jc 身份和赛果，身份未齐的可疑重复单独隔离。
 未知英文名称保留英文身份并记入 `data/unmatched_teams.csv`；以后批准别名时若同一联赛已有独立身份，需要先核对合并。
