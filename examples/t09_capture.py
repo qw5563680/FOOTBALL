@@ -1,0 +1,180 @@
+"""Capture live T09 evidence in an explicitly new private directory (never a unit test)."""
+
+import argparse
+import hashlib
+import json
+import os
+from datetime import UTC, datetime
+from pathlib import Path
+
+from zucai.sources.base import RawStore, _atomic_write
+from zucai.sources.fdorg_command import COMPETITIONS, _requests
+from zucai.sources.football_data import read_json
+from zucai.sources.football_data_org import FdorgHttpError, FootballDataOrg, safe_json_for_archive
+
+
+def _write(path, payload):
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _duration(row):
+    score = row.get("score")
+    value = score.get("duration") if isinstance(score, dict) else None
+    return value if isinstance(value, str) and value else "missing"
+
+
+def _observations(source, path, **scope):
+    raw = path.read_bytes()
+    valid = {g.provider_match_id for g in source.parse(raw, **scope)}
+    rows = [
+        r
+        for r in json.loads(raw)["matches"]
+        if isinstance(r, dict) and type(r.get("id")) is int and r["id"] in valid
+    ]
+    durations = {}
+    for row in rows:
+        tag = _duration(row)
+        durations[tag] = durations.get(tag, 0) + 1
+    return rows, durations, list(source.rejected)
+
+
+def _crop(source, path, dest):
+    # The adapter already validated the original before storing it. Recheck before export.
+    token = os.environ["FOOTBALL_DATA_ORG_TOKEN"].strip()
+    raw = path.read_bytes()
+    if not token or not safe_json_for_archive(raw, token):
+        raise ValueError("Unsafe fixture input")
+    payload = json.loads(raw)
+    rows, _, rejected = _observations(source, path)
+    selected = []
+    for label in ("EXTRA_TIME", "PENALTY_SHOOTOUT", "POSTPONED", "FINISHED", "TIMED", "SCHEDULED"):
+        for row in rows:
+            if label in ("EXTRA_TIME", "PENALTY_SHOOTOUT"):
+                applies = row["status"] == "FINISHED" and _duration(row) == label
+            else:
+                applies = row["status"] == label
+            if applies:
+                if row not in selected:
+                    selected.append(row)
+                break
+    if not selected and rows:
+        selected.append(rows[0])
+    trimmed = []
+    for row in selected:
+        item = {k: row[k] for k in ("id", "utcDate", "status")}
+        for key, fields in (
+            ("competition", ("code",)),
+            ("season", ("startDate", "endDate")),
+            ("homeTeam", ("id", "name")),
+            ("awayTeam", ("id", "name")),
+        ):
+            obj = row.get(key)
+            if isinstance(obj, dict):
+                item[key] = {f: obj[f] for f in fields if f in obj}
+        if isinstance(row.get("score"), dict):
+            score = row["score"]
+            item["score"] = (
+                {"duration": score["duration"]} if isinstance(score.get("duration"), str) else {}
+            )
+            for field in ("fullTime", "halfTime", "regularTime"):
+                if isinstance(score.get(field), dict):
+                    item["score"][field] = {
+                        k: score[field][k] for k in ("home", "away") if k in score[field]
+                    }
+        trimmed.append(item)
+    crop = {"resultSet": {"count": len(trimmed)}, "matches": trimmed}
+    if isinstance(payload.get("competition"), dict) and "code" in payload["competition"]:
+        crop["competition"] = {"code": payload["competition"]["code"]}
+    filters = payload.get("filters", {})
+    if filters:
+        crop["filters"] = {
+            k: filters[k]
+            for k in ("season", "dateFrom", "dateTo", "competitions", "status")
+            if k in filters
+        }
+    encoded = json.dumps(crop, ensure_ascii=False, indent=2).encode()
+    if not safe_json_for_archive(encoded, token):
+        raise ValueError("Unsafe cropped fixture")
+    dest.write_bytes(encoded + b"\n")
+    return dict(
+        fixture_sha256=hashlib.sha256(dest.read_bytes()).hexdigest(),
+        raw_sha256=hashlib.sha256(raw).hexdigest(),
+        source_rows=len(payload["matches"]),
+        valid_rows=len(rows),
+        rejected_rows=len(rejected),
+        copied_ids=[r["id"] for r in trimmed],
+        captured=source.store.load_metadata(path),
+    )
+
+
+def capture(folder, season, floor):
+    if not os.environ.get("FOOTBALL_DATA_ORG_TOKEN"):
+        raise ValueError("真实验收需要在采集环境配置 FOOTBALL_DATA_ORG_TOKEN")
+    if not 1900 <= floor <= season <= 9999:
+        raise ValueError("invalid season range")
+    folder.mkdir(parents=True, exist_ok=False)
+    mapping = read_json(COMPETITIONS)
+    source = FootballDataOrg(store=RawStore(folder / "raw"), competitions=mapping)
+    evidence = {"started_utc": datetime.now(UTC).isoformat(), "codes": {}, "fixtures": {}}
+    try:
+        for code in mapping:
+            events = evidence["codes"][code] = []
+            for year in range(season, floor - 1, -1):
+                query = dict(
+                    competition=code, season=year, status=None if year == season else "FINISHED"
+                )
+                try:
+                    path = source.fetch_raw(**query)
+                except FdorgHttpError as exc:
+                    events.append(dict(year=year, status=exc.status_code))
+                    if exc.status_code in (403, 404):
+                        break  # observed boundary, not proof that every older season is unavailable
+                    raise
+                valid_rows, durations, rejected = _observations(source, path, **query)
+                events.append(
+                    dict(
+                        year=year,
+                        rows=len(valid_rows) + len(rejected),
+                        rejected_rows=len(rejected),
+                        durations=durations,
+                        meta=source.store.load_metadata(path),
+                    )
+                )
+                if code == "PL" and year == season:
+                    evidence["fixtures"]["season"] = _crop(
+                        source, path, folder / "live_pl_season.json"
+                    )
+            _write(folder / "capture.json", evidence)
+        day = datetime.now(UTC).date()
+        windows = evidence["fixtures"]["windows"] = []
+        for number, scope in enumerate(
+            _requests("PL,PD,SA", None, 7, None, False, day, mapping), start=1
+        ):
+            path = source.fetch_raw(**scope)
+            meta = source.store.load_metadata(path)
+            meta["window_anchor_date"] = day.isoformat()
+            _atomic_write(
+                path.with_suffix(path.suffix + ".meta.json"),
+                json.dumps(meta, ensure_ascii=False).encode("utf-8"),
+            )
+            windows.append(
+                dict(scope=scope, **_crop(source, path, folder / f"live_window_{number}.json"))
+            )
+    finally:
+        evidence.update(
+            ended_utc=datetime.now(UTC).isoformat(),
+            requests=source.request_count,
+            remaining_quota=source.remaining_quota,
+            rate_events=source.rate_events,
+        )
+        _write(folder / "capture.json", evidence)
+        source.session.close()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", required=True, type=Path, help="new private directory")
+    parser.add_argument("--season", required=True, type=int, help="current season start year")
+    parser.add_argument("--floor", required=True, type=int, help="oldest year to probe, inclusive")
+    args = parser.parse_args()
+    capture(args.output, args.season, args.floor)

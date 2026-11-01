@@ -45,6 +45,28 @@ def build_parser() -> argparse.ArgumentParser:
     fd.add_argument("--raw-root", default="data/raw", help="原始文件存放根目录")
     fd.add_argument("--audit-dir", default="data", help="拒绝/可疑行审计目录")
 
+    fdorg = feeds.add_parser("fdorg", help="采集 football-data.org 的整轮赛程和常规时间赛果")
+    fdorg.add_argument("--competition", required=True, help="联赛代码，以逗号分隔，例如 PL,PD,SA")
+    window = fdorg.add_mutually_exclusive_group(required=True)
+    window.add_argument("--season", type=int, action="append", help="赛季开始年份，可重复")
+    window.add_argument(
+        "--days", type=int, help="UTC 今天前后各 N 个自然日，含两端；按不超过10天分窗"
+    )
+    fdorg.add_argument(
+        "--assume-known-after",
+        type=assumed_delay,
+        metavar="3h",
+        help="赛季回填必须显式指定；增量只用真实采集时刻",
+    )
+    fdorg.add_argument("--finished-only", action="store_true", help="只请求指定赛季的 FINISHED")
+    fdorg.add_argument("--db", help="目标 SQLite 文件")
+    fdorg.add_argument("--aliases-file", help="按联赛和本源数字球队 ID 验证的别名 JSON")
+    fdorg.add_argument(
+        "--raw-file", help="离线重放一份匹配赛季或分窗、带 HTTP/SHA256 sidecar 的原件"
+    )
+    fdorg.add_argument("--raw-root", default="data/raw", help="原始快照根目录")
+    fdorg.add_argument("--audit-dir", default="data", help="拒绝和疑似重复行的 CSV 目录")
+
     results = feeds.add_parser("results", help="回填已开奖场次的常规时间及半场比分")
     span = results.add_mutually_exclusive_group()
     span.add_argument("--days", type=int, help="最近N个北京时间自然日，含今天（默认30）")
@@ -188,6 +210,21 @@ def main(argv: list[str] | None = None) -> int:
                 from zucai.sources.sfc import fetch_sfc
 
                 fetch_sfc(args.issue, db=args.db, matches_out=args.matches_out)
+            elif args.feed == "fdorg":
+                from zucai.sources.fdorg_command import fetch_fdorg
+
+                fetch_fdorg(
+                    competition=args.competition,
+                    seasons=args.season,
+                    days=args.days,
+                    assume=args.assume_known_after,
+                    finished_only=args.finished_only,
+                    aliases_path=args.aliases_file,
+                    db=args.db,
+                    raw_file=args.raw_file,
+                    raw_root=args.raw_root,
+                    audit_dir=args.audit_dir,
+                )
             elif args.feed == "fd":
                 from zucai.sources.fd_ingest import fetch_fd
                 from zucai.sources.football_data import ALIASES_PATH, LEAGUES_PATH

@@ -1,6 +1,7 @@
 """Model contract for an explicit pre-match cutoff and a regular-time score matrix."""
 
 from abc import ABC, abstractmethod
+from collections import defaultdict, deque
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -37,27 +38,33 @@ def model_sources(model) -> list[str]:
 
 
 def reject_cross_source_overlaps(frame: pd.DataFrame) -> None:
-    """Reject canonical jc/fd overlaps from SQL or unsorted public fitting frames."""
-    selected = frame.loc[frame.source.isin(("jc", "fd"))]
+    """Reject known canonical fixtures duplicated across any training feeds."""
+    selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg"))]
     if selected.source.nunique() < 2:
         return
-    selected = selected.sort_values("kickoff_utc")
     window = pd.Timedelta(hours=3)
-    for _, group in selected.groupby(["league", "home", "away"], sort=False):
-        official = list(group.loc[group.source == "jc"].itertuples())
-        if not official:
-            continue
-        cursor = 0
-        for row in group.loc[group.source == "fd"].itertuples():
-            while (
-                cursor < len(official) and official[cursor].kickoff_utc < row.kickoff_utc - window
-            ):
-                cursor += 1
-            if cursor < len(official) and official[cursor].kickoff_utc <= row.kickoff_utc + window:
+    recent = defaultdict(deque)
+    for row in selected.sort_values("kickoff_utc").itertuples():
+        group = recent[row.league]
+        while group and group[0].kickoff_utc < row.kickoff_utc - window:
+            group.popleft()
+        for other in group:
+            if row.source == other.source:
+                continue
+            same_pair = (row.home, row.away) == (other.home, other.away)
+            api = row if row.source == "fdorg" else other if other.source == "fdorg" else None
+            # Follow the importer's quarantine when higher-priority data arrives afterwards.
+            # An opaque provider team cannot clear an official fixture in the same time window.
+            unresolved = api is not None and (
+                any(str(name).startswith("fdorg:team:") for name in (api.home, api.away))
+                or not {row.home, row.away}.isdisjoint((other.home, other.away))
+            )
+            if same_pair or unresolved:
                 raise ValueError(
-                    "jc/fd 同联赛同主客队在3小时内存在重复/重叠比赛，请先核对身份："
-                    f"{official[cursor].match_id} / {row.match_id}"
+                    "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                    f"{other.match_id} / {row.match_id}"
                 )
+        group.append(row)
 
 
 def utc(value) -> pd.Timestamp:

@@ -37,7 +37,10 @@ zucai fetch results --source c500 --from 2026-11-02 --to 2026-11-02  # 仅根页
 zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
 zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
-zucai train --league 英超 --source jc,fd --since 2026-09-01 --output models/epl-mixed.pkl
+# 在运行采集的环境中预先配置 FOOTBALL_DATA_ORG_TOKEN
+zucai fetch fdorg --competition PL,PD,SA --days 7  # 自动拆成不超过10天的连续窗口
+zucai fetch fdorg --competition PL --season 2025 --season 2026 --assume-known-after 3h
+zucai train --league 英超 --source jc,fd,fdorg --since 2026-09-01 --output models/epl-mixed.pkl
 zucai train --model dixon-coles       # 训练并按周回测
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
@@ -124,6 +127,28 @@ T06 对范围内来源可预测，冻结格式升级为 schema 2；旧单来源�
 T08 未接入定时采集或数据分支恢复；云端持久化当前只有代码、配置与派生验收报告。
 [时区及数据限制](docs/DATA_SOURCES.md#4-football-datacouk历史赛果与收盘赔率t08) ·
 [真实数据验收与缺口](reports/2026-11-02-t08-acceptance/README.md)。
+
+### 整个联赛的赛程与赛果（T09）
+
+Football data provided by the [Football-Data.org API](https://www.football-data.org/).
+支持 `PL ELC PD SA BL1 FL1 DED PPL BSA` 九个联赛，仅采集赛程与 90 分钟（含补时）赛果。
+`--days 7` 覆盖 UTC 今天前后各 7 天（共 15 天），自动拆成 10 天和 5 天两个连续窗口。
+每个窗口单独请求、落盘和提交；后续窗口失败时保留此前文件与已导入行。预定比赛只建赛程，增量完赛按采集时刻可知。
+`--season` 用赛季**起始年**，必须显式指定历史可知时间假设；当季整季也遵守此规则。
+历史赛季可加 `--finished-only`。本账户九联赛最早确认可读的起始年为 2023，2022 返回 403；欧洲为 2023/24，巴甲为 2023 自然年赛季。
+仅把密钥设在运行采集的环境中，不写入命令、仓库或快照。
+
+默认读取 `data/team_aliases/football_data_org.json` 的 172 条带证据 auto_verified ID 别名；
+`data/football_data_org/competitions.json` 记录九联赛实测起始年和核验 UTC。
+新核验结果可在训练库副本上先复核，再用 `--aliases-file` 指向替代文件。
+`proposed` 不生效。相同比赛保留竞彩官方记录，其次保留 T08 的 `fd:`，单独的本源记录使用 `fdorg:`。
+同一赛季或单个分窗可通过 `--raw-file` 和快照自带的校验文件离线重放，不需要凭据；
+多窗口逐份重放，仍使用原 `--days` 参数；赛季回放仍需一次指定一个赛季。分窗 sidecar 的 `window_anchor_date` 保留最初 UTC 起算日，跨午夜也不平移请求范围。
+例如 `zucai fetch fdorg --competition PL,PD,SA --days 7 --raw-file /path/to/window.json`。
+429 最多按服务端重置时间等待 15 分钟；超过时退出并保留归档，未等待就提前重试的情况不会发生。
+未对齐球队按联赛和本源 ID 写入 `data/fdorg_unmatched_teams.csv`，字段为 `league,team_id,english_name,first_seen_utc`；
+重复采集不重复追加，较早原件的回放会更新最早观察时间。与拒绝/疑似重复清单一样可用 `--audit-dir` 指定目录，均不进仓库。
+[来源与数据边界](docs/DATA_SOURCES.md#5-football-dataorg-v4欧洲主流联赛全量赛程与赛果t09)。
 
 ### 批量预测与冻结报告（T06）
 

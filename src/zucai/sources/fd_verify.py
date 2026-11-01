@@ -75,17 +75,8 @@ def _compatible(row, official, aliases):
     )
 
 
-def infer_identity(rows, official, zone):
-    """Infer one candidate zone's oriented aliases, without using score/name hints."""
-    times, rejected = [], []
-    for row in rows:
-        try:
-            if not row["home"] or not row["away"] or row["home"] == row["away"]:
-                raise ValueError("Missing or identical oriented team names")
-            times.append(local_kickoff(row["date"], row["time"], zone))
-        except (ValueError, KeyError, OverflowError) as exc:
-            times.append(None)
-            rejected.append(dict(fd_row=row["row"], reason=str(exc)))
+def infer_oriented_pairs(rows, official, times, *, known_aliases=None):
+    """One league, supplied UTC instants, oriented source identifiers, bijective anchors."""
     official_times = [_utc(game["kickoff_utc"]) for game in official]
     base = [
         (i, k, (instant - kickoff).total_seconds() / 60)
@@ -94,7 +85,7 @@ def infer_identity(rows, official, zone):
         for k, kickoff in enumerate(official_times)
         if abs((instant - kickoff).total_seconds()) <= WINDOW_SECONDS
     ]
-    aliases, origin, conflicts = {}, {}, []
+    aliases, origin, conflicts = dict(known_aliases or {}), {}, []
     blocked_rows, blocked_official = set(), set()
     iteration = 0
     while True:
@@ -162,8 +153,34 @@ def infer_identity(rows, official, zone):
             break
         aliases.update(new)
         iteration += 1
+    return dict(
+        aliases=aliases,
+        alias_origin=origin,
+        conflicts=conflicts,
+        iterations=iteration,
+        pairs=accepted,
+        temporal_edges=base,
+        compatible_edges=[
+            (i, k, d) for i, k, d in edges if i not in blocked_rows and k not in blocked_official
+        ],
+    )
+
+
+def infer_identity(rows, official, zone):
+    """Infer one candidate zone's oriented aliases, without using score/name hints."""
+    times, rejected = [], []
+    for row in rows:
+        try:
+            if not row["home"] or not row["away"] or row["home"] == row["away"]:
+                raise ValueError("Missing or identical oriented team names")
+            times.append(local_kickoff(row["date"], row["time"], zone))
+        except (ValueError, KeyError, OverflowError) as exc:
+            times.append(None)
+            rejected.append(dict(fd_row=row["row"], reason=str(exc)))
+    graph = infer_oriented_pairs(rows, official, times)
+    aliases = graph["aliases"]
     comparisons, evidence = [], defaultdict(list)
-    for i, k, delta in accepted:
+    for i, k, delta in graph["pairs"]:
         row, game = rows[i], official[k]
         if aliases.get(row["home"]) != game["home"] or aliases.get(row["away"]) != game["away"]:
             continue
@@ -191,14 +208,14 @@ def infer_identity(rows, official, zone):
     return dict(
         zone=zone,
         aliases=aliases,
-        alias_origin=origin,
+        alias_origin=graph["alias_origin"],
         evidence=dict(evidence),
         comparison_rows=comparisons,
         exact=sum(e["difference_minutes"] == 0 for e in comparisons),
         matched=len(comparisons),
         difference_histogram=dict(Counter(str(e["difference_minutes"]) for e in comparisons)),
-        conflicts=conflicts,
-        iterations=iteration,
+        conflicts=graph["conflicts"],
+        iterations=graph["iterations"],
         times=times,
         rejected_rows=rejected,
     )

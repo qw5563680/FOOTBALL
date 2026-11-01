@@ -135,13 +135,38 @@ CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知
 
 ## 5. football-data.org v4（欧洲主流联赛全量赛程与赛果，T09）
 
-- 基地址 `https://api.football-data.org/v4/`，请求头 `X-Auth-Token`，key 来自环境变量 `FOOTBALL_DATA_ORG_TOKEN`，不进仓库、日志与 sidecar。
-- 免费档 12 项赛事永久免费：`PL ELC PD SA BL1 FL1 DED PPL BSA CL EC WC`（2026-11-02 核实 coverage 页）；约 10 次/分钟，超限 429（需验证响应头 `X-RequestCounter-Reset`）。
-  免费档可回溯的最早赛季无官方说明，实现时用真实请求确认。
+- 基地址 `https://api.football-data.org/v4/`，请求头 `X-Auth-Token`；key 仅从运行时环境变量 `FOOTBALL_DATA_ORG_TOKEN` 读取，不进命令、仓库、日志或 sidecar。
+- 本源只映射九个国内联赛 `PL ELC PD SA BL1 FL1 DED PPL BSA`；欧冠、欧洲杯、世界杯不入库。免费档限非商业使用，README 标注来源。
 - 端点：`GET /competitions/{code}/matches?season=YYYY[&status=FINISHED]`、`GET /matches?dateFrom&dateTo&competitions=`。
-- 时间 `utcDate` 为 UTC ISO。比分含 `score.duration`，加时赛时常规时间取 `regularTime`，不得用 `fullTime`（需验证字段）。
-- `lastUpdated` 是记录修改时间，不是赛果发布时间，不能作为路线 B 的 `published`。
-- 免费档限非商业使用，README 须标注来源。
+- `utcDate` 为 UTC ISO；`dateTo` **排他**。真实接口单次日期跨度最多 **10 天**，超出返回 HTTP 400 `Specified period must not exceed 10 days.`。
+  `--days N` 的 `2N+1` 天自动拆成不超过 10 天的连续窗口，端点无重叠/无空档；如 UTC 2026-11-02 的 `--days 7` 为 `[2026-10-26,2026-11-05)`、`[2026-11-05,2026-11-10)`。
+  每窗单独归档与提交；`--raw-file` 一次回放一窗，按原 `--days` 规划验证 URL、HTTP、SHA256。新增 sidecar 字段 `window_anchor_date` 保留起算 UTC 日期，采集跨午夜时仍可复原原窗口。
+- 正常限速每 6 秒一次，429 按 `X-RequestCounter-Reset` 秒数等待后只重试一次；缺头默认 60 秒，非法重置值直接失败。
+  **最大允许等待 900 秒（15 分钟）**，超过直接报错退出，不等待或提前重试，已归档响应保留。
+- `FINISHED` 的常规时间取 `fullTime`；`duration=EXTRA_TIME/PENALTY_SHOOTOUT` 必须取 `regularTime`，不得把加时或点球比分当 90 分钟，也不反推。
+  缺少有效常规时间比分或半场比分超过常规时间比分的行拒绝；`AWARDED` 拒绝。
+  `SCHEDULED/TIMED` 只建赛程；`POSTPONED/CANCELLED` 只处理已有本源赛程；其余进行中状态不产生赛果。
+- `lastUpdated` 是修改时间，不是赛果发布时间，不能作为路线 B 的 published。季回填必须显式 `--assume-known-after 3h`；日常增量用真实采集时刻。
+- 默认配置 `data/football_data_org/competitions.json` 九联赛均为 `earliest_season=2023`，`verified_utc` 为各联赛实测拒绝边界的 UTC。
+  `data/team_aliases/football_data_org.json` 正式保存 172 条 `auto_verified`，每条保留本源数字 ID、规范名和包含两端比赛 ID、UTC、原件 SHA256 的证据。
+  导入器默认读取该文件；proposed 不生效，可通过 `--aliases-file` 显式替换。
+- 未对齐球队写 `data/fdorg_unmatched_teams.csv`：`league,team_id,english_name,first_seen_utc`，以联赛/ID 去重并保留最早真实观察 UTC。
+  早期原件后回放会更新最早时间；`--audit-dir` 可改目录。该清单、拒绝与疑似重复清单均被忽略，不作自动猜名。
+
+### T09 带凭据核验记录（北京时间 2026-11-02）
+
+- 云端先行 PL 实测：起始年 2026、2025、2024、2023 各 HTTP 200 / 380 场；2022 及抽查的 2021–2016 为 403。
+  九联赛后续均成功取得 2023–2026，向前至 2022 均 403。本账户最早确认可读的欧洲赛季为 **2023/24**，巴甲为 **2023 自然年**。
+  这是本账户在本轮的实测边界，不代表所有套餐，亦未穷举每个更早年份；当前季为全赛程，历史季筛 FINISHED。
+- 2026-11-02 **02:59:34.786 北京时间**（2026-11-01 18:59:34.786 UTC）真实 HTTP 429：
+  `X-RequestCounter-Reset: 52`、`X-Requests-Available-Minute: 0`，无 `Retry-After`。此前匿名 403 的 `86400` 不能作为该账户 429 的证据，也不会导致等待整天。
+- 首轮 36 份成功整季响应共 13,196 行；当季 3,296 行。旧版采集脚本末尾 15 天窗口真实 400，补采 `[2026-10-28,2026-11-06)` 9 天窗口 200；本轮已修复 CLI 与采集脚本自动分窗。
+- 英冠真实 `fdorg:536448`（2024 季）返回 `EXTRA_TIME`、`fullTime=1:1`、`regularTime=0:1`、`halfTime=0:0`，解析为常规时间 0:1。
+  英冠 `fdorg:557838` 的 `regularTime=0:0` 与 `halfTime=1:1` 冲突，已拒绝；其余八联赛取得的 2023–2026 样本中未观察到加时/点球。
+- 三个真实裁剪件位于 `data/fixtures/t09/live_*.json`，来源、UTC、原件与裁剪 SHA256 在同目录 `provenance.json`；`synthetic_*` 继续明确标为合成异常场景。
+  本轮提交前再次检查 token 的原始字节与 JSON 解码回显。pytest 只读离线样本，不使用真实 key 联网。
+- 逐联赛实际入库、链接率、未链接名单、部分重建基线限制及同截点回测见 [T09 验收](../reports/2026-11-02-t09-acceptance/README.md)。
+  来源署名及使用条件以 [站方条款](https://www.football-data.org/client/register) 为准；API `robots.txt` 本轮 HTTP 404。
 
 ## 6. API-Football v3 / api-sports.io（亚洲与北欧联赛，T10）
 
