@@ -7,7 +7,7 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -251,6 +251,8 @@ def _reset_seconds(headers):
     reset = _header_count(headers[RESET_HEADER])
     if reset is None:
         raise FdorgHttpError(429, "重置秒数必须为无符号整数，已停止重试")
+    if reset > 15 * 60:
+        raise FdorgHttpError(429, "重置等待超过15分钟，已保留归档并停止重试")
     return reset
 
 
@@ -332,8 +334,8 @@ class FootballDataOrg(Source[ApiGame]):
             ):
                 raise ValueError("赛季请求必须使用一个赛事、四位年份，且不能混用日期")
             season = str(season)
-        elif _date(date_from) >= _date(date_to):
-            raise ValueError("dateTo 必须晚于 dateFrom")
+        elif not timedelta(0) < _date(date_to) - _date(date_from) <= timedelta(days=10):
+            raise ValueError("dateTo 必须晚于 dateFrom，单次窗口不得超过10天")
         return _Scope(codes, season, date_from, date_to, status)
 
     def request_url(self, *, competition, season=None, date_from=None, date_to=None, status=None):

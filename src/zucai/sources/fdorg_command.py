@@ -2,14 +2,15 @@
 
 import csv
 import hashlib
+import io
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 from zucai.db import get_engine, init_db, session_scope
-from zucai.sources.base import RawStore
+from zucai.sources.base import RawStore, _atomic_write
 from zucai.sources.fdorg_ingest import COUNT_KEYS, import_fdorg_games
 from zucai.sources.football_data import CONFIG_ROOT, read_json
 from zucai.sources.football_data_org import FootballDataOrg
@@ -50,7 +51,14 @@ def _requests(competition, seasons, days, assume, finished_only, today, competit
         end = today + timedelta(days=days + 1)  # v4 excludes dateTo
     except OverflowError as exc:
         raise ValueError("--days 日期范围溢出") from exc
-    return [dict(competition=",".join(codes), date_from=start.isoformat(), date_to=end.isoformat())]
+    windows = []
+    while start < end:
+        stop = start + timedelta(days=min(10, (end - start).days))
+        windows.append(
+            dict(competition=",".join(codes), date_from=start.isoformat(), date_to=stop.isoformat())
+        )
+        start = stop
+    return windows
 
 
 def _capture_time(meta):
@@ -104,6 +112,36 @@ def _audit(path, rows, sha):
             )
 
 
+def _unmatched_teams(path, names, seen):
+    """Keep one earliest captured observation per league/provider team ID."""
+    if not names:
+        return
+    fields = ("league", "team_id", "english_name", "first_seen_utc")
+    records = {}
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as stream:
+            records = {(r["league"], r["team_id"]): r for r in csv.DictReader(stream)}
+    changed = False
+    for name in names:
+        key = name["league"], str(name["id"])
+        previous = records.get(key)
+        if previous is None or seen < _capture_time({"fetched_at_utc": previous["first_seen_utc"]}):
+            records[key] = dict(
+                league=name["league"],
+                team_id=str(name["id"]),
+                english_name=name["name"],
+                first_seen_utc=seen.isoformat(timespec="microseconds").replace("+00:00", "Z"),
+            )
+            changed = True
+    if changed:
+        buffer = io.StringIO(newline="")
+        writer = csv.DictWriter(buffer, fields)
+        writer.writeheader()
+        writer.writerows(records[key] for key in sorted(records))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(path, buffer.getvalue().encode("utf-8"))
+
+
 def fetch_fdorg(
     *,
     competition,
@@ -124,18 +162,42 @@ def fetch_fdorg(
     today = (
         _capture_time(replay_meta).date() if replay_meta is not None else datetime.now(UTC).date()
     )
+    if replay_meta is not None and days is not None and "window_anchor_date" in replay_meta:
+        anchor = replay_meta["window_anchor_date"]
+        try:
+            today = date.fromisoformat(anchor)
+        except (ValueError, TypeError):
+            raise ValueError("归档窗口起算日期无效") from None
+        if today.isoformat() != anchor or today > _capture_time(replay_meta).date():
+            raise ValueError("归档窗口起算日期无效或晚于采集日期")
     scopes = _requests(competition, seasons, days, assume, finished_only, today, competitions)
-    if path is not None and len(scopes) != 1:
-        raise ValueError("一次只可重放一个已归档的查询")
+    if path is not None and days is None and len(scopes) != 1:
+        raise ValueError("一次只可重放一个已归档的赛季查询")
     source = FootballDataOrg(store=RawStore(raw_root), competitions=competitions)
     totals = dict.fromkeys(COUNT_KEYS, 0)
     names, files = set(), []
     engine = get_engine(db)
     try:
+        if replay_meta is not None:
+            if not isinstance(replay_meta.get("url"), str):
+                raise ValueError("原件 URL 必须为字符串")
+            scopes = [
+                scope
+                for scope in scopes
+                if _url_identity(replay_meta["url"]) == _url_identity(source.request_url(**scope))
+            ]
+            if len(scopes) != 1:
+                raise ValueError("原件 URL 必须匹配一个请求窗口；每次重放一份归档")
         for scope in scopes:
             if replay_meta is None:
                 path = source.fetch_raw(**scope)
                 meta = source.store.load_metadata(path)
+                if days is not None:
+                    meta["window_anchor_date"] = today.isoformat()
+                    _atomic_write(
+                        path.with_suffix(path.suffix + ".meta.json"),
+                        json.dumps(meta, ensure_ascii=False).encode("utf-8"),
+                    )
             else:
                 meta = replay_meta
             raw = path.read_bytes()
@@ -161,6 +223,9 @@ def fetch_fdorg(
             _audit(Path(audit_dir) / "fdorg_suspected_duplicates.csv", result["suspected"], sha)
             for key in totals:
                 totals[key] += result[key]
+            _unmatched_teams(
+                Path(audit_dir) / "fdorg_unmatched_teams.csv", result["unmatched_names"], seen
+            )
             names.update((n["league"], n["id"]) for n in result["unmatched_names"])
             files.append(dict(scope=scope, raw_sha256=sha, seen_utc=seen.isoformat(), **result))
             LOG.info(

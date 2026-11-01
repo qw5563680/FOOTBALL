@@ -4,11 +4,11 @@ import argparse
 import hashlib
 import json
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
-from zucai.sources.base import RawStore
-from zucai.sources.fdorg_command import COMPETITIONS
+from zucai.sources.base import RawStore, _atomic_write
+from zucai.sources.fdorg_command import COMPETITIONS, _requests
 from zucai.sources.football_data import read_json
 from zucai.sources.football_data_org import FdorgHttpError, FootballDataOrg, safe_json_for_archive
 
@@ -146,12 +146,20 @@ def capture(folder, season, floor):
                     )
             _write(folder / "capture.json", evidence)
         day = datetime.now(UTC).date()
-        path = source.fetch_raw(
-            competition="PL,PD,SA",
-            date_from=(day - timedelta(days=7)).isoformat(),
-            date_to=(day + timedelta(days=8)).isoformat(),
-        )
-        evidence["fixtures"]["window"] = _crop(source, path, folder / "live_window.json")
+        windows = evidence["fixtures"]["windows"] = []
+        for number, scope in enumerate(
+            _requests("PL,PD,SA", None, 7, None, False, day, mapping), start=1
+        ):
+            path = source.fetch_raw(**scope)
+            meta = source.store.load_metadata(path)
+            meta["window_anchor_date"] = day.isoformat()
+            _atomic_write(
+                path.with_suffix(path.suffix + ".meta.json"),
+                json.dumps(meta, ensure_ascii=False).encode("utf-8"),
+            )
+            windows.append(
+                dict(scope=scope, **_crop(source, path, folder / f"live_window_{number}.json"))
+            )
     finally:
         evidence.update(
             ended_utc=datetime.now(UTC).isoformat(),

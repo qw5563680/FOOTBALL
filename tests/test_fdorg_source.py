@@ -228,6 +228,7 @@ def test_wrong_response_scope_fails_live_and_replay_but_safe_raw_is_retained(
         {"competition": "PL", "date_from": "2024-09-01"},
         {**WINDOW, "date_to": "2024-09-01"},
         {**WINDOW, "date_from": "2024-02-30"},
+        {**WINDOW, "date_to": "2024-09-12"},
         {**WINDOW, "season": 2024},
         {**SEASON, "status": "invalid"},
     ],
@@ -435,12 +436,11 @@ def test_unusable_reset_fails_without_a_blind_wait_or_early_retry(tmp_path, dumm
     [
         (None, 60),
         ("121", 121),
-        ("86400", 86400),
-        ("300000000000", 300000000000),
-        ("1000000000000000", 1000000000000000),
+        ("0", 0),
+        ("900", 900),
     ],
 )
-def test_429_honors_the_entire_reported_reset_before_its_single_retry(
+def test_429_waits_up_to_fifteen_minutes_before_its_single_retry(
     tmp_path, dummy_key, reset, seconds
 ):
     headers = {} if reset is None else {"X-RequestCounter-Reset": reset}
@@ -493,3 +493,52 @@ def test_numeric_competition_filter_echo_must_cover_the_exact_requested_codes(ec
     assert len(source.parse(changed("window", ("filters", "competitions"), echoed), **WINDOW)) == 6
     with pytest.raises(ValueError, match="competitions"):
         source.parse(changed("window", ("filters", "competitions"), "2021,2019"), **WINDOW)
+
+
+@pytest.mark.parametrize("reset", ["901", "86400", "300000000000", "1000000000000000"])
+def test_excessive_429_reset_keeps_archive_without_sleep_or_retry(tmp_path, dummy_key, reset):
+    from zucai.sources.football_data_org import FdorgHttpError
+
+    waits = []
+    transport = FixtureTransport(
+        (429, fixture("http_error"), {"X-RequestCounter-Reset": reset}),
+        (200, fixture("season"), {}),
+    )
+    source = feed(store=RawStore(tmp_path), session=transport, sleep=waits.append)
+    with pytest.raises(FdorgHttpError, match="15"):
+        source.fetch_raw(**SEASON)
+    assert waits == [] and source.request_count == 1
+    archived = snapshots(tmp_path)
+    assert len(archived) == 1
+    assert source.store.load_metadata(archived[0])["status_code"] == 429
+
+
+def test_real_elc_extra_time_uses_regular_time_instead_of_full_time():
+    source = feed()
+    games = source.parse(
+        (FIXTURES / "live_elc_extra_time.json").read_bytes(),
+        competition="ELC",
+        season=2024,
+        status="FINISHED",
+    )
+    game = next(g for g in games if g.provider_match_id == 536448)
+    assert game.full == (0, 1) and game.half == (0, 0)
+    assert game.regular_time_basis == "derived" and not source.rejected
+
+
+@pytest.mark.parametrize(
+    "filename,scope,expected_ids",
+    [
+        ("live_pl_season.json", {"competition": "PL", "season": 2026}, {560542, 560622}),
+        (
+            "live_window.json",
+            {"competition": "PL,PD,SA", "date_from": "2026-10-28", "date_to": "2026-11-06"},
+            {558550, 558547},
+        ),
+    ],
+)
+def test_real_crops_parse_with_their_original_scopes(filename, scope, expected_ids):
+    source = feed()
+    games = source.parse((FIXTURES / filename).read_bytes(), **scope)
+    assert {g.provider_match_id for g in games} == expected_ids
+    assert not source.rejected

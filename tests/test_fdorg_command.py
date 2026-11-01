@@ -1,4 +1,4 @@
-"""Temporary replay uses synthetic v4 bytes from T09 only; the test suite denies live HTTP."""
+"""Offline replay of T09 synthetic fixtures and explicitly marked live crops."""
 
 import hashlib
 import json
@@ -65,8 +65,8 @@ def call(tmp_path, path, *options):
             "2026-11-01T15:00:00",
         ),
         (
-            ["--days", "7"],
-            "/matches?dateFrom=2026-10-26&dateTo=2026-11-10&competitions=PL",
+            ["--days", "4"],
+            "/matches?dateFrom=2026-10-29&dateTo=2026-11-07&competitions=PL",
             "captured",
             "2026-11-02T01:02:03",
         ),

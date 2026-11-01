@@ -49,7 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
     fdorg.add_argument("--competition", required=True, help="联赛代码，以逗号分隔，例如 PL,PD,SA")
     window = fdorg.add_mutually_exclusive_group(required=True)
     window.add_argument("--season", type=int, action="append", help="赛季开始年份，可重复")
-    window.add_argument("--days", type=int, help="UTC 今天前后各 N 个自然日，含两端")
+    window.add_argument(
+        "--days", type=int, help="UTC 今天前后各 N 个自然日，含两端；按不超过10天分窗"
+    )
     fdorg.add_argument(
         "--assume-known-after",
         type=assumed_delay,
@@ -59,7 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
     fdorg.add_argument("--finished-only", action="store_true", help="只请求指定赛季的 FINISHED")
     fdorg.add_argument("--db", help="目标 SQLite 文件")
     fdorg.add_argument("--aliases-file", help="按联赛和本源数字球队 ID 验证的别名 JSON")
-    fdorg.add_argument("--raw-file", help="离线重放一份匹配请求范围、带 HTTP/SHA256 sidecar 的原件")
+    fdorg.add_argument(
+        "--raw-file", help="离线重放一份匹配赛季或分窗、带 HTTP/SHA256 sidecar 的原件"
+    )
     fdorg.add_argument("--raw-root", default="data/raw", help="原始快照根目录")
     fdorg.add_argument("--audit-dir", default="data", help="拒绝和疑似重复行的 CSV 目录")
 

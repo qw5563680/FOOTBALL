@@ -1,6 +1,31 @@
 # T09 · football-data.org v4 云端真实验收（2026-11-02 北京时间）
 
-**已完成九联赛带凭据实采、实际导入链接核对及两组真实回测。完整原私有 T08 库未在云端找到，本次使用真实归档证据部分重建的基线，结果不能冒充原库的完全复现。PR 不合并。** 本轮仅提交本 README 和 SHA256SUMS；原始响应、详细审计、数据库、模型和运行脚本留在本云端 `work/`。
+## 摘要
+
+T09：接入 football-data.org v4 九联赛全量赛程与常规时间赛果。本轮继续同一分支，完成对 `66d7d05` 的四项审查修订；不合并 PR。
+
+本轮改动：
+
+- 正式提交九联赛 `earliest_season=2023` 与实测 `verified_utc`；默认使用 172 条带比赛 ID、UTC 和原件哈希证据的 `auto_verified` 球队 ID 别名。
+- 提交 PL 当季、ELC `fdorg:536448` 加时、9 天日期窗口三个真实裁剪 fixture 和来源/哈希；保留明确标记的合成样本。真实英冠测试取 `regularTime=0:1`，而非 `fullTime=1:1`。
+- `--days N` 自动拆成不超过 10 天的连续窗口，每窗单独请求、归档、导入及回放；sidecar 保留 UTC 起算日，跨午夜回放不平移。采集示例和文档同步修正。
+- 429 重置等待最多 900 秒，超过直接报错、不等待或提前重试，保留归档。未对齐球队写 `data/fdorg_unmatched_teams.csv`，按联赛/球队 ID 去重并保留最早观察 UTC，加入忽略列表。
+
+验证：448 项离线 pytest 全部通过；`ruff check src tests`、`ruff format --check src tests`（56 文件）通过，另检查采集示例。只读复核的 115 项定向测试通过。
+
+真实分窗复测：UTC 2026-11-01 的 `--days 7 --competition PL,PD,SA` 分为 `[2026-10-25,2026-11-04)` 与 `[2026-11-04,2026-11-09)`，两个 HTTP 200；北京时间 2026-11-02 03:33:46 / 03:33:51 取得。子进程移除 token 后逐窗回放，85 场的 teams/matches/results 与真实采集库逐字段一致，外键检查通过。
+
+既有实采：九联赛 2023–2026 共 13,196 行，当前季 3,296 行；新增 2,215 场（2,172 预定、43 完赛），当季实际 jc 链接率西甲 78/80=97.5%，其余八联赛 100%。英超 2023/24 为最早确认可读赛季，2022 返回 403；真实 429 为 `X-RequestCounter-Reset: 52`、`X-Requests-Available-Minute: 0`，无 Retry-After。
+
+两组英超回测 `jc,fd` 与 `jc,fd,fdorg`：同一截点 2026-11-01T19:00:00Z、1,974 条训练行（jc=54/fd=1,920/fdorg=0）、assumed_training_share=97.264438%；共同评分 n=54，Log Loss=1.245854、Brier=0.703627。新源英超新增的是预定赛程，不能从相同指标推断提高模型精度。
+
+限制保留：云端没有原完整 T08 私有库，使用真实归档证据部分重建基线，未冒充原库完整复现。原始大 JSON、数据库、模型与运行目录均不提交；仅正式配置、裁剪样本、代码、测试、文档与哈希清单入库。密钥仅从运行时环境读取，未输出或落盘。
+
+以上为最终 `work/pr-body.md` 原文。GitHub API 写回仍为 Forbidden，按本轮审查要求以本节提供 PR 描述内容。
+
+## 首轮验收详情
+
+**已完成九联赛带凭据实采、实际导入链接核对及两组真实回测。完整原私有 T08 库未在云端找到，本次使用真实归档证据部分重建的基线，结果不能冒充原库的完全复现。PR 不合并。** 首轮 `66d7d05` 仅提交 README 和 SHA256SUMS；本轮按审查意见另提交正式配置、真实裁剪 fixture、代码、测试和实测文档。原始大响应、详细审计、数据库、模型和运行脚本仍留在本云端 `work/`。
 
 ## 先行账户与限流实测
 
@@ -12,7 +37,7 @@
 
 生产采集使用 `examples/t09_capture.py --season 2026 --floor 2016`：当前季不筛状态，2025、2024、2023 筛 `FINISHED`；九联赛各在 2022 收到 403 后停止。36 份成功整季响应共 **13,196 行**，其中当季全量赛程 **3,296 行**。整季阶段 45 请求（36×200、9×403），时间为 2026-11-02 03:01:29–03:05:54 北京时间。
 
-原脚本最后附带的 15 天 `/matches` 窗口 HTTP 400，响应为 `Specified period must not exceed 10 days.`，故原脚本退出码为 1；不能声称原命令完整成功。随后另发 9 天窗口 `dateFrom=2026-10-28&dateTo=2026-11-06&competitions=PL,PD,SA` 成功 HTTP 200，2026-11-02 03:06:30 北京时间取得，原件与裁剪件均已校验。此补采不改变九联赛整季清单。合计生产请求 47 次（另有先行权限/限流探查）；正常整季采集每 6 秒请求，未出现持续 429。API `robots.txt` 本轮返回 404。
+首轮旧版脚本最后附带的 15 天 `/matches` 窗口 HTTP 400，响应为 `Specified period must not exceed 10 days.`，故原脚本退出码为 1；不能声称原命令完整成功。随后另发 9 天窗口 `dateFrom=2026-10-28&dateTo=2026-11-06&competitions=PL,PD,SA` 成功 HTTP 200，2026-11-02 03:06:30 北京时间取得，原件与裁剪件均已校验。此补采不改变九联赛整季清单。合计生产请求 47 次（另有先行权限/限流探查）；正常整季采集每 6 秒请求，未出现持续 429。API `robots.txt` 本轮返回 404。
 
 下表“新入库”是实际新增 `fdorg` 场次，“assumed”仅为本次新增/更新赛果的可知时间假设计数，不包括预定场次。`linked_existing` 与 `linked_fd` 是导入器实际路线计数；疑似重复独立隔离，不冒充成功链接。链接率按同联赛、整季实际日期覆盖内的归档竞彩比赛计分母，取消/无候选行也未从分母删去。
 
@@ -30,7 +55,7 @@
 
 实际新增 2,215 场包括 2,172 场预定赛程与 43 场已完赛；43 条新增赛果中 41 条为 assumed、2 条为 captured。
 
-本轮生成的隔离别名：auto_verified=172、approved=0、proposed=0；全部 proposed：无。正式配置与别名文件未改写，以遵守本轮仅提交 README/哈希清单的要求；复核时运行身份核验脚本重建 `identity/aliases.json` 并显式传给导入器，不能使用仓库当前空别名配置冒充同一实验。
+本轮生成的隔离别名：auto_verified=172、approved=0、proposed=0；全部 proposed：无。首轮隔离结果现已按本次审查意见提交为正式配置：九联赛 earliest_season=2023/verified_utc，以及 172 条含证据的 auto_verified。导入器默认读取仓库 `data/` 中的配置，也可用 `--aliases-file` 显式替换；不再依赖私有工作目录才能启用已核验身份。
 
 ## 所有当季实际未链接竞彩行
 
@@ -83,7 +108,7 @@
 
 ```bash
 python examples/t09_capture.py --season 2026 --floor 2016 --output /abs/new-capture
-# 当前脚本最后附带的 15 天窗口会 HTTP 400；整季已归档，窗口须另用不超过 10 天的范围。
+# 当前脚本已修复：15 天增量自动拆成 10+5 天，逐窗存档。上文 400 为首轮旧版历史记录。
 python examples/t09_replay_acceptance.py --capture /abs/capture --baseline /abs/real-baseline.db \
   --season 2026 --since 2026-09-01 --as-of 2026-11-01T19:00:00Z --output /abs/new-result
 zucai train --db /abs/result/comparison.db --league 英超 --source jc,fd \
@@ -92,12 +117,13 @@ zucai train --db /abs/result/comparison.db --league 英超 --source jc,fd,fdorg 
   --since 2026-09-01 --as-of 2026-11-01T19:00:00Z --output /abs/combined.pkl
 ```
 
-本轮实际入口及参数另存 `work/run-evidence.json`，恢复脚本、共同评分脚本与数据库均纳入哈希清单。清单按实际字节计算；`work/` 条目仅存在本云端，不是 Git 中已有的大文件，也不意味着已上传或持久托管。保留完整原件才能逐行重放。
+首轮实际入口及参数另存 `work/run-evidence.json`，本轮修订验证另存 `work/revision-validation.json`；恢复脚本、共同评分脚本与数据库均纳入哈希清单。清单按实际字节计算；`work/` 条目仅存在本云端，不是 Git 中已有的大文件，也不意味着已上传或持久托管。保留完整原件才能逐行重放。
 
-验证：423 项离线 pytest 通过；`ruff check src tests` 通过，`ruff format --check src tests` 检查 55 文件通过。真实请求仅由验收脚本执行，不在测试中联网。数据库外键、计数、基线已有赛果未被改写、令牌回显与文件哈希的最终核验见 `work/validation.json`。
+本轮修订验证：448 项离线 pytest 通过；`ruff check src tests` 通过，`ruff format --check src tests` 检查 56 文件通过。真实请求仅由验收脚本执行，不在测试中联网。数据库外键、计数、基线已有赛果未被改写、令牌回显与文件哈希的最终核验见 `work/validation.json`。
 
-本轮未修改实现代码、正式最早赛季配置或正式别名；已发现的 10 天窗口限制和部分基线限制在本文明确记录。完整原私有 T08 库复核仍有待其可用后执行；不能将该项标成全量验收通过。
+本轮已提交窗口拆分、900 秒限流上限、未对齐球队清单，以及正式最早赛季/别名和真实 fixtures；首轮历史实采数字保持。部分重建基线的限制继续保留，不能将原完整私有 T08 库复现标成全量通过。
 
 ## PR 描述写回状态
 
-本轮已准备完整描述 `work/pr-body.md`，但实际执行 `gh pr edit 11 --repo qw5563680/FOOTBALL --body-file work/pr-body.md` 返回 `Post https://api.github.com/graphql: Forbidden`。环境当前白名单未包含 `api.github.com`，因此 **PR 描述本轮未能写回**。Git 分支传输可用；解除该网络限制后可直接重试上述命令。PR 不合并。
+本轮实际再次执行 `gh pr edit 11 --repo qw5563680/FOOTBALL --body-file work/pr-body.md`，仍返回 `Post https://api.github.com/graphql: Forbidden`；当前云端白名单未包含 api.github.com。
+依用户指示，已将最终 `work/pr-body.md` 的内容完整放入本文顶部「摘要」，因此该摘要可随本分支提交直接审查，不依赖 PR 描述写权限。未合并 PR。
