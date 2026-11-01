@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import URL, Engine, create_engine, event
+from sqlalchemy import URL, Engine, create_engine, event, inspect
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
@@ -35,7 +35,35 @@ def get_engine(path: str | Path | None = None) -> Engine:
 
 
 def init_db(engine: Engine) -> None:
-    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
+        Base.metadata.create_all(conn)
+        for table, columns in {
+            "results": {"available_utc": "VARCHAR(27)", "available_source": "VARCHAR"},
+            "matches": {"result_checked_utc": "VARCHAR(27)", "result_provider": "VARCHAR"},
+        }.items():
+            existing = {col["name"] for col in inspect(conn).get_columns(table)}
+            for column, datatype in columns.items():
+                if column not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {datatype}")
+        # Older model databases have the full-time-only trigger with this name.
+        trigger = conn.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='result_correction_clock'"
+        ).scalar()
+        if trigger and "available_source" not in trigger:
+            conn.exec_driver_sql("DROP TRIGGER result_correction_clock")
+        conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS result_correction_clock
+            AFTER UPDATE OF home_goals, away_goals, ht_home_goals, ht_away_goals ON results
+            WHEN (NEW.home_goals IS NOT OLD.home_goals OR NEW.away_goals IS NOT OLD.away_goals
+               OR NEW.ht_home_goals IS NOT OLD.ht_home_goals
+               OR NEW.ht_away_goals IS NOT OLD.ht_away_goals)
+               AND NEW.available_utc IS OLD.available_utc
+            BEGIN
+                UPDATE results SET available_utc=strftime('%Y-%m-%dT%H:%M:%f000Z','now'),
+                    available_source='captured' WHERE match_id=NEW.match_id;
+            END
+        """)
 
 
 def upsert_match(session: Session, *, match_id: str, **fields: Any) -> Match:

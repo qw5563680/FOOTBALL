@@ -31,6 +31,8 @@ pip install -e ".[dev]"
 zucai --help
 zucai db init                         # 建表，已有比赛和快照会保留
 zucai fetch jc --date 2026-11-01      # 抓取该竞彩编号日在售赛程及各玩法报价
+zucai fetch results --days 30         # 回填最近30个北京时间自然日的已开奖比分
+zucai fetch results --from 2026-10-01 --to 2026-10-31
 pytest -q
 ```
 
@@ -41,7 +43,6 @@ pytest -q
 以下命令随相应任务合并后提供：
 
 ```bash
-zucai fetch results --days 30         # 回填已完赛结果
 zucai features build                  # 生成特征
 zucai train --model dixon-coles       # 训练
 zucai predict --date 2026-11-01       # 输出预测表（markdown + csv）

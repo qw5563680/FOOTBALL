@@ -16,15 +16,24 @@
   入库选项分别为 `5+`、`draw_other`、`away_other`。字段尾部的 f 是变化标记，不是报价。
   原始快照每次保留；相同市场十分钟内原价重采不重复入库，变价时整组同时记录，
   以便还原同一时刻的完整赔率。报价时间使用实际采集时间，源站更新时间随原件保存。
-- 已完赛结果（需验证）：
-  `GET https://webapi.sporttery.cn/gateway/jc/football/getMatchResultV1.qry?matchPage=1&matchBeginDate=YYYY-MM-DD&matchEndDate=YYYY-MM-DD&leagueId=&pageSize=30&pageNo=1&isFix=0&pcOrWap=1`
-  返回 `value.matchResult[]`，含 `matchId`、`sectionsNo999`（全场比分如 `2:1`）、`sectionsNo1`（半场）。
+- 已完赛结果（2026-11-01 核实，旧路径返回 HTTP 403）：
+  `GET https://webapi.sporttery.cn/gateway/uniform/football/getUniformMatchResultV1.qry?matchBeginDate=YYYY-MM-DD&matchEndDate=YYYY-MM-DD&leagueId=&pageSize=30&pageNo=1&isFix=0&matchPage=1&pcOrWap=1`。
+  按北京时间开球日期逐日调用，用返回的 pageNo、pages、total 核对全部数据。
+  完赛只取已开奖记录的 sectionsNo999（常规时间）和 sectionsNo1（半场）。
+  Refund、取消、延期、无效做状态更新；待开奖不产生比分。表级 lastUpdateTime 不能当作某场比分的发布时间。
+  结果列表通常没有开球时分。按同场 sportteryMatchId 请求
+  `https://webapi.sporttery.cn/gateway/uniform/football/getMatchHeadV1.qry?source=web&sportteryMatchId=ID`，
+  核对主客队体彩ID与日期，读取 matchDateTime。详情里的另一个 matchId 属于供应商，不用作竞彩主键。
 - 请求头需要 `Referer: https://www.sporttery.cn/` 和常见浏览器 UA，否则可能 403。
 - 限速：同一接口间隔 ≥ 1 秒。
 
 ## 2. 500.com
 
-- 竞彩历史赛程与赛果：`https://trade.500.com/jczq/?date=YYYY-MM-DD`（HTML，需验证）。
+- 竞彩历史比分备用页（2026-11-01 核实）：`https://trade.500.com/jczq/?playid=271&g=2&date=YYYY-MM-DD`。
+  `--source c500` 解码 GBK，读取比分玩法已结算的精确选项。页面只给“其他”时保留未知；
+  当日赛果按实际开球日筛选，需同时检查前一竞彩编号日的跨午夜场次。该页没有精确半场比分。
+  备用场次默认用 c500:fixtureid。若页面另外给出的体彩ID、主客队、编号及开球时刻与已有官方场次同时相符，
+  可补入该官方场次；较低等级来源不能覆盖已有官方赛果。
 - 单场欧赔/亚盘历史：`https://odds.500.com/fenxi/ouzhi-{fid}.shtml`、`.../yazhi-{fid}.shtml`
   （HTML 表格，`fid` 为 500.com 的比赛 ID，与竞彩 `matchId` 不同，需要建立映射，需验证）。
 - 14 场胜负彩期次：`https://trade.500.com/sfc/`，历史期次 `?expect=期号`（需验证）。

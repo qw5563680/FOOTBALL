@@ -55,6 +55,8 @@ class Match(Base):
     kickoff_utc: Mapped[str] = mapped_column(UTCString)
     jc_num: Mapped[str | None]
     status: Mapped[str] = mapped_column(default="scheduled")
+    result_checked_utc: Mapped[str | None] = mapped_column(UTCString)
+    result_provider: Mapped[str | None]
 
 
 class Odds(Base):
@@ -85,6 +87,8 @@ class Result(Base):
     away_goals: Mapped[int]
     ht_home_goals: Mapped[int | None]
     ht_away_goals: Mapped[int | None]
+    available_utc: Mapped[str | None] = mapped_column(UTCString)
+    available_source: Mapped[str | None]
 
 
 class SfcIssue(Base):

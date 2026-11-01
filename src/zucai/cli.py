@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +23,19 @@ def build_parser() -> argparse.ArgumentParser:
     feeds = fetch.add_subparsers(dest="feed", required=True)
     jc = feeds.add_parser("jc", help="采集在售竞彩赛程和固定奖金")
     jc.add_argument("--date", type=date.fromisoformat, help="北京时间竞彩编号日期 YYYY-MM-DD")
+    from zucai.sources.results import assumed_delay
+
+    results = feeds.add_parser("results", help="回填已开奖场次的常规时间及半场比分")
+    span = results.add_mutually_exclusive_group()
+    span.add_argument("--days", type=int, help="最近N个北京时间自然日，含今天（默认30）")
+    span.add_argument("--from", dest="start", type=date.fromisoformat, help="开始日期，含当日")
+    results.add_argument("--to", dest="end", type=date.fromisoformat, help="结束日期，含当日")
+    results.add_argument(
+        "--source", choices=("jc", "c500"), default="jc", help="官方或500比分开奖备用页"
+    )
+    results.add_argument(
+        "--assume-known-after", type=assumed_delay, metavar="3h", help="显式假设历史比分可知时间"
+    )
 
     # 以下子命令由 docs/tasks 中的任务逐个实现：
     # fetch jc / fetch results / fetch sfc   (T02, T03)
@@ -44,15 +57,29 @@ def main(argv: list[str] | None = None) -> int:
 
         print(__version__)
         return 0
-    if args.command == "fetch" and args.feed == "jc":
+    if args.command == "fetch":
         from requests import RequestException
 
-        from zucai.sources.sporttery import fetch_schedule
+        from zucai.sources.results import fetch_results
+        from zucai.sources.sporttery import BEIJING, fetch_schedule
 
         try:
-            fetch_schedule(args.date)
+            if args.feed == "jc":
+                fetch_schedule(args.date)
+            else:
+                today = datetime.now(BEIJING).date()
+                if args.start is not None:
+                    if args.end is None:
+                        raise ValueError("--from 与 --to 须同时给出")
+                    start, end = args.start, args.end
+                else:
+                    days = 30 if args.days is None else args.days
+                    if days < 1 or args.end is not None:
+                        raise ValueError("请使用 --days N 或 --from 日期 --to 日期")
+                    start, end = today - timedelta(days=days - 1), today
+                fetch_results(start, end, args.source, args.assume_known_after)
         except (RequestException, ValueError, KeyError) as exc:
-            logging.getLogger(__name__).error("赛程采集失败：%s", exc)
+            logging.getLogger(__name__).error("采集未完成：%s", exc)
             return 1
         return 0
     if args.command == "db" and args.db_command == "init":
