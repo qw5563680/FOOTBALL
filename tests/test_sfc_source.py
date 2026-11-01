@@ -320,6 +320,53 @@ def test_verified_counterpart_id_precedes_truncated_team_names(tmp_path, monkeyp
     engine.dispose()
 
 
+def test_repeat_issue_keeps_archived_bridge_after_current_page_rolls_off(tmp_path, monkeypatch):
+    from zucai.sources.c500 import C500FixtureBridge
+    from zucai.sources.sfc import ingest_issue
+    from zucai.sources.sporttery import SportteryCalculator, save_schedule
+
+    monkeypatch.chdir(tmp_path)
+    engine = get_engine(tmp_path / "db")
+    init_db(engine)
+    bridges = C500FixtureBridge().parse((FIXTURES / "jc-bridge.html").read_bytes())
+    for bridge in bridges:
+        bridge["provenance"] = {
+            "url": "https://trade.500.com/jczq/",
+            "observed_utc": STAMP.isoformat(),
+            "raw_sha256": "c" * 64,
+        }
+    with session_scope(engine) as s:
+        save_schedule(
+            s,
+            SportteryCalculator().parse(
+                (FIXTURES.parent / "sporttery_calculator_20261101.json").read_bytes()
+            ),
+            STAMP,
+        )
+        first = ingest_issue(
+            s, parse(), observed=STAMP, url="url", raw_sha256="a" * 64, bridges=bridges
+        )
+        ids = [r["match_id"] for r in first.snapshot]
+        team_count = s.scalar(select(func.count()).select_from(Team))
+        match_count = s.scalar(select(func.count()).select_from(Match))
+    with session_scope(engine) as s:
+        second = ingest_issue(
+            s,
+            parse(),
+            observed=STAMP + timedelta(days=1),
+            url="url",
+            raw_sha256="b" * 64,
+            bridges=[],
+        )
+        assert [r["match_id"] for r in second.snapshot] == ids
+        assert s.scalar(select(func.count()).select_from(Team)) == team_count
+        assert s.scalar(select(func.count()).select_from(Match)) == match_count
+        evidence = second.snapshot[12]["mapping_evidence"]
+        assert evidence["provenance"]["observed_utc"] == STAMP.isoformat()
+        assert evidence["reused_from_issue_snapshot"] is True
+    engine.dispose()
+
+
 def test_verified_swedish_league_alias_does_not_accept_other_competitions(tmp_path, monkeypatch):
     from zucai.sources.c500 import C500FixtureBridge
     from zucai.sources.sfc import ingest_issue

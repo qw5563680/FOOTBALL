@@ -130,6 +130,18 @@ def ingest_issue(
     bridge_map = {b["fixture_id"]: b for b in bridges}
     if len(bridge_map) != len(bridges):
         raise ValueError("重复比赛ID对照")
+    # The public current page rolls past old fixtures. Preserve their archived
+    # ID evidence, including its original capture time, without inventing aliases.
+    for row in (record.snapshot or []) if record else []:
+        saved = row.get("mapping_evidence", {})
+        if saved.get("basis") != "provider_fixture_and_team_ids":
+            continue
+        fid = row["fixture_id"]
+        current = bridge_map.get(fid)
+        if current and any(current[k] != saved[k] for k in ("jc_id", "home_id", "away_id")):
+            raise ValueError(f"{fid} 新旧比赛ID对照冲突，须人工核对")
+        if current is None:
+            bridge_map[fid] = dict(saved, reused_from_issue_snapshot=True)
     snapshot = []
     for fixture in issue.fixtures:
         match, mapping, candidates, evidence = _map_fixture(session, fixture, bridge_map)

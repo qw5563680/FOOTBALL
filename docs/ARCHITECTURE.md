@@ -54,6 +54,8 @@ T07在既有 `sfc_issues` 中新增可空 `observed_utc/source_url/raw_sha256/da
 `snapshot` 保存14场原始身份、来源fixture/球队ID、匹配状态、候选ID及已匹配的规范身份。
 `mapping_evidence` 记录counterpart或当前公开竞彩页ID对照（附URL、读取UTC和SHA256）；
 查找不修改Team，仅确需新增未匹配比赛时创建未知球队。原联赛标签与规范身份标签分别保留。
+当前页面移除旧比赛后，重抓同一期复用其snapshot内原ID对照与原读取时刻，再核验球队ID/开球；
+新旧ID冲突须人工核对，不因翻页丢失规范身份或创建简称副本。
 `sale_end_utc` 改为可空，历史页面没有截止时间就保存null；旧库仅重建该表并保留原期号/截止，
 迁移内检查外键，恢复每连接外键开关。`sfc_issue_matches` 的期号/序号/比赛外键关系保留。
 抓取在单事务中替换当期最新映射，原始HTTP快照逐次保留，较旧采集不能倒写；官方比赛不被覆盖。
