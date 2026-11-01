@@ -23,7 +23,13 @@ def test_private_archive_roundtrip_and_corruption_does_not_replace_existing_db(
         save_schedule(s, SportteryCalculator().parse(f.read_bytes()), snap)
     e.dispose()
     export_feeds(source, archive, date(2026, 10, 31), "verification")
-    assert (archive / "matches/2026-11.csv").exists()
+    import csv
+
+    with (archive / "matches/2026-11.csv").open(encoding="utf-8-sig") as view:
+        first = next(row for row in csv.DictReader(view) if row["match_id"] == "jc:2042420")
+    assert (
+        first["had_home"] == "3.46" and first["had_snapshot_utc"] == "2026-11-01T12:42:00.000000Z"
+    )
     restore = tmp_path / "new/data/zucai.db"
     restore_feeds(archive, restore)
 

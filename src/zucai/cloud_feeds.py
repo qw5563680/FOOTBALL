@@ -47,11 +47,22 @@ TABLES = {
 MANIFEST = "feed_manifest.json"
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 VIEW = """
+WITH triples AS (
+ SELECT o.match_id,o.snapshot_utc,MAX(CASE WHEN selection='h' THEN price END) AS h,
+   MAX(CASE WHEN selection='d' THEN price END) AS d,MAX(CASE WHEN selection='a' THEN price END) AS a
+ FROM odds o JOIN matches m ON m.match_id=o.match_id
+ WHERE o.pool='had' AND o.line=0 AND o.selection IN ('h','d','a') AND o.snapshot_utc<m.kickoff_utc
+ GROUP BY o.match_id,o.snapshot_utc HAVING COUNT(DISTINCT o.selection)=3
+), ranked AS (
+ SELECT *,ROW_NUMBER() OVER (PARTITION BY match_id ORDER BY snapshot_utc DESC) AS n FROM triples
+)
 SELECT m.match_id,m.jc_num,m.league,datetime(m.kickoff_utc,'+8 hours') AS kickoff_beijing,
  h.name AS home,a.name AS away,m.status,r.home_goals,r.away_goals,r.ht_home_goals,r.ht_away_goals,
- r.available_utc,r.available_source,m.result_provider
+ r.available_utc,r.available_source,m.result_provider,
+ q.h AS had_home,q.d AS had_draw,q.a AS had_away,q.snapshot_utc AS had_snapshot_utc
 FROM matches m JOIN teams h ON h.id=m.home_team_id JOIN teams a ON a.id=m.away_team_id
-LEFT JOIN results r ON m.match_id=r.match_id ORDER BY m.kickoff_utc,m.match_id
+LEFT JOIN results r ON m.match_id=r.match_id LEFT JOIN ranked q ON m.match_id=q.match_id AND q.n=1
+ORDER BY m.kickoff_utc,m.match_id
 """
 
 
@@ -121,6 +132,7 @@ def export_feeds(source: Path, archive: Path, through: date, run_id: str) -> Non
         files.append(key)
     manifest = {
         "version": 1,
+        "columns": {name: list(cols) for name, cols in TABLES.items()},
         "through_beijing": through.isoformat(),
         "run": run_id,
         "created_utc": datetime.now(UTC).isoformat(),
