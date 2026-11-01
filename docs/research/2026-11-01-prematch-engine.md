@@ -31,3 +31,10 @@
 - **复盘** 保存原始预测和生成时间，赛后追加评分，避免覆盖赛前版本。
 
 完整技能方案 JetQiao 提供可执行流程，但其默认融合含市场权重。callumfm 提供带历史 xG 的备选引擎，使用时也需外置截点。项目第一轮用一个可验证的球队模型建立基准。[JetQiao 融合路径](https://github.com/JetQiao/football-prediction-skill/blob/23ddaf084d6fc9c2491ee2e8a899eb5a22a79817/src/football_prediction/modeling/fusion.py#L137-L206) · [callumfm 拟合路径](https://github.com/callumfm/dixon-coles/blob/dea06c6e4b38085d6a4b84186cb9ead321a73ce4/src/dixon_coles/model.py#L232-L281)
+
+## 审查补充（Claude，2026-11-01）
+
+- 许可证：penaltyblog 在上述提交的根目录有 `LICENCE` 文件，内容为 MIT（Copyright 2021 Martin Eastwood）。PyPI 1.13.1 发布于 2026-10-05，要求 Python ≥ 3.10。
+- 时间衰减：`DixonColesGoalModel.__init__` 接受 `weights` 参数，配套 `penaltyblog.models.utils.dixon_coles_weights(dates, xi=0.0018, base_date=None)` 生成 `exp(-xi * 天数差)`。T05 的 90 天半衰期对应 `xi = ln2 / 90 ≈ 0.0077`，本文样例用的 0.001 比它平缓得多，封装时以 T05 为准并在回测里比较两档。
+- 上文三处源码链接、JetQiao 与 callumfm 的提交链接均已核对存在。
+- 样例未记录实际运行的命令和输入文件路径，封装进 T05 时需补一个可重复的最小脚本。
