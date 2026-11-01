@@ -44,9 +44,12 @@ pytest -q
 
 在 GitHub 的 `data/football-feeds` 分支打开 [按月赛程和赛果](https://github.com/qw5563680/FOOTBALL/tree/data/football-feeds/matches)。
 同分支 `state/odds/` 按采集月份保留完整赔率。数据分支保存规范化表和校验值，可在其他机器恢复。
-工作流合入默认分支后，每日计划北京时间 11:17、18:17 在 GitHub 运行。Actions 里选择
-**Football cloud feeds → Run workflow** 也可立即启动；维护者推送 `football-ingest-run-*` 标签
-可验证指定提交。工作流恢复上次成功提交的数据，复查最近三天、遗漏日期及逾期未结场次。
+工作流合入默认分支并设置仓库变量 `FOOTBALL_FEEDS_RUNNER` 后，每日计划北京时间 11:17、18:17 在云端运行。
+此变量填写已注册、经数据源允许访问的云端 GitHub Actions runner 标签。首次通用托管机实跑被体彩站点
+安全策略以 HTTP 567 拒绝；未配置可访问运行器时定时采集保持停用。Actions 中的
+**Football cloud feeds → Run workflow → verify** 可在通用托管机恢复并校验数据分支。
+**sync** 在配置的运行器上采集；维护者也可推送 `football-ingest-verify-*` 或 `football-ingest-run-*` 标签
+验证相应路径。同步恢复上次成功提交的数据，复查最近三天、遗漏日期及逾期未结场次。
 任何校验、采集或推送失败均保留原云端版本。原始 HTTP 响应作为该次 Actions 的私有附件保留 90 天。
 
 以下命令随相应任务合并后提供：

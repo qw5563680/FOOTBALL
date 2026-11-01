@@ -231,7 +231,7 @@ def date_windows(database: Path, previous: date, today: date, days: int) -> list
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("export", "sync"))
+    parser.add_argument("command", choices=("export", "sync", "verify"))
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--db", type=Path, default=Path("data/zucai.db"))
     parser.add_argument("--through", type=date.fromisoformat)
@@ -242,12 +242,15 @@ def main():
     target = args.db.resolve()
     archive = args.archive.resolve()
     day = args.through or datetime.now(BEIJING).date()
-    if args.command == "sync":
+    if args.command in {"sync", "verify"}:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
         if target.parent != Path("data").resolve():
             parser.error("云端同步请在隔离的工作目录运行，数据库放在该目录的 data 下")
         meta = restore_feeds(archive, target)
+        if args.command == "verify":
+            LOG.info("私有云端归档已恢复并校验：%s", meta["counts"])
+            return
         os.environ["ZUCAI_DB"] = str(target)
         fetch_schedule()
         windows = date_windows(target, date.fromisoformat(meta["through_beijing"]), day, args.days)

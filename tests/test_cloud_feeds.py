@@ -82,6 +82,35 @@ def test_sync_refuses_to_replace_a_preexisting_working_database(tmp_path, monkey
     assert p.read_bytes() == b"existing"
 
 
+def test_cloud_verify_only_restores_the_archive_and_does_not_call_the_source(tmp_path, monkeypatch):
+    import sys
+
+    from zucai.cloud_feeds import export_feeds, main
+    from zucai.db import get_engine, init_db
+
+    monkeypatch.chdir(tmp_path)
+    base = tmp_path / "base/feeds.db"
+    e = get_engine(base)
+    init_db(e)
+    e.dispose()
+    arc = tmp_path / "archive"
+    export_feeds(base, arc, date.today(), "sample")
+    before = (arc / "feed_manifest.json").read_bytes()
+    monkeypatch.setattr(sys, "argv", ["feeds", "verify", "--archive", str(arc), "--run-id", "test"])
+    main()
+    assert (tmp_path / "data/zucai.db").is_file() and (
+        arc / "feed_manifest.json"
+    ).read_bytes() == before
+
+
+def test_site_policy_denial_is_not_retried_as_a_transient_server_error():
+    from zucai.sources.base import make_session
+
+    with make_session() as client:
+        retry = client.get_adapter("https://webapi.sporttery.cn/").max_retries
+        assert not retry.is_retry("GET", 567) and retry.is_retry("GET", 503)
+
+
 def test_export_removes_only_its_stale_month_and_reads_older_match_schema(tmp_path, monkeypatch):
     import json
 

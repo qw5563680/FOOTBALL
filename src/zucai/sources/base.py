@@ -32,7 +32,8 @@ def make_session() -> requests.Session:
         other=0,
         backoff_factor=1,
         allowed_methods={"GET", "HEAD"},
-        status_forcelist=range(500, 600),
+        # EdgeOne's 567 is a policy denial, not a transient service failure.
+        status_forcelist=(500, 502, 503, 504),
         respect_retry_after_header=False,
         raise_on_status=False,
     )

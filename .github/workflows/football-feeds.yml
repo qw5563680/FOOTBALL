@@ -4,12 +4,17 @@ on:
     - cron: '17 3,10 * * *'
   workflow_dispatch:
     inputs:
+      operation:
+        description: 'verify 仅校验私有云端归档，sync 则在获准的运行器上采集'
+        type: choice
+        options: [verify, sync]
+        default: verify
       days:
         description: '回看最近几个北京时间自然日'
         type: number
         default: 3
   push:
-    tags: ['football-ingest-run-*']
+    tags: ['football-ingest-run-*', 'football-ingest-verify-*']
 
 permissions:
   contents: write
@@ -19,7 +24,10 @@ concurrency:
 
 jobs:
   collect:
-    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify' || vars.FOOTBALL_FEEDS_RUNNER != '' }}
+    runs-on: ${{ (startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'ubuntu-latest' || vars.FOOTBALL_FEEDS_RUNNER }}
+    env:
+      FEED_MODE: ${{ (startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || 'sync' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -41,16 +49,19 @@ jobs:
         run: |
           mkdir -p work
           cd work
-          python -m zucai.cloud_feeds sync --archive ../cloud-data --days "$LOOKBACK" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          python -m zucai.cloud_feeds "$FEED_MODE" --archive ../cloud-data --days "$LOOKBACK" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Keep original HTTP responses and observation times
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && env.FEED_MODE == 'sync' }}
         uses: actions/upload-artifact@v4
         with:
           name: sporttery-source-${{ github.run_id }}-${{ github.run_attempt }}
-          path: work/data/raw
+          path: |
+            work/data/raw
+            work/data/rejected_results.csv
           retention-days: 90
           if-no-files-found: ignore
       - name: Publish verified data to its private branch
+        if: ${{ env.FEED_MODE == 'sync' }}
         working-directory: cloud-data
         run: |
           git config user.name 'github-actions[bot]'
