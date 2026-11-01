@@ -51,6 +51,8 @@ def _map_fixture(session, fixture, bridges):
             datetime.fromisoformat(bridge["kickoff_utc"]) != fixture.kickoff_utc
         ):
             raise ValueError(f"{own_id} ID对照主客球队或开球冲突")
+        if own and own.counterpart_id and own.counterpart_id != bridge["jc_id"]:
+            raise ValueError(f"{own_id} 已存与新增比赛ID对照冲突")
         target = session.get(Match, bridge["jc_id"])
         if target is not None:
             linked.append(target)
@@ -69,17 +71,24 @@ def _map_fixture(session, fixture, bridges):
     home_name = bridge["home"] if bridge else fixture.home
     away_name = bridge["away"] if bridge else fixture.away
     home, away = _find_team(session, home_name), _find_team(session, away_name)
+    # An earlier SFC-only record may retain the source's abbreviated names.
+    # Check that original identity before considering the bridge's longer names;
+    # adding an ID link must not rename/merge teams or invent a JC match.
+    own_home = (_find_team(session, fixture.home) or home) if own else home
+    own_away = (_find_team(session, fixture.away) or away) if own else away
     if own and (
         own.league != fixture.league
         or datetime.fromisoformat(own.kickoff_utc) != fixture.kickoff_utc
-        or home is None
-        or away is None
-        or own.home_team_id != home.id
-        or own.away_team_id != away.id
+        or own_home is None
+        or own_away is None
+        or own.home_team_id != own_home.id
+        or own.away_team_id != own_away.id
     ):
         raise ValueError(f"已有比赛{own_id}身份冲突，须人工核对")
+    if own and bridge:
+        own.counterpart_id = bridge["jc_id"]
     candidates = []
-    if home and away:
+    if home and away and not bridge:
         candidates = list(
             session.scalars(
                 select(Match).where(

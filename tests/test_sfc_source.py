@@ -367,6 +367,58 @@ def test_repeat_issue_keeps_archived_bridge_after_current_page_rolls_off(tmp_pat
     engine.dispose()
 
 
+@pytest.mark.parametrize("other_full_name_match", [False, True])
+def test_bridge_arriving_later_keeps_existing_c500_identity(
+    tmp_path, monkeypatch, other_full_name_match
+):
+    from zucai.sources.c500 import C500FixtureBridge
+    from zucai.sources.sfc import ingest_issue
+
+    monkeypatch.chdir(tmp_path)
+    engine = get_engine(tmp_path / "db")
+    init_db(engine)
+    issue = parse()
+    with session_scope(engine) as s:
+        first = ingest_issue(s, issue, observed=STAMP, url="url", raw_sha256="a" * 64)
+        ids = [r["match_id"] for r in first.snapshot]
+        own = s.get(Match, ids[0])
+        team_ids = own.home_team_id, own.away_team_id
+        if other_full_name_match:
+            full = Team(name="纽卡斯尔")
+            s.add(full)
+            s.flush()
+            # A name/time match cannot override the explicit bridge's other JC ID.
+            s.add(
+                Match(
+                    match_id="jc:other",
+                    source="jc",
+                    home_team_id=full.id,
+                    away_team_id=own.away_team_id,
+                    league=own.league,
+                    kickoff_utc=own.kickoff_utc,
+                    status="scheduled",
+                )
+            )
+        before = s.scalar(select(func.count()).select_from(Team))
+    bridges = C500FixtureBridge().parse((FIXTURES / "jc-bridge.html").read_bytes())
+    with session_scope(engine) as s:
+        second = ingest_issue(
+            s,
+            issue,
+            observed=STAMP + timedelta(seconds=1),
+            url="url",
+            raw_sha256="b" * 64,
+            bridges=bridges,
+        )
+        assert [r["match_id"] for r in second.snapshot] == ids
+        own = s.get(Match, ids[0])
+        assert own.counterpart_id == "jc:2042443"
+        assert (own.home_team_id, own.away_team_id) == team_ids
+        assert second.snapshot[0]["mapping"] == "unmatched"
+        assert s.scalar(select(func.count()).select_from(Team)) == before
+    engine.dispose()
+
+
 def test_verified_swedish_league_alias_does_not_accept_other_competitions(tmp_path, monkeypatch):
     from zucai.sources.c500 import C500FixtureBridge
     from zucai.sources.sfc import ingest_issue
