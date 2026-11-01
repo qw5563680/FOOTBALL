@@ -63,10 +63,10 @@ def _validate_batch(batch: object) -> None:
         raise ValueError("mode 必须是 prematch 或 historical_replay")
     if (
         batch.get("probability_type") != "P2"
-        or batch.get("validation_status") != "experimental_unadopted"
+        or batch.get("validation_status") not in ("experimental_unadopted", "league_gated")
         or batch.get("bet_allowed") is not False
     ):
-        raise ValueError("报告仅支持 P2 实验、experimental_unadopted 和 BET 禁用")
+        raise ValueError("报告仅支持 P2、experimental_unadopted/league_gated 和 BET 禁用")
     if not isinstance(batch.get("input"), dict):
         raise ValueError("input 必须为对象")
     if not isinstance(batch.get("models"), list) or not isinstance(batch.get("predictions"), list):
@@ -104,6 +104,22 @@ def _validate_batch(batch: object) -> None:
             raise ValueError("比赛状态必须是 predicted 或 excluded")
         for key in ("home", "away", "source", "league", "model_name", "model_version"):
             _text(prediction.get(key), key)
+        if batch["validation_status"] == "league_gated":
+            matched = [
+                m
+                for m in batch["models"]
+                if m["model_version"] == prediction["model_version"]
+                and m["league"] == prediction["league"]
+                and prediction["source"] in model_sources(m)
+            ]
+            if (
+                len(matched) != 1
+                or type(prediction.get("p2_ready")) is not bool
+                or prediction["p2_ready"] is not matched[0].get("p2_ready")
+                or prediction.get("p2_label")
+                != ("P2 可用" if prediction["p2_ready"] else "P2 实验")
+            ):
+                raise ValueError("P2门槛须与冻结模型证据一致")
         _timestamp(prediction.get("kickoff_utc"))
         _triplet(prediction.get("model_probabilities"), "model_probabilities", probabilities=True)
         matrix = prediction.get("score_matrix")
@@ -174,10 +190,13 @@ def _percent(value: float | None, *, highlight: bool = False) -> str:
 
 
 def _markdown(batch: dict) -> str:
+    gated = batch["validation_status"] == "league_gated"
     lines = [
-        "# P2 实验预测报告",
+        "# P2 预测报告" if gated else "# P2 实验预测报告",
         "",
-        "> **非购买建议 · BET 禁用 · experimental_unadopted（未采用、未验证的实验）**",
+        "> **非购买建议 · BET 禁用 · 各联赛P2历史评估门槛见逐场状态**"
+        if gated
+        else "> **非购买建议 · BET 禁用 · experimental_unadopted（未采用、未验证的实验）**",
         "",
         "常规 90 分钟含补时。纯模型仅使用球队历史比分；市场 SP 和去水概率单独对照。",
         "EV 为模型概率 × SP − 1 的点估计，EV > 0.05 仅加粗显示，不构成 BET 或购买建议。",
@@ -251,7 +270,7 @@ def _markdown(batch: dict) -> str:
             f"{_md(prediction.get('league'))} / "
             f"{_md(prediction.get('home'))} vs {_md(prediction.get('away'))}",
             _beijing(prediction.get("kickoff_utc")),
-            "已预测"
+            ("已预测 · " + prediction["p2_label"] if gated else "已预测")
             if prediction["status"] == "predicted"
             else "排除：" + _md(prediction["reason"]),
             *[_percent(model_p.get(key)) for key in OUTCOMES],
@@ -351,6 +370,8 @@ def _csv_bytes(batch: dict) -> bytes:
         "experimental_blend_a",
         "experimental_blend_market_weight",
     ]
+    if batch["validation_status"] == "league_gated":
+        columns.extend(["p2_ready", "p2_label", "unknown_team_prior"])
     writer = csv.DictWriter(stream, fieldnames=columns)
     writer.writeheader()
     for prediction in batch["predictions"]:
@@ -379,6 +400,12 @@ def _csv_bytes(batch: dict) -> bytes:
                 "experimental_blend_market_weight": blend.get("market_weight"),
             }
         )
+        if batch["validation_status"] == "league_gated":
+            row.update(
+                p2_ready=prediction.get("p2_ready"),
+                p2_label=prediction.get("p2_label"),
+                unknown_team_prior=prediction.get("metadata", {}).get("unknown_team_prior"),
+            )
         writer.writerow({key: _csv_cell(value) for key, value in row.items()})
     return stream.getvalue().encode("utf-8-sig")
 
