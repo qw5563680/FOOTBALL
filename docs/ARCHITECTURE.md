@@ -37,16 +37,32 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/predict/derive.py` | 由比分矩阵推导各玩法概率 |
 | `zucai/report/` | markdown / csv 输出，期望值计算 |
 
+### 快照与重放
+
+抓取器用 `RawStore.save_response()` 保存 HTTP 响应的原始字节，同时生成同名的
+`.meta.json`，记录最终 URL、HTTP 状态码和 UTC 采集时刻 `fetched_at_utc`。
+同一来源同一时刻的多次抓取各有独立文件。原始响应出现时，元数据已可读取。
+单独导入字节可使用 `save(source, name, content, ext)`，缺失的 HTTP 字段保存为 null。
+重放时将 `load(path)` 返回的字节传给纯函数 `parse`，从 `load_metadata(path)` 取回
+原采集时刻，用作赔率的 `snapshot_utc`。测试环境统一阻止未登记的 HTTP 请求。
+
 ## 数据模型
 
-所有时间字段存 UTC ISO8601 字符串。
+时间字段接受带时区的 ISO 8601 字符串或 datetime，统一存为固定微秒精度的 UTC 字符串
+（如 `2026-10-31T16:15:00.000000Z`）。不接受无时区的时间。每个 SQLite 连接启用外键检查。
+`zucai db init` 只创建缺失的表。业务写入通过 `session_scope` 一起提交，异常时整批回滚。
 
 ### `teams`
 | 列 | 说明 |
 | --- | --- |
 | `id` | 自增 |
-| `name` | 规范化队名（中文） |
+| `name` | 规范化队名，唯一；外文名称也可保留 |
 | `aliases` | JSON 数组，各来源出现过的别名 |
+
+队名匹配使用规范名和已记录的别名。首次观察到的未知规范名会建一条独立记录，
+并在 `data/unmatched_teams.csv` 留下首次来源、原名、规范名和 UTC 观察时刻
+（`source, raw_name, normalized, created_utc`），供人工核对。清单记录首次观察，
+数据库写入另由事务管理。女足、青年队标记保留。
 
 ### `matches`
 | 列 | 说明 |
@@ -59,6 +75,9 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `jc_num` | 竞彩编号，如 `周六001`，可空 |
 | `status` | `scheduled` / `finished` / `cancelled` |
 
+`upsert_match(session, match_id=..., **fields)` 接收完整赛程字段，同一主键再次导入时
+更新本次提供的字段。主客队不同，来源前缀与 `source` 一致。
+
 ### `odds`
 | 列 | 说明 |
 | --- | --- |
@@ -70,15 +89,19 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `price` | 赔率 |
 | `snapshot_utc` | 抓取时间，同一场可有多次快照 |
 
+`match_id / pool / line / selection / snapshot_utc` 组合唯一。不同采集时间可保留不同价格。
+
 ### `results`
 | 列 | 说明 |
 | --- | --- |
 | `match_id` | 主键 |
-| `home_goals` / `away_goals` | 全场 |
+| `home_goals` / `away_goals` | 常规时间含补时，加时及点球分开处理 |
 | `ht_home_goals` / `ht_away_goals` | 半场，可空 |
 
 ### `sfc_issues` / `sfc_issue_matches`
-14 场胜负彩期次与其 14 场比赛的映射（`issue_no`、`sale_end_utc`、`seq 1..14`、`match_id`）。
+`sfc_issues` 的主键是字符串 `issue_no`，保存截止时间 `sale_end_utc`。
+`sfc_issue_matches` 以 `(issue_no, seq)` 为主键，`seq` 为 1..14，
+`match_id` 引用比赛。同一期中一场比赛只能占一个位置。
 
 ### `predictions`
 | 列 | 说明 |
@@ -89,6 +112,9 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `p_home` / `p_draw` / `p_away` | 胜平负概率 |
 | `score_matrix` | JSON，10x10 比分概率 |
 | `created_utc` | 生成时间 |
+
+单次预测由比赛、模型名、模型版本和生成时间共同区分。三项概率均在 [0, 1]，
+总和与 1 的误差小于 0.000001。比分矩阵的形状由 T05 的模型层校验。
 
 ## 模型路线
 

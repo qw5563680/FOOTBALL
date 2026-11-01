@@ -29,12 +29,22 @@
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 zucai --help
+zucai db init                         # 建表，已有比赛和快照会保留
+pytest -q
+```
+
+数据库默认位于 `data/zucai.db`。可以设置 `ZUCAI_DB`，也可用
+`zucai db init --path /path/to/football.db` 明确指定文件。
+同一场比赛可以保存不同采集时间的赔率和不同模型版本的预测。
+
+以下命令随相应任务合并后提供：
+
+```bash
 zucai fetch jc --date 2026-11-01      # 抓竞彩赛程与赔率
 zucai fetch results --days 30         # 回填已完赛结果
 zucai features build                  # 生成特征
 zucai train --model dixon-coles       # 训练
 zucai predict --date 2026-11-01       # 输出预测表（markdown + csv）
-pytest
 ```
 
 ## 目录结构
