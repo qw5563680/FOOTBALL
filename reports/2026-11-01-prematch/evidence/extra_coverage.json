@@ -1,0 +1,37 @@
+{
+  "records": 320,
+  "coverage": {
+    "key_passes": 299,
+    "key_passes_h1": 299,
+    "goal_assists": 299,
+    "chances_created": 299,
+    "free_kicks": 315
+  },
+  "unaccepted_reason_team_rows": {
+    "One or more attempts have commentary without a verifiable final-pass attribution": 10,
+    "Event count failed reconciliation against team total shots, goals or roster assists": 5,
+    "No matching ESPN fixture": 2,
+    "No complete published shot counts for both clubs": 3,
+    "ESPN boxscore includes extra time; no same-period team shot comparator": 1
+  },
+  "published_definition": "https://www.statsperform.com/opta-event-definitions/",
+  "key_passes": "Count of ESPN first/second-half non-goal attempts with explicit Assisted by narrative and identified passing player. All regulation attempts must match each ESPN team shot total, all goals must match the actual score, and goal-assist events must match each team ESPN player roster sum. Generic commentary or ambiguous helper fields prevent certification. Raw event ids in espn_keypass_evidence.json.",
+  "chances_created": "Sum of verified non-scoring key passes and verified scoring goal assists from the same fixture provider; stored separately.",
+  "free_kicks": "PlayerStats team-level JSON-LD additionalProperty named free kicks. No indirect calculation from fouls. Extra-time aggregates excluded.",
+  "unverified_fields": [
+    "attacks",
+    "dangerous_attacks",
+    "possession_lost",
+    "one_on_one_wins",
+    "tackles_won"
+  ],
+  "ignored_vendor_key_passes": "The originally displayed PlayerStats label includes final passes that scored in many matches and outputs placeholder zeros when a player feed is absent. Never use playerstats_homeaway.json.key_passes as the non-scoring statistic.",
+  "scripts": [
+    "download.py",
+    "supplement.py",
+    "extract.py",
+    "playerstats_extra.py",
+    "espn_play_cache.py",
+    "strict_extra.py"
+  ]
+}
