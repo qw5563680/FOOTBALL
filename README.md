@@ -36,6 +36,7 @@ zucai fetch results --from 2026-10-01 --to 2026-10-31
 zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai train --model dixon-coles       # 训练并按周回测
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
+zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
 pytest -q
 ```
 
@@ -125,11 +126,35 @@ Markdown/CSV 从同一 JSON 生成，后续改价或回填比分不会改变旧�
 日常命令生成的新报告需提交私有仓库后才能长期云端保存；现有 feeds 自动归档只包含赛程/报价/赛果，
 不自动同步预测文件。可视化窗口和预测定时任务属于后续交付。
 
-以下特征命令随后续任务提供：
+### 赛前球队特征（T04）
+
+先安装可选Parquet依赖；命令只读已有数据库，不建空库、不迁移输入库。`--match-id`可重复，省略时提取全库目标。
 
 ```bash
-zucai features build                  # 生成特征
+python -m pip install -e ".[features]"
+zucai features build --db data/zucai.db --out data/features.parquet
+zucai features build --db data/zucai.db --match-id jc:2042428 --as-of 2026-11-01T22:00:00+08:00 --strict-availability --out data/strict-features.parquet
 ```
+
+生成43个球队字段：双方近5/10场进球、失球、积分的均值及90天半衰期加权均值，主队近5主场/客队近5客场，
+距最近已知完赛的开球间隔，以及最近3次交锋的主胜/平/客胜比例和进球均值。每窗记录有效n、assumed数量及所用比赛。
+近况/交锋限同来源同联赛，跨赛季沿用数据；休息间隔使用同来源所有赛事，可能缺失未采集的杯赛，不能当作完整真实休息期。
+
+每场截点是`min(as_of, 开球)`；历史比赛开球、赛果可知时刻、报价均必须严格早于截点。
+迟到采集的旧比分不会被放回当时的特征。无样本保留NaN，不用0补均值；不足5/10/3场按实际n计算。
+默认可使用明确标记的assumed数据并披露比例；`--strict-availability`将其排除。NULL旧标记仅在有时间时兼容为captured。
+当前库不保存被覆盖前的全部赛程/比分版本，因此历史提取是重建，不等于当时冻结的未见验证。
+
+`market_p_home/market_p_draw/market_p_away/market_line`只取最新完整且同一时刻的普通胜平负had快照。
+`market_line=0`对应had；没有完整报价时为NaN，不混入hhad。`MODEL_FEATURE_COLUMNS`显式白名单排除全部market_和meta_列。
+**本次不训练或升级模型，现有Dixon–Coles预测不会自动读取这些特征。**
+
+输出同名前缀的`.parquet`、`.metadata.json`、`.manifest.json`；任何文件已存在就拒绝覆盖。
+metadata含原始精度的证据、提取完成时刻、数据截点、字段名单和逐列缺失率；manifest校验两个文件。
+使用`pandas.read_parquet`读取；Parquet引擎选项依据[pandas官方文档](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_parquet.html)。
+日常新导出尚未自动上传云端，本次验收产物随私有PR保存。
+[真实数据验收与缺失率](reports/2026-11-02-t04-acceptance/README.md)：866场提取成功，但841场在各自截点无可用历史；
+导出成功不表示历史训练数据充足，也不表示模型已验证。
 
 ### 14场胜负彩期次分析（T07）
 
