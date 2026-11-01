@@ -9,13 +9,14 @@ import os
 import re
 import sqlite3
 import time
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from itertools import groupby
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from zucai.db import get_engine, init_db
-from zucai.sources.results import fetch_results
+from zucai.sources.results import ResultRowsRejected, fetch_results
 from zucai.sources.sporttery import BEIJING, fetch_schedule
 
 LOG = logging.getLogger(__name__)
@@ -90,9 +91,46 @@ def check_db(db: sqlite3.Connection) -> None:
         raise ValueError("完赛状态与比分表不一致")
 
 
-def export_feeds(source: Path, archive: Path, through: date, run_id: str) -> None:
+def pending_results(source: Path) -> list[dict[str, str]]:
+    """Keep a rejection pending until a strictly later, accepted same-source observation."""
+    audit = source.parent / "rejected_results.csv"
+    if not audit.is_file():
+        return []
+    latest = {}
+    with audit.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames != ["date", "match_id", "observed_utc", "reason"]:
+            raise ValueError("拒绝清单字段不完整")
+        for row in reader:
+            key = (date.fromisoformat(row["date"]), row["match_id"])
+            observed = datetime.fromisoformat(row["observed_utc"])
+            if observed.tzinfo is None:
+                raise ValueError("拒绝记录缺少采集时区")
+            if key not in latest or observed > latest[key][0]:
+                latest[key] = (observed, row)
+    pending = []
+    with closing(sqlite3.connect(source)) as db:
+        for (_, match_id), (observed, row) in sorted(latest.items()):
+            accepted = db.execute(
+                "SELECT status,result_provider,result_checked_utc FROM matches WHERE match_id=?",
+                (match_id,),
+            ).fetchone()
+            if (
+                accepted
+                and accepted[0] in {"finished", "cancelled"}
+                and accepted[1] == match_id.split(":")[0]
+                and accepted[2]
+                and datetime.fromisoformat(accepted[2]) > observed
+            ):
+                continue
+            pending.append(row)
+    return pending
+
+
+def export_feeds(source: Path, archive: Path, through: date, run_id: str) -> dict:
     if not source.is_file():
         raise ValueError("采集数据库缺失")
+    pending = pending_results(source)
     archive.mkdir(parents=True, exist_ok=True)
     previous = set(archive_info(archive)["files"]) if (archive / MANIFEST).is_file() else set()
     files = []
@@ -127,11 +165,12 @@ def export_feeds(source: Path, archive: Path, through: date, run_id: str) -> Non
                 writer.writerow(c[0] for c in data.description)
                 writer.writerows(group)
             files.append(key)
-    unmatched = source.parent / "unmatched_teams.csv"
-    if unmatched.is_file():
-        key = "state/unmatched_teams.csv"
-        (archive / key).write_bytes(unmatched.read_bytes())
-        files.append(key)
+    for name in ("unmatched_teams.csv", "rejected_results.csv"):
+        audit = source.parent / name
+        if audit.is_file():
+            key = f"state/{name}"
+            (archive / key).write_bytes(audit.read_bytes())
+            files.append(key)
     # Only remove obsolete files owned and checked by the previous archive.
     for key in previous.difference(files):
         target = (archive / key).resolve()
@@ -145,11 +184,15 @@ def export_feeds(source: Path, archive: Path, through: date, run_id: str) -> Non
         "run": run_id,
         "created_utc": datetime.now(UTC).isoformat(),
         "counts": totals,
+        "collection_status": "partial" if pending else "complete",
+        "pending_result_count": len(pending),
+        "pending_result_dates": sorted({row["date"] for row in pending}),
         "files": {k: digest(archive / k) for k in sorted(files)},
     }
     (archive / MANIFEST).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
+    return manifest
 
 
 def archive_info(archive: Path) -> dict:
@@ -158,7 +201,7 @@ def archive_info(archive: Path) -> dict:
         raise ValueError("不支持的云端归档版本")
     for key, want in meta["files"].items():
         if not re.fullmatch(
-            rf"state/(?:teams|matches|results)\.jsonl|state/unmatched_teams\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv",
+            rf"state/(?:teams|matches|results)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv",
             key,
         ):
             raise ValueError(f"未知归档文件 {key}")
@@ -205,10 +248,9 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
             check_db(db)
         db.close()
         os.replace(dbfile, dest)
-        if "state/unmatched_teams.csv" in meta["files"]:
-            (dest.parent / "unmatched_teams.csv").write_bytes(
-                (archive / "state/unmatched_teams.csv").read_bytes()
-            )
+        for name in ("unmatched_teams.csv", "rejected_results.csv"):
+            if f"state/{name}" in meta["files"]:
+                (dest.parent / name).write_bytes((archive / f"state/{name}").read_bytes())
     return meta
 
 
@@ -216,6 +258,9 @@ def date_windows(database: Path, previous: date, today: date, days: int) -> list
     if days < 1 or days > 366 or previous > today:
         raise ValueError("云端回看范围无效")
     start = min(today - timedelta(days=days - 1), previous - timedelta(days=1))
+    pending_dates = {date.fromisoformat(row["date"]) for row in pending_results(database)}
+    if any(day > today for day in pending_dates):
+        raise ValueError("拒绝记录日期超过本次同步截止")
     with sqlite3.connect(database) as db:
         extra = {
             date.fromisoformat(row[0])
@@ -226,6 +271,7 @@ def date_windows(database: Path, previous: date, today: date, days: int) -> list
                 (start.isoformat(),),
             )
         }
+    extra.update(day for day in pending_dates if day < start)
     return [(d, d) for d in sorted(extra)] + [(start, today)]
 
 
@@ -257,8 +303,24 @@ def main():
         for i, (start, end) in enumerate(windows):
             if i:
                 time.sleep(1)
-            fetch_results(start, end)
-    export_feeds(target, archive, day, args.run_id)
+            try:
+                fetch_results(start, end)
+            except ResultRowsRejected as exc:
+                LOG.warning("单场拒绝，继续处理其他窗口：%s", exc)
+    manifest = export_feeds(target, archive, day, args.run_id)
+    if manifest["pending_result_count"]:
+        LOG.warning(
+            "部分归档 partial：待补抓 %d 场，拒绝清单已持久保存", manifest["pending_result_count"]
+        )
+    if args.command == "sync" and os.environ.get("GITHUB_STEP_SUMMARY"):
+        with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+            summary.write(
+                f"### Football feed archive: {manifest['collection_status']}\n\n"
+                f"已归档比分 {manifest['counts']['results']} 场；"
+                f"待补抓 {manifest['pending_result_count']} 场。\n\n"
+                "拒绝清单：数据分支 state/rejected_results.csv。"
+                "待补抓日期会在下次同步重试；历史拒绝记录保留。\n"
+            )
 
 
 if __name__ == "__main__":

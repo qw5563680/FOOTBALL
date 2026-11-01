@@ -22,6 +22,10 @@ Score = tuple[int, int]
 VOID = {"无效场次", "取消", "延期", "推迟", "-1:-1"}
 
 
+class ResultRowsRejected(ValueError):
+    """All requested pages were read; valid rows committed, rejected rows audited."""
+
+
 def score(value: str) -> Score | None:
     match = re.fullmatch(r"(\d{1,2})\s*[:：]\s*(\d{1,2})", str(value).strip())
     return (int(match[1]), int(match[2])) if match else None
@@ -426,7 +430,7 @@ def fetch_results(
         counts["unchanged"],
     )
     if feed.rejected:
-        raise ValueError(f"{len(feed.rejected)} 场未通过核验，见 data/rejected_results.csv")
+        raise ResultRowsRejected(f"{len(feed.rejected)} 场未通过核验，见 data/rejected_results.csv")
     return counts
 
 

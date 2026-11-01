@@ -1,8 +1,230 @@
+import csv
+import json
 import sqlite3
+import sys
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import responses
+
+FIXTURES = Path(__file__).parents[1] / "data/fixtures"
+API = "https://webapi.sporttery.cn/gateway/uniform/football/"
+
+
+def feed_json(name):
+    return json.loads((FIXTURES / name).read_bytes())
+
+
+def seed_cloud_archive(tmp_path):
+    from zucai.cloud_feeds import export_feeds
+    from zucai.db import get_engine, init_db
+
+    database = tmp_path / "seed.db"
+    engine = get_engine(database)
+    init_db(engine)
+    engine.dispose()
+    archive = tmp_path / "archive"
+    export_feeds(database, archive, date(2026, 11, 1), "seed")
+    return archive
+
+
+def run_cloud_sync(monkeypatch, work, archive, through):
+    from zucai.cloud_feeds import main
+
+    work.mkdir()
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("ZUCAI_DB", str(work / "data/zucai.db"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["feeds", "sync", "--archive", str(archive), "--through", through, "--run-id", "trial"],
+    )
+    monkeypatch.setattr("zucai.cloud_feeds.time.sleep", lambda _: None)
+    main()
+
+
+def mock_calendar(api):
+    calendar = feed_json("sporttery_calculator_20261101.json")
+    # Keep sample fixtures unstarted regardless of the machine's current clock.
+    for group in calendar["value"]["matchInfoList"]:
+        for game in group["subMatchList"]:
+            game["matchDate"] = "2099-11-01"
+    api.add(responses.GET, API + "getMatchCalculatorV1.qry", json=calendar)
+
+
+def mock_result_day(api, day, games):
+    body = feed_json("sporttery_results_20261031.json")
+    original = body["value"]["matchResult"][0]
+    rows = [dict(original, matchDate=day, **changes) for changes in games]
+    body["value"].update(matchResult=rows, total=len(rows))
+    api.add(
+        responses.GET,
+        API + "getUniformMatchResultV1.qry",
+        json=body,
+        match=[responses.matchers.query_param_matcher({"matchBeginDate": day}, strict_match=False)],
+    )
+    for row in rows:
+        if row["sectionsNo1"] == "9:0":
+            continue  # This invalid row is rejected before requesting a header.
+        head = feed_json("sporttery_head_2042404.json")
+        head["value"].update(sportteryMatchId=row["matchId"], matchDateTime=day + " 10:30")
+        api.add(
+            responses.GET,
+            API + "getMatchHeadV1.qry",
+            json=head,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"sportteryMatchId": str(row["matchId"])}, strict_match=False
+                )
+            ],
+        )
+
+
+def test_cloud_sync_publishes_good_results_and_quotes_despite_one_rejected_row(
+    tmp_path, monkeypatch, caplog
+):
+    from zucai.cloud_feeds import archive_info, restore_feeds
+
+    archive = seed_cloud_archive(tmp_path)
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    with responses.RequestsMock() as api:
+        mock_calendar(api)
+        mock_result_day(api, "2026-10-30", [{"matchId": 4}])
+        mock_result_day(api, "2026-10-31", [{"matchId": 5, "sectionsNo1": "9:0"}])
+        mock_result_day(api, "2026-11-01", [{"matchId": 7}])
+        run_cloud_sync(monkeypatch, tmp_path / "run", archive, "2026-11-01")
+    meta = archive_info(archive)
+    assert meta["counts"]["results"] == 2
+    assert meta["counts"]["odds"] > 0
+    assert meta["collection_status"] == "partial"
+    assert meta["pending_result_count"] == 1
+    assert meta["pending_result_dates"] == ["2026-10-31"]
+    assert "待补抓" in caplog.text and "partial" in summary.read_text(encoding="utf8")
+    assert "state/rejected_results.csv" in meta["files"]
+    restore_feeds(archive, tmp_path / "restored/data/zucai.db")
+    with closing(sqlite3.connect(tmp_path / "restored/data/zucai.db")) as db:
+        assert db.execute("select match_id from results order by match_id").fetchall() == [
+            ("jc:4",),
+            ("jc:7",),
+        ]
+    assert (tmp_path / "restored/data/rejected_results.csv").is_file()
+
+
+def test_old_rejection_is_retried_until_accepted_even_if_missing_from_next_page(
+    tmp_path, monkeypatch
+):
+    from zucai.cloud_feeds import archive_info, export_feeds
+
+    # The rejected fixture has no matches row, so the scheduled-only retry cannot find it.
+    archive = seed_cloud_archive(tmp_path)
+    audit = tmp_path / "rejected_results.csv"
+    audit.write_text(
+        "date,match_id,observed_utc,reason\n2026-10-01,jc:5,2026-11-01T00:00:00+00:00,bad\n",
+        encoding="utf8",
+    )
+    export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 8), "rejected")
+    for attempt, rows in enumerate(([], [{"matchId": 5}])):
+        with responses.RequestsMock() as api:
+            mock_calendar(api)
+            mock_result_day(api, "2026-10-01", rows)
+            for day in ("2026-11-07", "2026-11-08", "2026-11-09"):
+                mock_result_day(api, day, [])
+            run_cloud_sync(monkeypatch, tmp_path / f"retry-{attempt}", archive, "2026-11-09")
+        meta = archive_info(archive)
+        assert meta["pending_result_count"] == (1 if attempt == 0 else 0)
+        assert meta["collection_status"] == ("partial" if attempt == 0 else "complete")
+    assert meta["counts"]["results"] == 1
+    with (archive / "state/rejected_results.csv").open(encoding="utf8") as f:
+        assert [r["match_id"] for r in csv.DictReader(f)] == ["jc:5"]
+
+
+@pytest.mark.parametrize("failure", ["pagination", "blocked"])
+def test_cloud_sync_does_not_publish_after_incomplete_page_or_policy_denial(
+    tmp_path, monkeypatch, failure
+):
+    from requests import HTTPError
+
+    from zucai.cloud_feeds import export_feeds
+
+    archive = seed_cloud_archive(tmp_path)
+    # First window has a recoverable rejection; a later fatal failure must still block publication.
+    (tmp_path / "rejected_results.csv").write_text(
+        "date,match_id,observed_utc,reason\n2026-10-01,jc:5,2026-11-01T00:00:00+00:00,bad\n",
+        encoding="utf8",
+    )
+    export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 1), "rejected")
+    before = {p.relative_to(archive): p.read_bytes() for p in archive.rglob("*") if p.is_file()}
+    with responses.RequestsMock() as api:
+        mock_calendar(api)
+        mock_result_day(api, "2026-10-01", [{"matchId": 4}, {"matchId": 5, "sectionsNo1": "9:0"}])
+        if failure == "blocked":
+            api.add(
+                responses.GET,
+                API + "getUniformMatchResultV1.qry",
+                status=567,
+                match=[
+                    responses.matchers.query_param_matcher(
+                        {"matchBeginDate": "2026-10-30"}, strict_match=False
+                    )
+                ],
+            )
+        else:
+            body = feed_json("sporttery_results_20261031.json")
+            body["value"].update(matchResult=[], total=2)
+            api.add(
+                responses.GET,
+                API + "getUniformMatchResultV1.qry",
+                json=body,
+                match=[
+                    responses.matchers.query_param_matcher(
+                        {"matchBeginDate": "2026-10-30"}, strict_match=False
+                    )
+                ],
+            )
+        with pytest.raises((ValueError, HTTPError)):
+            run_cloud_sync(monkeypatch, tmp_path / "run", archive, "2026-11-01")
+    assert {
+        p.relative_to(archive): p.read_bytes() for p in archive.rglob("*") if p.is_file()
+    } == before
+
+
+def test_conflict_at_same_observation_stays_pending_until_a_later_verified_result(tmp_path):
+    from dataclasses import replace
+
+    from zucai.cloud_feeds import archive_info, date_windows, export_feeds
+    from zucai.db import get_engine, session_scope
+    from zucai.sources.results import SportteryResults, apply_result
+
+    archive = seed_cloud_archive(tmp_path)
+    engine = get_engine(tmp_path / "seed.db")
+    observed = datetime(2026, 11, 1, 0, tzinfo=UTC)
+    game = replace(
+        SportteryResults().parse((FIXTURES / "sporttery_results_20261031.json").read_bytes())[0],
+        kickoff_utc=observed - timedelta(hours=2),
+    )
+    with session_scope(engine) as session:
+        apply_result(session, game, observed)
+    # Append order is not observation order: an old replay must not replace the latest rejection.
+    (tmp_path / "rejected_results.csv").write_text(
+        "date,match_id,observed_utc,reason\n"
+        "2026-10-31,jc:2042404,2026-11-01T00:00:00+00:00,conflicting score\n"
+        "2026-10-31,jc:2042404,2026-10-31T23:00:00+00:00,older replay\n",
+        encoding="utf8",
+    )
+    export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 1), "conflict")
+    assert archive_info(archive)["pending_result_count"] == 1
+    assert date_windows(tmp_path / "seed.db", date(2026, 11, 8), date(2026, 11, 9), 3)[0] == (
+        date(2026, 10, 31),
+        date(2026, 10, 31),
+    )
+    with session_scope(engine) as session:
+        apply_result(session, game, observed + timedelta(seconds=1))
+    engine.dispose()
+    export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 1), "verified")
+    assert archive_info(archive)["pending_result_count"] == 0
 
 
 def test_private_archive_roundtrip_and_corruption_does_not_replace_existing_db(

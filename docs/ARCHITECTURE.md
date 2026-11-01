@@ -108,7 +108,13 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 比分更正时若缺少新的发布依据，改为新版本的实际观察时刻。
 旧库按缺列逐项迁移，有日期但没有标记的旧记录按 captured 处理。既缺日期又缺标记的旧行仍为未知。
 取消状态没有比分行。官方日期分页必须完整；单场比分或身份冲突记入 `data/rejected_results.csv`，
-其余合格场次继续处理。存在拒绝记录时命令返回非零，云端不发布该批。重跑保留已冻结的预测值。
+其余合格场次继续处理。独立回填命令在有拒绝记录时仍返回非零；仅当请求页全部读完时抛出专门的
+`ResultRowsRejected`。云端只捕获这个异常，继续后续日期窗口并归档有效数据，不捕获网络、分页或结构错误。
+拒绝清单随规范化表按哈希保存和恢复。按 `(日期, 比赛ID)` 取观察时刻最新的拒绝，只有同来源的完赛或取消
+状态有严格更晚的接受时刻才解除；等时刻冲突和后续页面缺行均保留待补抓。`date_windows` 将未解除的旧日期
+加入回看，不依赖该场是否已存在或仍为 scheduled。清单保留历史，manifest 的 `collection_status`、
+`pending_result_count`、`pending_result_dates` 表示当前待补抓状态，Actions 摘要明确显示 partial。
+旧归档没有拒绝清单仍可恢复。当前云端同步只用 jc 官方源。重跑保留已冻结的预测值。
 
 ### `sfc_issues` / `sfc_issue_matches`
 `sfc_issues` 的主键是字符串 `issue_no`，保存截止时间 `sale_end_utc`。
