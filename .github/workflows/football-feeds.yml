@@ -1,34 +1,98 @@
 name: Football cloud feeds
 on:
   schedule:
-    - cron: '17 3,10 * * *'
+    - cron: '40 2 * * *'
+    - cron: '40 9 * * *'
   workflow_dispatch:
     inputs:
       operation:
-        description: 'verify 仅校验私有云端归档，sync 则在获准的运行器上采集'
+        description: 'apis 托管采集，sync 自托管竞彩采集，verify 校验归档'
         type: choice
-        options: [verify, sync]
+        options: [apis, sync, verify]
         default: verify
       days:
-        description: '回看最近几个北京时间自然日'
+        description: 'fdorg 前后各 N 个 UTC 日；sync 回看 N 个北京时间自然日'
         type: number
         default: 3
+      slot:
+        description: 'fd 仅 UTC 周一 early 运行；auto 按 UTC 09:00 分早晚'
+        type: choice
+        options: [auto, early, late]
+        default: auto
   push:
     tags: ['football-ingest-run-*', 'football-ingest-verify-*']
 
 permissions:
   contents: write
+# One lock covers both jobs, including dispatches from different code branches.
 concurrency:
   group: write-football-feed-data
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+
+env:
+  FEED_MODE: ${{ (startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis') }}
+
 jobs:
-  collect:
-    if: ${{ startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify' || vars.FOOTBALL_FEEDS_RUNNER != '' }}
-    runs-on: ${{ (startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'ubuntu-latest' || vars.FOOTBALL_FEEDS_RUNNER }}
-    env:
-      FEED_MODE: ${{ (startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || 'sync' }}
+  apis:
+    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || startsWith(github.ref_name, 'football-ingest-verify-') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      WORK_DIR: work-apis-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+        if: ${{ env.FEED_MODE != 'sync' }}
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - name: Install project with checked-in source configurations
+        if: ${{ env.FEED_MODE != 'sync' }}
+        run: python -m pip install -e ./app
+      - name: Restore and collect APIs or verify archive
+        if: ${{ env.FEED_MODE != 'sync' }}
+        env:
+          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          LOOKBACK: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.days) || '3' }}
+          FEED_SLOT: ${{ github.event_name == 'schedule' && (github.event.schedule == '40 2 * * *' && 'early' || 'late') || inputs.slot || 'auto' }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds "$FEED_MODE" --archive ../cloud-data --days "$LOOKBACK" --slot "$FEED_SLOT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Publish verified data
+        if: ${{ env.FEED_MODE == 'apis' }}
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep API originals and audit even on rebase conflict
+        if: ${{ !cancelled() && env.FEED_MODE == 'apis' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: apis-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORK_DIR }}/data/raw
+            ${{ env.WORK_DIR }}/data/state
+          retention-days: 90
+          if-no-files-found: ignore
+
+  sporttery:
+    needs: apis
+    if: ${{ !cancelled() && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
+    timeout-minutes: 60
+    env:
+      WORK_DIR: work-sporttery-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,35 +102,33 @@ jobs:
         with:
           ref: data/football-feeds
           path: cloud-data
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install project
-        run: python -m pip install ./app
-      - name: Restore data, fetch current fixtures and reconcile results
+        shell: bash
+        run: python -m pip install -e ./app
+      - name: Restore data, collect fixtures and reconcile official results
         env:
           LOOKBACK: ${{ inputs.days || 3 }}
+        shell: bash
         run: |
-          mkdir -p work
-          cd work
-          python -m zucai.cloud_feeds "$FEED_MODE" --archive ../cloud-data --days "$LOOKBACK" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-      - name: Keep original HTTP responses and observation times
-        if: ${{ !cancelled() && env.FEED_MODE == 'sync' }}
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds sync --archive ../cloud-data --days "$LOOKBACK" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Publish verified data
+        working-directory: cloud-data
+        shell: bash
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep official originals and audit even on rebase conflict
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: sporttery-source-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            work/data/raw
-            work/data/rejected_results.csv
+            ${{ env.WORK_DIR }}/data/raw
+            ${{ env.WORK_DIR }}/data/state
+            ${{ env.WORK_DIR }}/data/rejected_results.csv
           retention-days: 90
           if-no-files-found: ignore
-      - name: Publish verified data to its private branch
-        if: ${{ env.FEED_MODE == 'sync' }}
-        working-directory: cloud-data
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- state matches feed_manifest.json
-          git diff --cached --quiet && exit 0
-          git commit -m "Update football feeds from Actions run $GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT"
-          git push origin HEAD:refs/heads/data/football-feeds

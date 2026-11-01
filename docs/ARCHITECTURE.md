@@ -35,6 +35,9 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/c500.py` | 500.com：历史赛果、欧赔/亚盘历史、14 场胜负彩期次 |
 | `zucai/sources/football_data.py` | 历史 CSV 的下载、严格时区转换和解析 |
 | `zucai/sources/fd_ingest.py` | 显式别名、官方优先去重、结果可知时间与独立收盘价归档 |
+| `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
+| `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
+| `zucai/cloud_aliases.py` | 复用 T09/T10 离线身份图，只追加带证据的待审候选 |
 | `zucai/sources/fd_verify.py` | 离线复核当前赛季与 jc 的身份图、候选时区和覆盖缺口 |
 | `zucai/features/` | `build_features(session, match_ids=None, as_of=None, *, strict_availability=False) -> DataFrame`；43个球队字段，市场/元信息分离 |
 | `zucai/predict/base.py` | `Model` 抽象类：`fit(df)`、`predict_score_matrix(row) -> ndarray[10,10]`、`save/load` |
@@ -179,7 +182,8 @@ CSV独立保留每行的P2、模式、BET/执行禁用、原预测截点/生成�
 
 官方已匹配比赛的收盘价可归在 jc ID 下，但不写 `Odds`；仅覆盖这张独立表的同庄家组。
 原始版本保留在 CSV 快照。T05 回测、T06 报告及球队特征不会读取此表，不能当当前可执行 SP。
-T08 不扩展 cloud_feeds 的归档表集合，所以已有数据分支恢复仍只恢复原有表。
+T14 将 `closing_odds` 加入 `cloud_feeds.TABLES`，v2 逐行导出/恢复全部来源的五张表；
+旧 v1 缺少此表时恢复为空表。共享球队只记全局哈希，其他表另按所属比赛来源计算行数和哈希。
 
 ### `results`
 | 列 | 说明 |
@@ -275,3 +279,29 @@ T06 真实预测路径不应用这项转换，仍使用库中的可知时间。
 报告顶层及每折的 `uniform` 使用与模型完全相同的成功评估集，主/平/客概率各为 1/3，
 非空集的对数损失为 ln(3)，三分类 Brier 为 2/3；空集保持 n=0、指标 null。
 这是固定参照，不是误差的数学下限；市场基准仍单独报告，不参与拟合。
+
+## T14 云端持久化
+
+`apis` hosted job 与可选 `sporttery` 自托管 job 使用工作流级 concurrency
+`write-football-feed-data`；sporttery 依赖 apis 完成后才 checkout 数据分支，避免基于同一个旧快照写回。
+手动 sync 时 apis 跳过；verify 在 apis 内执行只读恢复。
+`FOOTBALL_FEEDS_RUNNER` 是单标签字符串（`football-local`），直接传给 sporttery 的 runs-on，变量为空时跳过。每次写回先提交，再
+`git pull --rebase origin data/football-feeds`、普通 push，冲突保留原件 artifact 并失败。
+运行目录按 run ID/attempt 隔离，Windows 步骤用 Git Bash 和 setup-python 3.12。
+API 模块按需导入，竞彩与 verify 不加载 Unix-only API 配额锁。
+
+`state/{teams,matches,results,closing_odds}.jsonl` 与 `state/odds/YYYY-MM.jsonl`
+保存原始规范化列；月度展示 CSV 按 UTC 开球月分组，同时含 `source`、UTC 与北京时间。
+manifest v2 的 `sources` 包含各来源 matches/results/odds/closing_odds 行数和按全列稳定排序的
+JSONL SHA256，`files` 覆盖所有表、CSV、配额、审计及候选；旧 v1 可恢复并在下次导出升级。
+校验在替换目标数据库前完成。API 单源/单窗口失败保留已完成结果，导出 collection=partial；
+`through_beijing` 只由竞彩同步推进，防止 API 运行跳过官方历史补抓。
+
+工作库旁 `data/state/` 与数据分支 `state/` 一一映射：配额是 `api_football_quota.json`，
+审计是 `audit/<source>_*.csv`，候选是 `alias_candidates/{fdorg,apif}.json`。
+竞彩兼容的旧拒绝清单保留，并同步到 audit；未知球队清单按来源拆分。恢复这些状态后
+继续追加/去重，不把每天的配额重新置零；原始响应和运行期 lock 文件不进入数据分支。
+候选只来自本次成功完整响应与 jc 身份的双向唯一方向图；解析拒绝的范围不生成候选，
+已确认别名作为锚点，待审候选从不作为锚点或自动入库配置。不同批次证据保留，矛盾须人工复核。
+
+没有数据库迁移；T14 不改变解析、去重、比分可知性或训练输入。

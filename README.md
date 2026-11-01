@@ -48,6 +48,7 @@ zucai train --model dixon-coles       # 训练并按周回测
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
 zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶段历史回放
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
+python -m zucai.cloud_feeds apis --archive ../cloud-data --days 3 --run-id manual  # 在全新隔离目录运行
 pytest -q
 ```
 
@@ -66,20 +67,55 @@ pytest -q
 
 ### 云端采集
 
-在 GitHub 的 `data/football-feeds` 分支打开 [按月赛程和赛果](https://github.com/qw5563680/FOOTBALL/tree/data/football-feeds/matches)。
-同分支 `state/odds/` 按采集月份保留完整赔率。数据分支保存规范化表和校验值，可在其他机器恢复。
-工作流合入默认分支并设置仓库变量 `FOOTBALL_FEEDS_RUNNER` 后，每日计划北京时间 11:17、18:17 在云端运行。
-此变量填写已注册、经数据源允许访问的云端 GitHub Actions runner 标签。首次通用托管机实跑被体彩站点
-安全策略以 HTTP 567 拒绝；未配置可访问运行器时定时采集保持停用。Actions 中的
-**Football cloud feeds → Run workflow → verify** 可在通用托管机恢复并校验数据分支。
-**sync** 在配置的运行器上采集；维护者也可推送 `football-ingest-verify-*` 或 `football-ingest-run-*` 标签
-验证相应路径。同步恢复上次成功提交的数据，复查最近三天、遗漏日期及逾期未结场次。
-单场赛果校验失败时，合格赛果和赛前报价仍归档，批次标记为 `partial`，Actions 摘要显示待补抓数量。
-拒绝历史存入同分支 `state/rejected_results.csv`，与其他数据一起校验和恢复；未解除的日期在下次同步
-额外重抓，包括超出最近三天、尚未建场次或已有旧比分的情况。只有更晚被接受的同来源赛果才能解除，
-某场从后续页面消失不算修复。异常历史保留，待补抓归零后批次标记为 `complete`。
-网络拒绝、分页缺失、数据库或归档校验失败及推送失败仍保留原云端版本。
-原始 HTTP 响应作为该次 Actions 的私有附件保留 90 天。
+[数据分支 `data/football-feeds`](https://github.com/qw5563680/FOOTBALL/tree/data/football-feeds)
+保存四来源 jc / fd / fdorg / apif 的可恢复归档。`matches/YYYY-MM.csv` 按 **UTC 开球月份**分组，
+同时展示北京时间；`state/odds/` 按报价采集月保留完整快照，`state/closing_odds.jsonl` 独立保存无时间戳收盘价。
+`feed_manifest.json` v2 记录表字段、全局行数、各来源行数与规范化行 SHA256，以及每个归档文件的 SHA256；
+仍能读取原有 v1。恢复后可按联赛使用 `zucai train --source jc,fd,fdorg,apif --league 英超`，
+样本数量、可知时间和跨来源身份校验仍按训练命令原规则执行。
+
+工作流 **Football cloud feeds** 合入 main 后，每日 UTC **02:40 / 09:40**（北京时间 **10:40 / 17:40**）运行：
+
+| job | 运行器 | 采集范围 |
+| --- | --- | --- |
+| `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九联赛前后各 `days` 个 UTC 日，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
+| `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 沿用官方在售赛程与赛果 `sync`；未配置时整个 job 显示 skipped |
+
+两 job 依次恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
+写回前执行 `git pull --rebase`；冲突则失败，不强推。fd 主联赛赛季按七月换季推导（如 2627），
+已配置 country 合并文件只导入当前自然年；`leagues.json` 可用 `current_season` 明确覆盖。
+未核验联赛不采集。API 解析、去重规则不变；分页必须完整，额外分页同样消耗配额。
+
+在仓库 **Settings → Secrets and variables → Actions → Secrets** 配置
+`FOOTBALL_DATA_ORG_TOKEN`、`API_FOOTBALL_KEY`。工作流只从这两个 Secrets 注入 API 凭据，
+不使用仓库 Variables 或命令行参数传 key。API-Football 配额保存到 `state/api_football_quota.json`，
+每次恢复并继续扣减，默认保留 10 次；损坏时拒绝重新假定完整预算。
+各源拒绝、疑似重复、未对齐 CSV 保存为 `state/audit/<source>_*.csv`，保留已有历史。
+竞彩旧 `state/rejected_results.csv` / `state/unmatched_teams.csv` 继续兼容。
+API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`；摘要列入库、链接、拒绝、请求数、
+剩余配额和脱敏失败原因。单行拒绝/疑似重复也标记 partial。
+数据库、归档校验和写回冲突仍使对应 job 失败。安全检查通过的原始响应和审计状态作为 Actions artifact 保留 90 天，
+可见性继承仓库权限；工作流不会将原始响应提交到 main。
+
+每次 API 采集后，仅对本次完整且可核验的响应离线执行 T09/T10 主客方向身份图，
+以恢复后的 jc 记录为证据。fdorg 复用 `fdorg_verify` 图与证据生成函数，apif 调用 `apif_verify.infer_aliases`；
+不把日期窗口当作完整赛季，存在解析拒绝的窗口不生成候选。新增 `auto_verified` 候选及原件 SHA256、
+jc 比赛 ID、UTC 时间差追加到 `state/alias_candidates/fdorg.json` 和 `apif.json`。
+候选不参与后续自动导入；审查方定期核对证据后另开 PR 合入 main 的正式别名文件。
+
+Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
+
+- `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
+  计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
+- `operation=verify`：托管机恢复并校验所有归档文件、表行数与来源哈希，不写数据分支；摘要为 `verified`。
+- `operation=sync`：`apis` job 跳过，`sporttery` 在配置的自托管机采集；无变量时跳过。
+  原有 `football-ingest-verify-*` / `football-ingest-run-*` 标签入口仍兼容。
+
+自托管变量由审查方在合并后设置为单个标签 **`football-local`**，`runs-on` 直接使用该字符串；
+当前 Windows 运行器已注册在 `D:\actions-runner`，通过用户登录计划任务运行 `run.cmd`。注册和停用见
+[docs/RUNNER.md](docs/RUNNER.md)。竞彩官网曾对 GitHub 托管机返回 HTTP 567，故保持此门控。
+竞彩同步复查最近几天、遗漏日期、逾期未结场次及仍未解决的拒绝日期；仅更晚被接受的同源观察能解除待补抓。
+API 采集不会推进竞彩回填水位。两条腿均不自动训练或预测。
 
 ### 运行公开预测样例
 
@@ -139,7 +175,7 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 
 新模型的 `sources` 表示选择的来源范围，`training_source_counts` 表示截点前实际参与拟合的场数。
 T06 对范围内来源可预测，冻结格式升级为 schema 2；旧单来源模型与 schema 1 报告仍能读取。
-T08 未接入定时采集或数据分支恢复；云端持久化当前只有代码、配置与派生验收报告。
+T14 已接入周一早班采集和数据分支恢复；历史原始 CSV 仍只保存在采集环境或 Actions artifact。
 [时区及数据限制](docs/DATA_SOURCES.md#4-football-datacouk历史赛果与收盘赔率t08) ·
 [真实数据验收与缺口](reports/2026-11-02-t08-acceptance/README.md)。
 
@@ -181,7 +217,7 @@ Football data provided by the [Football-Data.org API](https://www.football-data.
 别名在 `data/team_aliases/api_football.json`，proposed 逐条保留待审查，尚未核验的名称不自动合并。
 官方比分优先，其次 fd/fdorg；拒绝、可疑重复和未对齐清单写入审计目录，默认不提交。
 本轮韩职、澳超链接率及仅jc训练样本未满足完整验收，见[实际结果](reports/2026-11-02-t10-acceptance/README.md)。
-本任务未启用定时采集，原始JSON、数据库和模型仍需自行保存在采集环境。
+T14 已接入最近三天的定时采集；配额与规范化数据在数据分支持久化，原始 JSON 保留为 Actions artifact；模型仍自行保存。
 [接口实测与权限](docs/DATA_SOURCES.md#6-api-football-v3--api-sportsio亚洲与北欧联赛t10)。
 
 ### 批量预测与冻结报告（T06）
