@@ -68,6 +68,16 @@ T09 用 `FootballDataOrg` 下载原始响应，用 `ApiGame` 传递 UTC 赛程�
 读取训练历史和直接拟合均拒绝三个来源间已知的同场重复。较高优先级赛程晚到时，如果 fdorg 场次只有部分球队
 已对齐、主客颠倒，或临时球队身份无法排除同窗候选，会报告比赛 ID 并阻止这些身份进入同一训练集。
 
+T10 新增 `ApiFootball`、`apif_quota`、`apif_ingest`、`apif_command`、`apif_verify`；复用 `ApiGame`，
+不新增表或列。来源 `apif`、主键 `apif:<fixture_id>`，球队绑定 `apif:<league>:team:<id>`，
+未知球队名 `apif:team:<id>`。别名三状态复用 T08 规范查找，数字ID负责本源身份。
+入库按 jc > fd > fdorg > apif 选择同一比赛，已知同场只链接，不覆盖高优先级比分。
+取消/延期/腰斩保留 cancelled 场次且无结果，判罚/弃权拒绝。历史结果须显式 assumed，日增量为 captured。
+配额在数据库外的持久JSON中提前扣减，以线程锁和文件锁串行化请求；合法每日响应头更新剩余额度，
+即使正文无法安全归档也不丢失该配额观察。分页全部读完后一次核对完整集合并提交，失败保留原始分页。
+为保持 T09 既有函数不改，CLI 通过新增 `apif_cli.extend_cli` 注册和路由，训练 guard 通过
+`apif_guard.extend_guard` 扩展；原来的函数体保持不变，直接 Model.fit 与 read_history 均获得四来源重叠保护。
+
 模型元数据改用 `sources: list[str]`，旧可信模型的 `source` 读取为单元素列表。
 `training_source_counts` 与范围分开；严格模式或截点过滤后某来源计数可为零，但不能推导模型对未选择来源的支持。
 新 T06 冻结 JSON 为 schema 2，`models[].sources` 必须是非空列表；比赛自身仍用单值 source。
@@ -134,7 +144,7 @@ CSV独立保留每行的P2、模式、BET/执行禁用、原预测截点/生成�
 | 列 | 说明 |
 | --- | --- |
 | `match_id` | 主键，`来源:来源ID`，如 `jc:2026110101` |
-| `source` | `jc` / `c500` / `fd` / `fdorg`；FD 主键如 `fd:E0:20250815:liverpool:bournemouth`，FDORG 使用来源数字比赛 ID |
+| `source` | `jc` / `c500` / `fd` / `fdorg` / `apif`；FD 主键如 `fd:E0:20250815:liverpool:bournemouth`，FDORG 使用来源数字比赛 ID |
 | `league` | 联赛名 |
 | `home_team_id` / `away_team_id` | 外键 `teams.id` |
 | `kickoff_utc` | 开赛时间 |

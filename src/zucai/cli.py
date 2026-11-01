@@ -305,5 +305,10 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+# T10 additive registration; original T09 functions remain unchanged.
+from zucai.apif_cli import extend_cli  # noqa: E402
+
+build_parser, main = extend_cli(build_parser, main)
+
 if __name__ == "__main__":
     sys.exit(main())

@@ -171,13 +171,84 @@ CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知
 
 ## 6. API-Football v3 / api-sports.io（亚洲与北欧联赛，T10）
 
-- 基地址 `https://v3.football.api-sports.io/`，请求头 `x-apisports-key`，key 来自环境变量 `API_FOOTBALL_KEY`，不进仓库、日志与 sidecar。
-- 免费档 100 次/天，UTC 零点重置，响应头 `x-ratelimit-requests-remaining`（需验证）。第三方资料称免费档仅开放部分历史赛季，实现时逐联赛用真实请求确认。
-- 端点：`GET /fixtures?league={id}&season={YYYY}`（整季一次请求）、`GET /fixtures?date=`、`GET /leagues`。
-  联赛 ID 候选（需验证）：日职 98、韩职 292、澳超 188、瑞超 113、挪超 103、芬超 244、丹超 119、美职足 253、中超 169。
-- 时间优先 `fixture.timestamp`（Unix UTC）。常规时间比分只取 `score.fulltime`；`goals` 可能含加时（需验证）。
-- 状态 `fixture.status.short`：`FT/AET/PEN` 完赛，`PST/CANC/ABD` 延期或取消，`AWD/WO` 判罚不写比分，`NS/TBD` 未赛。
-- 用途以站方当前条款为准，README 须标注来源。
+北京时间 2026-11-02（实际采集 UTC 2026-11-01）在本账户完成带凭据验证。
+基地址 `https://v3.football.api-sports.io/`，只支持 api-sports.io 直连；头为
+`x-apisports-key`，值只读运行环境 `API_FOOTBALL_KEY`。不访问赔率、事件、阵容或统计端点。
+
+### 账户、赛季与日期权限实测
+
+`/status` 返回 Free、active=true、limit_day=100。`/leagues?id=` 能列出多个赛季，
+但这个元数据列表**不代表账户读取权限**。九联赛逐个请求 2021–2026，日职另测元数据标为
+current 的 2027；2022–2024 全部取得整季，2021/2025/2026（及日职2027）均为
+HTTP 200 且 `errors.plan` 明确提示仅允许 2022–2024。年份用赛季起始年，澳超、丹超为跨年赛季。
+本轮 27 份整季原件均 `paging.current=1,total=1`，共 7,059 行，不裁成竞彩开售子集。
+
+|ID/规范联赛|元数据 current 起始年|整季实际可用年份|current 整季|
+|---|---:|---|---|
+|98/日职|2027|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+|292/韩职|2026|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+|188/澳超|2026|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+|113/瑞超|2026|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+|103/挪超|2026|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+|244/芬超|2026|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+|119/丹超|2026|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+|253/美职|2026|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+|169/中超|2026|2022、2023、2024|拒绝，HTTP 200 + errors.plan|
+
+`/fixtures?date=2024-05-18` 返回 HTTP 200 + `errors.plan`，提示允许 UTC 日期
+2026-10-31 至 2026-11-02。随后三天分别取得 1,568、1,187、229 行，全为单页；
+日端点覆盖所有赛事，再按配置联赛过滤。**整季当季不可用，但最近三天增量可用**，两者分开披露。
+窗口随账户和运行日期改变，不能把本轮日期当作永久权限规则；未来实际 API 错误仍中止，不能当空成功。
+配置及逐请求 SHA256、核验 UTC 见 `data/api_football/leagues.json`。
+
+### 配额和安全归档
+
+本轮共 69 次 APIF GET，均在同一 UTC 日；本地日计数69，最后一个有效每日头为62。
+有些权限拒绝无配额头，且每日头观察到向上跳变；本地请求数不等同于服务端已收费数。
+实际成功响应带 `x-ratelimit-requests-limit: 100`、`x-ratelimit-requests-remaining`；
+`x-ratelimit-limit: 10`、`x-ratelimit-remaining` 是分钟额度，不能用来当每日剩余。
+UTC 零点重置是本地计数规则，本轮没有跨午夜实测服务端重置。
+
+每次请求前在 `data/api_football_quota.json` 持久预占，包括权限错误及网络失败；
+线程锁和进程文件锁覆盖整个 GET。每日头是剩余额度的权威值；缺头则延用保守本地扣减，
+本地实际发送数另有100的硬上限。剩余 ≤ `--reserve`（默认10）停止并报错，损坏配额文件也报错。
+文件只适用于使用同一持久目录的采集进程；其他机器使用同一 key 的消耗靠下一次响应头反映，不能实时共享。
+不隐式重试或跟随重定向，默认间隔6.1秒。429 中止；每个后续 GET 都重新过守卫。
+
+原始 JSON 和 sidecar 仅写 `data/raw/api-football/`，请求头不落盘。复用 T09
+`safe_json_for_archive`，检查原始字节、完整 UTF-8 JSON 的键和值、JSON 转义和重复键覆盖前的值。
+非 JSON、截断 JSON 或 key 回显拒绝归档；即使正文不安全，合法数字配额头仍会被记录。
+真实裁剪 fixture 在导出前后再检查，原件/裁剪件 SHA256 写进 `data/fixtures/t10/provenance.json`。
+
+多页时原件逐页保存并计数；所有页面齐全后生成 `assembled-fixtures`（附逐页 URL/UTC/SHA256），
+以最后一页采集时刻保守作为整个集合的 captured 下界，再一次核验身份并入库，防止第一页抢占歧义链接。
+后续页失败保留已下载原件，整个未完成范围不入库；更早已完成赛季保持提交。单独多页片段不得离线入库。
+
+### 字段和身份边界
+
+时间仅取 `fixture.timestamp`（Unix UTC），不从可能改格式的显示字符串推断。
+常规时间比分只取 `score.fulltime`，半场取 `score.halftime`。真实韩职 `apif:1317866`
+（2024 季）`fulltime=2:1`、`extratime=1:0`、`goals=3:1`；芬超 `apif:1313003`
+为 `fulltime=2:2`、`goals=3:3`，点球另列。因此 `goals` 不能替代90分钟比分，也不能取点球结果。
+`FT/AET/PEN` 完赛；`NS/TBD` 和进行中状态存 scheduled、没有赛果；`PST/CANC/ABD` 存 cancelled；
+`AWD/WO` 进入拒绝清单，不写比分。MLS 2023 原件还有一条 `short="Canc"`，按实证显式等同 `CANC`，
+不任意容错未知状态。缺失或非法常规时间比分逐行拒绝。
+
+复用 `ApiGame`。别名键为本源数字球队 ID，按联赛组织；approved/auto_verified 生效，
+proposed 不生效，未知身份用 `apif:team:<id>` 保存。当前自动核验来自完整主客方向比赛图：
+一部分经 T08 已核验的 FD 时区及规范名桥接，一部分直接核对最近三天 jc；不按名字相似度或比分选边。
+别名记录附原件 SHA256、对方比赛ID、UTC差值和桥接配置哈希；新增历史球队及沿革仍需人工核验。
+
+去重优先 `jc`，其次 `fd:`、`fdorg:`；只填空的官方 counterpart，不覆盖其赛果。
+单队对齐、反向冲突、同窗来源身份不明等隔离，直接训练和读取训练历史也检查迟到重叠。
+赛季回填必须显式 `--assume-known-after`，写 assumed；`--date` 增量只用实际 captured，
+同比分、晚到未结算观察和更正的可知时间沿用 T09/T03 规则。
+
+[本轮验收及缺口](../reports/2026-11-02-t10-acceptance/README.md)：韩职和澳超链接率未达到90%，
+仅jc日职样本不足以完成训练；联合模型已实际回测，不据此宣称效果提升。
+
+用途以站方当前条款为准，标注来源 [API-Football](https://www.api-football.com/)；
+本任务不授予额外的数据再分发许可，也不加入 cloud_feeds 定时采集。
 
 ## T04/T13特征提取的数据可知边界（t04-v2）
 

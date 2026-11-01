@@ -96,3 +96,9 @@ class Model(ABC):
     @classmethod
     @abstractmethod
     def load(cls, path: Path): ...
+
+
+# T10 additive guard: applies equally to read_history and direct Model.fit.
+from zucai.predict.apif_guard import extend_guard  # noqa: E402
+
+reject_cross_source_overlaps = extend_guard(reject_cross_source_overlaps)

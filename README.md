@@ -40,6 +40,9 @@ zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-
 # 在运行采集的环境中预先配置 FOOTBALL_DATA_ORG_TOKEN
 zucai fetch fdorg --competition PL,PD,SA --days 7  # 自动拆成不超过10天的连续窗口
 zucai fetch fdorg --competition PL --season 2025 --season 2026 --assume-known-after 3h
+# 在运行采集的环境中预先配置 API_FOOTBALL_KEY
+zucai fetch apif --league 98 --season 2024 --assume-known-after 3h --reserve 10
+zucai fetch apif --date 2026-11-01  # UTC 日期；免费档当前仅最近三天可用
 zucai train --league 英超 --source jc,fd,fdorg --since 2026-09-01 --output models/epl-mixed.pkl
 zucai train --model dixon-coles       # 训练并按周回测
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
@@ -161,6 +164,25 @@ Football data provided by the [Football-Data.org API](https://www.football-data.
 未对齐球队按联赛和本源 ID 写入 `data/fdorg_unmatched_teams.csv`，字段为 `league,team_id,english_name,first_seen_utc`；
 重复采集不重复追加，较早原件的回放会更新最早观察时间。与拒绝/疑似重复清单一样可用 `--audit-dir` 指定目录，均不进仓库。
 [来源与数据边界](docs/DATA_SOURCES.md#5-football-dataorg-v4欧洲主流联赛全量赛程与赛果t09)。
+
+### 亚洲与北欧联赛（T10）
+
+数据来源：[API-Football / API-Sports](https://www.api-football.com/)。
+支持日职98、韩职292、澳超188、瑞超113、挪超103、芬超244，以及丹超119、美职253、中超169。
+本账户实测整季只开放起始年2022、2023、2024；当季整季被拒绝。`--date` 则允许最近三天，
+本轮 UTC 2026-10-31 至2026-11-02均可读取。元数据的 current 赛季不等于免费权限。
+
+历史回填必须显式假定可知延时；日期增量只记真实 captured。比分只取90分钟 `score.fulltime`。
+`--season` 可重复，每个完整赛季独立提交；先归档所有页再整体核对身份，后续失败保留已完成赛季和安全原件。
+默认每日保留10次额度，配额文件须持久保存并供本机采集共享；到界限明确报错，不自动跨日等待。
+离线重放用 `--raw-file <原件.json>` 加同名 sidecar；参数仍须与原件一致，多页须用完整 assembled 归档。
+`--aliases-file`、`--leagues-file`、`--quota-file`、`--audit-dir` 可指定替代路径。
+
+别名在 `data/team_aliases/api_football.json`，proposed 逐条保留待审查，尚未核验的名称不自动合并。
+官方比分优先，其次 fd/fdorg；拒绝、可疑重复和未对齐清单写入审计目录，默认不提交。
+本轮韩职、澳超链接率及仅jc训练样本未满足完整验收，见[实际结果](reports/2026-11-02-t10-acceptance/README.md)。
+本任务未启用定时采集，原始JSON、数据库和模型仍需自行保存在采集环境。
+[接口实测与权限](docs/DATA_SOURCES.md#6-api-football-v3--api-sportsio亚洲与北欧联赛t10)。
 
 ### 批量预测与冻结报告（T06）
 
