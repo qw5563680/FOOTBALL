@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from zucai.db import get_engine, init_db, session_scope
+from zucai.sources.api_common import LocalValidationError
 from zucai.sources.api_football import LEAGUES, ApiFootball
 from zucai.sources.apif_ingest import COUNT_KEYS, import_apif_games
 from zucai.sources.base import RawStore
@@ -32,14 +33,16 @@ def fetch_apif(
     quota_path="data/api_football_quota.json",
 ):
     if bool(seasons) == (date is not None):
-        raise ValueError("须选择 --season 或 --date")
+        raise LocalValidationError("须选择 --season 或 --date")
     if seasons:
         if not isinstance(assume, timedelta) or not timedelta(0) < assume <= timedelta(days=14):
-            raise ValueError("赛季回填必须显式指定 --assume-known-after，正延时且不超过14天")
+            raise LocalValidationError(
+                "赛季回填必须显式指定 --assume-known-after，正延时且不超过14天"
+            )
         if len(set(seasons)) != len(seasons):
-            raise ValueError("--season 不得重复")
+            raise LocalValidationError("--season 不得重复")
     elif assume is not None:
-        raise ValueError("--date 增量只允许 captured，不能指定假设")
+        raise LocalValidationError("--date 增量只允许 captured，不能指定假设")
     leagues = read_json(leagues_path or LEAGUES)
     aliases = read_json(aliases_path or ALIASES)
     source = ApiFootball(
@@ -56,7 +59,7 @@ def fetch_apif(
     for scope in scopes:
         source.request_url(**scope)  # Validate every query before network/DB writes.
     if raw_file and len(scopes) != 1:
-        raise ValueError("每次只可重放一个赛季或日期原件")
+        raise LocalValidationError("每次只可重放一个赛季或日期原件")
     engine = get_engine(db)
     try:
         for scope in scopes:
@@ -68,7 +71,9 @@ def fetch_apif(
                 # Linking needs the complete capture, so incomplete page replays are refused.
                 doc = source._document(raw, source._scope(**scope))
                 if doc["paging"] != {"current": 1, "total": 1}:
-                    raise ValueError("分页原件不完整；须重放含全部页面的 assembled-fixtures 归档")
+                    raise LocalValidationError(
+                        "分页原件不完整；须重放含全部页面的 assembled-fixtures 归档"
+                    )
                 page = doc["paging"]["current"]
                 expected = source.request_url(**scope, page=page if page > 1 else None)
                 if (
@@ -77,7 +82,7 @@ def fetch_apif(
                     or not isinstance(meta.get("url"), str)
                     or _url_identity(meta["url"]) != _url_identity(expected)
                 ):
-                    raise ValueError("原件须匹配请求 URL、HTTP 200 和 SHA256")
+                    raise LocalValidationError("原件须匹配请求 URL、HTTP 200 和 SHA256")
                 seen = _capture_time(meta)
                 games = source.parse(raw, **scope)
                 init_db(engine)
