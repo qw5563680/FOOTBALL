@@ -393,12 +393,15 @@ def test_week_crossing_season_boundary_and_jc_subset(seasons_history):
     history = seasons_history.copy()
     first = history.index[history.kickoff_utc >= pd.Timestamp("2025-07-01T00:00Z")][0]
     history.loc[first, "counterpart_id"] = "jc:linked"
+    # The importer preserves an older API counterpart when FD links to the jc row.
+    history.loc[first + 1, "source"] = "jc"
+    history.loc[first + 1, "counterpart_id"] = "fdorg:existing-link"
     report = backtest.evaluate(
         history, {}, seasons=["2526"], as_of="2025-08-01T00:00Z", parameters_by_season={"2526": 365}
     )
     assert report["folds"][0]["cutoff_utc"] == "2025-06-30T23:59:59.999999+00:00"
     assert report["folds"][0]["half_life_days"] == 365
-    assert report["jc_linked"]["n"] == 1
+    assert report["jc_linked"]["n"] == 2
     assert report["seasons"]["2526"]["complete"] is False
 
 

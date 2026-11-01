@@ -318,7 +318,7 @@ def evaluate(
                 actual=0 if score > 0 else 1 if score == 0 else 2,
                 probabilities=tuple(probs[k] for k in "hda"),
                 unknown_team_prior=meta["unknown_team_prior"],
-                jc_linked=(row["source"] == "jc" and counterpart.startswith("fd:"))
+                jc_linked=(row["source"] == "jc" and bool(counterpart))
                 or counterpart.startswith("jc:"),
                 available_source=row.get("available_source") or "captured",
                 closing=closing.get(row["match_id"]),

@@ -23,6 +23,10 @@ GATE = {
     "max_closing_log_loss_gap": 0.05,
     "fold": "weekly",
     "bet_allowed": False,
+    "require_two_nonempty_complete_seasons": True,
+    "require_no_skips_or_unavailable_labels": True,
+    "artifact_corpus": "same_database_sha256_and_cumulative_nonreplayed_policy",
+    "evidence_recency": "latest_two_complete_seasons_at_prediction",
 }
 
 

@@ -183,7 +183,7 @@ T06 读取配置核对门槛；已加载模型保持实际拟合参数，要改�
 未知球队默认使用训练联赛最弱四分位攻击参数均值、最弱四分位防守参数均值，各向全联赛均值收缩50%。
 较高 defence 表示较弱防守；必要时仅把该未知对阵的 rho 限制在非负比分矩阵的合法区间。
 元数据披露 `unknown_team_prior`、先验方法和 rho 是否裁剪。已知球队预测保持原模型路径。
-评估另列未知球队、跳过先验前的已知球队集、counterpart_id 链接的 jc 子集（小样本参考），
+评估另列未知球队、跳过先验前的已知球队集、counterpart_id 链接的 jc 子集（含恢复的既有API链接，小样本参考），
 逐折披露 warmup/fit_failed/unknown_team/invalid_grid；空集指标为 null。
 10桶校准同时报告 `draw_mean`、`draw_rate` 和预测减实际的 `draw_bias`。
 
