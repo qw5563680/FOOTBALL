@@ -85,6 +85,8 @@ class Result(Base):
     away_goals: Mapped[int]
     ht_home_goals: Mapped[int | None]
     ht_away_goals: Mapped[int | None]
+    # When this version of the final score became known. Legacy rows can be unverified.
+    available_utc: Mapped[str | None] = mapped_column(UTCString, default=lambda: datetime.now(UTC))
 
 
 class SfcIssue(Base):

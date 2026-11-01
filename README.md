@@ -37,13 +37,35 @@ pytest -q
 `zucai db init --path /path/to/football.db` 明确指定文件。
 同一场比赛可以保存不同采集时间的赔率和不同模型版本的预测。
 
+### 运行公开预测样例
+
+在仓库根目录使用 Python 3.12。安装模型依赖后，一条命令会下载并校验公开的 2019/20 英超样例，
+回放阿森纳对曼联，随后对 2020 年 1 月起的比赛按周回测。比赛和模型只写入临时目录。
+
+```bash
+python -m pip install -e ".[model]"
+python examples/t05_public_replay.py
+```
+
+也可将同一来源的原始 `E0.csv` 传给 `python examples/t05_public_replay.py --csv E0.csv` 离线运行。
+样例以 UTC 开球后 3 小时作为赛果已知时间，这是假设。主模型只接收主客队、常规时间比分和时间信息。
+CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对照，发布方未给出逐场报价时刻。
+样例同时列出 90 天半衰期和每日衰减 0.001 的纯模型指标，均使用同一批留出比赛。
+[英超原始 CSV](https://www.football-data.co.uk/mmz4281/1920/E0.csv) · [数据来源与使用说明](https://www.football-data.co.uk/data.php)
+
+有赛果数据库后，用 `zucai train --model dixon-coles` 训练并保存至 `models/dixon-coles.pkl`。
+`--db` 指定数据库，`--league` 和 `--source` 选择同一赛事和供应方；多个范围须分别训练。
+`--since YYYY-MM-DD` 指定回测开始日，之前的赛果可用于训练。
+`--as-of YYYY-MM-DD` 将所有数据截在当日 UTC 零时。可用 `--output` 另存每次的模型。
+训练输出包含样本数、逐周截点、对数损失、三分类 Brier 及校准分箱。市场样本缺失时指标为 null。
+只加载本项目自行训练、来源可信的模型文件。
+
 以下命令随相应任务合并后提供：
 
 ```bash
 zucai fetch jc --date 2026-11-01      # 抓竞彩赛程与赔率
 zucai fetch results --days 30         # 回填已完赛结果
 zucai features build                  # 生成特征
-zucai train --model dixon-coles       # 训练
 zucai predict --date 2026-11-01       # 输出预测表（markdown + csv）
 ```
 

@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import URL, Engine, create_engine, event
+from sqlalchemy import URL, Engine, create_engine, event, inspect
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
@@ -35,7 +35,22 @@ def get_engine(path: str | Path | None = None) -> Engine:
 
 
 def init_db(engine: Engine) -> None:
-    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
+        Base.metadata.create_all(conn)
+        if "available_utc" not in {c["name"] for c in inspect(conn).get_columns("results")}:
+            conn.exec_driver_sql("ALTER TABLE results ADD COLUMN available_utc VARCHAR(27)")
+        # A corrected score must not inherit the earlier version's availability time.
+        conn.exec_driver_sql("""
+            CREATE TRIGGER IF NOT EXISTS result_correction_clock
+            AFTER UPDATE OF home_goals, away_goals ON results
+            WHEN (NEW.home_goals <> OLD.home_goals OR NEW.away_goals <> OLD.away_goals)
+                 AND NEW.available_utc IS OLD.available_utc
+            BEGIN
+                UPDATE results SET available_utc = strftime('%Y-%m-%dT%H:%M:%f000Z','now')
+                WHERE match_id = NEW.match_id;
+            END
+        """)
 
 
 def upsert_match(session: Session, *, match_id: str, **fields: Any) -> Match:
