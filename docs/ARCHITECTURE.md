@@ -36,6 +36,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/football_data.py` | 历史 CSV 的下载、严格时区转换和解析 |
 | `zucai/sources/fd_ingest.py` | 显式别名、官方优先去重、结果可知时间与独立收盘价归档 |
 | `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
+| `zucai/cloud_backfill.py` | 仅手动的 fd 六季历史回填、范围筛选、逐跳请求与联赛增量审计；复用既有下载/导入器 |
 | `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
 | `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
@@ -383,3 +384,29 @@ SHA256 必须一致，不插入 Prediction、不迁移输入库、不改 schema�
 没有预测目录的旧归档仍通过；有预测而缺清单、损坏文件或符号链接则失败。
 Actions artifact 保存本次模型、两日报告及索引 90 天，长期证据以数据分支为准。摘要复用实际 report.md
 的比赛表，顶部固定免责声明；所有概率仍是纯模型，市场仅对照，BET 禁用。
+
+
+## T18 一次性 fd 历史回填
+
+`cloud_feeds backfill` 恢复到全新工作目录的 `data/zucai.db` 后调用 `cloud_backfill.collect_backfill`。
+`backfill_scopes` 只接受 verified 配置，默认九个按季联赛各 2122–2627、六个合并文件各筛 2021–2026；
+显式联赛、起始/结束范围先校验。源文件每份独立处理；合并文件保持来源 Season 标签，按既有起始年函数筛选。
+
+一次运行使用一个既有 `FootballDataCoUk` 下载器，逐文件落盘后通过 `fetch_fd(raw_file=..., assume=3h)`
+离线导入。解析、别名、官方优先去重、结果可知时间和收盘赔率规则完全复用；不执行 API 历史采集或别名推断。
+同一结果保留原可知时间；幂等依靠现有比赛/赛果/收盘价主键和导入规则，不增加 schema。
+文件失败隔离到 `failed_scopes`，其他文件继续；行拒绝/疑似重复也使本次状态 partial。
+
+回填专用 HTTP adapter 复用 `RateLimiter(2.1)` 在实际发送入口留出余量，原有共享 2 秒 limiter 不改。
+禁用隐式 HTTP 重试，重定向仍由原采集器逐跳处理。robots 在同一限速通道读取并归档，每个计划 CSV
+须被现有 ZucaiResearch UA 允许；robots 获取/校验失败不导入数据。记录全部开始时刻、跳转/失败状态和响应 SHA256，
+CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
+
+新请求审计追加到工作库旁 `state/audit/fd_backfill_requests.csv`；原有 fd 拒绝/疑似重复/未知队名清单继续沿用。
+每文件的统计与原件索引、每联赛前后 fd 赛果数写入 feed manifest 的 `collection.fd`，完整运行 JSON
+和原始 HTTP 字节仅进 raw artifact。`export_feeds` / `archive_info` 格式不变，竞彩水位保持原值；
+结束后恢复新归档并校验 feed 与已有 forecast manifest，旧模型/预测冻结目录保持原样。
+
+`workflow_dispatch operation=backfill` 只运行 apis hosted job，60 分钟上限；共用既有写回锁、发布脚本和
+90 天原件/审计 artifact，sporttery/predict 跳过。定时事件及周一当季采集逻辑不变。完成回填后另行手动
+`operation=predict`，以实际训练场数核验历史覆盖，不改 params/P2 标签与门槛。

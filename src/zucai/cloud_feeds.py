@@ -366,14 +366,21 @@ def date_windows(database: Path, previous: date, today: date, days: int) -> list
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("export", "sync", "apis", "verify"))
+    parser.add_argument("command", choices=("export", "sync", "apis", "verify", "backfill"))
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--db", type=Path, default=Path("data/zucai.db"))
     parser.add_argument("--through", type=date.fromisoformat)
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--slot", choices=("auto", "early", "late"), default="auto")
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--leagues", help="仅 backfill：逗号分隔的已核验 fd 代码")
+    parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
+    parser.add_argument("--to", dest="last", help="仅 backfill：终止年或赛季，如 2026 / 2627")
     args = parser.parse_args()
+    if args.command != "backfill" and any(
+        v is not None for v in (args.leagues, args.first, args.last)
+    ):
+        parser.error("--leagues / --from / --to 仅供 backfill 使用")
     if not 0 <= args.days <= 366:
         parser.error("--days 必须在 0–366 之间")
     logging.basicConfig(level=logging.INFO)
@@ -381,7 +388,7 @@ def main():
     archive = args.archive.resolve()
     day = args.through or datetime.now(BEIJING).date()
     collection = None
-    if args.command in {"sync", "apis", "verify"}:
+    if args.command in {"sync", "apis", "verify", "backfill"}:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
         if target.parent != Path("data").resolve():
@@ -409,6 +416,15 @@ def main():
         collection = collect_apis(target, datetime.now(UTC), args.days, args.slot)
         # API collection must not advance the official results reconciliation watermark.
         day = date.fromisoformat(meta["through_beijing"])
+    if args.command == "backfill":
+        from zucai.cloud_backfill import collect_backfill
+
+        collection = {
+            "fd": collect_backfill(
+                target, args.run_id, codes=args.leagues, first=args.first, last=args.last
+            )
+        }
+        day = date.fromisoformat(meta["through_beijing"])
     if args.command == "sync":
         fetch_schedule()
         windows = date_windows(target, date.fromisoformat(meta["through_beijing"]), day, args.days)
@@ -420,6 +436,15 @@ def main():
             except ResultRowsRejected as exc:
                 LOG.warning("单场拒绝，继续处理其他窗口：%s", exc)
     manifest = export_feeds(target, archive, day, args.run_id, collection=collection)
+    if args.command == "backfill":
+        from zucai.cloud_backfill import write_summary
+        from zucai.forecast_archive import verify_forecasts
+
+        with TemporaryDirectory(prefix="fd-backfill-verify-") as temporary:
+            restore_feeds(archive, Path(temporary) / "data/zucai.db")
+        verify_forecasts(archive)
+        LOG.info("FD历史回填归档恢复校验通过")
+        write_summary(collection["fd"])
     if manifest["pending_result_count"]:
         LOG.warning(
             "部分归档 partial：待补抓 %d 场，拒绝清单已持久保存", manifest["pending_result_count"]
