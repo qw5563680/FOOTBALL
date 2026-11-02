@@ -18,6 +18,7 @@ def test_batch_provenance_records_config_path_and_both_database_hashes(setup_bat
 
     engine, path, model, _ = setup_batch
     model.training_database_sha256 = "b" * 64
+    model.evaluation_database_sha256 = "a" * 64
     model.save(path)
     config = tmp_path / "params.json"
     config.write_text(
@@ -45,7 +46,7 @@ def test_batch_provenance_records_config_path_and_both_database_hashes(setup_bat
         )
     metadata = batch["models"][0]
     assert metadata["training_database_sha256"] == "b" * 64
-    assert metadata["evaluation_database_sha256"] == "c" * 64
+    assert metadata["evaluation_database_sha256"] == "a" * 64
     assert metadata["parameter_provenance"]["params_path"] == str(config.resolve())
 
 

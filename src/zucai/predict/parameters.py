@@ -327,7 +327,8 @@ def model_readiness(model, *, as_of, params_file=None):
         parameter_source=getattr(model, "parameter_source", "legacy_or_explicit"),
         training_database_sha256=getattr(model, "training_database_sha256", None)
         or getattr(model, "database_sha256", None),
-        evaluation_database_sha256=entry.get("database_sha256"),
+        evaluation_database_sha256=getattr(model, "evaluation_database_sha256", None)
+        or entry.get("database_sha256"),
         training_policy=getattr(model, "training_policy", None),
         p2_evidence=evidence,
         bet_allowed=False,

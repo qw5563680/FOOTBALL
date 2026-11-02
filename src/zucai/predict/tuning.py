@@ -135,12 +135,7 @@ def tune(
 
     if draw_calibration is not None and (
         params_file is None
-        or parameters.parameters_path(params_file)
-        in {
-            parameters.parameters_path(),
-            parameters.PARAMS_PATH.expanduser().resolve(),
-            (Path.cwd() / "data/model/params.json").resolve(),
-        }
+        or parameters.parameters_path(params_file) in parameters._parameter_paths()
     ):
         raise ValueError("诊断模式不能写入默认参数文件，请指定 --params-file")
     if (

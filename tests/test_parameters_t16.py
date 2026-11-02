@@ -284,6 +284,30 @@ def test_readiness_prefers_explicit_training_hash_over_legacy_hash(tmp_path):
     assert result["training_database_sha256"] == "c" * 64
 
 
+@pytest.mark.parametrize("current_ready", [True, False])
+def test_readiness_preserves_model_evaluation_hash_after_config_update(tmp_path, current_ready):
+    config = _write(tmp_path / "params.json", _entry())
+    model = _model(evaluation_database_sha256="a" * 64)
+    _write(config, _entry(database_sha256="c" * 64, p2_ready=current_ready))
+
+    result = parameters.model_readiness(model, as_of="2026-11-01T00:00Z", params_file=config)
+
+    assert result["evaluation_database_sha256"] == "a" * 64
+    assert result["training_database_sha256"] == "b" * 64
+    assert result["p2_ready"] is current_ready
+    assert result["params_sha256"] == parameters.read_parameters(config)[1]
+
+
+@pytest.mark.parametrize("model_fields", [{}, {"evaluation_database_sha256": None}])
+def test_readiness_uses_config_evaluation_hash_when_model_has_none(tmp_path, model_fields):
+    config = _write(tmp_path / "params.json", _entry())
+    result = parameters.model_readiness(
+        _model(**model_fields), as_of="2026-11-01T00:00Z", params_file=config
+    )
+    assert result["evaluation_database_sha256"] == "a" * 64
+    assert result["p2_ready"] is True
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -333,6 +357,33 @@ def test_calibration_diagnostic_refuses_default_path_before_database_read(
             params_file=paths[output_kind],
             draw_calibration=calibrate,
         )
+    assert default.read_bytes() == before
+
+
+@pytest.mark.parametrize("calibrate", [True, False])
+@pytest.mark.parametrize("output_kind", ["absolute", "relative", "symlink"])
+def test_calibration_diagnostic_refuses_missing_environment_path_before_database_read(
+    tmp_path, monkeypatch, calibrate, output_kind
+):
+    monkeypatch.chdir(tmp_path)
+    default = _write(tmp_path / "data/model/params.json", _entry())
+    monkeypatch.setattr(parameters, "PARAMS_PATH", default)
+    before = default.read_bytes()
+    target = tmp_path / "prod-params.json"
+    monkeypatch.setenv("ZUCAI_PARAMS", str(target))
+    alias = tmp_path / "alias.json"
+    alias.symlink_to(target)
+    output = {"absolute": target, "relative": "prod-params.json", "symlink": alias}[output_kind]
+
+    with pytest.raises(ValueError, match="诊断模式不能写入默认参数文件，请指定 --params-file"):
+        tuning.tune(
+            db=tmp_path / "missing.db",
+            league="英超",
+            params_file=output,
+            draw_calibration=calibrate,
+        )
+
+    assert not target.exists()
     assert default.read_bytes() == before
 
 
