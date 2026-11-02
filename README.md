@@ -52,6 +52,7 @@ zucai train --strict-availability    # 排除 assumed 训练，并列报告默�
 zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶段历史回放
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
 python -m zucai.cloud_feeds apis --archive ../cloud-data --days 3 --run-id manual  # 在全新隔离目录运行
+python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/params.json --run-id manual-1
 pytest -q
 ```
 
@@ -83,12 +84,13 @@ pytest -q
 
 工作流 **Football cloud feeds** 合入 main 后，每日 UTC **02:40 / 09:40**（北京时间 **10:40 / 17:40**）运行：
 
-| job | 运行器 | 采集范围 |
+| job | 运行器 | 时间 / 范围 |
 | --- | --- | --- |
 | `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九联赛前后各 `days` 个 UTC 日，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
 | `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 沿用官方在售赛程与赛果 `sync`；未配置时整个 job 显示 skipped |
+| `predict` | `ubuntu-latest`，45 分钟上限 | 仅晚班采集后（UTC 09:40 / 北京 17:40）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告 |
 
-两 job 依次恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
+三个 job 依赖顺序为 `apis → sporttery → predict`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
 写回前执行 `git pull --rebase`；冲突则失败，不强推。fd 主联赛赛季按七月换季推导（如 2627），
 已配置 country 合并文件只导入当前自然年；`leagues.json` 可用 `current_season` 明确覆盖。
 未核验联赛不采集。API 解析、去重规则不变；分页必须完整，额外分页同样消耗配额。
@@ -116,7 +118,9 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
-- `operation=verify`：托管机恢复并校验所有归档文件、表行数与来源哈希，不写数据分支；摘要为 `verified`。
+- `operation=verify`：托管机恢复并校验归档文件、表行数、来源哈希与独立的 `forecast_manifest.json`；不写数据分支，摘要为 `verified`，没有预测的旧归档仍兼容。
+- `operation=predict`：跳过采集，在托管机使用现有归档训练并预测；`days` / `slot` 不影响预测。
+  `sporttery` 跳过、失败或归档水位不是今日时，摘要注明「竞彩数据非今日」。
 - `operation=sync`：`apis` job 跳过，`sporttery` 在配置的自托管机采集；无变量时跳过。
   原有 `football-ingest-verify-*` / `football-ingest-run-*` 标签入口仍兼容。
 
@@ -124,7 +128,28 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
 当前 Windows 运行器已注册在 `D:\actions-runner`，通过用户登录计划任务运行 `run.cmd`。注册和停用见
 [docs/RUNNER.md](docs/RUNNER.md)。竞彩官网曾对 GitHub 托管机返回 HTTP 567，故保持此门控。
 竞彩同步复查最近几天、遗漏日期、逾期未结场次及仍未解决的拒绝日期；仅更晚被接受的同源观察能解除待补抓。
-API 采集不会推进竞彩回填水位。两条腿均不自动训练或预测。
+API 采集不会推进竞彩回填水位。早班只采集；晚班 `predict` 等待两条采集腿结束，`apis` 失败或工作流取消时不预测。
+
+T17 用 `params.json` 的各联赛来源（当前均为 `jc,fd`）、半衰期和校准开关训练；
+恢复库只读，截点前 56 天的回测仅作冒烟检查，不更新 P2 证据。训练依赖现有 `[model]` extra，
+工作流通过绝对路径 `ZUCAI_PARAMS` 定位代码分支内参数，不复制或改写配置。
+本地也可用 `ZUCAI_PARAMS=/path/to/params.json python -m zucai.cloud_predict run --archive /path/to/cloud-data --run-id manual-2`；
+`--params` 显式参数优先，运行 ID 必须唯一。单联赛失败记为 `partial`，其他联赛继续；
+预测仅使用本次成功模型，缺模型、已开球场次按 T06 规则列入排除。空比赛日仍生成四件套。
+
+数据分支新增以下路径，main 不保存模型或预测产物：
+
+| 路径 | 内容 |
+| --- | --- |
+| `models/<run-id>/` | 各联赛 `.pkl` 与 `.train.json`；失败联赛仅有原因 JSON |
+| `models/latest.json` | 各联赛最新成功模型路径、SHA256、训练截点、训练库哈希及 P2 标签；失败不替换上次成功项 |
+| `forecasts/<北京开球日>/<run-id>/` | `forecast.json`、`report.md`、`report.csv`、`manifest.json`；同日重跑另存目录 |
+| `forecast_manifest.json` | 每次运行、两日批次、模型/P2/训练库证据及所有模型、训练 JSON、报告和最新索引的 SHA256 |
+
+Actions 摘要第一行为「非购买建议 · BET 禁用 · P2 标签含义见 README」，随后列各联赛训练结果和
+两日实际 T06 比赛表（模型、市场去水概率与 EV 分列）。报告、模型及索引另以 artifact 保存 90 天；
+数据分支长期保留每次冻结目录。模型校验不执行 pickle；预测只载入本次训练的可信模型。
+归档写回为新路径设置 Git `-text`，避免 Windows 换行转换破坏冻结哈希。
 
 ### 运行公开预测样例
 
@@ -292,7 +317,7 @@ Football data provided by the [Football-Data.org API](https://www.football-data.
 别名在 `data/team_aliases/api_football.json`，proposed 逐条保留待审查，尚未核验的名称不自动合并。
 官方比分优先，其次 fd/fdorg；拒绝、可疑重复和未对齐清单写入审计目录，默认不提交。
 本轮韩职、澳超链接率及仅jc训练样本未满足完整验收，见[实际结果](reports/2026-11-02-t10-acceptance/README.md)。
-T14 已接入最近三天的定时采集；配额与规范化数据在数据分支持久化，原始 JSON 保留为 Actions artifact；模型仍自行保存。
+T14 已接入最近三天的定时采集；配额与规范化数据在数据分支持久化，原始 JSON 保留为 Actions artifact；T17 定时模型只使用已配置的 jc/fd 来源。
 [接口实测与权限](docs/DATA_SOURCES.md#6-api-football-v3--api-sportsio亚洲与北欧联赛t10)。
 
 ### 批量预测与冻结报告（T06）
@@ -328,8 +353,8 @@ Markdown/CSV 从同一 JSON 生成，后续改价或回填比分不会改变旧�
 公开样例使用2019/20英超真实比分，假设赛果开球3小时后可知，`mixed/assumed=100%`；不伪填官方SP。
 
 当前 PR 中的实际验收报告保存在 `reports/2026-11-01-t06-acceptance/`，可直接在私有 GitHub 查看。
-日常命令生成的新报告需提交私有仓库后才能长期云端保存；现有 feeds 自动归档只包含赛程/报价/赛果，
-不自动同步预测文件。可视化窗口和预测定时任务属于后续交付。
+T17 晚班与手动 `operation=predict` 自动训练并将两日冻结报告保存到数据分支 `forecasts/`，
+详见上方「云端采集」。手工运行 `zucai predict` 的本地报告仍需自行归档；可视化窗口属于后续交付。
 
 ### 赛前球队特征（T04）
 

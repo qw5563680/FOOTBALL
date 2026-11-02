@@ -667,3 +667,27 @@ def test_scheduled_batch_with_no_successful_models_keeps_exclusions(setup_batch,
         "预测截点时已开赛",
     ]
     assert load_batch(write_report(batch, tmp_path / "excluded")) == batch
+
+
+def test_unknown_team_prior_metadata_can_be_frozen_as_json(setup_batch, tmp_path):
+    from zucai.report.batch import predict_batch
+    from zucai.report.render import load_batch, write_report
+
+    engine, path, model, _ = setup_batch
+    model.unknown_team_prior = True
+    model.save(path)
+    with session_scope(engine) as session:
+        batch = predict_batch(
+            session,
+            model_files=[path],
+            as_of=CUTOFF,
+            generated=CUTOFF,
+            match_ids=["jc:2"],
+            persist=False,
+        )
+    assert batch["predictions"][0]["status"] == "predicted"
+    assert batch["predictions"][0]["metadata"]["unknown_team_prior"] is True
+    output = tmp_path / "unknown-team"
+    write_report(batch, output)
+    frozen = load_batch(output / "forecast.json")
+    assert type(frozen["predictions"][0]["metadata"]["prior_rho_clipped"]) is bool

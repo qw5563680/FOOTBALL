@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'apis 托管采集，sync 自托管竞彩采集，verify 校验归档'
+        description: 'apis 托管采集，sync 竞彩采集，verify 校验归档，predict 训练并冻结两日预测'
         type: choice
-        options: [apis, sync, verify]
+        options: [apis, sync, verify, predict]
         default: verify
       days:
         description: 'fdorg 前后各 N 个 UTC 日；sync 回看 N 个北京时间自然日'
@@ -24,7 +24,7 @@ on:
 
 permissions:
   contents: write
-# One lock covers both jobs, including dispatches from different code branches.
+# One lock covers collection and prediction, including dispatches from different branches.
 concurrency:
   group: write-football-feed-data
   cancel-in-progress: false
@@ -83,6 +83,52 @@ jobs:
           path: |
             ${{ env.WORK_DIR }}/data/raw
             ${{ env.WORK_DIR }}/data/state
+          retention-days: 90
+          if-no-files-found: ignore
+
+  predict:
+    needs: [apis, sporttery]
+    if: ${{ !cancelled() && needs.apis.result != 'failure' && ((github.event_name == 'schedule' && github.event.schedule == '40 9 * * *') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'predict')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      WORK_DIR: work-predict-${{ github.run_id }}-${{ github.run_attempt }}
+      ZUCAI_PARAMS: ${{ github.workspace }}/app/data/model/params.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project and existing model extra
+        run: python -m pip install -e "./app[model]"
+      - name: Train configured leagues and freeze two Beijing days
+        env:
+          SPORTTERY_STATUS: ${{ needs.sporttery.result }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_predict run --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --sporttery-status "$SPORTTERY_STATUS"
+      - name: Publish frozen models and forecasts
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep frozen evidence even on publish conflict
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecasts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            cloud-data/models/${{ github.run_id }}-${{ github.run_attempt }}
+            cloud-data/models/latest.json
+            cloud-data/forecasts/*/${{ github.run_id }}-${{ github.run_attempt }}
+            cloud-data/forecast_manifest.json
           retention-days: 90
           if-no-files-found: ignore
 
