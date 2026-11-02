@@ -101,6 +101,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="覆盖配置中的训练折内单参数平局校准开关",
     )
+    train.add_argument("--output", default="models/dixon-coles.pkl", help="模型输出文件")
+    train.add_argument("--predictions-out", help="逐场回测另存JSON Lines；默认stdout只保留汇总")
+    availability = train.add_mutually_exclusive_group()
+    availability.add_argument(
+        "--strict-availability",
+        action="store_true",
+        help="排除 assumed 赛果训练，并同时报告默认与严格回测",
+    )
+    availability.add_argument(
+        "--replay-known-after",
+        type=assumed_delay,
+        metavar="3h",
+        help="仅在内存中重放迟到赛果的可知时间（开发阶段历史回放）",
+    )
+
     tune = sub.add_parser("tune", help="前一赛季monthly选参、下一赛季验证")
     tune.add_argument("--league", required=True)
     tune.add_argument("--db", help="只读静态SQLite库")
@@ -114,19 +129,6 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="强制开/关校准；默认按选择季偏差是否超过3个百分点决定下一季开关",
-    )
-    train.add_argument("--output", default="models/dixon-coles.pkl", help="模型输出文件")
-    availability = train.add_mutually_exclusive_group()
-    availability.add_argument(
-        "--strict-availability",
-        action="store_true",
-        help="排除 assumed 赛果训练，并同时报告默认与严格回测",
-    )
-    availability.add_argument(
-        "--replay-known-after",
-        type=assumed_delay,
-        metavar="3h",
-        help="仅在内存中重放迟到赛果的可知时间（开发阶段历史回放）",
     )
 
     predict = sub.add_parser("predict", help="运行纯模型批量预测并冻结报告，P2实验")
@@ -328,13 +330,14 @@ def main(argv: list[str] | None = None) -> int:
                 fold=args.fold,
                 params_file=args.params_file,
                 draw_calibration=args.draw_calibration,
+                predictions_out=args.predictions_out,
             )
         except ModuleNotFoundError as exc:
             if exc.name != "penaltyblog":
                 raise
             logging.getLogger(__name__).error('请先运行 python -m pip install -e ".[model]"')
             return 2
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             logging.getLogger(__name__).error("%s", exc)
             return 2
         print(json.dumps(result, ensure_ascii=False))

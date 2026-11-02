@@ -7,6 +7,26 @@ from pathlib import Path
 import pytest
 
 
+@pytest.mark.parametrize("same_database", [False, True])
+def test_model_table_shows_both_database_hashes_and_marks_mismatch(
+    frozen_batch, tmp_path, same_database
+):
+    from zucai.report.render import write_report
+
+    training, evaluation = "b" * 64, "c" * 64
+    if same_database:
+        evaluation = training
+    frozen_batch["models"][0].update(
+        training_database_sha256=training, evaluation_database_sha256=evaluation
+    )
+    write_report(frozen_batch, tmp_path / "dual-hashes")
+    report = (tmp_path / "dual-hashes/report.md").read_text()
+    model_table = report.split("## 模型与训练范围")[1].split("## 纯模型与市场对照")[0]
+    assert "训练库 SHA256" in model_table and "评估库 SHA256" in model_table
+    assert training in model_table and evaluation in model_table
+    assert ("评估库 ≠ 训练库" in model_table) is not same_database
+
+
 @pytest.mark.parametrize("sample", ["live-batch", "live-batch-v2", "public-replay"])
 def test_checked_in_frozen_samples_have_matching_hashes(sample):
     from zucai.report.render import load_batch

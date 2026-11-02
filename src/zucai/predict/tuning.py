@@ -1,15 +1,20 @@
-"""Season S selects half-life; only S+1 measures the selected candidate."""
+"""Season S selects half-life; the next eligible season measures the candidate."""
 
 import math
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pandas as pd
-
+from zucai.predict import parameters
 from zucai.predict.backtest import evaluate
 from zucai.predict.base import utc
 from zucai.predict.parameters import TRAINING_POLICY, p2_gate, write_parameters
-from zucai.predict.seasons import next_season, parse_seasons, season_bounds, season_for
+from zucai.predict.seasons import (
+    latest_complete_seasons,
+    next_season,
+    parse_seasons,
+    season_bounds,
+    season_is_complete_eligible,
+)
 
 
 def rolling_origin(
@@ -24,14 +29,22 @@ def rolling_origin(
     end = utc(as_of)
     selected = parse_seasons(seasons, league)
     if selected is None:
-        start, _ = season_bounds(season_for(end, league), league)
-        selected = [season_for(start - pd.DateOffset(years=i), league) for i in (3, 2, 1)]
+        selected = latest_complete_seasons(end, league, count=3)
     windows = []
     for season in selected:
+        if not season_is_complete_eligible(season, league):
+            raise ValueError(f"{season} 过渡赛制不能作为完整选参季")
         low, origin = season_bounds(season, league)
         if origin >= end:
             raise ValueError("选参季须已结束且留有下一季验证窗口")
-        # Physically isolate the selection corpus. No S+1 labels or prices reach selection.
+        validation_season = next_season(season, league)
+        while not season_is_complete_eligible(validation_season, league):
+            validation_season = next_season(validation_season, league)
+        validation_start, validation_stop = season_bounds(validation_season, league)
+        if validation_start >= end:
+            raise ValueError(f"{validation_season} 验证季尚未开始，须指定晚于该季起点的截点")
+        validation_end = min(end, validation_stop)
+        # Physically isolate selection before any transition or later-season labels.
         corpus = history.loc[
             (history.kickoff_utc < origin) & (history.available_utc < origin)
         ].copy()
@@ -64,13 +77,11 @@ def rolling_origin(
         calibrate = (
             abs(best["model"]["draw_bias"]) > 0.03 if draw_calibration is None else draw_calibration
         )
-        validation_season = next_season(season, league)
-        validation_end = min(end, season_bounds(validation_season, league)[1])
         validation = evaluate(
             history,
             {},
             closing=closing,
-            since=origin,
+            since=validation_start,
             as_of=validation_end,
             seasons=[validation_season],
             fold=fold,
@@ -122,6 +133,16 @@ def tune(
 ):
     from zucai.predict.command import load_corpus
 
+    if draw_calibration is not None and (
+        params_file is None
+        or parameters.parameters_path(params_file)
+        in {
+            parameters.parameters_path(),
+            parameters.PARAMS_PATH.expanduser().resolve(),
+            (Path.cwd() / "data/model/params.json").resolve(),
+        }
+    ):
+        raise ValueError("诊断模式不能写入默认参数文件，请指定 --params-file")
     if (
         db is not None
         and params_file is not None
