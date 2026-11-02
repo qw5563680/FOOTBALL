@@ -20,7 +20,7 @@ from zucai.predict.parameters import model_readiness
 from zucai.sources.sporttery import BEIJING
 
 
-def _models(paths, as_of, params_file=None):
+def _models(paths, as_of, params_file=None, *, allow_empty=False):
     registry = {}
     for path in paths:
         path = Path(path)
@@ -56,7 +56,7 @@ def _models(paths, as_of, params_file=None):
         meta["parameter_provenance"].setdefault("params_path", meta["params_path"])
         for key in keys:
             registry[key] = (model, meta, error)
-    if not registry:
+    if not registry and not allow_empty:
         raise ValueError("请提供至少一个本项目训练的可信模型文件")
     return registry
 
@@ -123,7 +123,10 @@ def predict_batch(
     market_weight: float = 0,
     expected_identities: dict | None = None,
     params_file=None,
+    persist: bool = True,
+    allow_empty: bool = False,
 ) -> dict:
+    """Freeze probabilities; scheduled jobs may opt into read-only or empty batches."""
     cutoff, created = utc(as_of), utc(generated)
     if cutoff > created:
         raise ValueError("预测截点不能晚于真实生成时间")
@@ -131,11 +134,13 @@ def predict_batch(
         raise ValueError("历史截点必须显式启用回放 --replay")
     if (day is None) == (match_ids is None):
         raise ValueError("按开球日期或比赛ID清单选择一种输入")
-    if match_ids is not None and (not match_ids or len(set(match_ids)) != len(match_ids)):
+    if match_ids is not None and (
+        (not match_ids and not allow_empty) or len(set(match_ids)) != len(match_ids)
+    ):
         raise ValueError("比赛ID清单不能为空或重复")
     if not math.isfinite(market_weight) or not 0 <= market_weight <= 1:
         raise ValueError("市场实验权重必须在0至1之间")
-    registry = _models(model_files, cutoff, params_file)
+    registry = _models(model_files, cutoff, params_file, allow_empty=allow_empty)
     if day is not None:
         start = datetime.combine(day, time(), BEIJING)
         keys = list(
@@ -147,7 +152,7 @@ def predict_batch(
         )
     else:
         keys = list(match_ids)
-    if not keys:
+    if not keys and not allow_empty:
         raise ValueError("指定范围没有已核实的比赛")
     batch = {
         "schema_version": 2,
@@ -240,7 +245,8 @@ def predict_batch(
                 "experimental_blend": None,
             }
         )
-        _save(session, key, "dixon-coles", provenance["model_version"], probs, grid, batch)
+        if persist:
+            _save(session, key, "dixon-coles", provenance["model_version"], probs, grid, batch)
         if market_weight and market:
             blend_version = hashlib.sha256(
                 json.dumps(
@@ -271,14 +277,16 @@ def predict_batch(
                 "probabilities": combined,
                 "score_distribution_method": "outcome_reweighted_model_conditionals",
             }
-            _save(
-                session,
-                key,
-                "dixon-coles+market",
-                blend_version,
-                combined,
-                blended,
-                batch,
-            )
-    session.flush()
+            if persist:
+                _save(
+                    session,
+                    key,
+                    "dixon-coles+market",
+                    blend_version,
+                    combined,
+                    blended,
+                    batch,
+                )
+    if persist:
+        session.flush()
     return batch
