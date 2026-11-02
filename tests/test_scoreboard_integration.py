@@ -55,7 +55,7 @@ def test_summary_copies_existing_scorelines_without_touching_frozen_files(
     text = summary.read_text()
     section = (archive / path / "report.md").read_text().split("## 比分前五与快照\n", 1)[1]
     assert "## 比分前五与快照\n" + section in text
-    assert "1:0（80.00%）" in text
+    assert "1:0（48.00%）" in text
     assert "比分前五" not in text.split("### 2026-11-02", 1)[1]
     assert files(archive) == before
 

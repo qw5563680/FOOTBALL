@@ -162,7 +162,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         "as_of_utc": at.isoformat(),
         "bet_allowed": False,
         "default_threshold": "1.05",
-        "edge_rule": "model_probability * frozen_sp - 1 > threshold",
+        "edge_rule": "model_probability * frozen_sp > threshold",
         "replay_days": replay_days,
         "input_manifests": inputs,
         "probability": probability,

@@ -46,11 +46,11 @@ def test_last_prematch_only_strict_result_time_and_frozen_market():
     assert {r["match_id"] for r in scored} == {"jc:one", "jc:two", "jc:three", "jc:nosp"}
     assert {r["batch_id"] for r in scored} == {"late"}
     one = next(r for r in scored if r["match_id"] == "jc:one")
-    assert one["model"]["log_loss"] == pytest.approx(-math.log(0.8))
-    assert one["model"]["brier"] == pytest.approx(0.06)
+    assert one["model"]["log_loss"] == pytest.approx(-math.log(0.48))
+    assert one["model"]["brier"] == pytest.approx(0.4064)
     assert one["uniform"]["brier"] == pytest.approx(2 / 3)
-    # Frozen odds 2.8,4,5 -> inverse sum .807142857; normalized home=50/113.
-    assert one["market"]["log_loss"] == pytest.approx(-math.log(50 / 113))
+    # Frozen odds 2.5,3,3.5 -> inverse sum 107/105; normalized home=42/107.
+    assert one["market"]["log_loss"] == pytest.approx(-math.log(42 / 107))
     assert next(r for r in scored if r["match_id"] == "jc:nosp")["market"] is None
     assert audit["excluded"]["result_not_after_forecast"] == 1
     assert audit["excluded"]["result_not_yet_available"] == 1

@@ -17,7 +17,7 @@ from zucai.scoreboard.score import (
 )
 from zucai.sources.sporttery import BEIJING
 
-THRESHOLDS = ("1.00", "1.05", "1.10")
+THRESHOLDS = ("1.00", "1.05", "1.10")  # Thresholds apply to p * SP (return ratio).
 ACCOUNTS = {
     "A": "单场固定额",
     "B": "单场四分之一凯利",
@@ -198,7 +198,7 @@ def advance_ledger(forecasts, results, existing, as_of):
                 "D": "top_two_edge_fixed_100",
                 "E": "top_three_edge_fixed_100",
             }[account],
-            "edge_comparison": "model_probability * frozen_sp - 1 > threshold",
+            "edge_comparison": "model_probability * frozen_sp > threshold",
             "cash_before": balance,
             "stake": stake,
             "legs": legs,
@@ -256,7 +256,10 @@ def advance_ledger(forecasts, results, existing, as_of):
             )
             for threshold in THRESHOLDS:
                 selected = [
-                    leg for leg in candidates if Decimal(str(leg["edge"])) > Decimal(threshold)
+                    leg
+                    for leg in candidates
+                    if Decimal(str(leg["model_probability"])) * Decimal(str(leg["sp"]))
+                    > Decimal(threshold)
                 ]
                 for account in ("A", "B"):
                     for leg in selected:

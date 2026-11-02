@@ -1,11 +1,12 @@
 """Virtual tickets keep their original selection, price and stake through settlement."""
 
+import json
 from copy import deepcopy
 from datetime import UTC, datetime
 
 import pytest
 
-from test_scoreboard_score import NOW, samples
+from test_scoreboard_score import FIXTURES, NOW, samples
 
 DECISION = datetime(2026, 11, 1, 10, tzinfo=UTC)
 
@@ -27,13 +28,13 @@ def tickets(ledger, account, threshold="1.05"):
     ]
 
 
-def test_five_accounts_three_independent_literal_thresholds_and_parlay_settlement():
+def test_five_accounts_three_independent_ratio_thresholds_and_parlay_settlement():
     from zucai.scoreboard.paper import account_statistics, advance_ledger
 
     forecasts, results = paper_samples()
     pending = advance_ledger(forecasts, results, [], DECISION)
     assert len(tickets(pending, "A")) == len(tickets(pending, "B")) == 3
-    assert [r["stake"] for r in tickets(pending, "B")] == [200, 196, 192.08]
+    assert [r["stake"] for r in tickets(pending, "B")] == [200, 196, 120.05]
     assert len(tickets(pending, "A", "1.00")) == 3
     assert len(tickets(pending, "A", "1.10")) == 2
     assert not tickets(pending, "E", "1.10")
@@ -47,7 +48,7 @@ def test_five_accounts_three_independent_literal_thresholds_and_parlay_settlemen
         assert {k: v for k, v in before.items() if k != "settlement"} == {
             k: v for k, v in after.items() if k != "settlement"
         }
-    assert tickets(settled, "D")[0]["settlement"]["return"] == 756
+    assert tickets(settled, "D")[0]["settlement"]["return"] == 625
     assert tickets(settled, "E")[0]["settlement"]["return"] == 0
     summary = account_statistics(settled, NOW)
     a = summary["1.05"]["A"]
@@ -55,11 +56,11 @@ def test_five_accounts_three_independent_literal_thresholds_and_parlay_settlemen
         3,
         2,
         300,
-        550,
-        10250,
+        500,
+        10200,
     )
-    assert a["roi"] == pytest.approx(5 / 6)
-    assert summary["1.05"]["B"]["current_funds"] == 10501.12
+    assert a["roi"] == pytest.approx(2 / 3)
+    assert summary["1.05"]["B"]["current_funds"] == 10473.95
     assert summary["1.05"]["E"]["longest_losing_streak"] == 1
     assert summary["1.05"]["E"]["max_drawdown"] == pytest.approx(0.01)
     assert len(a["weekly_curve"]) >= 1
@@ -80,9 +81,9 @@ def test_favourite_ignores_model_and_missing_sp_never_gets_a_ticket():
 @pytest.mark.parametrize(
     ("balance", "p", "sp", "expected"),
     [
-        (10000, 0.8, 2.8, 200),
-        (10000, 0.0021, 1000, 10),
-        (400, 0.8, 2.8, None),
+        (10000, 0.48, 2.5, 200),
+        (10000, 0.5001, 2, 10),
+        (400, 0.48, 2.5, None),
         (10000, 0.2, 2, None),
     ],
 )
@@ -92,17 +93,27 @@ def test_kelly_cap_floor_and_cash_constraint(balance, p, sp, expected):
     assert kelly_stake(balance, p, sp) == expected
 
 
-def test_strict_edge_boundary_and_tie_breaking_are_not_return_multiplier_rules():
+@pytest.mark.parametrize(
+    "case", json.loads((FIXTURES / "thresholds.json").read_bytes()), ids=lambda case: case["name"]
+)
+def test_strict_ratio_boundaries_select_all_model_accounts(case):
     from zucai.scoreboard.paper import advance_ledger
 
     forecasts, results = paper_samples()
-    forecasts = forecasts[:1]
-    forecasts[0]["market"]["prices"]["h"] = 2.5  # .8*2.5-1 == 1.00
+    forecasts = forecasts[:3]
+    for row in forecasts:
+        row["model_probabilities"] = case["probabilities"]
+        row["market"]["prices"] = case["prices"]
     ledger = advance_ledger(forecasts, results, [], DECISION)
-    assert not tickets(ledger, "A", "1.00")
-    forecasts[0]["market"]["prices"]["h"] = 2.5625  # edge ==1.05, strict comparison
-    ledger = advance_ledger(forecasts, results, [], DECISION)
-    assert len(tickets(ledger, "A", "1.00")) == 1 and not tickets(ledger, "A", "1.05")
+    for threshold in ("1.00", "1.05", "1.10"):
+        qualifies = threshold in case["qualifies"]
+        for account, count in (("A", 3), ("B", 3), ("D", 1), ("E", 1)):
+            chosen = tickets(ledger, account, threshold)
+            assert len(chosen) == (count if qualifies else 0)
+            for ticket in chosen:
+                assert ticket["edge_comparison"] == "model_probability * frozen_sp > threshold"
+                assert all(leg["selection"] == "h" for leg in ticket["legs"])
+        assert len(tickets(ledger, "C", threshold)) == 3
 
 
 def test_later_forecast_does_not_replace_ticket_or_use_future_winnings_for_kelly():
@@ -118,10 +129,10 @@ def test_later_forecast_does_not_replace_ticket_or_use_future_winnings_for_kelly
     updated["market"]["prices"]["h"] = 9
     second = deepcopy(updated)
     second.update(match_id="jc:second", home="新主", away="新客")
-    second["market"]["prices"]["h"] = 2.8
+    second["market"]["prices"]["h"] = 2.5
     ledger = advance_ledger([*forecasts, updated, second], results, initial, NOW)
     assert len(tickets(ledger, "A")) == 2
-    assert tickets(ledger, "A")[0]["legs"][0]["sp"] == 2.8
+    assert tickets(ledger, "A")[0]["legs"][0]["sp"] == 2.5
     b = tickets(ledger, "B")
     assert b[0]["stake"] == 200 and b[1]["stake"] == 196  # first win only known at16:00
     assert b[1]["replayed"]  # created after kickoff, using frozen inputs, explicitly disclosed
@@ -180,8 +191,8 @@ def test_both_parlays_pay_only_when_every_leg_wins(miss):
     if miss:
         results[miss].update(home_goals=0, away_goals=1)
     ledger = advance_ledger(forecasts, results, [], NOW)
-    assert tickets(ledger, "D")[0]["settlement"]["return"] == (0 if miss else 756)
-    assert tickets(ledger, "E")[0]["settlement"]["return"] == (0 if miss else 1965.6)
+    assert tickets(ledger, "D")[0]["settlement"]["return"] == (0 if miss else 625)
+    assert tickets(ledger, "E")[0]["settlement"]["return"] == (0 if miss else 1562.5)
 
 
 def test_cent_amounts_sum_without_binary_float_truncation():

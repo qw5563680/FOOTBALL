@@ -120,6 +120,7 @@ def test_archive_roundtrip_four_outputs_exact_disclaimer_idempotency_and_no_muta
     assert summary["gates"]["prospective_verified"] is False
     assert summary["gates"]["simulated_profit_evidence"] is False
     assert summary["bet_allowed"] is False
+    assert summary["edge_rule"] == "model_probability * frozen_sp > threshold"
     board = archive / "scoreboard"
     assert set(p.name for p in board.iterdir()) == {
         "scored.jsonl",
@@ -131,6 +132,8 @@ def test_archive_roundtrip_four_outputs_exact_disclaimer_idempotency_and_no_muta
     assert text.startswith("非购买建议 · BET 禁用 · 虚拟资金模拟 · 竞彩含抽水\n")
     assert "单关偏差" in text and "假设均可单关" in text
     assert "1.05" in text.split("## 附表")[0]
+    assert "概率 × 冻结 SP > 1.05" in text and "预期收益超过 5%" in text
+    assert "收益超过 105%" not in text
     assert "每周资金" in text and "10 桶校准" in text and "模型版本" in text and "按月" in text
     assert step.read_text().splitlines() == text.splitlines()[:60]
     scored, ledger = (board / "scored.jsonl").read_bytes(), (board / "ledger.jsonl").read_bytes()
