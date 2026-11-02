@@ -35,8 +35,10 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/c500.py` | 500.com：历史赛果、欧赔/亚盘历史、14 场胜负彩期次 |
 | `zucai/sources/football_data.py` | 历史 CSV 的下载、严格时区转换和解析 |
 | `zucai/sources/fd_ingest.py` | 显式别名、官方优先去重、结果可知时间与独立收盘价归档 |
-| `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
+| `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export` / `backfill --source fd\|fdorg\|apif`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
 | `zucai/cloud_backfill.py` | 仅手动的 fd 六季历史回填、范围筛选、逐跳请求与联赛增量审计；复用既有下载/导入器 |
+| `zucai/cloud_api_backfill.py` | 仅手动的欧战 API 历史范围、先联合核验后导入、配额守卫、分赛事赛季入库与对齐统计 |
+| `zucai/sources/cup_identity.py` | 欧战运行期数字 ID 桥接与 T09/T10 主客方向图；证据写审计 CSV，未知身份保持来源编号 |
 | `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
 | `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
@@ -48,6 +50,16 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/predict/dixon_coles.py` | 基线模型，带时间衰减的泊松攻防强度 |
 | `zucai/predict/derive.py` | 由比分矩阵推导各玩法概率 |
 | `zucai/report/` | markdown / csv 输出，期望值计算 |
+
+### 欧战数据来源（T20）
+
+| 赛事 | 来源 / 代码 | 已核验历史 | 每日增量 |
+| --- | --- | --- | --- |
+| 欧冠 | fdorg / CL（2001） | 2023/24 至当季，7 月换季 | 并入既有 competitions 日期窗口 |
+| 欧罗巴 | apif / 3 | 2022/23–2024/25，含资格赛 | 原来的最近三个 UTC 日响应，本地过滤 |
+| 欧协联 | apif / 848 | 2022/23–2024/25，含资格赛 | 原来的最近三个 UTC 日响应，本地过滤 |
+
+只增加赛事配置与导入编排，不增加 APIF 每日请求；欧冠不从 apif 回填。
 
 ### 快照与重放
 
@@ -448,3 +460,32 @@ CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
 `scoreboard` job 依赖 `[predict]`，早晚定时、手动 predict 后和手动 scoreboard 都可运行；早班预测跳过或
 预测失败时仍能结算旧批次，取消则停止。托管机 30 分钟，共用写回锁，artifact 90 天，Actions 贴前 60 行。
 漂移仅提示：四个连续完整且有样本的北京周平局偏差绝对值均>5个百分点，或最近100场LL高于等概率；不自动 tune。
+
+## T20 欧战采集与一次性 API 回填
+
+`cloud_feeds backfill --source` 默认仍为 fd，完整保留 T18 路径；fdorg 只允许 CL，
+默认从配置的最早可读年到按 7 月换季的当季；apif 只允许 3/848，默认配置中已核验的 2022–2024。
+API 范围只接受四位起始年，禁用未核验历史范围；真实套餐/分页失败记 partial，不当空成功。
+沿用原下载器限速、原件校验、APIF 持久配额与 reserve=10，所有分页完整后才进入后续导入。
+
+`cup_identity` 仅作用于三项欧战：先从同源生效的国内联赛数字 ID 与库内已确认的杯赛 ID 绑定
+建立锚点，再复用 T09/T10 主客方向图；不改变国内联赛待审候选流程。只用比赛 ID、主客方向和
+UTC 时间，不用队名相似或比分。源联赛的完整生效别名须不存在反向冲突，未出现在杯赛中的竞争 ID 也检查。
+请求或响应带状态/轮次等筛选、解析拒绝或不完整分页的原件不能提供新图证据；
+fdorg 还须有与原件行数相符的 `resultSet.count`，不能把缺计数的片段视为完整响应。
+日期/赛季覆盖按赛事单独核对，相关竞彩比赛 ±180 分钟邻域必须完整。竞争边、跨原件身份和反向别名冲突不猜解。
+回填先下载所选全部赛季、联合核验后才逐个离线重放，较新赛季的竞彩证据可用于较早季的同源 ID。
+直接 fetch 重复指定多个杯赛 `--season` 也先联合核验，后续下载失败仍导入此前完整范围再报错。
+日增量和单范围 fetch 在当前完整响应内核验；边界不足时保留未知身份。
+旧 `fdorg_verify` 的国内联赛双循环完整性检查对 CL 明确给出不适用原因，不套用联赛队数或异常退出。
+
+运行期生效别名不改仓库 JSON；证据追加 `state/audit/{fdorg,apif}_cup_aliases.csv`，
+导入器通过既有 `teams.aliases` 保存来源 ID 绑定，随原表归档；之后导入复用已确认绑定。
+未知身份仍使用来源前缀并写原未对齐 CSV。存量独立身份不自动提升或合并，沿用原导入器拒绝规则。
+jc > fd > fdorg > apif、只填空 counterpart、常规时间比分、历史 assumed=3h、增量 captured 均保持原样。
+
+`collection.<source>` 记录分赛事赛季解析、来源入库/赛果、链接竞彩、拒绝/疑似重复和球队对齐统计；
+分母为该范围不同的球队数字 ID，跨季总体再次去重。Actions 摘要展示相同口径，日增量单列三项欧战。
+不改变 schema、feed manifest 版本、导出表格式或既有冻结文件；仍恢复归档并校验来源行数与 forecast 哈希。
+workflow_dispatch 的 source/leagues 通过环境变量和 Bash 参数数组传递，API key 仅从 Secrets 注入。
+backfill 不触发模型训练，欧战模型由 T21 处理。

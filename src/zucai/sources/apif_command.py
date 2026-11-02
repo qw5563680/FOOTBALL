@@ -10,6 +10,12 @@ from zucai.sources.api_common import LocalValidationError
 from zucai.sources.api_football import LEAGUES, ApiFootball
 from zucai.sources.apif_ingest import COUNT_KEYS, import_apif_games
 from zucai.sources.base import RawStore
+from zucai.sources.cup_identity import (
+    capture_cup_history,
+    identity_capture,
+    needs_cup_union,
+    resolve_cup_aliases,
+)
 from zucai.sources.fdorg_command import _audit, _capture_time, _unmatched_teams, _url_identity
 from zucai.sources.football_data import CONFIG_ROOT, read_json
 
@@ -62,8 +68,24 @@ def fetch_apif(
         raise LocalValidationError("每次只可重放一个赛季或日期原件")
     engine = get_engine(db)
     try:
-        for scope in scopes:
-            paths = [Path(raw_file)] if raw_file else [source.fetch_raw(**scope)]
+        staged, deferred_error = None, None
+        if not raw_file and aliases_path is None and needs_cup_union("apif", scopes):
+            staged, deferred_error = capture_cup_history(source, scopes)
+            scopes = scopes[: len(staged)]
+            if staged:
+                init_db(engine)
+                aliases = resolve_cup_aliases(
+                    "apif",
+                    engine.url.database,
+                    aliases,
+                    [capture for _, capture in staged],
+                    audit_dir,
+                )
+        for index, scope in enumerate(scopes):
+            if staged is not None:
+                paths = [staged[index][0]]
+            else:
+                paths = [Path(raw_file)] if raw_file else [source.fetch_raw(**scope)]
             for path in paths:
                 raw = path.read_bytes()
                 sha = hashlib.sha256(raw).hexdigest()
@@ -86,6 +108,23 @@ def fetch_apif(
                 seen = _capture_time(meta)
                 games = source.parse(raw, **scope)
                 init_db(engine)
+                if aliases_path is None and staged is None:
+                    aliases = resolve_cup_aliases(
+                        "apif",
+                        engine.url.database,
+                        aliases,
+                        [
+                            identity_capture(
+                                games,
+                                source.rejected,
+                                scope,
+                                raw,
+                                meta,
+                                path.with_suffix(path.suffix + ".meta.json"),
+                            )
+                        ],
+                        audit_dir,
+                    )
                 with session_scope(engine) as session:
                     session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                     result = import_apif_games(
@@ -106,6 +145,8 @@ def fetch_apif(
                         scope=scope, page=page, raw_sha256=sha, seen_utc=seen.isoformat(), **result
                     )
                 )
+        if deferred_error is not None:
+            raise deferred_error
     finally:
         source.session.close()
         engine.dispose()

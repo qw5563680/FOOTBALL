@@ -11,6 +11,12 @@ from urllib.parse import parse_qsl, urlsplit
 
 from zucai.db import get_engine, init_db, session_scope
 from zucai.sources.base import RawStore, _atomic_write
+from zucai.sources.cup_identity import (
+    capture_cup_history,
+    identity_capture,
+    needs_cup_union,
+    resolve_cup_aliases,
+)
 from zucai.sources.fdorg_ingest import COUNT_KEYS, import_fdorg_games
 from zucai.sources.football_data import CONFIG_ROOT, read_json
 from zucai.sources.football_data_org import FootballDataOrg
@@ -188,9 +194,22 @@ def fetch_fdorg(
             ]
             if len(scopes) != 1:
                 raise ValueError("原件 URL 必须匹配一个请求窗口；每次重放一份归档")
-        for scope in scopes:
+        staged, deferred_error = None, None
+        if replay_meta is None and aliases_path is None and needs_cup_union("fdorg", scopes):
+            staged, deferred_error = capture_cup_history(source, scopes)
+            scopes = scopes[: len(staged)]
+            if staged:
+                init_db(engine)
+                aliases = resolve_cup_aliases(
+                    "fdorg",
+                    engine.url.database,
+                    aliases,
+                    [capture for _, capture in staged],
+                    audit_dir,
+                )
+        for index, scope in enumerate(scopes):
             if replay_meta is None:
-                path = source.fetch_raw(**scope)
+                path = staged[index][0] if staged is not None else source.fetch_raw(**scope)
                 meta = source.store.load_metadata(path)
                 if days is not None:
                     meta["window_anchor_date"] = today.isoformat()
@@ -212,6 +231,23 @@ def fetch_fdorg(
             seen = _capture_time(meta)
             games = source.parse(raw, **scope)
             init_db(engine)
+            if aliases_path is None and staged is None:
+                aliases = resolve_cup_aliases(
+                    "fdorg",
+                    engine.url.database,
+                    aliases,
+                    [
+                        identity_capture(
+                            games,
+                            source.rejected,
+                            scope,
+                            raw,
+                            meta,
+                            path.with_suffix(path.suffix + ".meta.json"),
+                        )
+                    ],
+                    audit_dir,
+                )
             with session_scope(engine) as session:
                 session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                 result = import_fdorg_games(
@@ -237,6 +273,8 @@ def fetch_fdorg(
                 result["rejected_rows"],
                 result["suspected_duplicates"],
             )
+        if deferred_error is not None:
+            raise deferred_error
     finally:
         source.session.close()
         engine.dispose()

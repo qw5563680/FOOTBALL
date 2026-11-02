@@ -373,14 +373,15 @@ def main():
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--slot", choices=("auto", "early", "late"), default="auto")
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--leagues", help="仅 backfill：逗号分隔的已核验 fd 代码")
+    parser.add_argument("--source", choices=("fd", "fdorg", "apif"), help="仅 backfill：默认 fd")
+    parser.add_argument("--leagues", help="仅 backfill：逗号分隔的 fd 代码、fdorg CL 或 apif 3,848")
     parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
     parser.add_argument("--to", dest="last", help="仅 backfill：终止年或赛季，如 2026 / 2627")
     args = parser.parse_args()
     if args.command != "backfill" and any(
-        v is not None for v in (args.leagues, args.first, args.last)
+        v is not None for v in (args.source, args.leagues, args.first, args.last)
     ):
-        parser.error("--leagues / --from / --to 仅供 backfill 使用")
+        parser.error("--source / --leagues / --from / --to 仅供 backfill 使用")
     if not 0 <= args.days <= 366:
         parser.error("--days 必须在 0–366 之间")
     logging.basicConfig(level=logging.INFO)
@@ -419,11 +420,15 @@ def main():
     if args.command == "backfill":
         from zucai.cloud_backfill import collect_backfill
 
-        collection = {
-            "fd": collect_backfill(
-                target, args.run_id, codes=args.leagues, first=args.first, last=args.last
-            )
-        }
+        provider = args.source or "fd"
+        options = dict(codes=args.leagues, first=args.first, last=args.last)
+        if provider == "fd":
+            result = collect_backfill(target, args.run_id, **options)
+        else:
+            from zucai.cloud_api_backfill import collect_api_backfill
+
+            result = collect_api_backfill(target, args.run_id, provider=provider, **options)
+        collection = {provider: result}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "sync":
         fetch_schedule()
@@ -437,14 +442,18 @@ def main():
                 LOG.warning("单场拒绝，继续处理其他窗口：%s", exc)
     manifest = export_feeds(target, archive, day, args.run_id, collection=collection)
     if args.command == "backfill":
-        from zucai.cloud_backfill import write_summary
         from zucai.forecast_archive import verify_forecasts
 
-        with TemporaryDirectory(prefix="fd-backfill-verify-") as temporary:
+        if provider == "fd":
+            from zucai.cloud_backfill import write_summary
+        else:
+            from zucai.cloud_api_backfill import write_summary
+
+        with TemporaryDirectory(prefix="backfill-verify-") as temporary:
             restore_feeds(archive, Path(temporary) / "data/zucai.db")
         verify_forecasts(archive)
-        LOG.info("FD历史回填归档恢复校验通过")
-        write_summary(collection["fd"])
+        LOG.info("%s 历史回填归档恢复校验通过", provider)
+        write_summary(collection[provider])
     if manifest["pending_result_count"]:
         LOG.warning(
             "部分归档 partial：待补抓 %d 场，拒绝清单已持久保存", manifest["pending_result_count"]
@@ -480,6 +489,20 @@ def main():
                     for error in result["errors"]:
                         summary.write(f"\n- {provider}: {error}\n")
                 summary.write("\n次数口径：fd 为成功下载文件数；API 为请求数（含失败请求）。\n")
+                summary.write(
+                    "\n| 来源 | 欧战赛事 | 本次新增比赛 | 本次新增赛果 | 库内比赛 | 库内赛果 |\n"
+                    "| --- | --- | ---: | ---: | ---: | ---: |\n"
+                )
+                for provider, result in collection.items():
+                    for league, counts in result.get("cups", {}).items():
+                        summary.write(
+                            f"| {provider} | {league} | {counts['matches_added']} | "
+                            f"{counts['results_added']} | {counts['matches_after']} | "
+                            f"{counts['results_after']} |\n"
+                        )
+                summary.write(
+                    "\n欧战表仅计各来源入库行；链接竞彩计入上表链接数，不覆盖竞彩赛果。\n"
+                )
 
 
 if __name__ == "__main__":

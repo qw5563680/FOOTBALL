@@ -121,6 +121,24 @@ def verify(tmp_path, db, aliases, *, destination="audit"):
     }
 
 
+def test_cup_archive_does_not_crash_domestic_round_robin_verifier(tmp_path):
+    from zucai.sources.fdorg_verify import COMPETITIONS_PATH, verify_inputs
+
+    db, aliases = setup_inputs(tmp_path)
+    fixture = FIXTURE.parents[1] / "t20/fdorg_cl_2024.json"
+    save_archive(
+        tmp_path,
+        json.loads(fixture.read_bytes()),
+        url="https://api.football-data.org/v4/competitions/CL/matches?season=2024",
+    )
+    result = verify_inputs(
+        db, tmp_path / "raw", aliases, COMPETITIONS_PATH, tmp_path / "audit", 2024
+    )
+    assert result["coverage"]["CL"]["status"] == "incomplete"
+    assert "cup" in result["coverage"]["CL"]["reason"]
+    assert not result["aliases"]["欧冠"]
+
+
 def test_full_schedule_keeps_ambiguous_candidates_and_records_oriented_utc_witness(tmp_path):
     proposed = {"name": "Club 108", "canonical": "己", "status": "proposed"}
     approved = {"name": "Legacy", "canonical": "未上场", "status": "approved"}
