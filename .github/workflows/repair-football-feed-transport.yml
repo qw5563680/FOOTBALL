@@ -1,0 +1,50 @@
+name: Repair Windows football feed transport
+on:
+  push:
+    branches: [codex/repair-football-feed-transport-20261102]
+    paths: [.github/workflows/repair-football-feed-transport.yml]
+permissions:
+  contents: write
+concurrency:
+  group: write-football-feed-data
+  cancel-in-progress: false
+jobs:
+  repair_transport:
+    runs-on: football-local
+    timeout-minutes: 8
+    steps:
+      - name: Verify and repair only the data checkout transport
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repoPath = Join-Path $env:GITHUB_WORKSPACE 'cloud-data'
+          if (-not (Test-Path (Join-Path $repoPath '.git'))) { throw 'Existing data checkout is missing; stop without modifying anything.' }
+          $remote = (& git -C $repoPath remote get-url origin).Trim()
+          if ($LASTEXITCODE -ne 0 -or $remote -notin @('https://github.com/qw5563680/FOOTBALL', 'https://github.com/qw5563680/FOOTBALL.git')) { throw 'Unexpected origin; stop.' }
+          $pushUrls = @(& git -C $repoPath remote get-url --push --all origin)
+          if ($LASTEXITCODE -ne 0 -or $pushUrls.Count -ne 1 -or $pushUrls[0].Trim() -notin @('https://github.com/qw5563680/FOOTBALL', 'https://github.com/qw5563680/FOOTBALL.git')) { throw 'Unexpected push destination; stop.' }
+          $pendingSha = (& git -C $repoPath rev-parse --verify HEAD).Trim()
+          $pendingMessage = (& git -C $repoPath log -1 --format=%s).Trim()
+          if ($LASTEXITCODE -ne 0 -or $pendingMessage -ne 'Update football feeds from Actions run 41424636735/2') { throw 'Pending commit changed; stop without pushing.' }
+          $recoveryRef = 'refs/heads/recovery/football-feeds-41424636735-attempt-2'
+          $basicAuth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(('x-access-token:' + $env:GH_TOKEN)))
+          Write-Output "::add-mask::$basicAuth"
+          $gitOptions = @('-c', 'http.version=HTTP/1.1', '-c', 'http.sslBackend=openssl', '-c', 'http.lowSpeedLimit=1', '-c', 'http.lowSpeedTime=30', '-c', "http.extraheader=AUTHORIZATION: basic $basicAuth")
+          $success = $false
+          foreach ($attempt in 1..2) {
+            Write-Output "Testing verified TLS with OpenSSL and HTTP/1.1; attempt $attempt."
+            & git -C $repoPath @gitOptions push origin ($pendingSha + ':' + $recoveryRef)
+            if ($LASTEXITCODE -eq 0) { $success = $true; break }
+            if ($attempt -lt 2) { Start-Sleep -Seconds 10 }
+          }
+          if (-not $success) { throw 'Verified TLS push still failed; no persistent transport settings were changed.' }
+          $remoteLine = @(& git -C $repoPath @gitOptions ls-remote --exit-code origin $recoveryRef)
+          if ($LASTEXITCODE -ne 0 -or $remoteLine.Count -ne 1 -or ($remoteLine[0] -split '\s+')[0] -ne $pendingSha) { throw 'Remote recovery ref verification failed; no persistent transport settings were changed.' }
+          & git -C $repoPath config --local http.sslBackend openssl
+          if ($LASTEXITCODE -ne 0) { throw 'Could not save repository TLS backend.' }
+          & git -C $repoPath config --local http.version HTTP/1.1
+          if ($LASTEXITCODE -ne 0) { throw 'Could not save repository HTTP version.' }
+          Write-Output "Verified push succeeded; preserved $pendingSha at $recoveryRef."
+          Write-Output 'Saved OpenSSL and HTTP/1.1 only in the existing data checkout; certificate verification remains enabled.'
