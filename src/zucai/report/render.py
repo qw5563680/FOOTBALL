@@ -121,6 +121,13 @@ def _validate_batch(batch: object) -> None:
             ):
                 raise ValueError("P2门槛须与冻结模型证据一致")
         _timestamp(prediction.get("kickoff_utc"))
+        if "prospective_verified" in prediction and (
+            type(prediction["prospective_verified"]) is not bool
+            or type(prediction.get("prospective_n")) is not int
+            or prediction["prospective_n"] < 0
+            or (prediction["prospective_verified"] and prediction["prospective_n"] < 200)
+        ):
+            raise ValueError("前瞻证据必须含有效场数与布尔标记")
         _triplet(prediction.get("model_probabilities"), "model_probabilities", probabilities=True)
         matrix = prediction.get("score_matrix")
         if (
@@ -292,6 +299,10 @@ def _markdown(batch: dict) -> str:
             *[str(prices[key]) if key in prices else "—" for key in OUTCOMES],
             *[_percent(ev.get(key), highlight=True) for key in OUTCOMES],
         ]
+        if prediction["status"] == "predicted" and "prospective_verified" in prediction:
+            values[3] += " · " + (
+                "前瞻已验证" if prediction["prospective_verified"] else "仅历史证据"
+            )
         lines.append("| " + " | ".join(values) + " |")
     lines.extend(["", "## 比分前五与快照", ""])
     for prediction in batch["predictions"]:
@@ -386,6 +397,8 @@ def _csv_bytes(batch: dict) -> bytes:
     ]
     if batch["validation_status"] == "league_gated":
         columns.extend(["p2_ready", "p2_label", "unknown_team_prior"])
+    if "prospective_evidence" in batch:
+        columns.extend(["prospective_verified", "prospective_n"])
     writer = csv.DictWriter(stream, fieldnames=columns)
     writer.writeheader()
     for prediction in batch["predictions"]:
@@ -419,6 +432,10 @@ def _csv_bytes(batch: dict) -> bytes:
                 p2_ready=prediction.get("p2_ready"),
                 p2_label=prediction.get("p2_label"),
                 unknown_team_prior=prediction.get("metadata", {}).get("unknown_team_prior"),
+            )
+        if "prospective_evidence" in batch:
+            row.update(
+                {key: prediction.get(key) for key in ("prospective_verified", "prospective_n")}
             )
         writer.writerow({key: _csv_cell(value) for key, value in row.items()})
     return stream.getvalue().encode("utf-8-sig")

@@ -28,6 +28,7 @@ from zucai.predict.parameters import (
 from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
 from zucai.report.render import write_report
+from zucai.scoreboard.evidence import read_evidence
 from zucai.sources.sporttery import BEIJING
 
 LOG = logging.getLogger(__name__)
@@ -74,6 +75,9 @@ def _summary(archive, run):
         report = (archive / forecast["path"] / "report.md").read_text(encoding="utf-8")
         # Reuse the actual T06 table, including its EV and exclusion rendering rules.
         lines.append(report.split("## 纯模型与市场对照\n", 1)[1].split("## 比分前五与快照", 1)[0])
+        if forecast["predicted"]:
+            scores = report.split("## 比分前五与快照\n", 1)[1].split("\n## ", 1)[0]
+            lines.append("## 比分前五与快照\n" + scores)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
             output.write("\n".join(lines) + "\n")
@@ -150,6 +154,7 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
                 _json(stage / train_path, result)
             outcomes[league] = result
         prediction_time = _now()
+        prospective_evidence = read_evidence(archive, prediction_time)
         for league, model in fitted.items():
             outcomes[league].update(
                 model_readiness(model, as_of=prediction_time, params_file=params)
@@ -198,6 +203,7 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
                             market_weight=0,
                             persist=False,
                             allow_empty=True,
+                            prospective_evidence=prospective_evidence,
                         )
                         batch["input"]["kickoff_date_beijing"] = forecast_day.isoformat()
                         batch["batch_id"] = f"{run_id}-{forecast_day}"

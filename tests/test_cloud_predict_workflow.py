@@ -49,7 +49,7 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
     assert "zucai.cloud_predict run" in job
     assert "publish-football-feeds.sh" in job
     assert "group: write-football-feed-data" in text
-    assert "options: [apis, sync, verify, predict, backfill]" in text
+    assert "options: [apis, sync, verify, predict, backfill, scoreboard]" in text
 
 
 @pytest.mark.parametrize(
@@ -61,11 +61,14 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
         ],
         ("backfill", "football-ingest-run-t18"),
         ("backfill", "football-ingest-verify-t18"),
+        ("scoreboard", "codex/T19-scoreboard"),
+        ("scoreboard", "football-ingest-run-t19"),
+        ("scoreboard", "football-ingest-verify-t19"),
     ],
 )
 def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(operation, ref_name):
     text = WORKFLOW.read_text()
-    assert "options: [apis, sync, verify, predict, backfill]" in text
+    assert "options: [apis, sync, verify, predict, backfill, scoreboard]" in text
     jobs = dict(
         re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
     )
@@ -97,7 +100,10 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
         expression = re.search(r"if: \$\{\{ (.*?) \}\}", job).group(1)
         assert evaluate(expression) is expected[name]
     mode = re.search(r"FEED_MODE: \$\{\{ (.*?) \}\}", text).group(1)
-    assert evaluate(mode) == (operation if operation in {"verify", "sync", "backfill"} else "apis")
+    if operation != "scoreboard":  # This job never consumes the collection-mode variable.
+        assert evaluate(mode) == (
+            operation if operation in {"verify", "sync", "backfill"} else "apis"
+        )
     assert "zucai.cloud_feeds backfill" in jobs["apis"]
     assert "timeout-minutes: 60" in jobs["apis"]
     assert "retention-days: 90" in jobs["apis"]
