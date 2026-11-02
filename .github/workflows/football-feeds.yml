@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 一次性 fd 历史回填'
+        description: 'apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板'
         type: choice
-        options: [apis, sync, verify, predict, backfill]
+        options: [apis, sync, verify, predict, backfill, scoreboard]
         default: verify
       days:
         description: 'fdorg 前后各 N 个 UTC 日；sync 回看 N 个北京时间自然日'
@@ -38,7 +38,7 @@ env:
 
 jobs:
   apis:
-    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') || startsWith(github.ref_name, 'football-ingest-verify-') }}
+    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') || (inputs.operation != 'scoreboard' && startsWith(github.ref_name, 'football-ingest-verify-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -139,9 +139,44 @@ jobs:
           retention-days: 90
           if-no-files-found: ignore
 
+  scoreboard:
+    needs: [predict]
+    # A skipped/failed prediction must not prevent settlement of earlier frozen batches.
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'predict' || inputs.operation == 'scoreboard'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project for offline scoring
+        run: python -m pip install -e ./app
+      - name: Restore, score frozen predictions and settle virtual accounts
+        run: python -m zucai.scoreboard run --archive cloud-data
+      - name: Publish scoreboard
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep scoreboard evidence even on publish conflict
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoreboard-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cloud-data/scoreboard
+          retention-days: 90
+          if-no-files-found: ignore
+
   sporttery:
     needs: apis
-    if: ${{ !cancelled() && inputs.operation != 'backfill' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    if: ${{ !cancelled() && inputs.operation != 'backfill' && inputs.operation != 'scoreboard' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
     timeout-minutes: 60
     env:

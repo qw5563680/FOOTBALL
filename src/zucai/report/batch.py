@@ -125,6 +125,7 @@ def predict_batch(
     params_file=None,
     persist: bool = True,
     allow_empty: bool = False,
+    prospective_evidence: dict | None = None,
 ) -> dict:
     """Freeze probabilities; scheduled jobs may opt into read-only or empty batches."""
     cutoff, created = utc(as_of), utc(generated)
@@ -289,4 +290,7 @@ def predict_batch(
                 )
     if persist:
         session.flush()
+    from zucai.scoreboard.evidence import annotate_batch
+
+    annotate_batch(batch, prospective_evidence)
     return batch

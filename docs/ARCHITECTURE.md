@@ -40,6 +40,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
 | `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
+| `zucai/scoreboard/` | 冻结预测与赛果配对、三列概率评分、五种虚拟账户、稳健性统计与文本记分板；不训练或联网 |
 | `zucai/cloud_aliases.py` | 复用 T09/T10 离线身份图，只追加带证据的待审候选 |
 | `zucai/sources/fd_verify.py` | 离线复核当前赛季与 jc 的身份图、候选时区和覆盖缺口 |
 | `zucai/features/` | `build_features(session, match_ids=None, as_of=None, *, strict_availability=False) -> DataFrame`；43个球队字段，市场/元信息分离 |
@@ -410,3 +411,40 @@ CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
 `workflow_dispatch operation=backfill` 只运行 apis hosted job，60 分钟上限；共用既有写回锁、发布脚本和
 90 天原件/审计 artifact，sporttery/predict 跳过。定时事件及周一当季采集逻辑不变。完成回填后另行手动
 `operation=predict`，以实际训练场数核验历史覆盖，不改 params/P2 标签与门槛。
+
+## T19 前瞻记分板与虚拟账户
+
+`python -m zucai.scoreboard run --archive <data-branch>` 校验既有 feed / forecast 清单，
+恢复到临时数据库并用 SQLite `mode=ro` 读取常规时间赛果；结束复核库和输入清单哈希。
+不迁移数据库，不读取价格表，不加载 pickle，不调用训练或来源采集器。
+
+- `score.py`：通过 `load_batch` 读取全部冻件，保留 `batch_id/generated_utc/model_version` 和原件 SHA256。
+  排除回放/事后生成，按生成时间及批次 ID 稳定排序，同场选择开球前最后一批；再核对身份、完整比分、
+  `generated < available <= as_of` 与 captured/published 依据。三分类 LL 使用 1e-15 下界，Brier 为平方误差和，
+  市场概率只由原 SP 倒数归一化，缺报价不剔除模型行。评分按比赛/批次追加去重；后到批次不删除原评分，
+  汇总以当前最后一批的键筛选，每场只计一次。比分更正留审计，不静默改写已存证据。
+- `paper.py`：按真实批次时序处理冻件，各门槛独立 A–E 账户。门槛比较的是 `ratio=p×冻结 SP`，
+  严格 `ratio > 1.00/1.05/1.10`，等价于 `edge=ratio−1 > 0.00/0.05/0.10`；
+  用十进制概率与 SP 直接相乘比较，恰好等于门槛不入选。单场选最大 ratio（与最大 edge 同序），
+  C 只看最低 SP，串关同一北京开球日取前两/三场。
+  A/B/C 每场只生成一次有效注单，D/E 每天只生成一次；跳过原因和已处理批次也进入 ledger。
+  冻结字段 SHA256 不包括 settlement，结算只填后者。历史补记标明 replayed，旧批次迟到不回写资金历史。
+  可用现金为初始 10000 减已投入加决定时刻已知回报，未结本金保留占用；凯利 1/4、2% 上限、10 下限，
+  上下限或余额不能同时满足则跳过。金额使用十进制与分精度，不借款。串关全部结果齐全后才结算；缺失/取消保持待结。
+- `statistics.py`：ROI 只用已结投入，资金/可用现金并列，最大回撤和连亏按结算时序；北京周资金表。
+  稳健性去掉总回报最高的 ceil(5%)，固定种子 20261103、bootstrap 1000 次和 95% 分位区间。
+  A/1.05 满足已结 n≥500、ROI>0、trimmed ROI>0、区间下限>−2% 时只写模拟证据标记，不改变 BET。
+- `command.py` / `render.py`：先读并验证现有评分/账本，分阶段写四文件，异常恢复旧字节；独立 `summary.json`
+  保存其他三文件 SHA256，维持原 feed/forecast 清单接口。输出联赛、联赛×版本、月份、总体三列指标及校准，
+  默认展示 1.05，附表另两档，固定免责行及单关偏差。`--replay-days` 限定新补记批次，不伪造历史预测；
+  已有累计记录保留，显式截点不得倒退已发布状态。`summary.gates.prospective_verified` 只表示至少一个联赛通过，
+  真正标签按各联赛 n≥200 且模型 LL≤等概率独立判定。
+- `evidence.py`：新 T06 批次可携带预测之前已存在的记分板证据和摘要 SHA256；默认未知即「仅历史证据」。
+  只新增报告元数据/标签，P2 和模型概率不变。旧冻件缺新字段时维持原渲染，后续记分板变化不回写。
+  `cloud_predict._summary` 仅复制原 `report.md` 的比分前五节，空批次不复制；不为摘要改写报告或哈希。
+
+数据分支保存 `scoreboard/scored.jsonl`、`ledger.jsonl`、`summary.json`、`scoreboard.md` 四件套；
+代码分支没有运行产物或 reports 新增。发布脚本显式暂存 scoreboard，并用 `scoreboard/** -text` 保持字节哈希。
+`scoreboard` job 依赖 `[predict]`，早晚定时、手动 predict 后和手动 scoreboard 都可运行；早班预测跳过或
+预测失败时仍能结算旧批次，取消则停止。托管机 30 分钟，共用写回锁，artifact 90 天，Actions 贴前 60 行。
+漂移仅提示：四个连续完整且有样本的北京周平局偏差绝对值均>5个百分点，或最近100场LL高于等概率；不自动 tune。

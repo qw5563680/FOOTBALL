@@ -96,6 +96,10 @@ def test_writeback_publishes_forecasts_with_exact_bytes_on_windows_checkouts(tmp
         "models/offline/model.pkl": b"opaque\x00model\r\n",
         "models/latest.json": b"{}\n",
         "forecast_manifest.json": b"{}\n",
+        "scoreboard/scored.jsonl": b'{"match_id":"jc:1"}\n',
+        "scoreboard/ledger.jsonl": b'{"stake":100}\n',
+        "scoreboard/summary.json": b"{}\n",
+        "scoreboard/scoreboard.md": b"virtual only\n",
     }
     for name, raw in artifacts.items():
         path = run / name

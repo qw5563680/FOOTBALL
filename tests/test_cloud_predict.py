@@ -115,6 +115,8 @@ def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
             if row["status"] == "predicted":
                 assert sum(row["model_probabilities"].values()) == pytest.approx(1)
                 assert row["market"]["probabilities"]
+                assert row["prospective_verified"] is False
+                assert row["prospective_n"] == 0
         assert batch["models"][0]["p2_label"] == good["p2_label"]
     assert verify_forecasts(archive)["runs"]["offline-1"] == result
     assert all(p.read_bytes() == data for p, data in before.items())
