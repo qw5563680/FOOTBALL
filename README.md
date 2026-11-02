@@ -53,6 +53,7 @@ zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶�
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
 python -m zucai.cloud_feeds apis --archive ../cloud-data --days 3 --run-id manual  # 在全新隔离目录运行
 python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/params.json --run-id manual-1
+python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
 pytest -q
 ```
 
@@ -118,11 +119,35 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
+- `operation=backfill`：**一次性 fd 历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），
+  `sporttery` 与 `predict` 跳过；沿用写回锁和发布脚本。无需 API key，不回填 fdorg/apif。
 - `operation=verify`：托管机恢复并校验归档文件、表行数、来源哈希与独立的 `forecast_manifest.json`；不写数据分支，摘要为 `verified`，没有预测的旧归档仍兼容。
 - `operation=predict`：跳过采集，在托管机使用现有归档训练并预测；`days` / `slot` 不影响预测。
   `sporttery` 跳过、失败或归档水位不是今日时，摘要注明「竞彩数据非今日」。
 - `operation=sync`：`apis` job 跳过，`sporttery` 在配置的自托管机采集；无变量时跳过。
   原有 `football-ingest-verify-*` / `football-ingest-run-*` 标签入口仍兼容。
+
+T18 默认回填 15 个已核验联赛：E0/E1/SP1/I1/D1/F1/F2/N1/P1 的 2122–2627 六季，
+JPN/SWE/NOR/FIN/USA/BRA 的 2021–2026 六个起始自然年；共 60 份 CSV（不含重定向跳数）。
+合并文件每联赛只下载一次，来源中的 `2026/2027` 标签保留，按起始年 2026 筛选。
+本地可筛选范围，例如在全新的隔离目录运行：
+
+```bash
+python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-subset --leagues E0,JPN --from 2425 --to 2526
+```
+
+`--from/--to` 含首尾，接受赛季代码 `2425` 或起始自然年 `2024`；上述两联赛示例分别对应
+E0 的 2425/2526 与 JPN 的 2024–2025。省略时默认 2021–2026；这些筛选参数仅用于 backfill。
+回填先恢复现有归档，沿用 jc > fd、既有别名/疑似重复规则和开球后 3h 的 `assumed` 假设；
+重复相同文件不新增比赛或赛果，比分更正仍按原导入器处理，不改官方比分和可知时间。
+单文件 404、网络或解析失败记为 partial 后继续其他文件；有拒绝/疑似重复也明确标记 partial。
+完成后恢复一次新归档并校验（包含已有预测清单），不推进竞彩补抓水位、不重新训练。
+
+运行摘要列每联赛回填前/新增/回填后 fd 赛果数、失败项、拒绝/疑似重复、CSV 请求次数与真实最短间隔。
+每次运行重新检查 robots，读取失败或规则禁止时停止；原有限速器保留，回填发送入口另留 2.1 秒间隔余量。
+逐跳请求记录追加到数据分支 `state/audit/fd_backfill_requests.csv`；CSV/robots 原件及 SHA256 校验文件、
+完整运行记录、审计作为 `apis-source-<run-id>-<attempt>` artifact 保留 90 天，不提交到 main。
+回填成功后手动运行 `operation=predict` 使用新增历史；每周一当季增量逻辑保持原样。
 
 自托管变量由审查方在合并后设置为单个标签 **`football-local`**，`runs-on` 直接使用该字符串；
 当前 Windows 运行器已注册在 `D:\actions-runner`，通过用户登录计划任务运行 `run.cmd`。注册和停用见

@@ -19,6 +19,7 @@ WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
         ("workflow_dispatch", "apis", "", "success", False, False),
         ("workflow_dispatch", "sync", "", "skipped", False, False),
         ("workflow_dispatch", "verify", "", "success", False, False),
+        ("workflow_dispatch", "backfill", "", "success", False, False),
         ("push", "", "", "success", False, False),
     ],
 )
@@ -48,4 +49,57 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
     assert "zucai.cloud_predict run" in job
     assert "publish-football-feeds.sh" in job
     assert "group: write-football-feed-data" in text
-    assert "options: [apis, sync, verify, predict]" in text
+    assert "options: [apis, sync, verify, predict, backfill]" in text
+
+
+@pytest.mark.parametrize(
+    ("operation", "ref_name"),
+    [
+        *[
+            (operation, "codex/T18-fd-backfill")
+            for operation in ("backfill", "apis", "verify", "sync", "predict")
+        ],
+        ("backfill", "football-ingest-run-t18"),
+        ("backfill", "football-ingest-verify-t18"),
+    ],
+)
+def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(operation, ref_name):
+    text = WORKFLOW.read_text()
+    assert "options: [apis, sync, verify, predict, backfill]" in text
+    jobs = dict(
+        re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
+    )
+    context = {
+        "github.event_name": "workflow_dispatch",
+        "inputs.operation": operation,
+        "github.event.schedule": "",
+        "github.ref_name": ref_name,
+        "vars.FOOTBALL_FEEDS_RUNNER": "football-local",
+        "needs.apis.result": "success",
+    }
+
+    def evaluate(expression):
+        for key, value in context.items():
+            expression = expression.replace(key, repr(value))
+        expression = (
+            expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+        )
+        return eval(
+            expression, {"__builtins__": {}, "startsWith": lambda a, b: a.startswith(b)}, {}
+        )
+
+    expected = {
+        "apis": operation in {"apis", "verify", "backfill"},
+        "sporttery": operation == "sync",
+        "predict": operation == "predict",
+    }
+    for name, job in jobs.items():
+        expression = re.search(r"if: \$\{\{ (.*?) \}\}", job).group(1)
+        assert evaluate(expression) is expected[name]
+    mode = re.search(r"FEED_MODE: \$\{\{ (.*?) \}\}", text).group(1)
+    assert evaluate(mode) == (operation if operation in {"verify", "sync", "backfill"} else "apis")
+    assert "zucai.cloud_feeds backfill" in jobs["apis"]
+    assert "timeout-minutes: 60" in jobs["apis"]
+    assert "retention-days: 90" in jobs["apis"]
+    assert "env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill'" in jobs["apis"]
+    assert text.count("- cron:") == 2

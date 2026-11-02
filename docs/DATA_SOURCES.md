@@ -91,6 +91,25 @@
 - `Time` 的时区基准无官方说明，必须用当季文件与库中 jc 场次比对后逐联赛写进 `data/football_data_co_uk/leagues.json`。
 - 队名为英文，与 sporttery 中文缩写的对齐只走 `data/team_aliases/football_data_co_uk.json`，规则见 T08 任务单。
 
+### T18 回填前访问复核（北京时间 2026-11-03）
+
+03:48:10 北京时间（2026-11-02 19:48:10 UTC）重新读取
+`https://www.football-data.co.uk/robots.txt`，同站跳转后最终 HTTP 200，732 字节；
+原件 SHA256 为 `2dbd3891735d090f6a577d1281efeba5be6280e17bb1e4a8fd936cdc69c2d236`。
+通配 `User-agent: *` 的 `Disallow` 为空；GPTBot、ChatGPT-User、ClaudeBot 等具名机器人仍被全站禁止。
+规则与已有核验一致，回填沿用项目既有 `ZucaiResearch` 采集器标识和用户已确认的用途，不更换 UA 绕过限制。
+本次开发前仅读取 robots，未在线下载 CSV；原件和响应头保存在忽略的 `work/t18/`。
+
+首次规则读取随同站跳转，未记录逐跳发送间隔；随后于 03:54:15–03:54:18 北京时间
+通过回填专用通道再次读取 robots，302/200 两次 GET 的实际发送间隔为 **2.100098 秒**，
+最终原件 SHA256 与首次相同。本次开发共 4 次 robots GET，0 次 CSV 请求；
+补测记录在 `work/t18/robots-paced.json`，没有把未测量的首次间隔作为限速验收证据。
+
+回填运行会重新读取并归档 robots，检查每个计划 CSV 路径；规则不允许或读取失败时停止。
+沿用既有限速器，每个 HTTP 跳转均限速；回填发送入口另以 2.1 秒间隔留出准备开销余量，
+记录真实请求开始时间和最短间隔，周一当季采集逻辑不变。CSV/robots 请求数分列，失败请求和重定向也计数；
+原件、URL/HTTP/读取时间/SHA256、请求明细与拒绝/疑似重复审计供 Actions artifact 保留 90 天。
+
 ### T08 实际核验（北京时间 2026-11-02）
 
 已下载主文件 `E0 E1 SP1 I1 D1 D2 F1 F2 N1 P1` 的2627样本；除D2外各再下载2122–2526。

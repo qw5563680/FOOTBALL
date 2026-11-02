@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'apis 托管采集，sync 竞彩采集，verify 校验归档，predict 训练并冻结两日预测'
+        description: 'apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 一次性 fd 历史回填'
         type: choice
-        options: [apis, sync, verify, predict]
+        options: [apis, sync, verify, predict, backfill]
         default: verify
       days:
         description: 'fdorg 前后各 N 个 UTC 日；sync 回看 N 个北京时间自然日'
@@ -34,11 +34,11 @@ defaults:
     shell: bash
 
 env:
-  FEED_MODE: ${{ (startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis') }}
+  FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
 
 jobs:
   apis:
-    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || startsWith(github.ref_name, 'football-ingest-verify-') }}
+    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') || startsWith(github.ref_name, 'football-ingest-verify-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -61,7 +61,7 @@ jobs:
         if: ${{ env.FEED_MODE != 'sync' }}
         run: python -m pip install -e ./app
       - name: Restore and collect APIs or verify archive
-        if: ${{ env.FEED_MODE != 'sync' }}
+        if: ${{ env.FEED_MODE != 'sync' && env.FEED_MODE != 'backfill' }}
         env:
           FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
@@ -71,18 +71,25 @@ jobs:
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds "$FEED_MODE" --archive ../cloud-data --days "$LOOKBACK" --slot "$FEED_SLOT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Restore and backfill verified FD history once
+        if: ${{ env.FEED_MODE == 'backfill' }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Publish verified data
-        if: ${{ env.FEED_MODE == 'apis' }}
+        if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' }}
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
-      - name: Keep API originals and audit even on rebase conflict
-        if: ${{ !cancelled() && env.FEED_MODE == 'apis' }}
+      - name: Keep collection originals and audit even on rebase conflict
+        if: ${{ !cancelled() && (env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill') }}
         uses: actions/upload-artifact@v4
         with:
           name: apis-source-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.WORK_DIR }}/data/raw
             ${{ env.WORK_DIR }}/data/state
+            ${{ env.WORK_DIR }}/data/unmatched_teams.csv
           retention-days: 90
           if-no-files-found: ignore
 
@@ -134,7 +141,7 @@ jobs:
 
   sporttery:
     needs: apis
-    if: ${{ !cancelled() && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    if: ${{ !cancelled() && inputs.operation != 'backfill' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
     timeout-minutes: 60
     env:
