@@ -591,3 +591,103 @@ def test_t15_prior_readiness_and_frozen_render_keep_bet_disabled(setup_batch, tm
     original = _markdown(batch)
     config.unlink()
     assert _markdown(batch) == original
+
+
+@pytest.mark.parametrize("market_weight", [0, 0.25])
+def test_nonpersisting_batch_runs_with_sqlite_write_protection(setup_batch, market_weight):
+    from sqlalchemy.orm import Session
+
+    from zucai.report.batch import predict_batch
+
+    engine, path, _, database = setup_batch
+    before = database.read_bytes()
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA query_only=ON")
+        connection.exec_driver_sql("BEGIN")
+        with Session(bind=connection) as session:
+            batch = predict_batch(
+                session,
+                model_files=[path],
+                as_of=CUTOFF,
+                generated=CUTOFF,
+                match_ids=["jc:1"],
+                market_weight=market_weight,
+                persist=False,
+            )
+            assert batch["predictions"][0]["status"] == "predicted"
+            assert sum(batch["predictions"][0]["model_probabilities"].values()) == pytest.approx(1)
+            assert session.scalars(select(Prediction)).all() == []
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("selector", [{"match_ids": []}, {"day": date(2099, 1, 1)}])
+def test_scheduled_empty_batch_is_renderable_without_relaxing_cli_defaults(
+    setup_batch, tmp_path, selector
+):
+    from zucai.report.batch import predict_batch
+    from zucai.report.render import load_batch, write_report
+
+    engine, path, _, _ = setup_batch
+    with session_scope(engine) as session:
+        with pytest.raises(ValueError):
+            predict_batch(session, model_files=[path], as_of=CUTOFF, generated=CUTOFF, **selector)
+        batch = predict_batch(
+            session,
+            model_files=[path],
+            as_of=CUTOFF,
+            generated=CUTOFF,
+            persist=False,
+            allow_empty=True,
+            **selector,
+        )
+    assert batch["predictions"] == []
+    assert batch["bet_allowed"] is False
+    assert load_batch(write_report(batch, tmp_path / "empty")) == batch
+
+
+def test_scheduled_batch_with_no_successful_models_keeps_exclusions(setup_batch, tmp_path):
+    from zucai.report.batch import predict_batch
+    from zucai.report.render import load_batch, write_report
+
+    engine, _, _, _ = setup_batch
+    with session_scope(engine) as session:
+        batch = predict_batch(
+            session,
+            model_files=[],
+            as_of=CUTOFF,
+            generated=CUTOFF,
+            match_ids=["jc:1", "jc:3"],
+            persist=False,
+            allow_empty=True,
+        )
+    assert batch["models"] == []
+    assert [row["status"] for row in batch["predictions"]] == ["excluded", "excluded"]
+    assert [row["reason"] for row in batch["predictions"]] == [
+        "缺少同来源同联赛的模型",
+        "预测截点时已开赛",
+    ]
+    assert load_batch(write_report(batch, tmp_path / "excluded")) == batch
+
+
+def test_unknown_team_prior_metadata_can_be_frozen_as_json(setup_batch, tmp_path):
+    from zucai.report.batch import predict_batch
+    from zucai.report.render import load_batch, write_report
+
+    engine, path, model, _ = setup_batch
+    model.unknown_team_prior = True
+    model.save(path)
+    with session_scope(engine) as session:
+        batch = predict_batch(
+            session,
+            model_files=[path],
+            as_of=CUTOFF,
+            generated=CUTOFF,
+            match_ids=["jc:2"],
+            persist=False,
+        )
+    assert batch["predictions"][0]["status"] == "predicted"
+    assert batch["predictions"][0]["metadata"]["unknown_team_prior"] is True
+    output = tmp_path / "unknown-team"
+    write_report(batch, output)
+    frozen = load_batch(output / "forecast.json")
+    assert type(frozen["predictions"][0]["metadata"]["prior_rho_clipped"]) is bool

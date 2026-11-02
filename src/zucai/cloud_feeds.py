@@ -388,11 +388,17 @@ def main():
             parser.error("云端同步请在隔离的工作目录运行，数据库放在该目录的 data 下")
         meta = restore_feeds(archive, target)
         if args.command == "verify":
+            from zucai.forecast_archive import verify_forecasts
+
+            forecasts = verify_forecasts(archive)
             LOG.info("私有云端归档已恢复并校验：%s", meta["counts"])
             if os.environ.get("GITHUB_STEP_SUMMARY"):
                 with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
                     summary.write(
                         f"### Football feed archive: verified\n\n行数：{meta['counts']}\n"
+                    )
+                    summary.write(
+                        f"\n预测归档已校验：{len(forecasts['runs']) if forecasts else 0} 次运行\n"
                     )
             return
         os.environ["ZUCAI_DB"] = str(target)

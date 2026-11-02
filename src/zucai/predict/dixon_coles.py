@@ -162,7 +162,7 @@ class DixonColes(Model):
             ),
             "unknown_team_prior": unknown,
             "prior_method": self.prior_parameters["method"] if unknown else None,
-            "prior_rho_clipped": clipped,
+            "prior_rho_clipped": bool(clipped),
             "half_life_days": self.half_life_days,
             "parameter_source": getattr(self, "parameter_source", "explicit"),
             "as_of_utc": self.as_of.isoformat(),

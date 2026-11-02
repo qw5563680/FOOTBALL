@@ -37,6 +37,8 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/fd_ingest.py` | 显式别名、官方优先去重、结果可知时间与独立收盘价归档 |
 | `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
 | `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
+| `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
+| `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
 | `zucai/cloud_aliases.py` | 复用 T09/T10 离线身份图，只追加带证据的待审候选 |
 | `zucai/sources/fd_verify.py` | 离线复核当前赛季与 jc 的身份图、候选时区和覆盖缺口 |
 | `zucai/features/` | `build_features(session, match_ids=None, as_of=None, *, strict_availability=False) -> DataFrame`；43个球队字段，市场/元信息分离 |
@@ -349,3 +351,35 @@ T16按所有者选择的A1采用策略绑定：`model_readiness` 不再要求训
 T06 冻结 JSON 仍兼容 schema 1/2；新批次 `validation_status=league_gated`，每场另有
 `p2_ready/p2_label`，模型内附 params SHA256 与门槛证据。旧批次 experimental_unadopted
 保持原渲染字节。读取新配置不会改变已拟合权重或旧报告；BET 始终 false。
+
+
+## T17 定时训练与冻结预测
+
+晚班（UTC 09:40 / 北京 17:40）采集后或 `workflow_dispatch operation=predict` 运行 hosted
+`predict` job，依赖 `apis` 和 `sporttery`；早班不运行。沿用工作流级 `write-football-feed-data` 锁，
+`apis` 失败或整体取消时不运行，竞彩 job 跳过仍运行并提示「竞彩数据非今日」。手动 predict 不采集。
+安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。单次上限 45 分钟。
+
+`cloud_predict.run` 在临时目录调用 `restore_feeds` 并记录工作库 SHA256。每个联赛调用现有 `train`，
+来源严格取配置且只允许 jc/fd；配置决定半衰期、先验和校准，默认累计历史、非 strict、无 replay。
+`since=cutoff−56d` 仅缩短冒烟回测，训练仍使用截点前的累计可知历史；不导出逐场回测，不重算 P2 门槛。
+单联赛失败记录原因、整次标记 partial，其他训练继续。模型 P2 标签由 `model_readiness` 计算。
+
+预测阶段按真实时间取北京今天与明天的开球日，仅选 jc 比赛 ID。复用 `predict_batch`，显式
+`persist=False, allow_empty=True`，SQLite 连接 `query_only=ON`；普通 T06 CLI 的默认行为不变。
+两个日期各自输出四件套，空日也有空批次；缺模型和已开球场次照常列出排除原因，不借用旧模型。
+生成、导出及归档后再次检查开球时刻；任何预测已经开球则撤销本次发布。运行前后工作库和参数
+SHA256 必须一致，不插入 Prediction、不迁移输入库、不改 schema。
+
+数据分支以 `models/<run-id>/<league>.pkl`、`<league>.train.json` 保存本次训练，失败只有 JSON；
+`models/latest.json` 保留每联赛最新成功模型，失败时仍指向上次成功项。
+`forecasts/<YYYY-MM-DD 北京日>/<run-id>/` 保存 T06 四件套，不覆盖旧 run。
+独立 `forecast_manifest.json` v1 的 `runs` 记录训练库/参数 SHA256、截点、联赛状态和 P2、两日批次及
+预测/排除数量；`files` 覆盖模型、训练 JSON、所有四件套与 latest 索引的 SHA256。
+发布失败只回滚本次新目录与索引；已有冻结文件保持原字节。数据分支 Git 属性关闭新归档路径的换行转换。
+
+`export_feeds` / `archive_info` 和 feed manifest 保持原接口。`cloud_feeds verify` 额外调用独立
+`verify_forecasts`：验证路径、文件哈希、T06 内层清单、批次/模型对应关系和最新模型索引，绝不反序列化 pickle。
+没有预测目录的旧归档仍通过；有预测而缺清单、损坏文件或符号链接则失败。
+Actions artifact 保存本次模型、两日报告及索引 90 天，长期证据以数据分支为准。摘要复用实际 report.md
+的比赛表，顶部固定免责声明；所有概率仍是纯模型，市场仅对照，BET 禁用。

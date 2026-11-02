@@ -73,3 +73,64 @@ def test_sporttery_entrypoint_imports_without_unix_quota_lock_module():
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_writeback_publishes_forecasts_with_exact_bytes_on_windows_checkouts(tmp_path):
+    remote = tmp_path / "remote.git"
+    git(tmp_path, "init", "--bare", str(remote))
+    run = tmp_path / "run"
+    git(tmp_path, "clone", str(remote), str(run))
+    git(run, "checkout", "-b", "data/football-feeds")
+    git(run, "config", "user.name", "Test")
+    git(run, "config", "user.email", "test@example.invalid")
+    git(run, "config", "core.autocrlf", "true")
+    for name in ("state/teams.jsonl", "matches/2026-11.csv", "feed_manifest.json"):
+        path = run / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"{}\n")
+    git(run, "add", ".")
+    git(run, "commit", "-m", "seed")
+    git(run, "push", "origin", "HEAD")
+    artifacts = {
+        "forecasts/2026-11-03/offline/report.csv": b"match_id,p\r\njc:1,0.4\r\n",
+        "models/offline/model.pkl": b"opaque\x00model\r\n",
+        "models/latest.json": b"{}\n",
+        "forecast_manifest.json": b"{}\n",
+    }
+    for name, raw in artifacts.items():
+        path = run / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+    env = {**os.environ, "GITHUB_RUN_ID": "offline", "GITHUB_RUN_ATTEMPT": "1"}
+    result = subprocess.run(["bash", str(SCRIPT)], cwd=run, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    for name, raw in artifacts.items():
+        committed = subprocess.run(
+            ["git", "-C", str(remote), "show", f"data/football-feeds:{name}"],
+            check=True,
+            capture_output=True,
+        ).stdout
+        assert committed == raw
+    restored = tmp_path / "restored"
+    git(
+        tmp_path,
+        "-c",
+        "core.autocrlf=true",
+        "clone",
+        "--branch",
+        "data/football-feeds",
+        str(remote),
+        str(restored),
+    )
+    assert all((restored / name).read_bytes() == raw for name, raw in artifacts.items())
+    git(restored, "config", "core.autocrlf", "true")
+    restored_head = git(restored, "rev-parse", "HEAD")
+    result = subprocess.run(
+        ["bash", str(SCRIPT)], cwd=restored, env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    assert git(restored, "rev-parse", "HEAD") == restored_head
+    before = git(run, "rev-parse", "HEAD")
+    result = subprocess.run(["bash", str(SCRIPT)], cwd=run, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert git(run, "rev-parse", "HEAD") == before
