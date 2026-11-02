@@ -191,6 +191,7 @@ def _percent(value: float | None, *, highlight: bool = False) -> str:
 
 def _markdown(batch: dict) -> str:
     gated = batch["validation_status"] == "league_gated"
+    dual_databases = any("evaluation_database_sha256" in model for model in batch["models"])
     lines = [
         "# P2 预测报告" if gated else "# P2 实验预测报告",
         "",
@@ -221,8 +222,9 @@ def _markdown(batch: dict) -> str:
             "使用假定赛果可知时间的训练场次占比，不代表已核实发布时间。",
             "",
             "| 模型 | 版本 SHA256 | 来源 | 联赛 | 模型截点 | 训练场数 | "
-            "最近赛果可知时间 | 可知依据 | assumed 占比 |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "最近赛果可知时间 | 可知依据 | assumed 占比 |"
+            + (" 训练库 SHA256 | 评估库 SHA256 | 数据库说明 |" if dual_databases else ""),
+            "|" + " --- |" * (12 if dual_databases else 9),
         ]
     )
     for model in batch["models"]:
@@ -237,6 +239,18 @@ def _markdown(batch: dict) -> str:
             _md(model["availability_basis"]),
             _percent(model.get("assumed_training_share")),
         ]
+        if dual_databases:
+            training = model.get("training_database_sha256")
+            evaluation = model.get("evaluation_database_sha256")
+            values.extend(
+                [
+                    _md(training),
+                    _md(evaluation),
+                    "评估库 ≠ 训练库"
+                    if training and evaluation and training != evaluation
+                    else "—",
+                ]
+            )
         lines.append("| " + " | ".join(values) + " |")
     if batch["schema_version"] >= 2:
         lines.extend(

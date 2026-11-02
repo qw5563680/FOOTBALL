@@ -19,7 +19,12 @@ from zucai.predict.base import (
 )
 from zucai.predict.derive import had
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
-from zucai.predict.seasons import parse_seasons, season_bounds, season_for
+from zucai.predict.seasons import (
+    parse_seasons,
+    season_bounds,
+    season_for,
+    season_is_complete_eligible,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -359,7 +364,7 @@ def evaluate(
         low, high = season_bounds(season, league)
         by_season[season] = dict(
             **_summary(subset),
-            complete=start <= low and high <= end,
+            complete=start <= low and high <= end and season_is_complete_eligible(season, league),
             skipped=dict(season_skipped[season]),
             in_period=int((period.season == season).sum()),
             unavailable_labels=int(

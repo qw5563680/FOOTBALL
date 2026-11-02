@@ -13,6 +13,43 @@ from zucai.predict.dixon_coles import DixonColes
 CUTOFF = datetime(2026, 11, 1, 12, tzinfo=UTC)
 
 
+def test_batch_provenance_records_config_path_and_both_database_hashes(setup_batch, tmp_path):
+    from zucai.report.batch import predict_batch
+
+    engine, path, model, _ = setup_batch
+    model.training_database_sha256 = "b" * 64
+    model.evaluation_database_sha256 = "a" * 64
+    model.save(path)
+    config = tmp_path / "params.json"
+    config.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "leagues": {
+                    "L": {
+                        "half_life_days": 90,
+                        "selection_as_of_utc": "2026-10-01T00:00Z",
+                        "database_sha256": "c" * 64,
+                    }
+                },
+            }
+        )
+    )
+    with session_scope(engine) as session:
+        batch = predict_batch(
+            session,
+            model_files=[path],
+            as_of=CUTOFF,
+            generated=CUTOFF,
+            match_ids=["jc:1"],
+            params_file=config,
+        )
+    metadata = batch["models"][0]
+    assert metadata["training_database_sha256"] == "b" * 64
+    assert metadata["evaluation_database_sha256"] == "a" * 64
+    assert metadata["parameter_provenance"]["params_path"] == str(config.resolve())
+
+
 @pytest.fixture
 def setup_batch(tmp_path):
     rng = np.random.default_rng(92)

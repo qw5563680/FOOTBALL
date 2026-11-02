@@ -40,7 +40,7 @@ def test_season_boundaries_and_latest_complete_seasons():
     assert season_for("2025-06-30T23:59:59Z", "英超") == "2425"
     assert season_for("2025-07-01T00:00:00Z", "英超") == "2526"
     assert season_for("2025-12-31T23:59:59Z", "日职") == "2025"
-    assert season_for("2026-01-01T00:00:00Z", "日职") == "2026"
+    assert season_for("2026-01-01T00:00:00Z", "日职") == "2026T"
     assert season_bounds("2425", "英超") == (
         pd.Timestamp("2024-07-01T00:00Z"),
         pd.Timestamp("2025-07-01T00:00Z"),
@@ -444,7 +444,9 @@ def test_gate_rejects_unavailable_or_unreconciled_outcomes():
     assert not p2_gate(report, league="英超", as_of="2026-11-01T00:00Z")["p2_ready"]
 
 
-def test_readiness_rejects_replay_other_corpus_and_expired_seasons(seasons_history, tmp_path):
+def test_readiness_allows_other_corpus_but_rejects_replay_and_expired_seasons(
+    seasons_history, tmp_path
+):
     import json
 
     from zucai.predict.parameters import model_readiness
@@ -470,7 +472,7 @@ def test_readiness_rejects_replay_other_corpus_and_expired_seasons(seasons_histo
     assert model_readiness(model, as_of="2026-11-01T00:00Z", params_file=config)["p2_ready"]
     assert not model_readiness(model, as_of="2027-08-01T00:00Z", params_file=config)["p2_ready"]
     model.database_sha256 = "b" * 64
-    assert not model_readiness(model, as_of="2026-11-01T00:00Z", params_file=config)["p2_ready"]
+    assert model_readiness(model, as_of="2026-11-01T00:00Z", params_file=config)["p2_ready"]
     model.database_sha256 = "a" * 64
     model.replayed_training_share = 1.0
     model.availability_basis = "replayed"

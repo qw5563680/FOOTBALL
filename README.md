@@ -47,6 +47,7 @@ zucai train --league 英超 --source jc,fd,fdorg --since 2026-09-01 --output mod
 zucai train --model dixon-coles       # 训练并按周回测
 zucai tune --league 英超 --source jc,fd --db work/t15/static.db --grid 90,180,270,365,540,730
 zucai train --league 英超 --source jc,fd --db work/t15/static.db --seasons 2425,2526 --fold weekly
+zucai train --league 英超 --source jc,fd --predictions-out work/backtest.jsonl  # 逐场另存JSONL
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
 zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶段历史回放
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
@@ -56,6 +57,10 @@ pytest -q
 
 数据库默认位于 `data/zucai.db`。可以设置 `ZUCAI_DB`，也可用
 `zucai db init --path /path/to/football.db` 明确指定文件。
+参数文件依次查找 `ZUCAI_PARAMS`、当前目录的 `data/model/params.json`、源码相对路径（兼容可编辑安装）；
+例如 `ZUCAI_PARAMS=/path/to/params.json zucai train --league 英超 --source jc,fd`。
+`--params-file` 显式指定时优先使用该文件。未找到文件而回落90天时会输出包含尝试路径的 WARNING；
+训练及预测的参数来源记录包含 `params_path`，便于核对实际使用的配置。
 同一场比赛可以保存不同采集时间的赔率和不同模型版本的预测。
 
 500.com 赛果源定位为**近期备用**，每批只 GET 一次 `https://trade.500.com/jczq/`，不带查询串。
@@ -141,7 +146,11 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 `--db` 指定数据库，`--league` 选择一个赛事，`--source jc,fd` 可显式选择多个来源；不同联赛须分别训练。
 `--since YYYY-MM-DD` 指定回测开始日，之前的赛果可用于训练。
 `--as-of YYYY-MM-DD` 将所有数据截在当日 UTC 零时。可用 `--output` 另存每次的模型。
-训练输出包含样本数、逐周截点、对数损失、三分类 Brier 及校准分箱。市场样本缺失时指标为 null。
+训练默认stdout只含汇总、折信息及各赛季指标，不包含逐场预测数组。市场样本缺失时指标为 null。
+`--predictions-out work/backtest.jsonl` 将逐场记录另存为JSON Lines（拒绝覆盖已有文件），
+stdout的相应 `predictions` 字段改为 `{"path": ..., "rows": n}`。每行 `evaluation` 标明
+`backtest` 或 `strict_backtest`；严格模式两组记录写在同一文件，总行数为两组评分n之和。
+`evaluate()` 的完整返回值保持不变。
 `availability_basis` 为 `mixed` 时必须连同 `assumed_training_share` 和 `assumed_eval_share` 解读；
 顶层与每周 fold 分别披露训练和评估样本中固定延时假设的比例。顶层训练比例按各 fold 的训练样本数
 加权，评估比例按实际成功预测的比赛数计算。NULL 来源按 `captured` 处理，可知时间缺失仍排除。
@@ -165,8 +174,13 @@ CSV 的 Bet365 收盘价列 `B365CH/B365CD/B365CA` 仅用于单独的回测对�
 
 15联赛的真实数据结果、校准对比和静态库SHA256见[T15验收报告](reports/2026-11-02-t15-model-selection/README.md)。
 
-`train --seasons 2425,2526 --fold weekly` 按欧洲联赛 UTC 七月换季；日职/瑞超/挪超/芬超/美职/巴甲
-按自然年，例如 `--seasons 2024,2025`。每折累积截点前所有跨季历史，开球和赛果可知时间均须严格早于截点。
+`train --seasons 2425,2526 --fold weekly` 按欧洲联赛 UTC 七月换季；瑞超/挪超/芬超/美职/巴甲
+按自然年，例如 `--seasons 2024,2025`。日职按B1分段：2025及以前按自然年，
+2026年1–7月归为 `2026T`，永不计入P2完整季；自2026年8月1日UTC起按8月换季，记为 `2627`。
+最近完整季查找及新选参的验证季跳过过渡季：2025季冻结的参数用于 `2627` 验证，
+选择截点仍为2026年1月1日，不使用过渡期赛果选参。已发布T15日职配置的旧验证窗口标签 `2026` 仅按 `2026T` 解读，
+不改参数文件，也不将它套用于 `2627` 的历史评估；新命令须显式使用分段标签。
+每折累积截点前所有跨季历史，开球和赛果可知时间均须严格早于截点。
 weekly 在周一冻结；跨季的一周在赛季边界再切开，monthly 在月初冻结。`--since` 可进一步缩小评估范围，
 部分赛季不能通过完整赛季门槛。默认不重放 jc 的晚到可知时间。
 
@@ -195,6 +209,9 @@ T06 读取配置核对门槛；已加载模型保持实际拟合参数，要改�
 训练内无效概率行单独计数，不进入校准；评估无效矩阵仍明确跳过。
 `tune --draw-calibration/--no-draw-calibration` 可强制全程开/关做诊断；
 `train` 同名开关覆盖配置并记录来源。强制比较属于探索性检查，不据此回改滚动验证的开关。
+T16禁止强制校准诊断改写默认正式参数：`tune --draw-calibration` 或 `--no-draw-calibration`
+必须显式给出独立的 `--params-file work/diagnostic-params.json`；指向任一默认候选路径同样拒绝，
+包括 `ZUCAI_PARAMS` 指定但尚不存在的文件。
 
 三列对照是模型、等概率、收盘基准；Brier 为三分类平方误差之和。收盘组只取完整有限且大于1的
 B365、其次PS、其次Avg，按倒数归一化去水，缺失时为空；另列相同收盘覆盖样本上的模型指标。
@@ -206,8 +223,14 @@ B365、其次PS、其次Avg，按倒数归一化去水，缺失时为空；另�
 收盘配对集也要求 n≥500，防止用少量行情认证整个联赛；缺失证据、部分季或 monthly 结果均不通过。
 门槛按两季合并场均指标计算，完整规则和理由在 params.json 中。
 T06 只有与已验收来源、半衰期、先验及校准配置相符、且门槛证据在预测时已存在的模型显示“P2 可用”，
-还须与评估库SHA256及累计训练策略相同，不能使用重放模型；跨季后证据必须覆盖最新两完整季。
-更换训练库或策略须重新评估，其余显示“P2 实验”。**BET 始终禁用，P2 达标不授予任何执行权限。**
+T16按A1改为策略绑定：来源集合、累计训练策略、半衰期、先验方法及校准开关须一致，
+模型训练截点不早于参数选择时刻，不能使用重放模型；跨季后证据必须覆盖最新两完整季。
+训练库与评估库无需SHA256相等，模型分别记录 `training_database_sha256` 与
+`evaluation_database_sha256`，T06模型表并列显示，已知哈希不同时标注“评估库 ≠ 训练库”。
+评估库哈希优先取模型训练时保存的配置快照；模型未保存该值时回落到当前配置。
+后续更新配置不会改写模型已保存的哈希，P2判定仍使用预测时配置中的策略与证据。
+哈希只用于追溯语料，策略不符或证据过期仍显示“P2 实验”。历史评估不等于新增数据的前瞻验证。
+**BET 始终禁用，P2 达标不授予任何执行权限。** 本任务不自动训练；该项顺延T17。
 
 ### 多赛季历史数据（T08）
 

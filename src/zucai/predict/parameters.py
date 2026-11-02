@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import logging
 import math
+import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -10,6 +12,7 @@ from zucai.predict.base import utc
 from zucai.predict.seasons import latest_complete_seasons
 
 PARAMS_PATH = Path(__file__).resolve().parents[3] / "data/model/params.json"
+logger = logging.getLogger(__name__)
 TRAINING_POLICY = {
     "history_scope": "cumulative",
     "strict_availability": False,
@@ -25,19 +28,164 @@ GATE = {
     "bet_allowed": False,
     "require_two_nonempty_complete_seasons": True,
     "require_no_skips_or_unavailable_labels": True,
-    "artifact_corpus": "same_database_sha256_and_cumulative_nonreplayed_policy",
+    "artifact_corpus": "matching_sources_and_cumulative_nonreplayed_policy",
     "evidence_recency": "latest_two_complete_seasons_at_prediction",
 }
 
 
+def _parameter_paths(path=None):
+    if path is not None:
+        return [Path(path).expanduser().resolve()]
+    candidates = []
+    if configured := os.environ.get("ZUCAI_PARAMS"):
+        candidates.append(Path(configured))
+    candidates.extend((Path.cwd() / "data/model/params.json", PARAMS_PATH))
+    return list(dict.fromkeys(candidate.expanduser().resolve() for candidate in candidates))
+
+
+def parameters_path(path=None):
+    """Locate a config, keeping the final attempted path available for provenance."""
+    candidates = _parameter_paths(path)
+    return next((candidate for candidate in candidates if candidate.exists()), candidates[-1])
+
+
+def _positive_number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return value > 0 and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _timestamp(value):
+    if not isinstance(value, str):
+        return False
+    try:
+        utc(value)
+    except (ValueError, TypeError, OverflowError):
+        return False
+    return True
+
+
+def _text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _text_list(value):
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(_text(item) for item in value)
+        and len(set(value)) == len(value)
+    )
+
+
+def _validate_fields(league, values, validators, *, required=(), prefix=""):
+    for field in required:
+        if field not in values:
+            raise ValueError(f"params.json 联赛 {league} 缺少字段 {prefix}{field}")
+    for field, valid in validators.items():
+        if field in values and not valid(values[field]):
+            raise ValueError(f"params.json 联赛 {league} 字段 {prefix}{field} 类型或值无效")
+
+
+def _validate_entry(league, entry):
+    if not isinstance(entry, dict):
+        raise ValueError(f"params.json 联赛 {league} 条目须为对象")
+    required = ["half_life_days", "selection_as_of_utc"]
+    if entry.get("p2_ready") is True:
+        required.extend(
+            (
+                "generated_utc",
+                "database_sha256",
+                "training_policy",
+                "sources",
+                "unknown_team_prior",
+                "draw_calibration",
+                "p2_evidence",
+            )
+        )
+    _validate_fields(
+        league,
+        entry,
+        {
+            "half_life_days": _positive_number,
+            "selection_as_of_utc": _timestamp,
+            "generated_utc": _timestamp,
+            "database_sha256": _text,
+            "training_policy": lambda value: isinstance(value, dict),
+            "sources": lambda value: _text_list(value) and all("," not in s for s in value),
+            "unknown_team_prior": _text,
+            "draw_calibration": lambda value: isinstance(value, bool),
+            "p2_ready": lambda value: isinstance(value, bool),
+            "p2_evidence": lambda value: isinstance(value, dict),
+            "evaluation_windows": lambda value: isinstance(value, list),
+        },
+        required=required,
+    )
+    if "training_policy" in entry:
+        validators = {
+            "history_scope": _text,
+            "strict_availability": lambda value: isinstance(value, bool),
+            "replay_known_after": lambda value: value is None or _text(value),
+        }
+        _validate_fields(
+            league,
+            entry["training_policy"],
+            validators,
+            required=validators,
+            prefix="training_policy.",
+        )
+    if "p2_evidence" in entry:
+        _validate_fields(
+            league,
+            entry["p2_evidence"],
+            {"as_of_utc": _timestamp, "seasons": _text_list},
+            required=("as_of_utc", "seasons") if entry.get("p2_ready") else (),
+            prefix="p2_evidence.",
+        )
+    for index, window in enumerate(entry.get("evaluation_windows", [])):
+        prefix = f"evaluation_windows[{index}]."
+        if not isinstance(window, dict):
+            raise ValueError(f"params.json 联赛 {league} 字段 {prefix[:-1]} 须为对象")
+        _validate_fields(
+            league,
+            window,
+            {
+                "validation_season": _text,
+                "selection_season": _text,
+                "half_life_days": _positive_number,
+                "selection_as_of_utc": _timestamp,
+                "draw_calibration": lambda value: isinstance(value, bool),
+            },
+            required=("validation_season", "half_life_days", "selection_as_of_utc"),
+            prefix=prefix,
+        )
+
+
 def read_parameters(path=None):
-    path = Path(path) if path is not None else PARAMS_PATH
+    candidates = _parameter_paths(path)
+    path = parameters_path(path)
     if not path.exists():
+        logger.warning(
+            "参数文件不存在，回落默认90天；尝试路径：%s", ", ".join(map(str, candidates))
+        )
         return {"schema_version": 1, "gate": GATE, "leagues": {}}, None
     raw = path.read_bytes()
-    doc = json.loads(raw)
-    if doc.get("schema_version") != 1 or not isinstance(doc.get("leagues"), dict):
+    try:
+        doc = json.loads(raw)
+    except (ValueError, UnicodeError) as exc:
+        raise ValueError("params.json 格式无效") from exc
+    if (
+        not isinstance(doc, dict)
+        or isinstance(doc.get("schema_version"), bool)
+        or doc.get("schema_version") != 1
+        or not isinstance(doc.get("leagues"), dict)
+    ):
         raise ValueError("params.json 格式无效")
+    for league, entry in doc["leagues"].items():
+        _validate_entry(league, entry)
     return doc, hashlib.sha256(raw).hexdigest()
 
 
@@ -60,6 +208,7 @@ def resolve_parameters(league, *, as_of, params_file=None, half_life_days=None):
     return dict(
         half_life_days=float(days),
         source=source,
+        params_path=str(parameters_path(params_file)),
         params_sha256=digest if usable else None,
         selection_as_of_utc=entry.get("selection_as_of_utc") if usable else None,
         draw_calibration=bool(entry.get("draw_calibration", False)) if usable else False,
@@ -67,7 +216,7 @@ def resolve_parameters(league, *, as_of, params_file=None, half_life_days=None):
 
 
 def write_parameters(league, entry, path=None):
-    path = Path(path) if path is not None else PARAMS_PATH
+    path = parameters_path(path)
     doc, _ = read_parameters(path)
     doc["gate"] = GATE
     doc["leagues"][league] = entry
@@ -158,7 +307,6 @@ def model_readiness(model, *, as_of, params_file=None):
             and utc(entry["selection_as_of_utc"]) <= utc(model.as_of)
             and evidence.get("seasons") == latest_complete_seasons(as_of, model.league)
             and bool(entry.get("database_sha256"))
-            and getattr(model, "database_sha256", None) == entry["database_sha256"]
             and entry.get("training_policy") == TRAINING_POLICY
             and getattr(model, "training_policy", None) == TRAINING_POLICY
             and getattr(model, "availability_basis", "unknown") in ("strict", "mixed")
@@ -174,9 +322,13 @@ def model_readiness(model, *, as_of, params_file=None):
         p2_ready=bool(ready),
         p2_label="P2 可用" if ready else "P2 实验",
         params_sha256=digest,
+        params_path=str(parameters_path(params_file)),
         half_life_days=model.half_life_days,
         parameter_source=getattr(model, "parameter_source", "legacy_or_explicit"),
-        training_database_sha256=getattr(model, "database_sha256", None),
+        training_database_sha256=getattr(model, "training_database_sha256", None)
+        or getattr(model, "database_sha256", None),
+        evaluation_database_sha256=getattr(model, "evaluation_database_sha256", None)
+        or entry.get("database_sha256"),
         training_policy=getattr(model, "training_policy", None),
         p2_evidence=evidence,
         bet_allowed=False,

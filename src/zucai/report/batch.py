@@ -52,6 +52,8 @@ def _models(paths, as_of, params_file=None):
             "assumed_training_share": getattr(model, "assumed_training_share", None),
         }
         meta.update(model_readiness(model, as_of=as_of, params_file=params_file))
+        meta["parameter_provenance"] = dict(getattr(model, "parameter_provenance", {}))
+        meta["parameter_provenance"].setdefault("params_path", meta["params_path"])
         for key in keys:
             registry[key] = (model, meta, error)
     if not registry:
