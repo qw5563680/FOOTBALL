@@ -18,6 +18,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from zucai.db import get_engine, init_db
+from zucai.sfc_state import export_sfc_state, restore_sfc_state
 from zucai.sources.results import ResultRowsRejected, fetch_results
 from zucai.sources.sporttery import BEIJING, fetch_schedule
 
@@ -53,7 +54,7 @@ MANIFEST = "feed_manifest.json"
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 STATE_FILE = (
     r"state/(?:api_football_quota\.json|"
-    r"audit/(?:jc|fd|fdorg|apif)_[a-z_]+\.csv|"
+    r"audit/(?:jc|fd|fdorg|apif|sfc)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif)\.json)"
 )
 VIEW = """
@@ -194,6 +195,7 @@ def export_feeds(
                 key = f"state/{table}.jsonl"
                 dump_rows(archive / key, db.execute(query + f" ORDER BY {','.join(cols)}"))
                 files.append(key)
+        files.extend(export_sfc_state(db, archive))
         sources = source_inventory(db)
         data = db.execute(VIEW)
         for month, group in groupby(data, key=lambda r: r[3][:7]):
@@ -274,7 +276,7 @@ def archive_info(archive: Path) -> dict:
         raise ValueError("不支持的云端归档版本")
     for key, want in meta["files"].items():
         if not re.fullmatch(
-            rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|{STATE_FILE}",
+            rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
             key,
         ):
             raise ValueError(f"未知归档文件 {key}")
@@ -328,6 +330,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                 count = db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
                 if count != meta["counts"][table]:
                     raise ValueError(f"{table} 行数校验失败")
+            restore_sfc_state(db, archive, meta["files"])
             check_db(db)
             if meta["version"] == 2 and source_inventory(db) != meta.get("sources"):
                 raise ValueError("各来源行数或哈希校验失败")
@@ -538,6 +541,10 @@ def main():
                 fetch_results(start, end)
             except ResultRowsRejected as exc:
                 LOG.warning("单场拒绝，继续处理其他窗口：%s", exc)
+    if args.command == "sync":
+        from zucai.sources.sfc import collect_current_sfc
+
+        collection = {"sfc": collect_current_sfc(target)}
     manifest = export_feeds(target, archive, day, args.run_id, collection=collection)
     if args.command == "backfill":
         from zucai.forecast_archive import verify_forecasts

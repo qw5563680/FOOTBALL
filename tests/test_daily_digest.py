@@ -274,3 +274,16 @@ def test_symlink_output_and_corrupt_forecast_refused(digest_archive, tmp_path):
     with pytest.raises(ValueError, match="SHA256"):
         generate(digest_archive, tmp_path / "daily", now=NOW)
     assert not (tmp_path / "daily").exists()
+
+
+def test_started_fixture_is_excluded_not_labelled_missing_model():
+    from zucai.daily_digest import _forecast_sections
+
+    batch = json.loads((FIXTURES / "forecast.json").read_bytes())
+    batch["predictions"] = [batch["predictions"][1]]
+    batch["predictions"][0]["reason"] = "预测截点时已开赛"
+    text = "\n".join(
+        _forecast_sections([("2026-11-03", "forecast.json", batch)], date(2026, 11, 3), None)
+    )
+    assert "未预测：预测截点时已开赛" in text
+    assert "无模型：预测截点时已开赛" not in text

@@ -45,7 +45,13 @@ def run_cloud_sync(monkeypatch, work, archive, through):
     main()
 
 
-def mock_calendar(api):
+def mock_calendar(api, *, sfc=True):
+    if sfc:
+        api.add(
+            responses.GET,
+            "https://trade.500.com/sfc/",
+            body=(Path(__file__).parents[1] / "data/fixtures/t07/26156.html").read_bytes(),
+        )
     calendar = feed_json("sporttery_calculator_20261101.json")
     # Keep sample fixtures unstarted regardless of the machine's current clock.
     for group in calendar["value"]["matchInfoList"]:
@@ -158,7 +164,7 @@ def test_cloud_sync_does_not_publish_after_incomplete_page_or_policy_denial(
     export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 1), "rejected")
     before = {p.relative_to(archive): p.read_bytes() for p in archive.rglob("*") if p.is_file()}
     with responses.RequestsMock() as api:
-        mock_calendar(api)
+        mock_calendar(api, sfc=False)
         mock_result_day(api, "2026-10-01", [{"matchId": 4}, {"matchId": 5, "sectionsNo1": "9:0"}])
         if failure == "blocked":
             api.add(

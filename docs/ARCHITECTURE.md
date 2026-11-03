@@ -160,7 +160,7 @@ T07在既有 `sfc_issues` 中新增可空 `observed_utc/source_url/raw_sha256/da
 14场概率齐全才计算完整复式覆盖；动态规划每个精确注数保留最大对数覆盖概率状态。
 输出冻结JSON内嵌T06证据批次，Markdown/CSV从同一字节载荷渲染，不改变原预测版本和生成时间。
 CSV独立保留每行的P2、模式、BET/执行禁用、原预测截点/生成时刻、报告时刻和截止状态。
-期次表与报告尚未加入cloud_feeds自动归档，当前真实验收快照通过PR保存在私有仓库。
+T26 将期次表与诊断报告加入 cloud_feeds 自动归档，云端路径不创建未匹配球队/比赛，细节见 T26 一节。
 
 时间字段接受带时区的 ISO 8601 字符串或 datetime，统一存为固定微秒精度的 UTC 字符串
 （如 `2026-10-31T16:15:00.000000Z`）。不接受无时区的时间。每个 SQLite 连接启用外键检查。
@@ -530,6 +530,8 @@ T25 摘要分别选今明开球日最新的冻结批次展示，不改变 T19 �
 没有预测目录的旧归档仍通过；有预测而缺清单、损坏文件或符号链接则失败。
 Actions artifact 保存本次模型、两日报告及索引 90 天，长期证据以数据分支为准。摘要复用实际 report.md
 的比赛表，顶部固定免责声明；所有概率仍是纯模型，市场仅对照，BET 禁用。
+T26 在 predict job 的两日冻结步骤后运行 `zucai.sfc_reports`，只读取当日最新 run 的两个冻件，不扩大模型预测日期范围。
+SFC 步骤标 `continue-on-error`，失败保留运行记录并仍发布已成功冻结的竞彩数据；SFC 产物一并保存 artifact。
 
 
 ## T18 一次性 fd 历史回填
@@ -604,7 +606,7 @@ CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
 
 页面依次是头部、今日与明日预测、昨日结算、虚拟账户、异常。每个开球日按生成 UTC、batch_id 取最新
 冻结批次（空批次不借旧场次补齐），按联赛展示原胜平负、完整模型版本、P2 ready/experimental 与原 top_scores
-前五，不排序或重算概率；excluded 行显示「无模型」和原原因。数据来源链接指向对应数据分支文件。
+前五，不排序或重算概率；excluded 行统一显示「未预测：原因」，不把已开赛等原因说成缺模型。数据来源链接指向对应数据分支文件。
 
 昨日评分只过滤 summary.audit.active_keys，按 available_utc 的北京日归类；匹配原批次球队名称，缺失时
 保留 match_id。日均 LogLoss/Brier 只对同一筛选结果中 `scoreboard/scored.jsonl` 的 `model.log_loss` /
@@ -624,7 +626,8 @@ SP、返还、盈亏与 replayed 标记。聚合账户值不从裁剪后的账�
 `digest` job 依赖 scoreboard，定时、手动 predict/scoreboard/digest 时运行，取消时停止；上游失败时仍可
 展示最后归档的状态。手动 digest 时其他四个 job 均跳过（包括从旧采集标签发起），不采集、不训练、不结算。
 沿用工作流全局写锁和发布脚本；显式暂存 daily/，设置 `daily/** -text`，发布成功才通知，artifact 保存 90 天。
-工作流仅增加 `issues: write`。只有通知步骤得到 GITHUB_TOKEN，源码仓库 checkout 不持久化凭证。
+工作流顶层仅保留 `contents: write`；`issues: write` 仅在 digest job 声明（连同该 job 发布数据需要的 contents）。
+只有通知步骤得到显式 GITHUB_TOKEN 环境变量，源码仓库 checkout 不持久化凭证。
 
 `python -m zucai.digest_notify --file <daily/latest.md>` 仅允许 Actions schedule/workflow_dispatch：
 校验首行、唯一北京当日标记与单评论长度，正文与发布文件完全相同。REST 分页精确查找「每日报告 YYYY-MM」，
@@ -633,6 +636,44 @@ SP、返还、盈亏与 replayed 标记。聚合账户值不从裁剪后的账�
 每月 1 日首次运行轮换（漏跑后补做），取消上月置顶，新报告成功后关闭上月；重试不重复建 Issue/评论，
 不改无关 Issue 或人工评论。HTTP/GraphQL 失败显式报错，日志不输出 token 或响应正文。通知是否到手机、
 编辑是否再次提醒、GITHUB_TOKEN 实际置顶权限由 Claude 的 Actions 运行验收，不以离线测试冒充实测。
+
+## T26 14 场胜负彩每日诊断
+
+`sources.sfc.collect_current_sfc` 仅在 sync 自建 runner 路径运行：复用 C500Sfc 的静态页面解析，
+每次单个无参数 `/sfc/` GET，无重定向/自动重试/额外桥接请求。`mapped_only=True` 沿用 T07 的
+库内 counterpart、既有期次数字ID证据及精确身份匹配，但不创建或修改 Team/Match。未匹配/歧义的
+snapshot 行保持 match_id、matched_identity 为 null，全部14行仍保留；只有已匹配行写 sfc_issue_matches。
+旧手工 T07 默认行为保留。审计 sfc_unmatched.csv 按期号/序号/fixture/reason/candidates 去重，保留首次原件哈希。
+SFC 失败不撤销已采集竞彩，collection.sfc 标 partial 并保存安全原因，手机摘要也显示该状态。
+
+`sfc_state.py` 从数据库导出 `state/sfc/<issue>.json`，含 schema_version=1、issue 全字段及 mapped matches；
+纳入 feed_manifest 的路径/哈希清单。恢复时在临时数据库原表数据恢复之后校验14序号、fixture唯一性、
+外键及快照/关联表一致性，再恢复现有 SfcIssue 表；不增加 schema，不改变原 TABLES 或旧归档兼容性。
+早期只有期号、没有 snapshot 的记录留在原库，导出时记 warning 并跳过，不补造对阵，也不阻塞其他数据归档；
+已存在但结构损坏的快照仍报错，不能按旧记录静默跳过。
+不存在新造球队/比赛以填补外键的路径，原子替换目的库前完成校验。期次重采替换当前映射，原请求字节仍存 artifact。
+
+`sfc_reports.py` 恢复归档到临时只读库，选北京当日最新一次 run 的两份 T06 JSON，保留原模型概率、版本及
+逐行原批次时点。两份 JSON 以 forecast_sources 原路径、SHA256、完整正文存证；forecast_batch 只是引用合并视图，
+不是新增模型推断。复用 T07 build_sfc_report 的身份/时间/模型核验和 optimize_cover 动态规划。
+云端缺概率行显示「无模型」，概率/单选首项保持 null、复式强制三选；先扣除 3^missing 所需注数再优化已知场。
+最少注数超64时 combo=null，显示最低注数和不可行原因，不伪造覆盖率。完整三选覆盖的缺模型行无需补造概率，
+其余覆盖仍明确跨场独立近似。未截止且尚无开球场次才发布，写入前再次核截止。
+
+每期最新四文件在 `sfc/<issue>/{report.md,report.csv,sfc.json,manifest.json}`，相同内容冻结在
+`sfc/<issue>/history/<run-id>/`；同 run 不覆盖，换批保留旧历史，写失败恢复当前视图。每份清单验证JSON/MD/CSV原字节，
+引用的 T06 原件也核验；`sfc/** -text whitespace=cr-at-eol` 保留发布与恢复字节。
+
+`scoreboard.sfc` 选择截止且所有比赛开球前最后一份报告，不把事后重建作为诊断。只在14场全部有 finished、
+完整90分钟比分、身份一致、captured/published 且报告之后/结算截点之前可知时追加 `sfc/settled.jsonl`。
+每条含 issue_no、报告路径/哈希/生成时间、settled_utc、single_hits、single_evaluated、combo_all_hit、14行原概率/首项/复式项/赛果。
+缺模型行不计首项命中，不可行复式的 combo_all_hit=null；一期仅追加一次，不覆盖旧诊断。
+summary.sfc 保存 issues、average_single_hits、hit_distribution、latest、settled_sha256 与固定诊断/BET禁用标记。
+记分板末节显示诊断；SFC JSONL 与记分板四文件一起写，失败一起回滚，既有概率评分和竞彩账户公式不变。
+
+`sfc_digest.section` 只读并核验以上档案，在今明预测之后显示最新期号、第三方截止、14行概率、复式注数与覆盖、
+上一已结算期命中数；没报告时仍从归档快照列14行和「无模型」。不新增资金账户、不估奖金、不做任九。
+真实 sync/predict/摘要/结算验收由 Claude 在 Actions 执行，离线 tests 不承担访问能力证明。
 
 ## T20 欧战采集与一次性 API 回填
 

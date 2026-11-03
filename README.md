@@ -63,6 +63,7 @@ zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --ar
 zucai aliases evaluate --provider apif --leagues 3,848 --archive ../cloud-data --out work/identity-evaluation.json
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
 python -m zucai.daily_digest --archive ../cloud-data --out ../cloud-data/daily  # 只读冻结数字，生成每日摘要
+python -m zucai.sfc_reports --archive ../cloud-data  # 只用当日冻结批次生成未截止的14场诊断报告
 pytest -q
 ```
 
@@ -99,8 +100,8 @@ pytest -q
 | job | 运行器 | 时间 / 范围 |
 | --- | --- | --- |
 | `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
-| `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 沿用官方在售赛程与赛果 `sync`；未配置时整个 job 显示 skipped |
-| `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告 |
+| `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 官方在售赛程与赛果 `sync` 后，单次请求 `/sfc/` 归档当期14场；未配置时整个 job 显示 skipped |
+| `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告；随后生成未截止期次的14场诊断 |
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
 | `digest` | `ubuntu-latest`，15 分钟上限 | 等待 `scoreboard`，把冻结数字写成每日摘要并推送到当月 Issue；另支持手动 `operation=digest` |
 
@@ -323,11 +324,11 @@ D/E 每个北京开球日每档每账户最多一注。后续批次不替换已�
 每天直接看[最新摘要](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/daily/latest.md)，
 或者订阅置顶的「每日报告 YYYY-MM」Issue。工作流先发布数据分支，再把同一正文发为 Issue 评论；
 同一天晚班编辑已有评论，每月首次运行新建并置顶当月 Issue、取消上月置顶并关闭上月 Issue。
-如果 1 日漏跑，下一次运行补做换月。只新增 `GITHUB_TOKEN` 的 `issues: write` 权限，不新增 Secret。
+如果 1 日漏跑，下一次运行补做换月。顶层仅 `contents: write`；仅 digest job 增加 `issues: write`，不新增 Secret。
 GitHub App / 邮件是否提醒取决于账号的订阅与通知设置；编辑评论不保证再次提醒，真实通知由 Actions 验收。
 
 摘要依次列日期与数据水位、今明预测及冻结比分前五、昨日结算、1.05 档五个虚拟账户、采集异常。
-首行固定「非购买建议 · BET 禁用」。无模型与缺失状态原样标出，不以零填空；门槛未达显示「证据不足」。
+首行固定「非购买建议 · BET 禁用」。排除行统一显示「未预测：原因」，缺失状态不以零填空；门槛未达显示「证据不足」。
 昨日评分按赛果可知时间的北京日归类，昨日注单按生成或结算北京日归类。日均 LogLoss / Brier 只对
 `scoreboard/scored.jsonl` 中昨日有效逐场评分取算术平均，标注「由当日 N 场逐场评分平均，非记分板原字段」，
 同时保留逐场原值；0 场显示「昨日无已结算场次」。不从概率和赛果重算评分，不改记分板；累计等指标直接引用原值。
@@ -335,10 +336,35 @@ GitHub App / 邮件是否提醒取决于账号的订阅与通知设置；编辑�
 命令的 `--out` 是输出目录；写入归档内部时只允许 `daily/`。本地生成不推送，推送命令仅允许在 Actions 中执行。
 
 记分板 job 将前 60 行贴入 Actions 摘要，四文件另存 artifact 90 天；使用原有写回锁与发布脚本。
-仅更新这四个文件，feed/forecast 清单、数据库、模型和旧预测不变；先校验旧状态，失败回滚本次写入。
+记分板主体更新这四个文件，T26 另维护下述14场诊断日志；feed/forecast 清单、数据库、模型和旧预测不变，失败回滚本次写入。
 可在归档副本中运行 `python -m zucai.scoreboard run --archive ../cloud-data --replay-days 7`
 补记最近七天已经冻结的批次；`--as-of` 可指定带时区的历史截点，但不能倒退已有记分板。
 没有符合条件的完赛场次时保留 n=0 和未知指标，不制造旧预测或旧赛果。
+
+### 14 场胜负彩自动诊断（T26）
+
+自建 runner 每次 sync 只请求一次 `https://trade.500.com/sfc/` 当期页面，通常每日两班共两次；
+不额外请求竞彩桥接页。沿用已有映射证据或精确身份匹配，无法匹配的行只保存期次快照并进入
+`state/audit/sfc_unmatched.csv`，不创建球队或比赛。重复抓取同一期不重复入库或追加相同审计。
+采集失败记 partial，保留已采集的竞彩数据。托管机能否直接采集留给 Claude probe。
+
+预测 job 随后只读取当日最新一次预测的两份冻结 JSON，为所有未截止期次生成14行概率表。
+无模型行保留空概率，按三选处理；默认上限64注，若三选最低注数已经超限，则明确显示无法生成完整复式，
+不缩减缺失场次的选项。覆盖概率是跨场独立近似下的14场全覆盖诊断，不是盈利概率。
+SFC 步骤失败不会丢弃本次已生成的竞彩预测，运行步骤和 artifact 留下失败证据。
+
+| 数据分支路径 | 内容 |
+| --- | --- |
+| `state/sfc/<issue>.json` | 原14场快照及已匹配的期次关联，可从归档恢复 |
+| `sfc/<issue>/report.md`、`report.csv`、`sfc.json`、`manifest.json` | 最新期次诊断与原件哈希 |
+| `sfc/<issue>/history/<run-id>/` | 每批不可覆盖的同四文件，截止后不更新该期报告 |
+| `sfc/settled.jsonl` | 一期一条的诊断：单选命中数、有模型场数、复式是否全中及各场原概率/赛果 |
+
+14 场都有可核验90分钟赛果后才结算，使用截止且开赛前最后一份冻结报告；缺失/取消/身份冲突保持待结。
+无模型场次没有单选首项，三选覆盖不算单选命中；不可行复式的全中结果为空。已记期次不重复追加，
+也不因后到报告或更正赛果回写旧诊断。`scoreboard/summary.json` 的 `sfc` 和记分板末节显示期数、平均命中数、
+命中数分布；原有竞彩账户与统计规则不变。每日摘要增加14场小节和上一已结算期命中数。
+全程仅作诊断，不估奖金、不做任九、不另设虚拟账户，BET 禁用。
 
 两条门槛彼此独立：
 

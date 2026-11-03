@@ -162,11 +162,21 @@ class C500Sfc(Source[SfcSnapshot]):
         self.session = session if session is not None else make_session()
         self.limiter = RateLimiter(1)
 
-    def fetch_raw(self, *, issue: str | None = None) -> Path:
+    def fetch_raw(self, *, issue: str | None = None, current_only=False) -> Path:
         if issue is not None:
             issue_number(issue)
         self.limiter.wait()
-        response = self.session.get(self.url, params={"expect": issue} if issue else {})
+        if current_only:
+            if issue is not None:
+                raise ValueError("current-only fetch cannot select an issue")
+            from requests.adapters import HTTPAdapter
+
+            self.session.mount("https://", HTTPAdapter(max_retries=0))
+            response = self.session.get(self.url, allow_redirects=False)
+            if 300 <= response.status_code < 400:
+                raise ValueError("SFC redirect rejected")
+        else:
+            response = self.session.get(self.url, params={"expect": issue} if issue else {})
         path = self.store.save_response(self.name, f"issue-{issue or 'current'}", response, "html")
         response.raise_for_status()
         return path
