@@ -380,9 +380,61 @@ T22 起本地实际发送数上限默认等于 `limit_day`，可用 `ZUCAI_APIF_
 `state/audit/apif_season_probes.csv`，全部原件在该 run 的 artifact，任何失败仍为 partial。
 T20 已随 main `171f41a` 合入本分支；`backfill --source apif` 复用其导入与欧战身份核验，
 允许范围取 `seasons_available`，默认两项欧战，也可显式选择九联赛。
-真实回填、同范围重复新增 0、合并后的每日三次请求以及各赛事回填前后对齐率仍待 Claude 的 Actions 验收。
+这些 T22 真实验收已由 Claude 完成，run ID、数据提交与场数见
+[T22 审查阶段二](reviews/2026-11-03-t22-review.md)；
+欧战仍有身份隔离，因此由 T23 继续处理。
 本次开发也未重新访问 robots；沿用第 6 节与 T14 的既有访问记录，真实复核留给审查者的 Actions 验证。
 正式凭据只保存在 Actions Secrets，任何开发环境不得用正式 key 发请求。
+
+### T23 identity-only 桥接（2026-11-03，需 Claude 实测）
+
+本次开发没有向 API、status 或 robots 发真实请求。继续遵守 AGENTS 第 10 条，由 Claude 在 Actions
+确认元数据和实际赛季响应；robots 沿用上文已记录的访问结论，不把离线样本当作新的实测。
+
+| 候选 ID | 规范联赛 | 预期 API 名称 / 国家 | 状态 |
+| --- | --- | --- | --- |
+| 39 | 英超 | Premier League / England | 需验证 |
+| 140 | 西甲 | La Liga / Spain | 需验证 |
+| 135 | 意甲 | Serie A / Italy | 需验证 |
+| 78 | 德甲 | Bundesliga / Germany | 需验证 |
+| 61 | 法甲 | Ligue 1 / France | 需验证 |
+| 88 | 荷甲 | Eredivisie / Netherlands | 需验证 |
+| 94 | 葡超 | Primeira Liga / Portugal | 需验证 |
+
+这些 ID 来自 T23 任务单，先写 `identity_only=true`、`verification_status=needs_verification`、
+`verified_utc=null`、`seasons_available=[]`；不进入每日采集过滤，不允许 backfill 或直接 fetch 导入。
+`identity_seasons=[2025,2026]` 是待核验目标，不能据此宣称赛季权限开放。
+
+由审查者运行 `operation=probe probe_kind=leagues`，默认一次请求一个候选 ID，共 7 次
+`/leagues?id=`，沿用安全归档、6.1 秒间隔和 reserve=10。返回 ID、名称、国家及 League 类型须全部
+与候选配置相符；分页、数量或 API 错误都记失败。逐次 UTC、HTTP、原件 SHA256 和结论写
+`state/audit/apif_league_probes.csv`，原件在 artifact。元数据年份不作为付费读取权限证明。
+
+有成功 metadata 审计后，`operation=identity` 默认七联赛各取 2025/2026 两季，最多 **14 次 fixtures**；
+不另查 status，不追分页。响应必须完整单页且无解析拒绝，才参与同联赛主客方向图。
+对照只用已有 jc 与 T08 已核验时区和中文规范名的 fd；同场 jc/fd 已知对照优先保留 jc。
+不依赖球队名字相似度，不使用比分或赔率挑选身份。输出候选和身份审计，不导入任何比赛、球队或赛果。
+
+候选证据含来源比赛 ID、对方比赛 ID、UTC 差、整季原件 SHA256、元数据 SHA256、fd 配置 SHA256；
+写入 `state/alias_candidates/apif.json` 和 `state/audit/apif_identity.csv`。
+Claude 实跑后，实现者只复制真实 `auto_verified` 条目到正式文件，保留证据再审查。
+欧战继续按同一 APIF 数字球队 ID 桥接正式条目，待审候选不生效。
+无法核验的球队由只读 `zucai aliases proposals` 输出审批清单；jc 候选中文名仅作未核验参考，
+国家或赛季字段缺失时明确说明，建议规范名留空。新批准条目必须记录批准人、UTC 时间和 PR 链接。
+
+回填将另存 `apif_identity_matches.csv` 的身份字段与范围完整标记，方便离线计数和核验；
+此表不含赛果/赔率，不进入模型。两张 APIF 拒绝/疑似重复审计按 `(provider_match_id, raw_sha256, reason)`
+去重；缺合法比赛 ID 时用原件行号区分。不同原件或原因保留，fd/fdorg 审计不变。
+
+**放宽规则仅离线评估。** `zucai aliases evaluate` 读取完整 2025/2026 证据，统计同联赛 ±3h 双向唯一
+配对且同队在两场不同比赛中一致的候选，扣除现有严格图已经能核验的球队，并列冲突。
+合成 fixture 中两支球队虽满足双场一致，但现有严格图同样能核验，额外解决为 0；
+这只是离线测试结论，不能外推到生产库。缺完整范围时输出 `insufficient_evidence`，不宣称零冲突成功。
+正式结论须等真实 identity、别名审查和所有者审批完成后再对数据分支评估；当前尚无该阶段数据。
+即使额外至少 20 支且零冲突，也只为下一任务提供依据，本任务不放宽任何生产身份规则。
+
+待 Claude 回填证据：7 个 ID 的 probe run/原件、identity run/候选数/数据提交、正式别名与第一批审批清单，
+以及重新回填后的 2026 隔离数、新增 jc 关联、对齐率和同范围重复运行的行数不变证明。
 
 ### 字段和身份边界
 

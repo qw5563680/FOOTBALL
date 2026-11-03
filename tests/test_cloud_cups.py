@@ -159,6 +159,41 @@ def test_cup_backfill_roundtrips_and_second_run_inserts_zero(
     assert {p: p.read_bytes() for p in aliases} == aliases
 
 
+def test_repeated_apif_backfill_keeps_suspected_and_rejected_audits_unchanged(
+    environment, tmp_path, monkeypatch
+):
+    import csv
+
+    doc = json.loads((FIXTURES / "apif_3_2024.json").read_bytes())
+    doc["response"][0]["score"]["fulltime"]["home"] = -1
+    stamp = doc["response"][1]["fixture"]["date"]
+    seed = tmp_path / "ambiguous/data/zucai.db"
+    restore_feeds(environment, seed)
+    with sqlite3.connect(seed) as con:
+        con.execute("UPDATE matches SET league='欧罗巴',kickoff_utc=?", (stamp,))
+        con.execute(
+            "INSERT INTO matches(match_id,source,league,home_team_id,away_team_id,"
+            "kickoff_utc,status) VALUES('jc:ambiguous','jc','欧罗巴',2,1,?,'scheduled')",
+            (stamp,),
+        )
+    export_feeds(seed, environment, date(2026, 11, 2), "ambiguous")
+    aliases = tmp_path / "empty.json"
+    aliases.write_text("{}")
+    monkeypatch.setattr("zucai.cloud_api_backfill.APIF_ALIASES", aliases)
+    first = {}
+    for label in ("dedup-first", "dedup-second"):
+        with responses.RequestsMock() as api:
+            api.get("https://v3.football.api-sports.io/fixtures?league=3&season=2024", json=doc)
+            run_backfill(environment, tmp_path / label, monkeypatch, "apif", "3")
+        for filename in ("apif_suspected_duplicates.csv", "apif_rejected_rows.csv"):
+            path = environment / "state/audit" / filename
+            assert list(csv.DictReader(path.open()))
+            if label == "dedup-first":
+                first[filename] = path.read_bytes()
+            else:
+                assert path.read_bytes() == first[filename]
+
+
 @pytest.mark.parametrize("failure", ["plan", "page"])
 def test_failed_apif_scope_keeps_other_cup_and_never_imports_partial_pages(
     environment,
@@ -255,6 +290,10 @@ def test_cup_history_links_only_empty_counterpart_and_preserves_jc_score(
             # persist team aliases; a repeat must still verify the same evidence.
             assert item["alignment_rate_before"] == 0.0
             assert item["alignment_rate_after"] == 0.2
+            assert item["new_linked_jc"] == (1 if label == "linked" else 0)
+            assert report["new_linked_jc"] == item["new_linked_jc"]
+            assert report["isolated_2026"] == 0
+            assert item["jc_window_teams"] >= item["jc_window_aligned_teams"] == 2
         if label == "repeat":
             assert report["inserted"] == 0
         with sqlite3.connect(tmp_path / label / "data/zucai.db") as db:

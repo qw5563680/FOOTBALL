@@ -8,6 +8,8 @@ from pathlib import Path
 from zucai.db import get_engine, init_db, session_scope
 from zucai.sources.api_common import LocalValidationError
 from zucai.sources.api_football import LEAGUES, ApiFootball
+from zucai.sources.apif_aliases import validate_approvals
+from zucai.sources.apif_audit import audit_apif as _audit
 from zucai.sources.apif_ingest import COUNT_KEYS, import_apif_games
 from zucai.sources.base import RawStore
 from zucai.sources.cup_identity import (
@@ -16,7 +18,7 @@ from zucai.sources.cup_identity import (
     needs_cup_union,
     resolve_cup_aliases,
 )
-from zucai.sources.fdorg_command import _audit, _capture_time, _unmatched_teams, _url_identity
+from zucai.sources.fdorg_command import _capture_time, _unmatched_teams, _url_identity
 from zucai.sources.football_data import CONFIG_ROOT, read_json
 
 LOG = logging.getLogger(__name__)
@@ -51,6 +53,7 @@ def fetch_apif(
         raise LocalValidationError("--date 增量只允许 captured，不能指定假设")
     leagues = read_json(leagues_path or LEAGUES)
     aliases = read_json(aliases_path or ALIASES)
+    validate_approvals(aliases, require_metadata=aliases_path is None)
     source = ApiFootball(
         store=RawStore(raw_root), leagues=leagues, quota_path=quota_path, reserve=reserve
     )

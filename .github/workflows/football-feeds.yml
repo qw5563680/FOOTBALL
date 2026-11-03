@@ -6,23 +6,28 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，probe 权限探测'
+        description: 'apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，probe 权限探测，identity 身份核验'
         type: choice
-        options: [apis, sync, verify, predict, backfill, scoreboard, probe]
+        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity]
         default: verify
       source:
-        description: 'backfill 来源；probe 固定使用 apif'
+        description: 'backfill 来源；probe / identity 固定使用 apif'
         type: choice
         options: [fd, fdorg, apif]
         default: fd
       leagues:
-        description: '赛事代码；留空时 probe 用 3,848，backfill 用该来源默认范围'
+        description: '赛事代码；留空按操作选择：赛季 probe 用 3,848，身份核验/元数据 probe 用七个桥接联赛'
         type: string
         default: ''
       seasons:
-        description: 'probe 年份范围或逗号列表；国内联赛用 2025,2026'
+        description: 'probe 年份；identity 留空为 2025,2026'
         type: string
         default: ''
+      probe_kind:
+        description: '仅 probe：seasons 查赛季权限，leagues 确认七个桥接联赛 ID'
+        type: choice
+        options: [seasons, leagues]
+        default: seasons
       from_season:
         description: '仅 backfill：起始年或 fd 赛季代码，留空用已核验范围'
         type: string
@@ -55,11 +60,11 @@ defaults:
     shell: bash
 
 env:
-  FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'probe') && 'probe' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
+  FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'identity') && 'identity' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'probe') && 'probe' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
 
 jobs:
   apis:
-    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'backfill' || inputs.operation == 'probe')) || (inputs.operation != 'scoreboard' && startsWith(github.ref_name, 'football-ingest-verify-')) }}
+    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity')) || (inputs.operation != 'scoreboard' && startsWith(github.ref_name, 'football-ingest-verify-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -83,7 +88,7 @@ jobs:
         if: ${{ env.FEED_MODE != 'sync' }}
         run: python -m pip install -e ./app
       - name: Restore and collect APIs or verify archive
-        if: ${{ env.FEED_MODE != 'sync' && env.FEED_MODE != 'backfill' && env.FEED_MODE != 'probe' }}
+        if: ${{ env.FEED_MODE != 'sync' && env.FEED_MODE != 'backfill' && env.FEED_MODE != 'probe' && env.FEED_MODE != 'identity' }}
         env:
           FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
@@ -116,19 +121,39 @@ jobs:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
           PROBE_LEAGUES: ${{ inputs.leagues }}
           PROBE_SEASONS: ${{ inputs.seasons }}
+          PROBE_KIND: ${{ inputs.probe_kind }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           PROBE_SOURCE=apif
-          PROBE_LEAGUES=${PROBE_LEAGUES:-3,848}
-          PROBE_SEASONS=${PROBE_SEASONS:-2021-2026}
-          python -m zucai.cloud_feeds probe --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source "$PROBE_SOURCE" --leagues "$PROBE_LEAGUES" --seasons "$PROBE_SEASONS"
+          PROBE_KIND=${PROBE_KIND:-seasons}
+          if [[ "$PROBE_KIND" == leagues ]]; then
+            PROBE_LEAGUES=${PROBE_LEAGUES:-39,140,135,78,61,88,94}
+            args=(--probe-kind leagues)
+          else
+            PROBE_LEAGUES=${PROBE_LEAGUES:-3,848}
+            PROBE_SEASONS=${PROBE_SEASONS:-2021-2026}
+            args=(--seasons "$PROBE_SEASONS")
+          fi
+          python -m zucai.cloud_feeds probe --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source "$PROBE_SOURCE" --leagues "$PROBE_LEAGUES" "${args[@]}"
+      - name: Verify identity-only leagues without importing matches
+        if: ${{ env.FEED_MODE == 'identity' }}
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          IDENTITY_LEAGUES: ${{ inputs.leagues }}
+          IDENTITY_SEASONS: ${{ inputs.seasons }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          IDENTITY_LEAGUES=${IDENTITY_LEAGUES:-39,140,135,78,61,88,94}
+          IDENTITY_SEASONS=${IDENTITY_SEASONS:-2025,2026}
+          python -m zucai.cloud_feeds identity --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source apif --leagues "$IDENTITY_LEAGUES" --seasons "$IDENTITY_SEASONS"
       - name: Publish verified data
-        if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' }}
+        if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' }}
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
       - name: Keep collection originals and audit even on rebase conflict
-        if: ${{ !cancelled() && (env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe') }}
+        if: ${{ !cancelled() && (env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity') }}
         uses: actions/upload-artifact@v4
         with:
           name: apis-source-${{ github.run_id }}-${{ github.run_attempt }}
@@ -222,7 +247,7 @@ jobs:
 
   sporttery:
     needs: apis
-    if: ${{ !cancelled() && inputs.operation != 'backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    if: ${{ !cancelled() && inputs.operation != 'backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
     timeout-minutes: 60
     env:

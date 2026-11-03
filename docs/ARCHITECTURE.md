@@ -363,6 +363,53 @@ apif 回填的每季和联赛摘要新增前后对齐率：同一批不同球队
 回填后按本轮完整响应联合核验得到的映射统计；该指标不改变身份导入策略。
 仅链接竞彩、未形成持久球队绑定的映射，下次仍需按相同证据重新核验，不计入回填前对齐率。
 
+## T23 身份桥接与审批（不导入桥接联赛比赛）
+
+`ApiFootball` 默认只加载非 `identity_only` 联赛；显式身份客户端只加载七个桥接联赛。
+日期解析、直接 fetch 和 backfill 均无法把桥接联赛导入比赛库。新配置的
+`verification_status=needs_verification`、`verified_utc=null` 和空 `seasons_available`
+表示候选身份尚未实测；`identity_seasons=[2025,2026]` 只表示任务目标，不表示权限证明。
+
+`probe --probe-kind leagues` 只调用 `/leagues?id=`，将 ID、名称、国家、类型及安全原件核对结果
+写入 `state/audit/apif_league_probes.csv`。`identity` 必须找到各联赛最新的成功记录，
+并与当前候选配置匹配；元数据没有通过时不会发赛季请求。
+默认七联赛 × 两季共 14 次 fixtures，不查询 status，不追加分页；分页或解析拒绝使该范围无效。
+同联赛完整响应合并后复用 `apif_verify.infer_aliases`。对照是已有 jc，以及 T08 已核验时区、
+且双方规范名均为生效别名的 fd 记录；已知同场 jc/fd 对照优先保留 jc，其他竞争记录不省略。
+仅已核验正式别名可作锚点，旧候选不参与推断。正式别名、数据库与模型均不写。
+
+候选保持 `state/alias_candidates/apif.json` 原结构，证据含 APIF 比赛 ID、对方比赛 ID、
+UTC 差、整季原件 SHA256、元数据 SHA256 和 fd 两份配置 SHA256。
+`state/audit/apif_identity.csv` 按运行记录球队状态、来源名、国家、两个赛季出场数和证据。
+需实现者把真实运行中的 `auto_verified` 条目保留证据复制进正式文件，经过审查后才生效。
+欧战 `same_provider_id` 已遍历所有正式联赛别名，直接复用七联赛的数字 ID；不新增名字匹配规则。
+
+别名状态仍为 `proposed` / `auto_verified` / `approved`。新批准条目附：
+
+| 字段 | 含义 |
+| --- | --- |
+| `approved_by` | 所有者的 GitHub 账号，非空 |
+| `approved_utc` | 带偏移的 UTC 批准时间 |
+| `approval_pr` | 本仓库批准所在 PR 的完整链接 |
+
+读取仓库正式别名时，新 `approved` 条目强制填齐并校验三项。显式指定的旧版离线别名文件与底层导入接口
+允许无审批字段的历史记录，但一旦出现任一审批字段就须填齐；不编造历史批准来源。
+审批清单从只读归档及仓库正式配置生成。建议规范名留空，jc 参考列明确未核验；清单既不是别名文件，
+也不参与自动桥接。国家、赛季或完整覆盖缺失会明确披露，不把未知场数写成整季覆盖。
+
+APIF 两张拒绝/疑似重复表选择**汇总表去重**方案：按
+`(provider_match_id, raw_sha256, reason)` 去重，原子重写并整理已有重复行；没有合法比赛 ID 的拒绝行
+用原件行号区分，防止丢掉不同坏行。不同原件或不同原因保留。fd/fdorg 审计写法不变。
+完整采集另写 `state/audit/apif_identity_matches.csv`：只保存联赛、赛季、数字球队/比赛 ID、名称、开球、
+原件 SHA256、完整标记和范围行数，供离线计数及评估；不含赔率或赛果，也不用于训练。
+该表复用 feed manifest 的 `state/audit/apif_*.csv` 布局，无数据库 schema 迁移。
+
+回填摘要新增本次真正新建的 jc counterpart 数、2026 季本次仍隔离的不同比赛数，
+以及同联赛 jc ±3h 窗口候选球队对齐率。窗口分母保守包含同时开球的未知球队，不声称全是已确认在售球队。
+`aliases evaluate` 只读完整的 2025/2026 范围，比较双向唯一窗口、同队两场一致的候选与现有严格图；
+已能严格核验的 ID 不算额外解决。缺范围或行数不完整则 `insufficient_evidence`，不会把无数据当零冲突成功。
+输出只作研究结果，即使达到至少 20 支、零冲突，也不改变任何生产身份规则。
+
 ## T15 评估与参数文件（无数据库迁移）
 
 T16按所有者选择的A1采用策略绑定：`model_readiness` 不再要求训练库与评估库SHA256相等；

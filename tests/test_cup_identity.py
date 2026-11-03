@@ -87,6 +87,21 @@ def test_active_same_provider_domestic_id_bridge_is_recorded_without_jc(tmp_path
     assert aliases[league]["9101"]["evidence"][0]["kind"] == "same_provider_id"
 
 
+def test_identity_only_formal_aliases_bridge_into_cups_but_proposals_do_not(tmp_path):
+    from zucai.sources.cup_identity import resolve_cup_aliases
+
+    db, league, capture, base = identity_inputs(tmp_path, "apif", official=False)
+    entries = base.pop("合成国内联赛")
+    entries["9102"]["status"] = "proposed"
+    base["英超"] = entries
+    aliases = resolve_cup_aliases("apif", db, base, [capture], tmp_path / "audit")
+    assert aliases[league]["9101"]["canonical"] == "合成甲"
+    proof = aliases[league]["9101"]["evidence"][0]
+    assert proof["kind"] == "same_provider_id" and proof["source_leagues"] == ["英超"]
+    assert aliases[league]["9102"]["status"] == "proposed"
+    assert aliases[league]["9102"]["canonical"] is None
+
+
 @pytest.mark.parametrize("provider", ["fdorg", "apif"])
 @pytest.mark.parametrize("problem", ["incomplete", "midnight", "competing"])
 def test_missing_or_competing_capture_evidence_cannot_prove_identity(tmp_path, provider, problem):

@@ -22,6 +22,7 @@ from zucai.sources.football_data_org import _goals, _id, _team, safe_json_for_ar
 API = "https://v3.football.api-sports.io"
 LEAGUES = CONFIG_ROOT / "api_football/leagues.json"
 APIF_LEAGUE_IDS = frozenset({3, 848, 98, 292, 188, 113, 103, 244, 119, 253, 169})
+APIF_IDENTITY_LEAGUE_IDS = frozenset({39, 140, 135, 78, 61, 88, 94})
 STATES = {
     "FT",
     "AET",
@@ -78,13 +79,19 @@ class ApiFootball(Source[ApiGame]):
         quota_path="data/api_football_quota.json",
         reserve=10,
         min_interval=None,
+        identity_only=False,
     ):
         self.store = store if store is not None else RawStore()
         self.session = session if session is not None else requests.Session()
         if session is None:
             self.session.mount("https://", HTTPAdapter(max_retries=0))
             self.session.headers["User-Agent"] = "ZucaiResearch/0.1"
-        self.leagues = read_json(LEAGUES) if leagues is None else leagues
+        configured = read_json(LEAGUES) if leagues is None else leagues
+        self.leagues = {
+            code: config
+            for code, config in configured.items()
+            if bool(config.get("identity_only", False)) == identity_only
+        }
         self.quota = DailyQuota(quota_path, reserve)
         self.limiter = self.limiter if min_interval is None else RateLimiter(min_interval)
         self.request_count = 0

@@ -189,6 +189,10 @@ def _audit_aliases(path, rows):
 
 def resolve_cup_aliases(provider, database, aliases, captures, audit_dir):
     """Return runtime aliases; checked-in files and non-cup policies stay untouched."""
+    if provider == "apif":
+        from zucai.sources.apif_aliases import validate_approvals
+
+        validate_approvals(aliases)
     groups, coverage = defaultdict(dict), defaultdict(list)
     provenance, incomplete = {}, set()
     for capture in captures:
