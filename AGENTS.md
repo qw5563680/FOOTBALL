@@ -27,6 +27,9 @@ Codex 负责实现任务单，Claude 负责审查与质量门（见「审查流�
    大体积文件放 `data/football-feeds` 分支或 Release 附件，并在 README 里写明位置与哈希。单个 PR 新增的
    `reports/` 内容不超过 200 KB。
 9. 遵守各站 robots.txt：实现前先读一次并把结论写进 `docs/DATA_SOURCES.md`，禁止路径不请求。
+10. 正式 API key 只存在于 GitHub Actions Secrets；任何开发环境（含 Codex、Claude 的云端会话）
+    不得用正式 key 发真实请求。权限探测只能通过 `operation=probe` 由审查者触发，测试一律使用离线 fixtures。
+    需真实验证的接口、计费或权限结论由审查者在 Actions 留下证据后回填，不用合成样本冒充实测。
 
 ## 代码约定
 

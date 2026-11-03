@@ -77,6 +77,8 @@ pytest -q
 
 ### 云端采集
 
+快速开始：由审查者在 Actions 手动运行 `operation=probe source=apif leagues=3,848 seasons=2021-2026`，查看权限审计表。
+
 [数据分支 `data/football-feeds`](https://github.com/qw5563680/FOOTBALL/tree/data/football-feeds)
 保存四来源 jc / fd / fdorg / apif 的可恢复归档。`matches/YYYY-MM.csv` 按 **UTC 开球月份**分组，
 同时展示北京时间；`state/odds/` 按报价采集月保留完整快照，`state/closing_odds.jsonl` 独立保存无时间戳收盘价。
@@ -101,11 +103,15 @@ pytest -q
 在仓库 **Settings → Secrets and variables → Actions → Secrets** 配置
 `FOOTBALL_DATA_ORG_TOKEN`、`API_FOOTBALL_KEY`。工作流只从这两个 Secrets 注入 API 凭据，
 不使用仓库 Variables 或命令行参数传 key。API-Football 配额保存到 `state/api_football_quota.json`，
-每次恢复并继续扣减，默认保留 10 次；损坏时拒绝重新假定完整预算。
+每次恢复并继续扣减；每日上限跟随 `x-ratelimit-requests-limit`，也可由 `/status` 提供，
+两者尚未提供时回退 100，摘要明确标注「回退」。默认保留 10 次，每次请求间隔仍为 6.1 秒；
+本地日上限默认等于套餐上限，可用仓库 Actions Variable `ZUCAI_APIF_DAILY_CAP` 下调（空值表示默认）。
+该值取与套餐上限的较小值，不能扩大服务器额度；损坏配额文件拒绝重新假定完整预算。
+正式 key 只供 Actions 使用，任何开发环境均不得拿正式 key 联网。
 各源拒绝、疑似重复、未对齐 CSV 保存为 `state/audit/<source>_*.csv`，保留已有历史。
 竞彩旧 `state/rejected_results.csv` / `state/unmatched_teams.csv` 继续兼容。
 API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`；摘要列入库、链接、拒绝、请求数（fd 列为成功下载文件数）、
-剩余配额和脱敏失败原因。单行拒绝/疑似重复也标记 partial。
+剩余配额、`plan`、`limit_day` 和失败原因。`errors.plan` / `errors.access` 在通过安全归档检查后保留原文，仍标记 partial；其他上游错误不直接输出正文。单行拒绝/疑似重复也标记 partial。
 数据库、归档校验和写回冲突仍使对应 job 失败。安全检查通过的原始响应和审计状态作为 Actions artifact 保留 90 天，
 可见性继承仓库权限；工作流不会将原始响应提交到 main。
 
@@ -116,6 +122,20 @@ API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`
 跨原件身份冲突或候选反向名称冲突须人工核验，不覆盖已有候选文件。新增 `auto_verified` 候选及原件 SHA256、
 jc 比赛 ID、UTC 时间差追加到 `state/alias_candidates/fdorg.json` 和 `apif.json`。
 候选不参与后续自动导入；审查方定期核对证据后另开 PR 合入 main 的正式别名文件。
+
+T22 权限探测由 Claude 在 **Actions → Football cloud feeds → Run workflow** 选择 PR 分支执行：
+`operation=probe source=apif leagues=3,848 seasons=2021-2026`。
+九个既有联赛另跑 `leagues=98,292,188,113,103,244,119,253,169 seasons=2025,2026`。
+每个联赛 × 赛季只取第一页，不入库；HTTP、错误、结果数、分页和原件 SHA256 写入
+`state/audit/apif_season_probes.csv`，原件及 sidecar 留在本次 artifact。
+任务结束沿用统一写锁、数据分支导出及恢复校验，不推进竞彩赛果同步日期。
+
+probe 先连续查询两次 `/status`，将套餐、日计数和每日响应头的变化记录到
+`state/audit/apif_status_probes.csv`。相同 UTC 日、套餐及上限一致，且两次正文/响应头
+一致显示计数不变时才记为不计费；计数增加一次记为计费，其他情况保留「未知」。
+仅已记录不计费时，后续 `apis` 开头自动刷新一次 `/status`，另列请求数，三次日期采集不变。
+本地硬上限仍保守计入所有实际请求，包括 `/status`。当前计费结论和付费赛季权限都待 Claude 实跑，
+`leagues.json` 不提前改；T20 回填衔接等待 T20 合入 main。
 
 Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
 

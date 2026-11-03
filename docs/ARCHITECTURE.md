@@ -37,6 +37,8 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/fd_ingest.py` | 显式别名、官方优先去重、结果可知时间与独立收盘价归档 |
 | `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
 | `zucai/cloud_backfill.py` | 仅手动的 fd 六季历史回填、范围筛选、逐跳请求与联赛增量审计；复用既有下载/导入器 |
+| `zucai/cloud_probe.py` | Actions 手动权限与计费探测，逐季第一页、CSV 审计、不入库 |
+| `zucai/apif_budget.py` | 跨平台配额格式校验，兼容旧数据分支状态 |
 | `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
 | `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
@@ -315,6 +317,33 @@ JSONL SHA256，`files` 覆盖所有表、CSV、配额、审计及候选；旧 v1
 manifest 不充当跨 job 历史运行日志。
 
 没有数据库迁移；T14 不改变解析、去重、比分可知性或训练输入。
+
+## T22 按套餐配额与手动权限探测
+
+`state/api_football_quota.json` 延续 `date_utc`、`used`、`remaining`，新增：
+
+| 字段 | 含义 |
+| --- | --- |
+| `limit_day` | 服务端每日上限，响应头优先；未知时 100 |
+| `plan` | `/status` 返回的套餐名，未知为 null |
+| `observed_utc` | 最近成功接收配额头或 status 的 UTC 时间，旧文件为 null |
+| `limit_source` | header / status / stored / fallback，摘要显示 fallback 为「回退」 |
+| `current` | 最近 status 的服务端已用次数，未知为 null；不同于本地 used |
+| `status_free` | 两次 status 计数对照的结论：true / false / null（未知） |
+| `status_checked_utc`、`status_evidence` | 计费对照时间与两份原件 SHA256；结论可查证 |
+
+`used` 记录本地所有实际尝试，包括失败与 status；服务端剩余额度以每日响应头为准。
+请求前持锁预占；`reserve=10` 不变，本地日上限为 `min(limit_day, ZUCAI_APIF_DAILY_CAP)`，未设置时等于套餐上限。
+UTC 换日仅清空日计数及剩余额度，保留最近套餐信息；上限/套餐变化清除旧计费结论。
+缺失 remaining 时用 `limit_day-used`，已有剩余额度不因缺头补满。旧三字段文件继续读取并标记回退，
+无效状态拒绝重置。`verify` 使用不依赖 fcntl 的 `apif_budget` 校验新增字段，Windows 路径不加载配额文件锁。
+配额头先校验，安全原件随后落盘；配额校验错误延迟到落盘后抛出，认证回显等不安全原件仍拒绝保存。
+
+`probe` 仅允许手动 Actions，固定允许两个欧战与原有九联赛、2021 至当前 UTC 年，
+默认 3,848 / 2021–2026；每范围一页，不调用比赛导入器或别名核验。
+先做两次 status 计费对照；只有持久结论为不计费时，后续 `apis` 才开头刷新一次 status。
+两个审计 CSV 按运行追加；恢复/导出沿用 feed manifest v2 与统一写锁，表行、竞彩同步日期、模型及预测冻结文件保持原值。
+权限配置不自动改写，等待 Claude 检查真实探测证据。T20 回填适配等待其合入 main 后继续。
 
 ## T15 评估与参数文件（无数据库迁移）
 

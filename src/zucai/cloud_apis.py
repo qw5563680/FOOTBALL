@@ -9,6 +9,7 @@ from pathlib import Path
 import requests
 
 from zucai.sources.api_common import CredentialError, LocalValidationError
+from zucai.sources.api_football import ApiFootball, ApifResponseError
 from zucai.sources.apif_command import fetch_apif
 from zucai.sources.apif_quota import DailyQuota
 from zucai.sources.base import RawStore, _atomic_write
@@ -41,7 +42,9 @@ def fd_scopes(today, leagues):
 
 
 def failure_reason(exc):
-    """Bounded diagnostics: never emit a transport exception, body or credentials."""
+    """Only safe APIF plan/access wording is public; other upstream errors stay bounded."""
+    if isinstance(exc, ApifResponseError):
+        return exc.summary.replace("\r", "\\r").replace("\n", "\\n")
     if isinstance(exc, requests.RequestException):
         return "网络请求失败"
     if isinstance(exc, CredentialError):
@@ -164,6 +167,17 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
 
     budget = DailyQuota(quota)
     reports["apif"]["remaining_quota"] = None
+    reports["apif"]["status_requests"] = 0
+    try:
+        if budget._read()["status_free"] is True:
+            status_client = ApiFootball(store=RawStore(raw), quota_path=quota)
+            try:
+                status_client.status()
+            finally:
+                reports["apif"]["status_requests"] = status_client.request_count
+                status_client.session.close()
+    except Exception as exc:
+        _failed(reports["apif"], "status", exc)
     for offset in range(3):
         day = (today - timedelta(days=offset)).isoformat()
         try:
@@ -182,6 +196,11 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
                 before["used"] if saved["date_utc"] == before["date_utc"] else 0
             )
         reports["apif"]["remaining_quota"] = budget._read()["remaining"]
+
+    try:
+        reports["apif"].update(budget.describe())
+    except ValueError:
+        pass  # The collection already records a quota failure; never invent a fresh budget.
 
     for provider in ("fdorg", "apif"):
         try:
