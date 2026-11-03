@@ -167,7 +167,7 @@ def test_known_offset_is_normalized_and_duplicate_provider_ids_are_all_refused()
 
 
 def test_unscoped_parse_isolates_unmapped_cup_competitions():
-    raw = changed("window", ("matches", 0, "competition", "code"), "CL")
+    raw = changed("window", ("matches", 0, "competition", "code"), "EC")
     source = feed()
     assert len(source.parse(raw)) == 5 and source.rejected[0]["provider_match_id"] == 920001
     assert "赛事" in source.rejected[0]["reason"]
@@ -220,7 +220,7 @@ def test_wrong_response_scope_fails_live_and_replay_but_safe_raw_is_retained(
 @pytest.mark.parametrize(
     "scope",
     [
-        {"competition": "CL", "season": "2024"},
+        {"competition": "EC", "season": "2024"},
         {"competition": "PL/../CL", "season": "2024"},
         {"competition": "PL,PD", "season": "2024"},
         {"competition": "PL", "season": "2024&token=unsafe"},

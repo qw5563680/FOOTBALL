@@ -1,6 +1,7 @@
 """Manual Actions-only API-Football first-page permission and status billing probes."""
 
 import csv
+import io
 import json
 import os
 import re
@@ -8,10 +9,10 @@ from datetime import UTC, datetime
 
 from zucai.apif_budget import utc_stamp
 from zucai.cloud_apis import failure_reason
-from zucai.sources.api_football import ApiFootball
-from zucai.sources.base import RawStore
+from zucai.sources.api_football import APIF_LEAGUE_IDS, ApiFootball
+from zucai.sources.base import RawStore, _atomic_write
 
-LEAGUE_IDS = {3, 848, 98, 292, 188, 113, 103, 244, 119, 253, 169}
+LEAGUE_IDS = APIF_LEAGUE_IDS
 FIELDS = (
     "run_id",
     "observed_utc",
@@ -25,6 +26,39 @@ FIELDS = (
     "outcome",
     "reason",
 )
+
+
+LEGACY_STATUS_FIELDS = (
+    "run_id",
+    "observed_utc",
+    "plan",
+    "limit_day",
+    "current",
+    "headers",
+    "raw_sha256",
+    "billing",
+)
+STATUS_FIELDS = (*LEGACY_STATUS_FIELDS, "http", "outcome", "reason")
+
+
+def upgrade_status_audit(path):
+    """Old status rows were successful observations; preserve their original evidence."""
+    if not path.exists() or not path.stat().st_size:
+        return
+    with path.open(encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream, strict=True)
+        if reader.fieldnames == list(STATUS_FIELDS):
+            return
+        if reader.fieldnames != list(LEGACY_STATUS_FIELDS):
+            raise ValueError("status 审计表字段无效，拒绝覆盖已有证据")
+        previous = list(reader)
+    if any(None in row or any(v is None for v in row.values()) for row in previous):
+        raise ValueError("status 审计表行无效，拒绝覆盖已有证据")
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=STATUS_FIELDS)
+    writer.writeheader()
+    writer.writerows(dict(row, http=200, outcome="ok", reason="") for row in previous)
+    _atomic_write(path, buffer.getvalue().encode("utf-8"))
 
 
 def require_probe_actions():
@@ -88,6 +122,8 @@ def collect_probe(database, run_id, *, codes=None, seasons=None, now=None):
     scopes = probe_scopes(codes, seasons, now)
     state = database.parent / "state"
     audit = state / "audit"
+    status_audit = audit / "apif_status_probes.csv"
+    upgrade_status_audit(status_audit)
     # Probing is deliberately independent of confirmed season permissions. No importer runs.
     client = ApiFootball(
         store=RawStore(database.parent / "raw"),
@@ -102,50 +138,52 @@ def collect_probe(database, run_id, *, codes=None, seasons=None, now=None):
         errors=[],
         probes=[],
     )
-    observations = []
+    observations, status_rows = [], []
     try:
         for _ in range(2):
             before = client.request_count
+            client.pages = []
+            row = dict.fromkeys(STATUS_FIELDS, "")
+            row.update(
+                run_id=run_id,
+                observed_utc=datetime.now(UTC).isoformat(),
+                outcome="error",
+                billing="unknown",
+            )
             try:
-                observations.append(client.status())
+                observation = client.status()
+                observations.append(observation)
+                row.update(
+                    plan=observation["plan"],
+                    limit_day=observation["limit_day"],
+                    current=observation["current"],
+                    outcome="ok",
+                )
             except Exception as exc:
+                row["reason"] = failure_reason(exc)
                 report["status"] = "partial"
-                report["errors"].append("status: " + failure_reason(exc))
+                report["errors"].append("status: " + row["reason"])
                 break
             finally:
                 report["status_requests"] += client.request_count - before
+                if client.pages:
+                    meta = client.store.load_metadata(client.pages[-1])
+                    row.update(
+                        http=meta["status_code"],
+                        raw_sha256=meta["sha256"],
+                        observed_utc=meta["fetched_at_utc"],
+                        headers=json.dumps(meta["quota_headers"], sort_keys=True),
+                    )
+                status_rows.append(row)
         free = status_billing(*observations) if len(observations) == 2 else None
         if observations:
             client.quota.record_status_billing(free, [o["sha256"] for o in observations])
         report["status_billing"] = (
             "unbilled" if free is True else "billed" if free is False else "unknown"
         )
-        for observation in observations:
-            append_csv(
-                audit / "apif_status_probes.csv",
-                (
-                    "run_id",
-                    "observed_utc",
-                    "plan",
-                    "limit_day",
-                    "current",
-                    "headers",
-                    "raw_sha256",
-                    "billing",
-                ),
-                [
-                    dict(
-                        run_id=run_id,
-                        observed_utc=observation["observed_utc"],
-                        plan=observation["plan"],
-                        limit_day=observation["limit_day"],
-                        current=observation["current"],
-                        headers=json.dumps(observation["headers"], sort_keys=True),
-                        raw_sha256=observation["sha256"],
-                        billing=report["status_billing"],
-                    )
-                ],
-            )
+        for row in status_rows:
+            row["billing"] = report["status_billing"]
+        append_csv(status_audit, STATUS_FIELDS, status_rows)
         for league, season in scopes:
             row = dict.fromkeys(FIELDS, "")
             row.update(
@@ -224,5 +262,5 @@ def write_probe_summary(report):
             out.write("\n- " + html.escape(error) + "\n")
         out.write(
             "\n完整证据：state/audit/apif_season_probes.csv、apif_status_probes.csv；"
-            "原件在本次 artifact。赛季权限配置尚未回填。\n"
+            "原件在本次 artifact。本次 probe 不自动改写赛季权限配置。\n"
         )

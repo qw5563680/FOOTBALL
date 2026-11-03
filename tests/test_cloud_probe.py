@@ -222,3 +222,72 @@ def test_quota_failure_still_records_each_requested_scope(tmp_path, monkeypatch)
         assert not http.calls
     assert result["status"] == "partial" and len(result["probes"]) == 2
     assert result["status_requests"] == result["requests"] == 0
+
+
+@pytest.mark.parametrize("failure", ["access", "network"])
+def test_failed_status_attempt_has_audit_row(tmp_path, monkeypatch, failure):
+    import requests
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("API_FOOTBALL_KEY", "offline-status-placeholder")
+    monkeypatch.setattr("zucai.sources.base.RateLimiter.wait", lambda self: None)
+    database = tmp_path / "data/zucai.db"
+    doc = json.loads(json.dumps(CASES["status"]))
+    doc["errors"] = {"access": CASES["errors"]["access"]}
+    with responses.RequestsMock() as http:
+        if failure == "access":
+            http.get("https://v3.football.api-sports.io/status", status=403, json=doc)
+        else:
+            http.get(
+                "https://v3.football.api-sports.io/status",
+                body=requests.Timeout("private upstream detail"),
+            )
+        http.get(
+            "https://v3.football.api-sports.io/fixtures?league=98&season=2024",
+            body=(ROOT / "t10/synthetic_page1.json").read_bytes(),
+        )
+        result = collect_probe(database, "failed-status", codes="98", seasons="2024", now=NOW)
+    assert result["status"] == "partial" and result["status_requests"] == 1
+    rows = list(csv.DictReader((database.parent / "state/audit/apif_status_probes.csv").open()))
+    assert len(rows) == 1 and rows[0]["outcome"] == "error"
+    assert rows[0]["run_id"] == "failed-status" and rows[0]["observed_utc"]
+    assert rows[0]["billing"] == "unknown"
+    assert "private upstream detail" not in str(rows)
+    if failure == "access":
+        assert rows[0]["http"] == "403" and len(rows[0]["raw_sha256"]) == 64
+        assert CASES["errors"]["access"] in rows[0]["reason"]
+    else:
+        assert rows[0]["http"] == rows[0]["raw_sha256"] == ""
+        assert "网络" in rows[0]["reason"]
+
+
+def test_status_audit_upgrades_legacy_columns_without_losing_evidence(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("API_FOOTBALL_KEY", "offline-status-placeholder")
+    monkeypatch.setattr("zucai.sources.base.RateLimiter.wait", lambda self: None)
+    database = tmp_path / "data/zucai.db"
+    audit = database.parent / "state/audit/apif_status_probes.csv"
+    audit.parent.mkdir(parents=True)
+    audit.write_bytes((ROOT / "t22/paid_status_probes.csv").read_bytes())
+    old = list(csv.DictReader(audit.open()))
+    with responses.RequestsMock() as http:
+        http.get(
+            "https://v3.football.api-sports.io/status",
+            json=CASES["status"],
+            headers=CASES["paid_headers"],
+        )
+        http.get(
+            "https://v3.football.api-sports.io/fixtures?league=98&season=2024",
+            body=(ROOT / "t10/synthetic_page1.json").read_bytes(),
+            headers=CASES["paid_headers"],
+        )
+        collect_probe(database, "new-status", codes="98", seasons="2024", now=NOW)
+    rows = list(csv.DictReader(audit.open()))
+    assert len(rows) == len(old) + 2
+    for previous, row in zip(old, rows, strict=False):
+        assert all(row[k] == v for k, v in previous.items())
+        assert row["outcome"] == "ok" and row["http"] == "200"
+    assert all(None not in row for row in rows)
+    assert rows[-1]["outcome"] == "ok" and rows[-1]["billing"] == "unbilled"

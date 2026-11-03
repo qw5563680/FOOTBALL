@@ -96,7 +96,7 @@ def mock_apis(
         match=[
             responses.matchers.query_param_matcher(
                 {
-                    "competitions": "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA",
+                    "competitions": "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA,CL",
                     "dateFrom": "2026-10-30",
                     "dateTo": "2026-11-06",
                 }
@@ -393,7 +393,7 @@ def test_later_fdorg_window_failure_preserves_first_window_and_other_sources(
                 match=[
                     responses.matchers.query_param_matcher(
                         {
-                            "competitions": "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA",
+                            "competitions": "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA,CL",
                             "dateFrom": start,
                             "dateTo": end,
                         }

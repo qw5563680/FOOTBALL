@@ -155,6 +155,8 @@ def _full_schedule(source, code, season, archive):
     count = document.get("resultSet", {}).get("count")
     if type(count) is not int or count != len(matches):
         return [], "resultSet.count does not confirm the archived row count"
+    if code not in CLUB_COUNTS:
+        return [], "cup format requires cup_identity scope verification, not round-robin checks"
     try:
         games = _fixtures(document, code, season, source.rejected)
     except ValueError as exc:

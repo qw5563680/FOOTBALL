@@ -21,6 +21,7 @@ from zucai.sources.football_data_org import _goals, _id, _team, safe_json_for_ar
 
 API = "https://v3.football.api-sports.io"
 LEAGUES = CONFIG_ROOT / "api_football/leagues.json"
+APIF_LEAGUE_IDS = frozenset({3, 848, 98, 292, 188, 113, 103, 244, 119, 253, 169})
 STATES = {
     "FT",
     "AET",
@@ -166,7 +167,10 @@ class ApiFootball(Source[ApiGame]):
             raise quota_error
         if response.status_code != 200:
             doc = json.loads(path.read_bytes())
-            if isinstance(doc, dict) and doc.get("errors") not in ([], {}):
+            errors = doc.get("errors") if isinstance(doc, dict) else None
+            if isinstance(errors, dict) and any(
+                isinstance(errors.get(key), str) for key in ("plan", "access")
+            ):
                 check_api_errors(doc, path.read_bytes())
             raise LocalValidationError(f"API-Football HTTP {response.status_code}，已保留安全归档")
         return path

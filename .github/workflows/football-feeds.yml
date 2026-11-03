@@ -11,18 +11,26 @@ on:
         options: [apis, sync, verify, predict, backfill, scoreboard, probe]
         default: verify
       source:
-        description: 'probe 来源；目前仅允许 apif'
+        description: 'backfill 来源；probe 固定使用 apif'
         type: choice
-        options: [apif]
-        default: apif
+        options: [fd, fdorg, apif]
+        default: fd
       leagues:
-        description: 'probe 联赛 ID；默认 3,848，九个国内联赛请另跑一次'
+        description: '赛事代码；留空时 probe 用 3,848，backfill 用该来源默认范围'
         type: string
-        default: '3,848'
+        default: ''
       seasons:
         description: 'probe 年份范围或逗号列表；国内联赛用 2025,2026'
         type: string
-        default: '2021-2026'
+        default: ''
+      from_season:
+        description: '仅 backfill：起始年或 fd 赛季代码，留空用已核验范围'
+        type: string
+        default: ''
+      to_season:
+        description: '仅 backfill：终止年或 fd 赛季代码，留空用已核验范围'
+        type: string
+        default: ''
       days:
         description: 'fdorg 前后各 N 个 UTC 日；sync 回看 N 个北京时间自然日'
         type: number
@@ -85,22 +93,35 @@ jobs:
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds "$FEED_MODE" --archive ../cloud-data --days "$LOOKBACK" --slot "$FEED_SLOT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-      - name: Restore and backfill verified FD history once
+      - name: Restore and backfill verified history once
         if: ${{ env.FEED_MODE == 'backfill' }}
+        env:
+          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          BACKFILL_SOURCE: ${{ inputs.source }}
+          BACKFILL_LEAGUES: ${{ inputs.leagues }}
+          BACKFILL_FROM: ${{ inputs.from_season }}
+          BACKFILL_TO: ${{ inputs.to_season }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
-          python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          args=(--source "${BACKFILL_SOURCE:-fd}")
+          if [[ -n "$BACKFILL_LEAGUES" ]]; then args+=(--leagues "$BACKFILL_LEAGUES"); fi
+          if [[ -n "$BACKFILL_FROM" ]]; then args+=(--from "$BACKFILL_FROM"); fi
+          if [[ -n "$BACKFILL_TO" ]]; then args+=(--to "$BACKFILL_TO"); fi
+          python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}"
       - name: Probe API-Football permissions without importing matches
         if: ${{ env.FEED_MODE == 'probe' }}
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-          PROBE_SOURCE: ${{ inputs.source || 'apif' }}
-          PROBE_LEAGUES: ${{ inputs.leagues || '3,848' }}
-          PROBE_SEASONS: ${{ inputs.seasons || '2021-2026' }}
+          PROBE_LEAGUES: ${{ inputs.leagues }}
+          PROBE_SEASONS: ${{ inputs.seasons }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
+          PROBE_SOURCE=apif
+          PROBE_LEAGUES=${PROBE_LEAGUES:-3,848}
+          PROBE_SEASONS=${PROBE_SEASONS:-2021-2026}
           python -m zucai.cloud_feeds probe --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source "$PROBE_SOURCE" --leagues "$PROBE_LEAGUES" --seasons "$PROBE_SEASONS"
       - name: Publish verified data
         if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' }}
