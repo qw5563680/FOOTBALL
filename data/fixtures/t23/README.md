@@ -17,7 +17,8 @@ reconcile.json 是存量身份合并的纯合成样本：两个临时 ID 跨欧�
 stage3_cup_aliases.csv 从真实数据提交 `1d0152677977cd807dd4f49ff3985c8ed49319b5`
 的 `state/audit/apif_cup_aliases.csv`（825 行）裁剪出全部符合第 9 项的两行：
 欧协联 400 / 632，status=auto_verified 且 evidence 含 jc counterpart_id。
-CSV 字段及 JSON evidence 原样保留，包括 seen_utc、sidecar；只裁剪行，不清洗证据。
+CSV 字段及 JSON evidence 原样保留，包括 seen_utc、sidecar；仅裁剪行并按仓库规则统一 CSV 行末为 LF，
+不清洗证据。来源 CSV 与裁剪副本的字节哈希分别记录。
 stage3_approval_table.md 是评论 6601053083 第 4 节原文，stage3_approval.md 是批准评论
 6602500381 原文；历史表内的“待确认”字样保留，批准以后一条评论及所有者本次指令为准。
 stage3_provenance.json 登记数据提交、run ID、原 CSV 哈希、评论链接与裁剪副本哈希。
