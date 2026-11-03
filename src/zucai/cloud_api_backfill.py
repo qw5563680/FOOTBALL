@@ -145,7 +145,19 @@ def collect_api_backfill(
 
     try:
         if provider == "apif":
+            from zucai.apif_identity_metrics import (
+                jc_links,
+                jc_window_metrics,
+                record_matches,
+                record_scope,
+            )
+
+            prior_links = jc_links(database)
+            report.update(new_linked_jc=0, isolated_2026=0)
             initial_aliases = read_json(APIF_ALIASES)
+            from zucai.sources.apif_aliases import validate_approvals
+
+            validate_approvals(initial_aliases, require_metadata=True)
             before_aliases = _existing_apif_aliases(
                 database, initial_aliases, {names[code] for code, _ in scopes}
             )
@@ -169,6 +181,8 @@ def collect_api_backfill(
                 status="complete",
             )
             report["scopes"].append(item)
+            if provider == "apif":
+                record_scope(audit / "apif_identity_scopes.csv", code, names[code], scope["season"])
             try:
                 path = source.fetch_raw(**scope)
                 meta = store.load_metadata(path)
@@ -199,6 +213,8 @@ def collect_api_backfill(
             except Exception as exc:
                 failed(item, exc)
         aliases = read_json(FDORG_ALIASES) if provider == "fdorg" else initial_aliases
+        if provider == "apif":
+            record_matches(audit / "apif_identity_matches.csv", captures)
         try:
             aliases = resolve_cup_aliases(provider, database, aliases, captures, audit)
         except Exception as exc:
@@ -244,6 +260,22 @@ def collect_api_backfill(
                     )
                 )
                 if provider == "apif":
+                    scope_ids = {f"apif:{g.provider_match_id}" for g in capture["games"]}
+                    item["new_linked_jc"] = len((jc_links(database) - prior_links) & scope_ids)
+                    item["isolated_2026"] = (
+                        len(
+                            {
+                                str(row["provider_match_id"])
+                                for file in result.get("files", [])
+                                for row in file.get("suspected", [])
+                            }
+                        )
+                        if scope["season"] == 2026
+                        else 0
+                    )
+                    item.update(jc_window_metrics(database, capture["games"], aliases))
+                    report["new_linked_jc"] = len(jc_links(database) - prior_links)
+                    report["isolated_2026"] += item["isolated_2026"]
                     item.update(
                         {
                             f"{key}_after": item[key]
@@ -361,6 +393,31 @@ def write_summary(report):
         "库内比赛/赛果仅计该来源行；链接竞彩单列，不覆盖竞彩赛果。对齐率按该范围不同球队 ID 统计。",
         "原件、SHA256 和完整记录在 Actions artifact；身份依据和拒绝记录在 state/audit。",
     ]
+    if paid:
+        lines += [
+            "",
+            f"本轮新链接到 jc：{report.get('new_linked_jc', 0)}；"
+            f"2026 季本次仍隔离：{report.get('isolated_2026', 0)}。",
+            "",
+            "| 赛事/赛季 | 新链接 jc | 2026 隔离 | jc 窗口候选球队对齐率 |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+        for item in report["scopes"]:
+            rate = item.get("jc_window_alignment_rate")
+            text = (
+                f"{rate:.1%} ({item['jc_window_aligned_teams']}/{item['jc_window_teams']})"
+                if rate is not None
+                else "—"
+            )
+            lines.append(
+                f"| {item['scope']} | {item.get('new_linked_jc', '—')} | "
+                f"{item.get('isolated_2026', '—')} | {text} |"
+            )
+        lines += [
+            "",
+            "jc 窗口口径：同联赛 ±3h 内所有 APIF 候选球队，"
+            "未确认的同时开球球队也计入分母；不能当成已确认在售球队名单。",
+        ]
     lines.extend(
         "- " + message.replace("\n", " ").replace("|", "\\|") for message in report["errors"]
     )

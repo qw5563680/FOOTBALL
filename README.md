@@ -57,6 +57,9 @@ python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/pa
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 --source fdorg --leagues CL --from 2023 --to 2026
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2025 --to 2026
+python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF 存量身份，不联网
+zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
+zucai aliases evaluate --provider apif --leagues 3,848 --archive ../cloud-data --out work/identity-evaluation.json
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
 pytest -q
 ```
@@ -142,21 +145,46 @@ probe 先连续查询两次 `/status`，将套餐、日计数和每日响应头�
 `apif_status_probes.csv` 同时记录成功和失败尝试；失败列出 HTTP、安全原件 SHA256 或失败原因。
 旧八列审计表自动补列，原有记录和哈希保留。
 
+T23 的七个 **identity-only** 联赛只用于核验球队 ID，不进入每日采集或任何比赛导入：
+英超 39、西甲 140、意甲 135、德甲 78、法甲 61、荷甲 88、葡超 94，已由 Claude 的
+[probe 41612517821](https://github.com/qw5563680/FOOTBALL/actions/runs/41612517821) 确认。
+[identity 41612781709](https://github.com/qw5563680/FOOTBALL/actions/runs/41612781709) 核验出 130 条别名，
+已保留完整证据纳入正式文件；剩余 20 支待审批，真实回填验收仍待 Claude。
+核验流程为先运行 `operation=probe probe_kind=leagues`（leagues 留空选择这七个），
+每个 ID 一次 `/leagues?id=` 请求，核对名称、国家和联赛类型；这不是赛季权限证明。
+有成功审计后再运行 `operation=identity`，默认七联赛、`seasons=2025,2026`，最多 14 次 fixtures 请求。
+identity 不额外查询 status，不补拉分页；不完整响应不作为核验依据。它只用已有 jc 和 T08 已核验的 fd
+比赛图生成候选证据，写入 `state/alias_candidates/apif.json` 和 `state/audit/apif_identity.csv`，
+不改变比赛、球队、赛果、冻结预测或竞彩水位。请求间隔 6.1 秒、reserve=10 保持原样。
+
+候选里的 `auto_verified` 须由实现者保留完整证据复制进正式别名文件，再经 Claude 审查；
+之后欧战复用已有 `same_provider_id` 桥接。未确认的球队使用快速开始里的 `aliases proposals` 生成
+只读审批清单，jc 参考名不绑定，建议规范名留给所有者填写。具体批准格式及顺序见
+[别名审批说明](docs/aliases/README.md)。`aliases evaluate` 只输出离线评估，不放宽生产规则。
+
 T20 的三项欧战在导入前另做运行期核验：复用同源已生效的国内联赛数字球队 ID，
 再用完整响应与 jc 的双向唯一主客方向图补充身份；不读取待审候选作为生效别名。
 历史回填（包括直接 fetch 重复指定 `--season`）先下载所选全部赛季，再统一核验，
 避免先入库的未知身份挡住较新赛季的证据。后续下载失败仍保留此前完整范围的导入结果。
 依据写入 `state/audit/{fdorg,apif}_cup_aliases.csv`，已入库的来源 ID 绑定随数据库归档保存。
 无法核验的保留 `fdorg:team:<id>` / `apif:team:<id>`，写入各源未对齐 CSV，不猜中文名。
-已存在独立身份的球队仍受原有存量身份校验保护，不自动合并。仓库正式别名文件不改。
+导入器仍拒绝直接重绑已有独立身份。T23 另提供审查者手动触发的 `operation=reconcile`：
+仅按已生效的正式别名与欧战同源 ID 桥接，把 `apif:team:<id>` 在对应联赛的比赛重指到唯一规范球队。
+规范名缺失/不唯一、三小时内已有比赛、其他来源 ID 绑定、临时身份带 aliases 等情况跳过并记审计。
+比赛编号、赛果、赔率、预测不改，临时行没有任何比赛引用后才删除；不发请求、不注入 API key。
+Actions 摘要显示合并球队、重定向比赛、删除空临时行和冲突数。先 reconcile，再 backfill；
+第二次 reconcile 合并 0。它不接受 source/leagues/seasons，检查全库 APIF 临时身份；未批准的 proposed 不处理。
 
 Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
 `source` 选项统一为 fd / fdorg / apif，用于 backfill；probe 固定 apif，避免页面默认 fd 造成误用。
 `leagues` 输入默认留空，由步骤脚本决定：probe 用 `3,848`，backfill 用该来源默认范围。
-`seasons` 仅供 probe（留空用 `2021-2026`）；`from_season` / `to_season` 仅供 backfill，含首尾。
+`seasons` 供赛季 probe（留空用 `2021-2026`）及 identity（留空用 `2025,2026`）；
+`probe_kind=leagues` 只查元数据，不接收年份；`from_season` / `to_season` 仅供 backfill，含首尾。
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
+- `operation=reconcile`：仅手动运行 APIF 存量身份合并，不触发采集、预测或记分板；
+  复用写回锁，保持竞彩水位，归档恢复及冻结预测哈希校验后发布。
 - `operation=backfill`：**一次性历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），
   `sporttery` 与 `predict` 跳过；沿用写回锁和发布脚本。
   `source=fd`（默认）保持国内历史回填；`source=fdorg` 默认欧冠 CL 2023 至当季；
@@ -166,6 +194,8 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
   九联赛用 `leagues=98,292,188,113,103,244,119,253,169 from_season=2025 to_season=2026`。
   允许年份始终取 `leagues.json` 的实测 `seasons_available`，不按套餐名推测权限。
 - `operation=verify`：托管机恢复并校验归档文件、表行数、来源哈希与独立的 `forecast_manifest.json`；不写数据分支，摘要为 `verified`，没有预测的旧归档仍兼容。
+- `operation=identity`：只在手动 Actions 核验七个桥接联赛，默认 2025/2026；必须先通过元数据 probe，
+  只发布候选和审计，不触发竞彩同步、训练预测或记分板。source 固定 apif，leagues 留空选择七联赛。
 - `operation=predict`：跳过采集，在托管机使用现有归档训练并预测；`days` / `slot` 不影响预测。
   `sporttery` 跳过、失败或归档水位不是今日时，摘要注明「竞彩数据非今日」。
 - `operation=scoreboard`：只用现有冻结预测和归档赛果计算记分板，不采集、不训练；`days` / `slot` 不影响此操作。
@@ -202,6 +232,9 @@ fdorg 每季一次请求（CL 2023–2026 共 4 次），apif 两项赛事六季
 当季日增量仍可由现有日期请求采集，不增加每日请求次数；摘要单列三项欧战库内比赛/赛果与本次新增行数。
 回填摘要另列每赛事每季解析、入库、链接竞彩、拒绝、疑似重复、不同球队 ID 对齐率（apif 显示回填前→后）及未对齐数，
 来源行数包含欧战并经过恢复校验；不覆盖竞彩比分，历史赛果沿用开球后 3h 的 assumed。
+T23 的 apif 摘要另列本次新建立的 jc 关联、2026 季本次仍隔离场数，以及 jc 三小时窗口内候选球队的对齐率；
+这个候选分母包含尚未确认身份的同时开球球队，不能当作已确认的在售球队名单。
+APIF 拒绝/疑似重复审计按比赛 ID、原件 SHA256、原因去重，首次运行也整理旧重复行；不同原件和原因都保留。
 欧冠 2026 当前只公布 144 场，后续淘汰赛尚未全部排出；apif 历史包含资格赛，
 详见 [数据来源 §5、§6](docs/DATA_SOURCES.md)。本任务只接数据，欧战模型另由 T21 处理。
 
