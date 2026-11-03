@@ -21,9 +21,18 @@ def add_aliases_parser(sub):
     evaluate.add_argument("--leagues", default="3,848,292,119,188,244,169")
     evaluate.add_argument("--archive", default="../cloud-data")
     evaluate.add_argument("--out", required=True, help="新的离线评估 JSON，不写正式别名")
+    propagate = commands.add_parser(
+        "propagate", help="将已生效同源 ID 传播到有临时历史的正式联赛别名"
+    )
+    propagate.add_argument("--archive", required=True, help="只读 data/football-feeds 的本地目录")
 
 
 def run_aliases(args):
+    if args.aliases_command == "propagate":
+        from zucai.alias_propagation import propagate
+
+        propagate(args.archive)
+        return
     if args.aliases_command == "evaluate":
         from zucai.alias_evaluation import write_evaluation
 

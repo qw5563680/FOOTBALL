@@ -13,15 +13,18 @@ from sqlalchemy import or_, select, text
 from zucai.cup_history import PROVISIONAL, coverage_lines, history_metrics
 from zucai.db import get_engine, session_scope
 from zucai.models import Match, Team
+from zucai.sources.api_football import LEAGUES as APIF_LEAGUES
 from zucai.sources.apif_aliases import validate_approvals
 from zucai.sources.apif_command import ALIASES
 from zucai.sources.apif_ingest import _Teams
 from zucai.sources.base import _atomic_write
+from zucai.sources.cup_identity import CUP_LEAGUES
 from zucai.sources.fd_ingest import WINDOW, _canonical
 from zucai.sources.fd_verify import _utc
 from zucai.sources.fdorg_verify import DEFAULT_ALIASES as FDORG_ALIASES
 from zucai.sources.fdorg_verify import _active
 from zucai.sources.football_data import read_json
+from zucai.sources.football_data_org import COMPETITIONS_PATH
 
 LOG = logging.getLogger(__name__)
 FIELDS = (
@@ -111,6 +114,20 @@ def _formal_entry(session, aliases, league, key):
     return entry, list(known)
 
 
+def _daily_domestic_leagues():
+    from zucai.cloud_apis import COMPETITION_CODES
+
+    apif, fdorg = read_json(APIF_LEAGUES), read_json(COMPETITIONS_PATH)
+    return {
+        "apif": {
+            entry["league"] for entry in apif.values() if not entry.get("identity_only", False)
+        }
+        - CUP_LEAGUES["apif"],
+        "fdorg": {fdorg[code]["league"] for code in COMPETITION_CODES.split(",")}
+        - CUP_LEAGUES["fdorg"],
+    }
+
+
 def reconcile(database, run_id):
     """Apply existing T23 checks in every league, independently for APIF and FDORG."""
     database = Path(database)
@@ -123,6 +140,7 @@ def reconcile(database, run_id):
     hashes = {
         provider: hashlib.sha256(path.read_bytes()).hexdigest() for provider, path in paths.items()
     }
+    daily_leagues = _daily_domestic_leagues()
     engine = get_engine(database)
     report = dict(
         status="complete",
@@ -189,6 +207,11 @@ def reconcile(database, run_id):
                                 sort_keys=True,
                             ),
                         )
+                        if (
+                            league in daily_leagues[provider]
+                            and _canonical(aliases, league, key) is None
+                        ):
+                            raise ValueError("目标联赛正式别名未传播")
                         if canonical.casefold().startswith(("apif:", "fdorg:")):
                             raise ValueError("规范队名使用了来源 ID 保留前缀")
                         resolved = deepcopy(aliases)

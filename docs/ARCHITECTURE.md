@@ -442,13 +442,26 @@ T29 的合并授权只来自各自正式文件 api_football.json / football_data
 包括“欧战正式别名 → 丹超历史”。不额外推断比赛图、不读取待审候选；数据库里单独残留的绑定不能替代正式授权。
 只有 proposed 的 ID 不处理。目标查找复用 `_Teams.one`（规范化 name/aliases）；APIF approved 要有完整批准来源，
 FDORG 既有批准格式继续兼容，有审批来源字段时仍校验。两源数字空间隔离，不因 ID 数字相同跨源认队。
-正式别名文件与导入器的“已有独立身份”拒绝规则保持原样。
+导入器的“已有独立身份”拒绝规则保持原样。正式别名须先按下面的传播步骤提交审查，再做真实合并。
 
-上线边界：本项只扩大 reconcile 的存量合并授权，不扩大采集导入时的别名作用域。
-例如正式文件只有欧协联 400 → 哥本哈根、丹超 400 仍为 proposed，reconcile 会合并丹超历史并写入丹超绑定；
-以后丹超导入的 `_Teams.resolve` 仍因“已有生效的球队 ID 关联，新别名未获核准”拒绝该队新比赛。
-FDORG 的非欧战目标联赛同理。因此真实 reconcile/合入前须由审查者与所有者确认目标联赛正式别名或后续任务，
-本次不能把已有跨联赛授权擅自写成新的 approved 条目，也不改隔离规则绕过此检查。
+`aliases propagate --archive <目录>`（`alias_propagation.py`）校验并只读恢复归档，按临时身份的
+同源比赛找出有历史的联赛。只从运行前两份正式文件各自的 `auto_verified/approved` ID 传播，
+不读待审候选，不根据名字推断；目标已有 active 条目保持原样，无 active 来源或无临时历史就不写。
+同 ID 的多个 active 来源规范名须一致；选原始证据条目优先于已传播条目，其余按来源联赛名稳定排序。
+canonical/status 取来源原值，已有目标来源名保留（无则取来源名），不沿用目标旧 proposed 的拒绝原因；
+evidence 替换为一条 `{kind: same_provider_id, source_league, source_status, source_aliases_sha256}`，
+哈希是本轮写入前该来源正式文件的原始字节 SHA256。approved_by/approved_utc/approval_pr 原样复制；
+approved 来源缺审批信息则拒绝传播，不补造批准字段。跨联赛规范名冲突、目标反向别名冲突拒绝本次全部写入。
+两份输出全部检查通过后才原子写各文件，第二份写入失败恢复前一份；没有变化则不写文件。
+命令逐条 logging 输出改动和来源证明，不改数据库/数据分支，重复运行 0 条；改动先走 PR 再供 Actions 使用。
+
+reconcile 另检查目标的正式落地：APIF 取配置中非 identity_only 联赛，FDORG 取 cloud_apis 的
+COMPETITION_CODES 对应配置，分别排除 CUP_LEAGUES。若这些日常采集的非杯赛目标缺少正式 active
+(联赛, ID)，写审计 reason=`目标联赛正式别名未传播`、记冲突跳过并保留该联赛临时历史。
+欧战仍按既有跨联赛桥接检查；同一临时身份已合并的其他联赛不受这个跳过影响。
+本轮丹超/400 由欧协联/400 原 auto_verified 传播为哥本哈根，保留同源 ID 证据；未改 `_Teams.resolve`。
+PR #45 评论 6616192600 的 15 个 approved ID 另外按有历史的欧战联赛落地，随后传播新增 6 个联赛条目；
+批准字段及来源原文保存在 t29 离线审批 fixture。实际身份合并仍交由审查者在 Actions 验收。
 
 逐联赛前置检查：同源 ID 的各正式来源联赛规范名一致、来源/目标联赛无反向别名冲突；
 目标唯一存在且不是临时行、临时 aliases 为空、目标无不同的本联赛同源 ID，当前 ID 未被其他球队占用；

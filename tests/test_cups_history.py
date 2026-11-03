@@ -140,8 +140,9 @@ def test_reconcile_formal_id_crosses_leagues_and_providers_and_is_idempotent(
 
     db, paths = history
     original = inventory(db.parent)
-    formal = {k: p.read_bytes() for k, p in paths.items()}
     archive = export_history(db, tmp_path)
+    assert main(["aliases", "propagate", "--archive", str(archive)]) == 0
+    formal = {k: p.read_bytes() for k, p in paths.items()}
     stage, run = staged_run(tmp_path / "stage", "unchanged")
     forecasts = publish_forecasts(archive, stage, run)
     frozen_files = {
@@ -187,7 +188,9 @@ def test_reconcile_formal_id_crosses_leagues_and_providers_and_is_idempotent(
             source = json.loads(row["alias_source"])
             assert source["provider"] == provider
             assert source["kind"] == "same_provider_id"
-            assert source["source_leagues"] == (["欧协联"] if provider == "apif" else ["英超"])
+            assert set(source["source_leagues"]) == (
+                {"丹超", "欧协联"} if provider == "apif" else {"欧冠", "英超"}
+            )
     before_repeat = inventory(db.parent)
     repeat = reconcile(db, "repeat")
     assert repeat["merged_teams"] == repeat["rekeyed_matches"] == 0
@@ -232,6 +235,8 @@ def test_reconcile_skips_unsafe_identity(history, provider, target, temporary, l
     aliases = json.loads(paths[provider].read_bytes())
     source = "欧协联" if provider == "apif" else "英超"
     canonical = aliases[source]["9101"]["canonical"]
+    if provider == "apif" and problem != "proposed":
+        aliases[league]["9101"] = dict(aliases[source]["9101"])
     with sqlite3.connect(db) as con:
         if problem == "proposed":
             aliases[source]["9101"]["status"] = "proposed"
@@ -386,8 +391,8 @@ def test_formal_alias_alone_is_required_persisted_binding_is_not_authorization(h
         assert con.execute("SELECT count(*) FROM matches WHERE home_team_id=10").fetchone() == (18,)
 
 
-def test_cross_league_history_merge_does_not_expand_importer_authorization(history):
-    """Pin the documented rollout blocker; no real aliases are promoted by T29."""
+def test_cross_league_propagation_and_merge_allow_new_domestic_matches(history, tmp_path):
+    """Formal destination aliases preserve the unchanged importer's authorization."""
     from zucai.db import session_scope
     from zucai.sources.apif_ingest import _Teams
     from zucai.sources.apif_reconcile import reconcile
@@ -398,9 +403,13 @@ def test_cross_league_history_merge_does_not_expand_importer_authorization(histo
     try:
         with session_scope(engine) as session:
             assert _Teams(session, aliases).resolve(session, "丹超", 9101).name == "apif:team:9101"
-        reconcile(db, "history-only")
+        archive = export_history(db, tmp_path)
+        assert main(["aliases", "propagate", "--archive", str(archive)]) == 0
+        aliases = json.loads(paths["apif"].read_bytes())
+        report = reconcile(db, "propagated")
+        assert report["skipped_conflicts"] == 0 and report["rekeyed_matches"] == 21
         with session_scope(engine) as session:
-            with pytest.raises(ValueError, match="新别名未获核准"):
-                _Teams(session, aliases).resolve(session, "丹超", 9101)
+            side = _Teams(session, aliases).resolve(session, "丹超", 9101)
+            assert side.name == "规范甲" and side.binding == "apif:丹超:team:9101"
     finally:
         engine.dispose()

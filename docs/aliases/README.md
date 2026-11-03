@@ -84,5 +84,30 @@ zucai aliases proposals --scope cups-history --archive ../cloud-data --out docs/
 所有者在 PR 按“apif ID → 中文规范名”明确批准后，实现者才写入正式文件对应欧战联赛键，
 使用上方 `approved_by / approved_utc / approval_pr` 来源字段；只改获批行，表外 proposed 保持原样。
 若需批准 fdorg 条目，同样先获得明确的 ID/规范名批准，再写其来源文件，不能把 APIF 数字 ID 用到 FDORG。
-本轮只交付命令、合并逻辑、文档和离线测试；真实清单、批准记录及 Actions 合并验收由后续步骤完成。
-Claude 随后运行 reconcile、重复 reconcile、归档/冻结预测校验，再核对场数改善及下一次预测的训练支持。
+Claude 已在 PR #45 审查中记录：用数据快照 `e05c7b0` 生成 200 行 APIF、17 行 FDORG 清单，
+任务单 8 支球队各一行；这些是审查者的真实核验记录，不是开发环境运行结果。
+所有者随后在 [评论 6616192600](https://github.com/qw5563680/FOOTBALL/pull/45#issuecomment-6616192600)
+逐行批准 8 支 APIF、7 支 FDORG 球队。来源名和 jc 规范名均照抄该表，approved_by=`qw5563680`、
+approved_utc=`2026-11-03T21:45:38Z`（评论时间）、approval_pr=`https://github.com/qw5563680/FOOTBALL/pull/45`。
+批准原文对应字段、临时历史联赛和传播前哈希见离线 `data/fixtures/t29/approved_batch.json`。
+
+批准写入正式文件后，先执行传播，再提交正式文件与改动清单：
+
+```bash
+zucai aliases propagate --archive ../cloud-data
+```
+
+命令只读数据归档，找出同一来源 ID 有临时历史、但本联赛尚无生效别名的条目，写回仓库的
+api_football.json / football_data_org.json。它保留来源 canonical/status 及全部批准字段；
+只替换 evidence 为同源 ID、来源联赛/状态、写入前正式文件 SHA256，逐条输出供 PR 审查。
+原始证据来源优先于已传播条目，同级按联赛名稳定选择；冲突或批准字段不全会停止，不猜中文名。
+没有历史或只有 proposed 的 ID 不传播；重复执行 0 条。归档、数据库及已有 active 记录不变。
+本次已明确授权的丹超/400 → 哥本哈根沿用欧协联 auto_verified，并非新增的人工批准。
+本批 15 个批准 ID 先落在有历史的欧战联赛，再从已存在的本地 `e05c7b0` 快照执行传播：
+APIF 560 / 575 / 611 / 656 / 1026 / 13976 另有欧协联历史，新增 6 条 approved 传播记录；
+合计 21 条本批 approved，加上丹超/400 一条 auto_verified，表外未批准 ID 不变。
+这是只读归档、写仓库别名的本地操作，没有执行真实 reconcile；数据归档 manifest 与 106 个受校验文件保持原字节。
+
+Claude 复核后再运行 reconcile、重复 reconcile、归档/冻结预测校验，并核对场数改善及下一次预测的训练支持。
+若日常采集的非杯赛目标联赛仍缺正式生效条目，reconcile 会以“目标联赛正式别名未传播”跳过，
+保持该联赛临时历史可继续由原导入器采集；补传播后再运行，不修改导入器来绕过授权。

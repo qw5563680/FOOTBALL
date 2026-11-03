@@ -62,6 +62,7 @@ python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --ru
 python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF/FDORG 存量身份，不联网
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases proposals --scope cups-history --archive ../cloud-data --out docs/aliases/2026-11-04-apif-cups-history.md  # 第二批历史清单，只读、不覆盖
+zucai aliases propagate --archive ../cloud-data  # 只读归档，将已生效同源 ID 写入有临时历史的联赛正式别名；提交审查后再 reconcile
 zucai aliases evaluate --provider apif --leagues 3,848 --archive ../cloud-data --out work/identity-evaluation.json
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
 python -m zucai.daily_digest --archive ../cloud-data --out ../cloud-data/daily  # 只读冻结数字，生成每日摘要
@@ -188,8 +189,10 @@ Actions 摘要显示合并球队、重定向比赛、删除空临时行和冲突
 少于 20/60 场数量、两源临时身份数及欧战出场数。统计沿用任务单 2025-07-01 UTC 起的 jc 参赛样本，
 不代表当前销售状态；库内场数也不是有效训练场数。先 reconcile，再 backfill；第二次 reconcile 合并 0。
 它不接受 source/leagues/seasons，检查全库两源临时身份；没有任何正式生效同源 ID 的 proposed 不处理。
-上线前仍需核对跨联赛目标的后续采集：若目标国内联赛正式别名仍为 proposed，历史合并后，
-原导入器会把该队新比赛记为“已有绑定但别名未获核准”。这次保留该隔离规则；目标联赛的正式别名/后续处理须由审查者与所有者确认。
+先用 `aliases propagate --archive ../cloud-data` 将已生效 ID 传播到有临时历史的各联赛正式文件，
+命令逐条输出来源、目标、状态及证据；不改归档或数据库。来源状态和批准字段原样保留，不自动批准新 ID。
+提交传播后的文件供审查，再由 Claude 运行 reconcile。日常采集的非欧战联赛如尚无本联赛正式生效条目，
+reconcile 跳过并记录“目标联赛正式别名未传播”，避免合并旧历史后反而拦住新比赛；导入器规则保持不变。
 
 Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
 `source` 选项统一为 fd / fdorg / apif，用于 backfill；probe 固定 apif，避免页面默认 fd 造成误用。
