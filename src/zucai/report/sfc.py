@@ -69,13 +69,20 @@ def optimize_cover(probabilities: list[dict], max_lines: int = 64) -> dict:
     }
 
 
-def build_sfc_report(session, issue, batch, *, forecast_sha256, generated, max_lines=64):
+def build_sfc_report(
+    session, issue, batch, *, forecast_sha256, generated, max_lines=64, allow_missing=False
+):
     _budget(max_lines)
     _validate_batch(batch)
     if not issue.snapshot or len(issue.snapshot) != 14 or not issue.observed_utc:
         raise ValueError("期次缺少完整来源快照，请重新抓取")
     rows = sorted(copy.deepcopy(issue.snapshot), key=lambda r: r["seq"])
-    if [r["seq"] for r in rows] != list(range(1, 15)) or len({r["match_id"] for r in rows}) != 14:
+    keys = [r["match_id"] for r in rows if r["match_id"] is not None]
+    if (
+        [r["seq"] for r in rows] != list(range(1, 15))
+        or len(set(keys)) != len(keys)
+        or (not allow_missing and len(keys) != 14)
+    ):
         raise ValueError("期次序号或比赛ID重复")
     if generated.utcoffset() is None or _timestamp(issue.observed_utc) > generated:
         raise ValueError("报告时间早于期次采集时间或没有时区")
@@ -90,7 +97,8 @@ def build_sfc_report(session, issue, batch, *, forecast_sha256, generated, max_l
     }
     for row in rows:
         row.update(probabilities=None, reason=None, top_outcome=None, selection=None)
-        predicted, match = predictions.get(row["match_id"]), session.get(Match, row["match_id"])
+        predicted = predictions.get(row["match_id"])
+        match = session.get(Match, row["match_id"]) if row["match_id"] else None
         if not match:
             row["reason"] = "映射比赛不在数据库中"
             continue
@@ -143,6 +151,24 @@ def build_sfc_report(session, issue, batch, *, forecast_sha256, generated, max_l
         combo = optimize_cover([r["probabilities"] for r in rows], max_lines)
         for row, selection in zip(rows, combo["selections"], strict=True):
             row["selection"] = selection
+    missing = sum(r["probabilities"] is None for r in rows)
+    minimum_lines = 3**missing
+    if allow_missing and missing:
+        for row in rows:
+            if row["probabilities"] is None:
+                row["selection"] = list("hda")
+                row["reason"] = "无模型：" + (row["reason"] or "概率缺失")
+        if minimum_lines <= max_lines:
+            known = [r for r in rows if r["probabilities"] is not None]
+            combo = optimize_cover([r["probabilities"] for r in known], max_lines // minimum_lines)
+            for row, selection in zip(known, combo["selections"], strict=True):
+                row["selection"] = selection
+            combo.update(
+                lines=combo["lines"] * minimum_lines,
+                max_lines=max_lines,
+                selections=[r["selection"] for r in rows],
+                missing_forced_three=missing,
+            )
     end = _timestamp(issue.sale_end_utc) if issue.sale_end_utc else None
     sale_state = (
         "deadline_unknown"
@@ -174,6 +200,11 @@ def build_sfc_report(session, issue, batch, *, forecast_sha256, generated, max_l
         rows=rows,
         combo=combo,
         max_lines=max_lines,
+        **(
+            {"diagnostic": True, "missing_models": missing, "minimum_lines": minimum_lines}
+            if allow_missing
+            else {}
+        ),
         confidence_order=[
             r["seq"]
             for r in sorted(
@@ -186,8 +217,9 @@ def build_sfc_report(session, issue, batch, *, forecast_sha256, generated, max_l
 
 def _markdown(report):
     source, batch = report["source"], report["forecast_batch"]
+    title = "诊断" if report.get("diagnostic") else "实验参考"
     lines = [
-        f"# 第{report['issue_no']}期 · 14场胜负彩实验参考",
+        f"# 第{report['issue_no']}期 · 14场胜负彩{title}",
         "",
         "**P2 未验证模型，BET 禁用；不构成购买建议。**",
         "",
@@ -235,7 +267,20 @@ def _markdown(report):
             "共同模型误差、选择偏差及比赛间依赖未获验证；奖金、税费和真实可购买价值未计算。",
         ]
     else:
-        lines += ["**14场模型输入不完整或存在冲突：无法可靠计算整期覆盖，不生成复式方案。**"]
+        if report.get("diagnostic"):
+            lines += [
+                f"无模型场次按三选处理，至少 {report['minimum_lines']} 注，超过 "
+                f"{report['max_lines']} 注上限；无法生成可行的完整复式，覆盖概率未生成。"
+            ]
+        else:
+            lines += ["**14场模型输入不完整或存在冲突：无法可靠计算整期覆盖，不生成复式方案。**"]
+    if report.get("diagnostic"):
+        lines += [
+            f"无模型 {report['missing_models']} 场保留空概率并按三选处理；有模型场次才有单选首项。",
+            "本报告仅作诊断，不设虚拟资金、不估算奖金。"
+            "forecast_batch 是当日冻结批次的引用合并视图，",
+            "不是新预测；原件路径、哈希与完整批次保存在 forecast_sources，不改写任何原预测。",
+        ]
     lines += [
         "",
         "冻结预测完整依据保存在 sfc.json 的 forecast_batch，原精度保留。",
@@ -283,6 +328,7 @@ def _csv(report):
     )
     for r in report["rows"]:
         p = r["probabilities"] or {}
+        reference = r.get("forecast_reference") or report["forecast_batch"]
         writer.writerow(
             [
                 _csv_cell(v)
@@ -304,9 +350,9 @@ def _csv(report):
                     report["probability_type"],
                     report["bet_allowed"],
                     report["execution_verified"],
-                    report["forecast_batch"]["batch_id"],
-                    report["forecast_batch"]["generated_utc"],
-                    report["forecast_batch"]["as_of_utc"],
+                    reference["batch_id"],
+                    reference["generated_utc"],
+                    reference["as_of_utc"],
                     report["generated_utc"],
                     report["sale_state"],
                     report["source"]["sale_end_utc"],

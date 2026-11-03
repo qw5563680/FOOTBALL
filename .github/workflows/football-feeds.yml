@@ -50,7 +50,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
 # One lock covers collection and prediction, including dispatches from different branches.
 concurrency:
   group: write-football-feed-data
@@ -215,6 +214,9 @@ jobs:
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           python -m zucai.cloud_predict run --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --sporttery-status "$SPORTTERY_STATUS"
+      - name: Freeze SFC14 diagnostics from today's model reports
+        continue-on-error: true
+        run: python -m zucai.sfc_reports --archive cloud-data
       - name: Publish frozen models and forecasts
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
@@ -228,6 +230,7 @@ jobs:
             cloud-data/models/latest.json
             cloud-data/forecasts/*/${{ github.run_id }}-${{ github.run_attempt }}
             cloud-data/forecast_manifest.json
+            cloud-data/sfc
           retention-days: 90
           if-no-files-found: ignore
 
@@ -262,11 +265,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: scoreboard-${{ github.run_id }}-${{ github.run_attempt }}
-          path: cloud-data/scoreboard
+          path: |
+            cloud-data/scoreboard
+            cloud-data/sfc/settled.jsonl
           retention-days: 90
           if-no-files-found: ignore
 
   digest:
+    permissions:
+      contents: write
+      issues: write
     needs: [scoreboard]
     # Report the available frozen state even if upstream work failed; never rescore here.
     if: ${{ !cancelled() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}

@@ -34,7 +34,39 @@ def _find_team(session, name):
     return candidates[0] if candidates else None
 
 
-def _map_fixture(session, fixture, bridges):
+def _preferred_candidate(candidates):
+    """Collapse proven same-fixture rows; never break a source-priority tie."""
+    if not candidates:
+        return None
+    priorities = {"jc": 0, "fd": 1, "fdorg": 2}
+    ordered = sorted(candidates, key=lambda m: priorities.get(m.source, 3))
+    if len(ordered) == 1:
+        return ordered[0]
+    if priorities.get(ordered[0].source, 3) == priorities.get(ordered[1].source, 3):
+        return None
+
+    def equivalent(a, b):
+        return (
+            a.counterpart_id == b.match_id
+            or b.counterpart_id == a.match_id
+            or (
+                (a.league, a.home_team_id, a.away_team_id)
+                == (b.league, b.home_team_id, b.away_team_id)
+                and datetime.fromisoformat(a.kickoff_utc) == datetime.fromisoformat(b.kickoff_utc)
+            )
+        )
+
+    group, pending = [ordered[0]], ordered[1:]
+    while pending:
+        joined = [m for m in pending if any(equivalent(m, other) for other in group)]
+        if not joined:
+            return None
+        group.extend(joined)
+        pending = [m for m in pending if m not in joined]
+    return ordered[0]
+
+
+def _map_fixture(session, fixture, bridges, *, mapped_only=False):
     own_id = "c500:" + fixture.fixture_id
     own = session.get(Match, own_id)
     bridge = bridges.get(fixture.fixture_id)
@@ -51,23 +83,36 @@ def _map_fixture(session, fixture, bridges):
             datetime.fromisoformat(bridge["kickoff_utc"]) != fixture.kickoff_utc
         ):
             raise ValueError(f"{own_id} ID对照主客球队或开球冲突")
-        if own and own.counterpart_id and own.counterpart_id != bridge["jc_id"]:
-            raise ValueError(f"{own_id} 已存与新增比赛ID对照冲突")
         target = session.get(Match, bridge["jc_id"])
+        if own and own.counterpart_id and own.counterpart_id != bridge["jc_id"]:
+            previous = session.get(Match, own.counterpart_id)
+            if (
+                previous is None
+                or target is None
+                or _preferred_candidate([previous, target]) is None
+            ):
+                raise ValueError(f"{own_id} 已存与新增比赛ID对照冲突")
         if target is not None:
             linked.append(target)
         evidence = {"basis": "provider_fixture_and_team_ids", **bridge}
     linked = list({m.match_id: m for m in linked}.values())
-    if len(linked) > 1:
-        raise ValueError(f"{own_id} ID对照指向多个比赛")
     if linked:
-        match = linked[0]
+        match = _preferred_candidate(linked)
+        if match is None:
+            raise ValueError(f"{own_id} ID对照指向多个比赛")
+        # Cloud ID bridging checks both source pages' league labels when the
+        # official league label differs; it never creates a reusable name alias.
+        source_league_confirmed = (
+            mapped_only
+            and bridge
+            and match.match_id == bridge["jc_id"]
+            and _league_key(bridge["league"]) == _league_key(fixture.league)
+        )
         if (
-            _league_key(match.league) != _league_key(fixture.league)
-            or datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc
-        ):
+            _league_key(match.league) != _league_key(fixture.league) and not source_league_confirmed
+        ) or datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc:
             raise ValueError(f"{own_id} ID对照与比赛联赛或开球冲突")
-        return match, "matched", [match.match_id], evidence
+        return match, "matched", [m.match_id for m in linked], evidence
     home_name = bridge["home"] if bridge else fixture.home
     away_name = bridge["away"] if bridge else fixture.away
     home, away = _find_team(session, home_name), _find_team(session, away_name)
@@ -85,7 +130,7 @@ def _map_fixture(session, fixture, bridges):
         or own.away_team_id != own_away.id
     ):
         raise ValueError(f"已有比赛{own_id}身份冲突，须人工核对")
-    if own and bridge:
+    if own and bridge and not mapped_only:
         own.counterpart_id = bridge["jc_id"]
     candidates = []
     if home and away and not bridge:
@@ -100,8 +145,16 @@ def _map_fixture(session, fixture, bridges):
                 )
             )
         )
-    if len(candidates) == 1:
-        return candidates[0], "matched", [candidates[0].match_id], evidence
+    preferred = _preferred_candidate(candidates)
+    if preferred is not None:
+        return preferred, "matched", [m.match_id for m in candidates], evidence
+    if mapped_only:
+        return (
+            None,
+            "ambiguous" if candidates else "unmatched",
+            [m.match_id for m in candidates],
+            evidence,
+        )
     if own is None:
         home = home or upsert_team(session, home_name, "c500-sfc")
         away = away or upsert_team(session, away_name, "c500-sfc")
@@ -127,7 +180,14 @@ def _map_fixture(session, fixture, bridges):
 
 
 def ingest_issue(
-    session, issue: SfcSnapshot, *, observed: datetime, url: str, raw_sha256: str, bridges=()
+    session,
+    issue: SfcSnapshot,
+    *,
+    observed: datetime,
+    url: str,
+    raw_sha256: str,
+    bridges=(),
+    mapped_only=False,
 ):
     if observed.utcoffset() is None:
         raise ValueError("采集时间必须有时区")
@@ -153,8 +213,21 @@ def ingest_issue(
             bridge_map[fid] = dict(saved, reused_from_issue_snapshot=True)
     snapshot = []
     for fixture in issue.fixtures:
-        match, mapping, candidates, evidence = _map_fixture(session, fixture, bridge_map)
-        home, away = session.get(Team, match.home_team_id), session.get(Team, match.away_team_id)
+        try:
+            match, mapping, candidates, evidence = _map_fixture(
+                session, fixture, bridge_map, mapped_only=mapped_only
+            )
+        except ValueError:
+            if not mapped_only:
+                raise
+            match, mapping, candidates, evidence = (
+                None,
+                "ambiguous",
+                [],
+                {"basis": "conflicting_identity"},
+            )
+        home = session.get(Team, match.home_team_id) if match else None
+        away = session.get(Team, match.away_team_id) if match else None
         snapshot.append(
             dict(
                 seq=fixture.seq,
@@ -164,8 +237,9 @@ def ingest_issue(
                 league=fixture.league,
                 kickoff_utc=fixture.kickoff_utc.isoformat(),
                 source_ended=fixture.ended,
-                match_id=match.match_id,
+                match_id=match.match_id if match else None,
                 mapping=mapping,
+                reason=mapping if mapping != "matched" else None,
                 candidate_ids=candidates,
                 mapping_evidence=evidence,
                 provider_home_id=fixture.home_id,
@@ -176,10 +250,17 @@ def ingest_issue(
                     league=match.league,
                     source=match.source,
                     kickoff_utc=fixture.kickoff_utc.isoformat(),
-                ),
+                )
+                if match
+                else None,
             )
         )
-    if len(snapshot) != 14 or len({x["match_id"] for x in snapshot}) != 14:
+    if (
+        len(snapshot) != 14
+        or len({x["fixture_id"] for x in snapshot}) != 14
+        or len([x["match_id"] for x in snapshot if x["match_id"]])
+        != len({x["match_id"] for x in snapshot if x["match_id"]})
+    ):
         raise ValueError("期次映射必须有14场不同的比赛")
     if record is None:
         record = SfcIssue(issue_no=issue.issue_no)
@@ -194,6 +275,7 @@ def ingest_issue(
         [
             SfcIssueMatch(issue_no=issue.issue_no, seq=x["seq"], match_id=x["match_id"])
             for x in snapshot
+            if x["match_id"] is not None
         ]
     )
     session.flush()
@@ -260,3 +342,114 @@ def fetch_sfc(issue=None, *, db=None, matches_out=None):
         raise
     finally:
         engine.dispose()
+
+
+def collect_current_sfc(db):
+    """Read current SFC and JC root pages without changing match identities."""
+    import json
+
+    result = dict(
+        status="partial",
+        inserted=0,
+        linked_existing=0,
+        rejected_rows=0,
+        requests=0,
+        errors=[],
+        issue_no=None,
+        mapped=0,
+        unmatched=0,
+    )
+    source = engine = None
+    audit = Path(db).parent / "state/audit/sfc_unmatched.csv"
+    previous_audit = None
+    published = False
+    temporary = audit.with_suffix(".tmp")
+    try:
+        source = C500Sfc()
+        engine = get_engine(db)
+        result["requests"] += 1
+        path = source.fetch_raw(current_only=True)
+        raw, meta = source.store.load(path), source.store.load_metadata(path)
+        issue = source.parse(raw)[0]
+        # Share the no-retry session and limiter: one GET per root, spaced >=1s.
+        bridge_source = C500FixtureBridge(store=source.store, session=source.session)
+        bridge_source.limiter = source.limiter
+        result["requests"] += 1
+        bridge_path = bridge_source.fetch_raw()
+        bridge_raw = source.store.load(bridge_path)
+        bridge_meta = source.store.load_metadata(bridge_path)
+        bridges = bridge_source.parse(bridge_raw)
+        for bridge in bridges:
+            bridge["provenance"] = dict(
+                url=bridge_meta["url"],
+                observed_utc=bridge_meta["fetched_at_utc"],
+                raw_sha256=hashlib.sha256(bridge_raw).hexdigest(),
+            )
+        init_db(engine)
+        with session_scope(engine) as session:
+            record = ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat(meta["fetched_at_utc"]),
+                url=meta["url"],
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                bridges=bridges,
+                mapped_only=True,
+            )
+            rows = [
+                dict(
+                    issue_no=issue.issue_no,
+                    seq=r["seq"],
+                    fixture_id=r["fixture_id"],
+                    reason=r["reason"],
+                    candidates=json.dumps(r["candidate_ids"], sort_keys=True),
+                    raw_sha256=record.raw_sha256,
+                )
+                for r in record.snapshot
+                if not r["match_id"]
+            ]
+            result.update(
+                issue_no=issue.issue_no,
+                mapped=14 - len(rows),
+                unmatched=len(rows),
+                linked_existing=14 - len(rows),
+                rejected_rows=len(rows),
+            )
+            audit.parent.mkdir(parents=True, exist_ok=True)
+            fields = ["issue_no", "seq", "fixture_id", "reason", "candidates", "raw_sha256"]
+            previous_audit = audit.read_bytes() if audit.exists() else None
+            existing = []
+            if audit.exists():
+                with audit.open(encoding="utf-8", newline="") as stream:
+                    existing = list(csv.DictReader(stream))
+            seen = {tuple(str(r[k]) for k in fields[:-1]) for r in existing}
+            for row in rows:
+                key = tuple(str(row[k]) for k in fields[:-1])
+                if key not in seen:
+                    existing.append(row)
+                    seen.add(key)
+            with temporary.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                writer.writerows(existing)
+            temporary.replace(audit)
+            published = True
+        result["status"] = "complete"
+    except Exception as exc:
+        if published:
+            if previous_audit is None:
+                audit.unlink(missing_ok=True)
+            else:
+                from zucai.sources.base import _atomic_write
+
+                _atomic_write(audit, previous_audit)
+        result.update(inserted=0, linked_existing=0, rejected_rows=0, mapped=0, unmatched=0)
+        result["errors"] = ["SFC collection failed: " + type(exc).__name__]
+        LOG.warning("SFC collection failed (%s)", type(exc).__name__)
+    finally:
+        temporary.unlink(missing_ok=True)
+        if source is not None:
+            source.session.close()
+        if engine is not None:
+            engine.dispose()
+    return result

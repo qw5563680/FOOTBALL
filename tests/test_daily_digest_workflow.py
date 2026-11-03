@@ -43,8 +43,10 @@ def test_digest_follows_scoreboard_or_explicit_dispatch(event, operation, expect
     permissions = re.search(r"^permissions:\n((?:  .*\n)+)", text, re.M).group(1)
     assert set(re.findall(r"^  (\S+): (\S+)", permissions, re.M)) == {
         ("contents", "write"),
-        ("issues", "write"),
     }
+
+    assert "permissions:\n      contents: write\n      issues: write" in job
+    assert text.count("issues: write") == 1
 
 
 @pytest.mark.parametrize("ref", ["main", "football-ingest-run-test", "football-ingest-verify-test"])

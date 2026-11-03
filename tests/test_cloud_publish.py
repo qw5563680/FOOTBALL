@@ -102,6 +102,8 @@ def test_writeback_publishes_forecasts_with_exact_bytes_on_windows_checkouts(tmp
         "scoreboard/scoreboard.md": b"virtual only\n",
         "daily/2026-11-03.md": b"daily fixture\n",
         "daily/latest.md": b"daily fixture\n",
+        "sfc/26156/report.csv": b"issue,seq\r\n26156,1\r\n",
+        "sfc/settled.jsonl": b"{}\n",
     }
     for name, raw in artifacts.items():
         path = run / name

@@ -14,6 +14,7 @@ from zucai.cloud_feeds import archive_info
 from zucai.forecast_archive import _path, verify_forecasts
 from zucai.report.render import load_batch
 from zucai.scoreboard.command import read_state
+from zucai.sfc_digest import section as sfc_section
 from zucai.sources.base import _atomic_write
 
 LOG = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ def _forecast_sections(batches, today, repository):
                 )
                 if row["status"] != "predicted":
                     lines.append(
-                        f"| {kickoff} | {_match(row)} | 无模型：{_text(row.get('reason'))} "
+                        f"| {kickoff} | {_match(row)} | 未预测：{_text(row.get('reason'))} "
                         "| — | — | — |"
                     )
                     continue
@@ -281,7 +282,7 @@ def _anomaly_sections(feed, summary, quota, repository):
             f"{_text(record.get('suspected_duplicates'))}；{reason}。"
         )
     apif = collection.get("apif", {})
-    # A jc sync may replace collection metadata. Preserve explicit provenance of quota fallback.
+    # Legacy/manual archives can lack quota metadata; preserve the fallback's provenance.
     if quota:
         lines.append(
             f"- 配额快照来源：{_link('state/api_football_quota.json', repository)}；"
@@ -347,6 +348,7 @@ def generate(archive, out, *, now=None, run_id="local", repository=None):
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
         *_forecast_sections(batches, today, repository),
+        *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
         *_settlement_sections(scored, summary, batches, today - timedelta(days=1), repository),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
         *_anomaly_sections(feed, summary, quota, repository),

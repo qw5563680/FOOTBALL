@@ -23,6 +23,7 @@ from zucai.scoreboard.score import (
     score_forecasts,
     summarize_scores,
 )
+from zucai.scoreboard.sfc import read_settled, render_diagnostics, settle
 
 LOG = logging.getLogger(__name__)
 FILES = ("scored.jsonl", "ledger.jsonl", "scoreboard.md", "summary.json")
@@ -61,25 +62,28 @@ def read_state(archive):
     return scored, ledger, summary, scored_raw
 
 
-def _publish(archive, contents):
+def _publish(archive, contents, *, sfc_raw=None):
     root = _path(archive, "scoreboard")
-    backups = {
-        name: (root / name).read_bytes() if (root / name).exists() else None for name in FILES
-    }
+    paths = {name: _path(root, name) for name in FILES}
+    if sfc_raw is not None:
+        contents = {**contents, "sfc-settled": sfc_raw}
+        paths["sfc-settled"] = _path(archive, "sfc/settled.jsonl")
+    backups = {name: path.read_bytes() if path.exists() else None for name, path in paths.items()}
     try:
         with TemporaryDirectory(prefix=".scoreboard-", dir=archive) as temporary:
             stage = Path(temporary)
             for name, raw in contents.items():
                 (stage / name).write_bytes(raw)
             root.mkdir(exist_ok=True)
-            for name in FILES:
-                (stage / name).replace(root / name)
+            for name, path in paths.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                (stage / name).replace(path)
     except BaseException:
         for name, raw in backups.items():
             if raw is None:
-                (root / name).unlink(missing_ok=True)
+                paths[name].unlink(missing_ok=True)
             else:
-                (root / name).write_bytes(raw)
+                paths[name].write_bytes(raw)
         if root.is_dir() and not any(root.iterdir()):
             root.rmdir()
         raise
@@ -94,6 +98,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     if replay_days is not None and not 1 <= replay_days <= 366:
         raise ValueError("--replay-days 必须在 1–366 之间")
     existing, ledger, previous, scored_raw = read_state(archive)
+    settled, settled_raw = read_settled(archive, previous)
     if previous and instant(previous["as_of_utc"]) > at:
         raise ValueError("不能倒退已有记分板的截点，请用独立归档副本回放")
     forecast_manifest = verify_forecasts(archive)
@@ -142,6 +147,9 @@ def run(archive: Path, *, as_of=None, replay_days=None):
                     },
                 )
     accounts = account_statistics(ledger, at)
+    sfc_added, sfc_summary = settle(archive, results, settled, at)
+    sfc_raw = settled_raw + _jsonl(sfc_added)
+    sfc_summary["settled_sha256"] = hashlib.sha256(sfc_raw).hexdigest()
     audit["paper_skips"] = dict(Counter(r["reason"] for r in ledger if r["record_type"] == "skip"))
     audit["late_batches"] = sum(
         r["record_type"] == "batch" and r["reason"] == "late_batch_ignored" for r in ledger
@@ -167,6 +175,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         "input_manifests": inputs,
         "probability": probability,
         "accounts": accounts,
+        "sfc": sfc_summary,
         "audit": audit,
         "gates": {
             "prospective_verified": any(
@@ -175,7 +184,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
             "simulated_profit_evidence": profit_evidence(accounts["1.05"]["A"]),
         },
     }
-    markdown = render_scoreboard(summary)
+    markdown = render_scoreboard(summary) + render_diagnostics(summary)
     contents = {
         "scored.jsonl": scored_raw + _jsonl(scored[len(existing) :]),
         "ledger.jsonl": _jsonl(ledger),
@@ -185,7 +194,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     contents["summary.json"] = _json(summary)
     if any(digest(archive / name) != sha for name, sha in inputs.items()):
         raise ValueError("输入归档在计算期间发生变化")
-    _publish(archive, contents)
+    _publish(archive, contents, sfc_raw=sfc_raw)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
             output.write("\n".join(markdown.splitlines()[:60]) + "\n")

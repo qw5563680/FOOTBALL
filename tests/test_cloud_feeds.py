@@ -45,7 +45,18 @@ def run_cloud_sync(monkeypatch, work, archive, through):
     main()
 
 
-def mock_calendar(api):
+def mock_calendar(api, *, sfc=True):
+    if sfc:
+        api.add(
+            responses.GET,
+            "https://trade.500.com/sfc/",
+            body=(Path(__file__).parents[1] / "data/fixtures/t07/26156.html").read_bytes(),
+        )
+        api.add(
+            responses.GET,
+            "https://trade.500.com/jczq/",
+            body=(FIXTURES / "t26/full-bridge.html").read_bytes(),
+        )
     calendar = feed_json("sporttery_calculator_20261101.json")
     # Keep sample fixtures unstarted regardless of the machine's current clock.
     for group in calendar["value"]["matchInfoList"]:
@@ -88,6 +99,14 @@ def test_cloud_sync_publishes_good_results_and_quotes_despite_one_rejected_row(
     from zucai.cloud_feeds import archive_info, restore_feeds
 
     archive = seed_cloud_archive(tmp_path)
+    manifest_path = archive / "feed_manifest.json"
+    previous = json.loads(manifest_path.read_bytes())
+    prior_sources = {
+        source: {"status": "complete", "run_id": "previous-api"}
+        for source in ("fd", "fdorg", "apif")
+    }
+    previous["collection"] = prior_sources
+    manifest_path.write_text(json.dumps(previous))
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
     with responses.RequestsMock() as api:
@@ -100,6 +119,11 @@ def test_cloud_sync_publishes_good_results_and_quotes_despite_one_rejected_row(
     assert meta["counts"]["results"] == 2
     assert meta["counts"]["odds"] > 0
     assert meta["collection_status"] == "partial"
+    assert all(meta["collection"][key] == value for key, value in prior_sources.items())
+    assert meta["collection"]["jc"]["status"] == "partial"
+    assert meta["collection"]["jc"]["run_id"] == "trial"
+    assert meta["collection"]["jc"]["rejected_rows"] == 1
+    assert meta["collection"]["sfc"]["requests"] == 2
     assert meta["pending_result_count"] == 1
     assert meta["pending_result_dates"] == ["2026-10-31"]
     assert "待补抓" in caplog.text and "partial" in summary.read_text(encoding="utf8")
@@ -158,7 +182,7 @@ def test_cloud_sync_does_not_publish_after_incomplete_page_or_policy_denial(
     export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 1), "rejected")
     before = {p.relative_to(archive): p.read_bytes() for p in archive.rglob("*") if p.is_file()}
     with responses.RequestsMock() as api:
-        mock_calendar(api)
+        mock_calendar(api, sfc=False)
         mock_result_day(api, "2026-10-01", [{"matchId": 4}, {"matchId": 5, "sectionsNo1": "9:0"}])
         if failure == "blocked":
             api.add(
