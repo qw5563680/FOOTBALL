@@ -1,5 +1,6 @@
 """Evaluate the checked-in Actions job condition, without network or extra YAML deps."""
 
+import json
 import re
 from pathlib import Path
 
@@ -13,7 +14,7 @@ WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
     [
         ("schedule", "", "40 9 * * *", "success", False, True),
         ("schedule", "", "40 9 * * *", "failure", False, False),
-        ("schedule", "", "40 2 * * *", "success", False, False),
+        ("schedule", "", "40 2 * * *", "success", False, True),
         ("workflow_dispatch", "predict", "", "skipped", False, True),
         ("workflow_dispatch", "predict", "", "skipped", True, False),
         ("workflow_dispatch", "apis", "", "success", False, False),
@@ -27,7 +28,7 @@ WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
         ("push", "", "", "success", False, False),
     ],
 )
-def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
+def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
     event, operation, cron, apis, cancelled, expected
 ):
     text = WORKFLOW.read_text()
@@ -258,3 +259,67 @@ def test_dispatch_scripts_resolve_per_operation_defaults(
         if first:
             assert argv[argv.index("--from") + 1] == first
             assert argv[argv.index("--to") + 1] == last
+
+
+@pytest.mark.parametrize(
+    "case", json.loads((WORKFLOW.parents[2] / "data/fixtures/schedule_slots.json").read_text())
+)
+def test_actual_start_slot_and_prediction_for_both_crons(tmp_path, case):
+    import os
+    import subprocess
+    import textwrap
+    from datetime import datetime, timedelta
+
+    from zucai.cloud_apis import fd_due
+
+    text = WORKFLOW.read_text()
+    step = next(s for s in text.split("      - name:") if "Restore and collect APIs" in s)
+    expression = re.search(r"FEED_SLOT: \$\{\{ (.*?) \}\}", step).group(1)
+    for key, value in {
+        "github.event_name": "schedule",
+        "github.event.schedule": case["cron"],
+        "inputs.slot": "",
+    }.items():
+        expression = expression.replace(key, repr(value))
+    feed_slot = eval(
+        expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}, {}
+    )
+    assert feed_slot == "auto"
+    assert "slot: ${{ steps.collect.outputs.slot }}" in text
+    assert "id: collect" in step
+    now = datetime.fromisoformat(case["now"])
+    # Execute the checked-in shell; replace clock and collector with offline recorders.
+    for name, script in {
+        "date": '#!/bin/bash\nprintf "%s\\n" "$FAKE_HOUR"\n',
+        "python": '#!/bin/bash\nprintf "%s\\n" "$@" > "$CAPTURE_ARGS"\n',
+    }.items():
+        path = tmp_path / name
+        path.write_text(script)
+        path.chmod(0o755)
+    output, capture = tmp_path / "output", tmp_path / "argv"
+    env = dict(
+        PATH=str(tmp_path) + os.pathsep + os.defpath,
+        FAKE_HOUR=f"{now.hour:02}",
+        GITHUB_OUTPUT=str(output),
+        CAPTURE_ARGS=str(capture),
+        WORK_DIR=str(tmp_path / "work"),
+        FEED_MODE="apis",
+        LOOKBACK="3",
+        FEED_SLOT=feed_slot,
+        GITHUB_RUN_ID="offline",
+        GITHUB_RUN_ATTEMPT="1",
+    )
+    subprocess.run(
+        ["/bin/bash", "-eu", "-c", textwrap.dedent(step.split("        run: |\n", 1)[1])],
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    assert output.read_text().strip() == f"slot={case['slot']}"
+    argv = capture.read_text().splitlines()
+    assert argv[argv.index("--slot") + 1] == "auto"
+    assert fd_due(now, case["slot"]) is case["fd"]
+    assert fd_due(now + timedelta(days=1), case["slot"]) is False
+    test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
+        "schedule", "", case["cron"], "success", False, True
+    )

@@ -99,8 +99,8 @@ pytest -q
 | --- | --- | --- |
 | `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
 | `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 沿用官方在售赛程与赛果 `sync`；未配置时整个 job 显示 skipped |
-| `predict` | `ubuntu-latest`，45 分钟上限 | 仅晚班采集后（UTC 09:40 / 北京 17:40）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告 |
-| `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，早班预测跳过也运行；另支持手动 `operation=scoreboard` |
+| `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告 |
+| `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
 
 四个 job 依赖顺序为 `apis → sporttery → predict → scoreboard`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
 写回前执行 `git pull --rebase`；冲突则失败，不强推。fd 主联赛赛季按七月换季推导（如 2627），
@@ -183,7 +183,8 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
 `probe_kind=leagues` 只查元数据，不接收年份；`from_season` / `to_season` 仅供 backfill，含首尾。
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
-  计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
+  计划事件一律传 auto，按实际启动时刻以 UTC 09:00 为界判定早晚班，并输出 apis.slot；手动 auto 同样处理。
+  每次定时运行均预测，手动 apis 仍不触发预测；fd 仍只在 UTC 周一 early 采集。
 - `operation=relink-fdorg`：仅手动 Actions 补存量 fd/fdorg 链接，对应 `backfill --relink-fdorg`；
   不采集、不注入 key、不训练、不运行记分板。摘要列补链/跳过数、原因和逐对清单；只改 counterpart，保留赛果和预测原件。
 - `operation=reconcile`：仅手动运行 APIF 存量身份合并，不触发采集、预测或记分板；
