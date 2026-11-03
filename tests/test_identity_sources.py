@@ -37,6 +37,8 @@ def test_verified_bridge_metadata_matches_actions_audit_and_stays_identity_only(
 
 def test_promoted_bridge_aliases_keep_all_130_original_records_and_evidence():
     provenance = json.loads((ROOT / "data/fixtures/t23/stage1_provenance.json").read_bytes())
+    metadata = (ROOT / "data/fixtures/t23/apif_league_probes.csv").read_bytes()
+    assert hashlib.sha256(metadata).hexdigest() == provenance["metadata_fixture_sha256"]
     aliases = json.loads((ROOT / "data/team_aliases/api_football.json").read_bytes())
     count = 0
     for league, proof in provenance["promoted"].items():
