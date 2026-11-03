@@ -52,6 +52,58 @@ def test_promoted_bridge_aliases_keep_all_130_original_records_and_evidence():
     assert "51" not in aliases["英超"] and "225" not in aliases["葡超"]
 
 
+def test_formal_cup_aliases_preserve_inferred_names_and_entire_audit_evidence():
+    fixture = ROOT / "data/fixtures/t23"
+    provenance = json.loads((fixture / "stage3_provenance.json").read_bytes())
+    for name, expected_sha in provenance["fixture_sha256"].items():
+        assert hashlib.sha256((fixture / name).read_bytes()).hexdigest() == expected_sha
+    aliases = json.loads((ROOT / "data/team_aliases/api_football.json").read_bytes())
+    with (fixture / "stage3_cup_aliases.csv").open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == provenance["selected_rows"] == 2
+    for row in rows:
+        evidence = json.loads(row["evidence"])
+        assert row["status"] == "auto_verified"
+        assert any(e["counterpart_id"].startswith("jc:") for e in evidence)
+        assert aliases[row["league"]][row["team_id"]] == {
+            "name": row["name"],
+            "canonical": row["canonical"],
+            "status": row["status"],
+            "evidence": evidence,
+        }
+
+
+def test_owner_approved_batch_exactly_matches_the_41_row_comment_table():
+    from zucai.sources.apif_aliases import validate_approvals
+    from zucai.sources.fd_ingest import _canonical
+
+    fixture = ROOT / "data/fixtures/t23"
+    aliases = json.loads((ROOT / "data/team_aliases/api_football.json").read_bytes())
+    validate_approvals(aliases, require_metadata=True)
+    expected = {}
+    for line in (fixture / "stage3_approval_table.md").read_text().splitlines():
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) == 6 and cells[1].isdigit():
+            league, key, name, _, canonical, _ = cells
+            expected[league, key] = dict(
+                name=name,
+                canonical=canonical,
+                status="approved",
+                approved_by="qw5563680",
+                approved_utc="2026-11-03T11:11:00+00:00",
+                approval_pr="https://github.com/qw5563680/FOOTBALL/pull/34",
+            )
+    actual = {
+        (league, key): row
+        for league, records in aliases.items()
+        for key, row in records.items()
+        if row.get("approved_utc") == "2026-11-03T11:11:00+00:00"
+    }
+    assert actual == expected and len(actual) == 41
+    for (league, key), row in expected.items():
+        assert _canonical(aliases, league, key) == row["canonical"]
+
+
 def test_identity_source_explicitly_selects_only_the_seven_bridges():
     source = ApiFootball(identity_only=True)
     try:

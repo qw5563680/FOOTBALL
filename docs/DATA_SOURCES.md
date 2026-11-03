@@ -462,8 +462,9 @@ APIF 两季分别有 38+38 / 34+34 场；竞彩同窗参考分别有 29 / 5 个�
 正式结论须等真实 identity、别名审查和所有者审批完成后再对数据分支评估；当前尚无该阶段数据。
 即使额外至少 20 支且零冲突，也只为下一任务提供依据，本任务不放宽任何生产身份规则。
 
-待 Claude 继续验收：复核本轮正式别名、生成第一批审批清单；补充重新回填后的 2026 隔离数、
-新增 jc 关联、对齐率和同范围重复运行的行数不变证明。
+第一批 41 条已获所有者批准并写入正式文件，另有两条欧战运行期自动核验转正，来源见下节。
+待 Claude 继续验收：复核本轮正式别名后再合并及回填，补充 2026 隔离数、
+新增 jc 关联、竞彩已售比赛对应率/球队绑定率和同范围重复运行的行数不变证明。
 
 ### 字段和身份边界
 
@@ -474,8 +475,30 @@ T23 阶段二由 Claude 在 `fd12c4b` 真实回填：欧战 run 41615438667、�
 按新增第 8 项提供独立 `operation=reconcile`，复用已核验 ID 和导入器的规范名查找，严格检查同联赛三小时冲突，
 不放宽身份推断或导入器拒绝规则；审计写 `apif_identity_merges.csv`，冻结内容与比赛编号不改。
 欧战别名审计的重复时间/runner 路径不再形成新行，实际不同原件与身份依据保留。
-本地仅 fixtures 测试，没有真实请求或对真实数据分支执行合并；实际 ≥63 队/约1346 场仍待 Claude Actions 验收。
-`approved` 尚未写入，隔离≤10/对齐≥90% 必须在合并与首批所有者审批落地后再计。
+Claude 随后在 `604726d` 真实运行 reconcile [41623813368](https://github.com/qw5563680/FOOTBALL/actions/runs/41623813368)：
+合并/删除 63 队、重定向 1104 个不同比赛 ID（按联赛/球队计 1346 次）、冲突 0，比赛数不变。
+欧战回填 [41624033560](https://github.com/qw5563680/FOOTBALL/actions/runs/41624033560) 新建 jc 关联 12；
+重复回填 [41624065507](https://github.com/qw5563680/FOOTBALL/actions/runs/41624065507) 新增/新关联均 0，
+四张 APIF 审计字节不变，最终数据提交 `1d0152677977cd807dd4f49ff3985c8ed49319b5`。
+这些是本轮正式别名更新前的结果，详见 [复审评论](https://github.com/qw5563680/FOOTBALL/pull/34#issuecomment-6602226081)。
+
+**第 9 项及首批批准（2026-11-03）。** 从上述提交的 `apif_cup_aliases.csv` 全部 825 行中筛出
+status=auto_verified 且 evidence 含 counterpart_id 的欧战行，共两条，均为 jc 比赛证据：
+欧协联 400 FC Copenhagen → 哥本哈根（apif:1636406 / jc:2041986），
+632 Universitatea Craiova → 克拉约瓦（apif:1636482 / jc:2041989）。
+name、canonical、status、完整 evidence 原样转入正式文件，保留原始时间及 runner 路径，不复制 proposed。
+
+按 [批准评论 6602500381](https://github.com/qw5563680/FOOTBALL/pull/34#issuecomment-6602500381)，
+将 [原表第 4 节](https://github.com/qw5563680/FOOTBALL/pull/34#issuecomment-6601053083) 全部 41 行写为 approved：
+欧罗巴 13、韩职 12、澳超 9、挪超 1、美职 4、日职 2。来源名、中文规范名逐字取原表，
+approved_by=qw5563680，approved_utc=2026-11-03T11:11:00+00:00，approval_pr 为 PR #34 完整链接。
+仅改变这 43 个联赛/ID，既有 130 条桥接及表外 proposed、其他联赛原样保留；来源副本及哈希在
+`data/fixtures/t23/stage3_*`，可完全离线核对。本地没有真实 API 请求、真实合并或 workflow_dispatch。
+
+本轮批准后的 reconcile → 欧战/九联赛回填 → 重复回填仍由 Claude 验收。
+按任务单最新口径，要求竞彩已售的 2026 欧战全部有 apif 对应（更新前基线 10/32、2/4），
+已售球队绑定率 ≥90%（基线 16/29、6/8）。isolated_2026 继续报告；它含竞彩未售场次，
+不再作为 ≤10 的门槛。当前 73 不能与此前在身份检查即拒绝的 39 直接比较。
 
 时间仅取 `fixture.timestamp`（Unix UTC），不从可能改格式的显示字符串推断。
 常规时间比分只取 `score.fulltime`，半场取 `score.halftime`。真实韩职 `apif:1317866`

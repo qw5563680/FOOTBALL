@@ -13,3 +13,12 @@ CSV 副本仅归一换行；来源字节哈希与副本哈希分别记录。这�
 
 reconcile.json 是存量身份合并的纯合成样本：两个临时 ID 跨欧罗巴/欧协联及一个国内联赛，
 同时包含未批准候选和 fdorg 临时行。fixture 中的 approved 仅用于测试，不是所有者对生产条目的批准。
+
+stage3_cup_aliases.csv 从真实数据提交 `1d0152677977cd807dd4f49ff3985c8ed49319b5`
+的 `state/audit/apif_cup_aliases.csv`（825 行）裁剪出全部符合第 9 项的两行：
+欧协联 400 / 632，status=auto_verified 且 evidence 含 jc counterpart_id。
+CSV 字段及 JSON evidence 原样保留，包括 seen_utc、sidecar；只裁剪行，不清洗证据。
+stage3_approval_table.md 是评论 6601053083 第 4 节原文，stage3_approval.md 是批准评论
+6602500381 原文；历史表内的“待确认”字样保留，批准以后一条评论及所有者本次指令为准。
+stage3_provenance.json 登记数据提交、run ID、原 CSV 哈希、评论链接与裁剪副本哈希。
+离线测试核对正式文件中两条自动核验的完整 evidence，以及 41 条批准记录的原文名称与审批字段。
