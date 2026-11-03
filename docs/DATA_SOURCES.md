@@ -259,6 +259,7 @@ T22 起本地实际发送数上限默认等于 `limit_day`，可用 `ZUCAI_APIF_
 `safe_json_for_archive`，检查原始字节、完整 UTF-8 JSON 的键和值、JSON 转义和重复键覆盖前的值。
 非 JSON、截断 JSON 或 key 回显拒绝归档；即使正文不安全，合法数字配额头仍会被记录。
 配额头校验仍先执行；校验失败则先保存通过安全检查的响应再报错，避免再次丢掉付费档问题的证据。
+`/status` 正文与当前响应头的日上限不一致时拒绝混用计数；请求、头部处理与正文配额更新在同一把锁内完成，防止恢复已被另一请求消耗的额度。
 真实裁剪 fixture 在导出前后再检查，原件/裁剪件 SHA256 写进 `data/fixtures/t10/provenance.json`。
 
 多页时原件逐页保存并计数；所有页面齐全后生成 `assembled-fixtures`（附逐页 URL/UTC/SHA256），

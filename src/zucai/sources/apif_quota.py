@@ -154,6 +154,9 @@ class DailyQuota:
                     or not 0 <= current <= limit
                 ):
                     raise ValueError
+                # A current counter belongs to its own limit; never combine different plans.
+                if "x-ratelimit-requests-limit" in headers and limit != q["limit_day"]:
+                    raise ValueError
                 if plan != q["plan"] or limit != q["limit_day"]:
                     q.update(status_free=None, status_checked_utc=None, status_evidence=[])
                 if "x-ratelimit-requests-limit" not in headers:

@@ -130,3 +130,62 @@ def test_status_updates_plan_limit_current(tmp_path, monkeypatch):
     assert observation["current"] == 2 and observation["limit_day"] == 7500
     assert len(observation["sha256"]) == 64
     assert client.quota._read()["used"] == 1
+
+
+def test_conflicting_status_limit_cannot_replenish_reserve(tmp_path):
+    q = quota(tmp_path, {**CASES["paid"], "remaining": 11})
+    q.before_request()
+    headers = {"x-ratelimit-requests-limit": "7500"}
+    q.observe(headers)
+    doc = json.loads(json.dumps(CASES["status"]))
+    doc["response"]["requests"] = {"limit_day": 100, "current": 99}
+    saved = q.path.read_bytes()
+    with pytest.raises(ValueError, match="status"):
+        q.observe_status(doc, headers)
+    assert q.path.read_bytes() == saved and q.remaining == 10
+    with pytest.raises(QuotaExceeded):
+        q.before_request()
+
+
+def test_status_body_applied_before_other_client_consumes_quota(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    import responses
+
+    from zucai.sources.api_football import API, ApiFootball
+    from zucai.sources.base import RawStore
+
+    other = quota(tmp_path, {**CASES["paid"], "remaining": 12})
+    client = ApiFootball(store=RawStore(tmp_path / "raw"), quota_path=other.path, min_interval=0)
+    client.quota.now = lambda: NOW
+    monkeypatch.setenv("API_FOOTBALL_KEY", "offline-race-placeholder")
+    doc = json.loads(json.dumps(CASES["status"]))
+    doc["response"]["requests"]["current"] = 7489
+    body_ready, release_body, other_consumed = Event(), Event(), Event()
+    apply_body = client.quota.observe_status
+
+    def delayed_body(document, headers):
+        body_ready.set()
+        assert release_body.wait(2)
+        apply_body(document, headers)
+
+    def consume():
+        other.before_request()
+        other_consumed.set()
+
+    monkeypatch.setattr(client.quota, "observe_status", delayed_body)
+    with responses.RequestsMock() as http, ThreadPoolExecutor(max_workers=2) as pool:
+        http.get(API + "/status", json=doc)
+        first = pool.submit(client.status)
+        assert body_ready.wait(1)
+        second = pool.submit(consume)
+        try:
+            assert not other_consumed.wait(0.1)
+        finally:
+            release_body.set()
+        first.result()
+        second.result()
+    assert other._read()["remaining"] == 10
+    with pytest.raises(QuotaExceeded):
+        other.before_request()

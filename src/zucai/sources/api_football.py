@@ -172,22 +172,24 @@ class ApiFootball(Source[ApiGame]):
         return path
 
     def status(self):
-        path = self._request(API + "/status", name="status")
-        raw = path.read_bytes()
-        doc = json.loads(raw)
-        check_api_errors(doc, raw)
-        if doc.get("get") != "status":
-            raise LocalValidationError("API-Football status 响应端点不符")
-        meta = self.store.load_metadata(path)
-        self.quota.observe_status(doc, meta["quota_headers"])
-        return dict(
-            plan=doc["response"]["subscription"]["plan"],
-            limit_day=doc["response"]["requests"]["limit_day"],
-            current=doc["response"]["requests"]["current"],
-            observed_utc=meta["fetched_at_utc"],
-            sha256=meta["sha256"],
-            headers=meta["quota_headers"],
-        )
+        # Keep the body observation in the same lock as reservation and header processing.
+        with self.quota.locked():
+            path = self._request(API + "/status", name="status")
+            raw = path.read_bytes()
+            doc = json.loads(raw)
+            check_api_errors(doc, raw)
+            if doc.get("get") != "status":
+                raise LocalValidationError("API-Football status 响应端点不符")
+            meta = self.store.load_metadata(path)
+            self.quota.observe_status(doc, meta["quota_headers"])
+            return dict(
+                plan=doc["response"]["subscription"]["plan"],
+                limit_day=doc["response"]["requests"]["limit_day"],
+                current=doc["response"]["requests"]["current"],
+                observed_utc=meta["fetched_at_utc"],
+                sha256=meta["sha256"],
+                headers=meta["quota_headers"],
+            )
 
     def _document(self, raw, scope=None):
         try:
