@@ -62,6 +62,7 @@ python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases evaluate --provider apif --leagues 3,848 --archive ../cloud-data --out work/identity-evaluation.json
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
+python -m zucai.daily_digest --archive ../cloud-data --out ../cloud-data/daily  # 只读冻结数字，生成每日摘要
 pytest -q
 ```
 
@@ -101,8 +102,9 @@ pytest -q
 | `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 沿用官方在售赛程与赛果 `sync`；未配置时整个 job 显示 skipped |
 | `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告 |
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
+| `digest` | `ubuntu-latest`，15 分钟上限 | 等待 `scoreboard`，把冻结数字写成每日摘要并推送到当月 Issue；另支持手动 `operation=digest` |
 
-四个 job 依赖顺序为 `apis → sporttery → predict → scoreboard`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
+五个 job 依赖顺序为 `apis → sporttery → predict → scoreboard → digest`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
 写回前执行 `git pull --rebase`；冲突则失败，不强推。fd 主联赛赛季按七月换季推导（如 2627），
 已配置 country 合并文件只导入当前自然年；`leagues.json` 可用 `current_season` 明确覆盖。
 未核验联赛不采集。API 解析、去重规则不变；分页必须完整，额外分页同样消耗配额。
@@ -204,6 +206,8 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
   `sporttery` 跳过、失败或归档水位不是今日时，摘要注明「竞彩数据非今日」。
 - `operation=scoreboard`：只用现有冻结预测和归档赛果计算记分板，不采集、不训练；`days` / `slot` 不影响此操作。
   早晚定时运行及手动 predict 后也会运行记分板；预测失败仍可结算旧批次，整个工作流取消时不运行。
+- `operation=digest`：只读取现有冻结预测和记分板，重新生成并推送北京当日摘要；采集、训练和记分板计算均跳过。
+  `days` / `slot` 不影响此操作；早晚定时以及手动 predict / scoreboard 后自动推送。
 - `operation=sync`：`apis` job 跳过，`sporttery` 在配置的自托管机采集；无变量时跳过。
   原有 `football-ingest-verify-*` / `football-ingest-run-*` 标签入口仍兼容。
 
@@ -313,6 +317,21 @@ D/E 每个北京开球日每档每账户最多一注。后续批次不替换已�
 | `scoreboard/ledger.jsonl` | 三档五账户的冻结注单、跳过原因、批次处理记录及结算；不改原注额和 SP |
 | `scoreboard/summary.json` | 联赛 × 模型版本、按月及总体指标，10 桶校准/平局偏差、账户统计、门槛和文件 SHA256 |
 | `scoreboard/scoreboard.md` | 每日覆盖的文本记分板，默认 1.05、另两档附表、每周资金点；历史由 Git 保留 |
+| `daily/YYYY-MM-DD.md` | 北京当日摘要；同日第二班更新，历史版本由 Git 保留 |
+| `daily/latest.md` | 与最近一次当日摘要完全相同的正文，便于手机打开 |
+
+每天直接看[最新摘要](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/daily/latest.md)，
+或者订阅置顶的「每日报告 YYYY-MM」Issue。工作流先发布数据分支，再把同一正文发为 Issue 评论；
+同一天晚班编辑已有评论，每月首次运行新建并置顶当月 Issue、取消上月置顶并关闭上月 Issue。
+如果 1 日漏跑，下一次运行补做换月。只新增 `GITHUB_TOKEN` 的 `issues: write` 权限，不新增 Secret。
+GitHub App / 邮件是否提醒取决于账号的订阅与通知设置；编辑评论不保证再次提醒，真实通知由 Actions 验收。
+
+摘要依次列日期与数据水位、今明预测及冻结比分前五、昨日结算、1.05 档五个虚拟账户、采集异常。
+首行固定「非购买建议 · BET 禁用」。无模型与缺失状态原样标出，不以零填空；门槛未达显示「证据不足」。
+昨日评分按赛果可知时间的北京日归类，昨日注单按生成或结算北京日归类。现有记分板没有保存每日平均
+LogLoss / Brier，所以摘要标「现有归档未提供」，只照录逐场与累计值，不另算平均、不改记分板。
+竞彩同步可能覆盖四来源状态记录；未记录的来源明确显示未知，配额可读取已有配额快照并标日期，均非实时查询。
+命令的 `--out` 是输出目录；写入归档内部时只允许 `daily/`。本地生成不推送，推送命令仅允许在 Actions 中执行。
 
 记分板 job 将前 60 行贴入 Actions 摘要，四文件另存 artifact 90 天；使用原有写回锁与发布脚本。
 仅更新这四个文件，feed/forecast 清单、数据库、模型和旧预测不变；先校验旧状态，失败回滚本次写入。

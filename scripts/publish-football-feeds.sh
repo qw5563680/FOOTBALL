@@ -17,8 +17,13 @@ if [[ -d scoreboard ]]; then
     printf '\n%s\n' 'scoreboard/** -text' >> .gitattributes
   fi
 fi
+if [[ -d daily ]]; then
+  if ! sed 's/\r$//' .gitattributes 2>/dev/null | grep -Fxq -- 'daily/** -text'; then
+    printf '\n%s\n' 'daily/** -text' >> .gitattributes
+  fi
+fi
 git add -- state matches feed_manifest.json
-for path in .gitattributes models forecasts forecast_manifest.json scoreboard; do
+for path in .gitattributes models forecasts forecast_manifest.json scoreboard daily; do
   if [[ -e "$path" ]]; then
     git add -- "$path"
   fi

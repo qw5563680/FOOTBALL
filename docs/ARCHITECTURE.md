@@ -46,6 +46,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
 | `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
 | `zucai/scoreboard/` | 冻结预测与赛果配对、三列概率评分、五种虚拟账户、稳健性统计与文本记分板；不训练或联网 |
+| `zucai/daily_digest.py` / `digest_notify.py` | 只读冻结归档生成 daily Markdown；仅在 Actions 用 GITHUB_TOKEN 更新每月 Issue |
 | `zucai/cloud_aliases.py` | 复用 T09/T10 离线身份图，只追加带证据的待审候选 |
 | `zucai/sources/fd_verify.py` | 离线复核当前赛季与 jc 的身份图、候选时区和覆盖缺口 |
 | `zucai/features/` | `build_features(session, match_ids=None, as_of=None, *, strict_availability=False) -> DataFrame`；43个球队字段，市场/元信息分离 |
@@ -519,6 +520,7 @@ SHA256 必须一致，不插入 Prediction、不迁移输入库、不改 schema�
 `models/latest.json` 保留每联赛最新成功模型，失败时仍指向上次成功项。
 `forecasts/<YYYY-MM-DD 北京日>/<run-id>/` 保存 T06 四件套，不覆盖旧 run。
 同一北京日的多个 run 分目录保留；记分板按生成时刻选择同场开球前最后一批，不按目录日期去重。
+T25 摘要分别选今明开球日最新的冻结批次展示，不改变 T19 的逐场取批和评分规则。
 独立 `forecast_manifest.json` v1 的 `runs` 记录训练库/参数 SHA256、截点、联赛状态和 P2、两日批次及
 预测/排除数量；`files` 覆盖模型、训练 JSON、所有四件套与 latest 索引的 SHA256。
 发布失败只回滚本次新目录与索引；已有冻结文件保持原字节。数据分支 Git 属性关闭新归档路径的换行转换。
@@ -591,6 +593,42 @@ CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
 `scoreboard` job 依赖 `[predict]`，早晚定时、手动 predict 后和手动 scoreboard 都可运行；预测跳过或
 失败时仍能结算旧批次，取消则停止。托管机 30 分钟，共用写回锁，artifact 90 天，Actions 贴前 60 行。
 漂移仅提示：四个连续完整且有样本的北京周平局偏差绝对值均>5个百分点，或最近100场LL高于等概率；不自动 tune。
+
+## T25 每日摘要与 Issue 推送
+
+`python -m zucai.daily_digest --archive <data-branch> --out <data-branch>/daily` 先用
+`archive_info`、`verify_forecasts` 和 `read_state` 校验 feed / forecast / scoreboard 的路径与字节哈希，
+只读 JSON/JSONL，不恢复数据库、不反序列化模型、不调用预测或评分。输出 `daily/<北京日>.md` 与
+完全相同的 `daily/latest.md`，首行固定「非购买建议 · BET 禁用」；只允许归档内 daily/ 或归档外目录，
+拒绝符号链接。两文件写入失败恢复旧字节。旧冻结文件与清单不改，摘要历史由数据分支 Git 保存。
+
+页面依次是头部、今日与明日预测、昨日结算、虚拟账户、异常。每个开球日按生成 UTC、batch_id 取最新
+冻结批次（空批次不借旧场次补齐），按联赛展示原胜平负、完整模型版本、P2 ready/experimental 与原 top_scores
+前五，不排序或重算概率；excluded 行显示「无模型」和原原因。数据来源链接指向对应数据分支文件。
+
+昨日评分只过滤 summary.audit.active_keys，按 available_utc 的北京日归类；匹配原批次球队名称，缺失时
+保留 match_id。日均 LogLoss/Brier 未被现有记分板保存，明确标未提供，逐场与累计指标照录。
+两道门槛展示原联赛样本 n/200、A/1.05 已结数/500 与原布尔标记，样本数量不代替其余条件，BET 仍禁用。
+五账户只读 accounts.1.05 的资金、现金、ROI；账本只展示该档昨日生成或昨日结算的 ticket，保留原注额、
+SP、返还、盈亏与 replayed 标记。聚合账户值不从裁剪后的账本重建。
+
+四来源状态、疑似重复与 partial 原因照录 feed_manifest.collection；jc sync 可能将 collection 覆盖为空，
+此时明确「未记录」，不从全局 complete 推断来源成功。APIF 配额缺少 collection 字段时可读 feed 清单中
+已验哈希的 state/api_football_quota.json，注明快照 UTC 日期；不查询实时配额。页面标示采集归档时间与
+记分板截点，旧快照不冒充本次采集结果。源文本含禁止购买措辞时失败，不发布被改写的摘要。
+
+`digest` job 依赖 scoreboard，定时、手动 predict/scoreboard/digest 时运行，取消时停止；上游失败时仍可
+展示最后归档的状态。手动 digest 时其他四个 job 均跳过（包括从旧采集标签发起），不采集、不训练、不结算。
+沿用工作流全局写锁和发布脚本；显式暂存 daily/，设置 `daily/** -text`，发布成功才通知，artifact 保存 90 天。
+工作流仅增加 `issues: write`。只有通知步骤得到 GITHUB_TOKEN，源码仓库 checkout 不持久化凭证。
+
+`python -m zucai.digest_notify --file <daily/latest.md>` 仅允许 Actions schedule/workflow_dispatch：
+校验首行、唯一北京当日标记与单评论长度，正文与发布文件完全相同。REST 分页精确查找「每日报告 YYYY-MM」，
+不存在则创建，GraphQL pinIssue 置顶；按 `<!-- zucai-daily:YYYY-MM-DD -->` 查找 github-actions[bot]
+当天评论，找到则 PATCH，否则 POST。同名 Issue/同日机器人评论重复则报错，不任意挑选；整体由写锁串行化。
+每月 1 日首次运行轮换（漏跑后补做），取消上月置顶，新报告成功后关闭上月；重试不重复建 Issue/评论，
+不改无关 Issue 或人工评论。HTTP/GraphQL 失败显式报错，日志不输出 token 或响应正文。通知是否到手机、
+编辑是否再次提醒、GITHUB_TOKEN 实际置顶权限由 Claude 的 Actions 运行验收，不以离线测试冒充实测。
 
 ## T20 欧战采集与一次性 API 回填
 
