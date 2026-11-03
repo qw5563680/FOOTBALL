@@ -366,9 +366,10 @@ apif 回填的每季和联赛摘要新增前后对齐率：同一批不同球队
 ## T23 身份桥接与审批（不导入桥接联赛比赛）
 
 `ApiFootball` 默认只加载非 `identity_only` 联赛；显式身份客户端只加载七个桥接联赛。
-日期解析、直接 fetch 和 backfill 均无法把桥接联赛导入比赛库。新配置的
-`verification_status=needs_verification`、`verified_utc=null` 和空 `seasons_available`
-表示候选身份尚未实测；`identity_seasons=[2025,2026]` 只表示任务目标，不表示权限证明。
+日期解析、直接 fetch 和 backfill 均无法把桥接联赛导入比赛库。候选初始状态为
+`verification_status=needs_verification`、`verified_utc=null`；Claude 实测后改为 `verified`，
+时间逐条取元数据审计，`metadata_probe` 保留 run、数据提交与原件哈希。
+`seasons_available` 仍为空；`identity_seasons=[2025,2026]` 只限定身份核验目标，不开放比赛导入。
 
 `probe --probe-kind leagues` 只调用 `/leagues?id=`，将 ID、名称、国家、类型及安全原件核对结果
 写入 `state/audit/apif_league_probes.csv`。`identity` 必须找到各联赛最新的成功记录，

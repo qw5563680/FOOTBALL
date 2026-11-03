@@ -386,24 +386,50 @@ T20 已随 main `171f41a` 合入本分支；`backfill --source apif` 复用其�
 本次开发也未重新访问 robots；沿用第 6 节与 T14 的既有访问记录，真实复核留给审查者的 Actions 验证。
 正式凭据只保存在 Actions Secrets，任何开发环境不得用正式 key 发请求。
 
-### T23 identity-only 桥接（2026-11-03，需 Claude 实测）
+### T23 identity-only 桥接（2026-11-03，Claude 已完成第一轮实测）
 
-本次开发没有向 API、status 或 robots 发真实请求。继续遵守 AGENTS 第 10 条，由 Claude 在 Actions
-确认元数据和实际赛季响应；robots 沿用上文已记录的访问结论，不把离线样本当作新的实测。
+正式凭据仅由 Claude 在 Actions 使用，开发环境没有发 API、status 或 robots 请求。
+robots 沿用上文记录，本轮未重新探测。真实证据：
 
-| 候选 ID | 规范联赛 | 预期 API 名称 / 国家 | 状态 |
-| --- | --- | --- | --- |
-| 39 | 英超 | Premier League / England | 需验证 |
-| 140 | 西甲 | La Liga / Spain | 需验证 |
-| 135 | 意甲 | Serie A / Italy | 需验证 |
-| 78 | 德甲 | Bundesliga / Germany | 需验证 |
-| 61 | 法甲 | Ligue 1 / France | 需验证 |
-| 88 | 荷甲 | Eredivisie / Netherlands | 需验证 |
-| 94 | 葡超 | Primeira Liga / Portugal | 需验证 |
+- [probe 41612517821](https://github.com/qw5563680/FOOTBALL/actions/runs/41612517821)：
+  7 次 `/leagues?id=` 全部 HTTP 200 / ok，数据提交 `d12e1ff032fd20f3a46d4c37328bdae46cada88b`。
+- [identity 41612781709](https://github.com/qw5563680/FOOTBALL/actions/runs/41612781709)：
+  14 次 fixtures，130 / 150 支自动核验，数据提交
+  [`68c1c2bff2f16c983d97524c1a621812bd405754`](https://github.com/qw5563680/FOOTBALL/commit/68c1c2bff2f16c983d97524c1a621812bd405754)。
 
-这些 ID 来自 T23 任务单，先写 `identity_only=true`、`verification_status=needs_verification`、
-`verified_utc=null`、`seasons_available=[]`；不进入每日采集过滤，不允许 backfill 或直接 fetch 导入。
-`identity_seasons=[2025,2026]` 是待核验目标，不能据此宣称赛季权限开放。
+| ID | 规范联赛 | API 名称 / 国家 | metadata verified_utc（UTC） | 自动核验 / 两季球队数 |
+| --- | --- | --- | --- | ---: |
+| 39 | 英超 | Premier League / England | 2026-11-03T09:38:25.720340Z | 19 / 23 |
+| 140 | 西甲 | La Liga / Spain | 2026-11-03T09:38:31.770928Z | 20 / 23 |
+| 135 | 意甲 | Serie A / Italy | 2026-11-03T09:38:37.915228Z | 20 / 23 |
+| 78 | 德甲 | Bundesliga / Germany | 2026-11-03T09:38:43.961523Z | 18 / 21 |
+| 61 | 法甲 | Ligue 1 / France | 2026-11-03T09:38:50.063059Z | 18 / 18 |
+| 88 | 荷甲 | Eredivisie / Netherlands | 2026-11-03T09:38:56.161772Z | 18 / 21 |
+| 94 | 葡超 | Primeira Liga / Portugal | 2026-11-03T09:39:02.265570Z | 17 / 21 |
+
+七个条目的 `verification_status=verified`，`verified_utc` 原样取
+[`apif_league_probes.csv`](https://github.com/qw5563680/FOOTBALL/blob/68c1c2bff2f16c983d97524c1a621812bd405754/state/audit/apif_league_probes.csv)
+对应行的 `observed_utc`，配置保留 probe run/提交/原件哈希。元数据均列 2010–2026，
+不据此开放导入：仍为 `identity_only=true`、`seasons_available=[]`、`identity_seasons=[2025,2026]`，
+不进入日采集、backfill 或直接 fetch 导入。
+
+[`state/alias_candidates/apif.json`](https://github.com/qw5563680/FOOTBALL/blob/68c1c2bff2f16c983d97524c1a621812bd405754/state/alias_candidates/apif.json)
+七联赛的 130 条 `auto_verified` 已按中文联赛键原样复制进正式别名，所有 evidence 字段保留。
+审计副本及逐联赛内容哈希见 `data/fixtures/t23/apif_league_probes.csv` 与 `stage1_provenance.json`。
+葡超实际 17 支未达到任务单逐联赛至少 18 支的目标；审批和回填验收尚未完成，不能宣称全部验收通过。
+
+**Brighton 51 / Nacional 225 未核验原因（对 68c1c2b 的只读离线定位）。**
+两队并非名称格式不一致，而是 T08 正式 fd 别名表根本没有相应条目。数据库仍分别使用原名
+`Brighton`（team 480）和 `Nacional`（team 503），共有 192 / 73 条 fd 比赛（全历史口径）。
+这些行不能通过 `read_counterparts` 的“双方都具备已核验中文名”条件。例如
+`fd:E0:20260830:chelsea:brighton`、`fd:P1:20260919:nacional:famalicao` 均被排除。
+
+APIF 两季分别有 38+38 / 34+34 场；竞彩同窗参考分别有 29 / 5 个，
+但同窗不是同队证据。两联赛当前 jc 的所有中文球队名都已属于其他已核验 APIF ID；
+在完整对照图收敛后，两队虽各有 124 / 68 条时间邻近边，兼容边均为 0，没有可证明的主客对应。
+因此保留 `proposed` 是正确结果，不能按英文名称猜中文、放宽图规则或把参考列当作绑定。
+后续审批清单应包含这两队；另外 18 支未核验球队全部只有 2025 季出场，标「仅 2025 季」供所有者判断。
+本次不补写未经核验的 T08 别名，不替所有者批准这 20 支球队。
 
 由审查者运行 `operation=probe probe_kind=leagues`，默认一次请求一个候选 ID，共 7 次
 `/leagues?id=`，沿用安全归档、6.1 秒间隔和 reserve=10。返回 ID、名称、国家及 League 类型须全部
@@ -417,7 +443,7 @@ T20 已随 main `171f41a` 合入本分支；`backfill --source apif` 复用其�
 
 候选证据含来源比赛 ID、对方比赛 ID、UTC 差、整季原件 SHA256、元数据 SHA256、fd 配置 SHA256；
 写入 `state/alias_candidates/apif.json` 和 `state/audit/apif_identity.csv`。
-Claude 实跑后，实现者只复制真实 `auto_verified` 条目到正式文件，保留证据再审查。
+本轮已仅复制真实 `auto_verified` 条目到正式文件，保留证据交 Claude 再审查。
 欧战继续按同一 APIF 数字球队 ID 桥接正式条目，待审候选不生效。
 输出前跨联赛检查同源 ID 的规范名；出现冲突时撤回整轮新候选并报告 partial，不发布矛盾身份。
 无法核验的球队由只读 `zucai aliases proposals` 输出审批清单；jc 候选中文名仅作未核验参考，
@@ -436,8 +462,8 @@ Claude 实跑后，实现者只复制真实 `auto_verified` 条目到正式文�
 正式结论须等真实 identity、别名审查和所有者审批完成后再对数据分支评估；当前尚无该阶段数据。
 即使额外至少 20 支且零冲突，也只为下一任务提供依据，本任务不放宽任何生产身份规则。
 
-待 Claude 回填证据：7 个 ID 的 probe run/原件、identity run/候选数/数据提交、正式别名与第一批审批清单，
-以及重新回填后的 2026 隔离数、新增 jc 关联、对齐率和同范围重复运行的行数不变证明。
+待 Claude 继续验收：复核本轮正式别名、生成第一批审批清单；补充重新回填后的 2026 隔离数、
+新增 jc 关联、对齐率和同范围重复运行的行数不变证明。
 
 ### 字段和身份边界
 

@@ -145,8 +145,11 @@ probe 先连续查询两次 `/status`，将套餐、日计数和每日响应头�
 旧八列审计表自动补列，原有记录和哈希保留。
 
 T23 的七个 **identity-only** 联赛只用于核验球队 ID，不进入每日采集或任何比赛导入：
-英超 39、西甲 140、意甲 135、德甲 78、法甲 61、荷甲 88、葡超 94，目前均为候选 ID，标“需验证”。
-Claude 在 PR 分支先运行 `operation=probe probe_kind=leagues`（leagues 留空选择这七个），
+英超 39、西甲 140、意甲 135、德甲 78、法甲 61、荷甲 88、葡超 94，已由 Claude 的
+[probe 41612517821](https://github.com/qw5563680/FOOTBALL/actions/runs/41612517821) 确认。
+[identity 41612781709](https://github.com/qw5563680/FOOTBALL/actions/runs/41612781709) 核验出 130 条别名，
+已保留完整证据纳入正式文件；剩余 20 支待审批，真实回填验收仍待 Claude。
+核验流程为先运行 `operation=probe probe_kind=leagues`（leagues 留空选择这七个），
 每个 ID 一次 `/leagues?id=` 请求，核对名称、国家和联赛类型；这不是赛季权限证明。
 有成功审计后再运行 `operation=identity`，默认七联赛、`seasons=2025,2026`，最多 14 次 fixtures 请求。
 identity 不额外查询 status，不补拉分页；不完整响应不作为核验依据。它只用已有 jc 和 T08 已核验的 fd

@@ -1,5 +1,7 @@
 """Identity-only fixtures must never enter the collection/import path."""
 
+import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -14,19 +16,38 @@ FIXTURE = json.loads((ROOT / "data/fixtures/t23/identity.json").read_bytes())
 BRIDGES = {row["code"] for row in FIXTURE["leagues"]}
 
 
-def test_bridge_config_is_pending_and_excluded_from_default_source():
+def test_verified_bridge_metadata_matches_actions_audit_and_stays_identity_only():
     config = json.loads((ROOT / "data/api_football/leagues.json").read_bytes())
+    with (ROOT / "data/fixtures/t23/apif_league_probes.csv").open() as stream:
+        probes = {row["league"]: row for row in csv.DictReader(stream)}
     assert BRIDGES <= config.keys()
     for code in BRIDGES:
         assert config[code]["identity_only"] is True
-        assert config[code]["verification_status"] == "needs_verification"
-        assert config[code]["verified_utc"] is None
+        assert config[code]["verification_status"] == "verified"
+        assert config[code]["verified_utc"] == probes[code]["observed_utc"]
+        assert config[code]["metadata_probe"]["raw_sha256"] == probes[code]["raw_sha256"]
+        assert probes[code]["outcome"] == "ok" and probes[code]["http"] == "200"
         assert config[code]["seasons_available"] == []
     source = ApiFootball()
     try:
         assert not BRIDGES & source.leagues.keys()
     finally:
         source.session.close()
+
+
+def test_promoted_bridge_aliases_keep_all_130_original_records_and_evidence():
+    provenance = json.loads((ROOT / "data/fixtures/t23/stage1_provenance.json").read_bytes())
+    aliases = json.loads((ROOT / "data/team_aliases/api_football.json").read_bytes())
+    count = 0
+    for league, proof in provenance["promoted"].items():
+        records = aliases[league]
+        assert len(records) == proof["count"]
+        assert all(row["status"] == "auto_verified" and row["evidence"] for row in records.values())
+        encoded = json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        assert hashlib.sha256(encoded.encode()).hexdigest() == proof["canonical_json_sha256"]
+        count += len(records)
+    assert count == 130
+    assert "51" not in aliases["英超"] and "225" not in aliases["葡超"]
 
 
 def test_identity_source_explicitly_selects_only_the_seven_bridges():

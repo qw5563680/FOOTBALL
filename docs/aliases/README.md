@@ -1,9 +1,10 @@
 # APIF 别名审批
 
-T23 先用七个 identity-only 联赛核验数字球队 ID。候选 ID 仍需 Claude 在 Actions
-运行 `operation=probe probe_kind=leagues` 确认，再运行 `operation=identity`。
-实现者只把该运行产出的 `auto_verified` 条目带完整证据复制到正式别名文件，交 Claude 审查。
-候选文件不会直接参与比赛导入；本次实现没有新增生产别名，也没有替所有者批准任何名称。
+T23 先用七个 identity-only 联赛核验数字球队 ID。Claude 已完成元数据 probe 41612517821
+与 identity 41612781709；数据提交 `68c1c2b` 中的 130 条 `auto_verified` 已带完整证据
+原样复制到正式别名文件，交 Claude 复核。候选文件不会直接参与比赛导入，也没有替所有者批准任何名称。
+桥接联赛尚有 20 支未核验球队，包括 Brighton 51、Nacional 225，以及 18 支「仅 2025 季」球队；
+后续首批清单也应涵盖它们，对后者加上「仅 2025 季」批注。原因与证据见 DATA_SOURCES 第 6 节。
 
 完成自动核验及正式别名审查后，从数据分支的本地检出目录生成第一批剩余候选：
 
