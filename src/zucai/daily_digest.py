@@ -7,6 +7,7 @@ import logging
 import os
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from statistics import fmean
 from urllib.parse import quote
 
 from zucai.cloud_feeds import archive_info
@@ -166,16 +167,22 @@ def _settlement_sections(scored, summary, batches, yesterday, repository):
         lines.append(
             f"| {_match(match)} / {_text(row['record_id'])} | {_probabilities(row)} "
             f"| {row['home_goals']}:{row['away_goals']} {actual} "
-            f"| {_number(row['model']['log_loss'])} | {_number(row['model']['brier'])} |"
+            f"| {_text(row['model']['log_loss'])} | {_text(row['model']['brier'])} |"
         )
     if not rows:
-        lines.append("| 无已归档的昨日评分 | — | — | — | — |")
-    lines.extend(
-        [
-            "",
-            "当日 LogLoss：现有归档未提供；当日 Brier：现有归档未提供（不重算日均值）。",
-        ]
-    )
+        lines.extend(["| 昨日无已结算场次 | — | — | — | — |", ""])
+    else:
+        # Average the frozen losses before display rounding; never rescore probabilities.
+        losses = {key: fmean(row["model"][key] for row in rows) for key in ("log_loss", "brier")}
+        lines.extend(
+            [
+                "",
+                f"当日 LogLoss：{_number(losses['log_loss'])}；"
+                f"当日 Brier：{_number(losses['brier'])}"
+                f"（由当日 {len(rows)} 场逐场评分平均，非记分板原字段）。",
+                "逐场评分原值照录，日均仅展示舍入至四位小数。",
+            ]
+        )
     probability = (summary or {}).get("probability", {})
     total = probability.get("total", {})
     model = total.get("model", {})

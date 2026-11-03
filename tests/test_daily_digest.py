@@ -21,12 +21,13 @@ def snapshot(root):
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
 
 
-def install_scoreboard(archive, fixture="summary.json"):
+def install_scoreboard(archive, fixture="summary.json", *, scored_fixture="scored.jsonl"):
     board = archive / "scoreboard"
     board.mkdir(exist_ok=True)
     summary = json.loads((FIXTURES / fixture).read_bytes())
     for name in ("scored.jsonl", "ledger.jsonl"):
-        (board / name).write_bytes((FIXTURES / name).read_bytes())
+        source = scored_fixture if name == "scored.jsonl" else name
+        (board / name).write_bytes((FIXTURES / source).read_bytes())
     (board / "scoreboard.md").write_text("非购买建议 · BET 禁用\n离线合成记分板。\n")
     summary["files"] = {
         name: hashlib.sha256((board / name).read_bytes()).hexdigest()
@@ -117,7 +118,40 @@ def test_expected_markdown_and_inputs_unchanged(digest_archive, tmp_path, scenar
     assert snapshot(archive) == before
     assert path.read_text().splitlines()[0] == "非购买建议 · BET 禁用"
     assert "建议购买" not in path.read_text() and "推荐" not in path.read_text()
-    assert "当日 LogLoss：现有归档未提供" in path.read_text()
+    assert "由当日 1 场逐场评分平均，非记分板原字段" in path.read_text()
+
+
+@pytest.mark.parametrize("has_yesterday", [True, False])
+def test_daily_mean_uses_only_frozen_active_yesterday_values(
+    digest_archive, tmp_path, has_yesterday
+):
+    from zucai.daily_digest import generate
+
+    # Scores intentionally differ from probabilities: recomputing the loss must fail this test.
+    rows = [json.loads(line) for line in (FIXTURES / "scored_daily.jsonl").read_text().splitlines()]
+    install_scoreboard(digest_archive, scored_fixture="scored_daily.jsonl")
+    summary_path = digest_archive / "scoreboard/summary.json"
+    summary = json.loads(summary_path.read_bytes())
+    summary["audit"]["active_keys"] = [row["record_id"] for row in rows[:4]]
+    if not has_yesterday:
+        summary["audit"]["active_keys"] = [row["record_id"] for row in rows[2:4]]
+    summary_path.write_text(json.dumps(summary))
+    before = snapshot(digest_archive)
+    text = generate(digest_archive, tmp_path / "daily", now=NOW).read_text()
+    assert snapshot(digest_archive) == before
+    assert "累计样本：37；累计 LogLoss：0.9786；累计 Brier：0.6123" in text
+    if has_yesterday:
+        for key, label in (("log_loss", "LogLoss"), ("brier", "Brier")):
+            expected = sum(row["model"][key] for row in rows[:2]) / 2
+            assert f"当日 {label}：{expected:.4f}" in text
+            for row in rows[:2]:
+                assert f"{row['model'][key]}" in text  # Preserve the unrounded individual values.
+        assert "由当日 2 场逐场评分平均，非记分板原字段" in text
+        assert "daily-first" in text and "daily-last" in text
+    else:
+        assert "昨日无已结算场次" in text
+        assert "当日 LogLoss：" not in text and "当日 Brier：" not in text
+    assert not any(row["record_id"] in text for row in rows[2:])
 
 
 def test_corruption_fails_before_replacing_digest(digest_archive, tmp_path):
