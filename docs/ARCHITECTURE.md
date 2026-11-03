@@ -95,8 +95,11 @@ T24 补充 fd 后到的路径：只有同联赛、开球相差不超过三小时
 fd 行照常保存；按最终保留的开球时刻复核链接，后续改时超出窗口时隔离，旧观察不改变原时间规则。
 fdorg 重采确认该链接，不更新 fd 比分，也不重写原 fdorg 比分/可知时间。
 jc > fd > fdorg 优先级不变；多候选、反向主客或已有冲突链接仍隔离，不使用名字匹配。
-四张 fd/fdorg 拒绝/疑似重复 CSV 仅追加新 `(行键, raw_sha256, reason)`；fd 行键为联赛代码和原件行号，
-fdorg 优先数字比赛 ID，解析缺 ID 时用原件行号；既有历史重复行原样保留，新原件哈希或新原因仍留记录。
+fd 两张拒绝/疑似重复 CSV 保持 `(行键, raw_sha256, reason)` 去重，行键为联赛代码和原件行号。
+fdorg 两张表改按 `(provider_match_id 或 row_number, reason, candidates)` 去重：优先数字比赛 ID，
+解析缺 ID 时回退原件行号。响应中的易变字段会使原件哈希变化，因此 fdorg 忽略 `raw_sha256` 判断重复，
+保留首次出现行的原件哈希作溯源；原因或候选列表变化时仍追加。四张表既有历史行（含重复）均原样保留，
+只阻止重复追加，不改写首次证据。
 `workflow_dispatch operation=relink-fdorg` 调用 `cloud_feeds backfill --relink-fdorg`，入口拒绝本地和 schedule，
 不注入凭据、不联网、不执行回填下载。它扫描同窗存量对，只补 counterpart，遇 jc 候选亦跳过；
 清单和补链/跳过原因写入 collection 与 Actions 摘要。沿用写锁、归档恢复校验和冻结预测哈希校验，

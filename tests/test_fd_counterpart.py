@@ -185,7 +185,7 @@ def test_audit_append_deduplicates_but_preserves_old_bytes(tmp_path, provider, k
     append([row | {"row_number": 3, "provider_match_id": GAME.provider_match_id + 1}])
     assert path.read_bytes().startswith(previous)
     with path.open(newline="") as stream:
-        assert len(list(csv.DictReader(stream))) == 5
+        assert len(list(csv.DictReader(stream))) == (5 if provider == "fd" else 4)
 
 
 def test_relink_is_idempotent_and_changes_only_counterparts(db):
@@ -386,3 +386,30 @@ def test_fd_reimport_checks_effective_time_without_changing_stale_observation_ru
         assert result["unchanged"] == 1 - expected
         assert [tuple(row) for row in s.execute(select(Match.__table__))] == before
         assert evidence(s) == scores
+
+
+@pytest.mark.parametrize("kind", ["suspected_duplicates", "rejected_rows"])
+@pytest.mark.parametrize("has_provider_id", [True, False])
+def test_fdorg_audit_changed_hash_keeps_first_evidence(tmp_path, kind, has_provider_id):
+    path = tmp_path / f"fdorg_{kind}.csv"
+    row = dict(row_number=FD.row_number, reason="fixture", candidates=[KEY])
+    if has_provider_id:
+        row["provider_match_id"] = GAME.provider_match_id
+    _audit(path, [row], FD.raw_sha256)
+    first = path.read_bytes()
+    _audit(path, [row, row], "b" * 64)
+    assert path.read_bytes() == first
+    with path.open(newline="") as stream:
+        saved = list(csv.DictReader(stream))
+    assert len(saved) == 1 and saved[0]["raw_sha256"] == FD.raw_sha256
+
+    # A different reason or candidate list is new evidence, even for the same match.
+    _audit(path, [row | {"reason": "different reason"}], "b" * 64)
+    _audit(path, [row | {"candidates": [KEY, "jc:other"]}], "b" * 64)
+    before_repeat = path.read_bytes()
+    _audit(path, [row | {"candidates": [KEY, "jc:other"]}], "c" * 64)
+    assert path.read_bytes() == before_repeat
+    with path.open(newline="") as stream:
+        saved = list(csv.DictReader(stream))
+    assert len(saved) == 3
+    assert [r["raw_sha256"] for r in saved] == [FD.raw_sha256, "b" * 64, "b" * 64]

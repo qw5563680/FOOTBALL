@@ -340,7 +340,12 @@ def _append_audit(path, rows):
         path,
         fields,
         ({**row, "candidates": json.dumps(row.get("candidates", []))} for row in rows),
-        lambda row: (row.get("div_code"), row.get("row_number")),
+        lambda row: (
+            row.get("div_code"),
+            row.get("row_number"),
+            row.get("raw_sha256"),
+            row.get("reason"),
+        ),
     )
 
 

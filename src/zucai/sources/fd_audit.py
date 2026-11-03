@@ -8,9 +8,7 @@ def append_unique(path, fields, rows, row_key):
     path = Path(path)
 
     def key(row):
-        return tuple(
-            str(value or "") for value in (*row_key(row), row.get("raw_sha256"), row.get("reason"))
-        )
+        return tuple(str(value or "") for value in row_key(row))
 
     seen = set()
     if path.exists() and path.stat().st_size:

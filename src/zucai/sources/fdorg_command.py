@@ -118,6 +118,8 @@ def _audit(path, rows, sha):
         lambda row: (
             row.get("provider_match_id"),
             "" if row.get("provider_match_id") else row.get("row_number"),
+            row.get("reason"),
+            row.get("candidates"),
         ),
     )
 
