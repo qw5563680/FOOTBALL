@@ -34,15 +34,17 @@ def test_same_match_hash_reason_is_not_repeated_and_other_evidence_is_retained(t
 
 
 def test_old_duplicate_rows_are_compacted_even_if_no_new_rejections(tmp_path):
-    from zucai.sources.fdorg_command import _audit as legacy
-
     path = tmp_path / "apif_rejected_rows.csv"
-    legacy(path, [audit_row(), audit_row()], "a" * 64)
+    _audit(path, [audit_row()], "a" * 64)
+    # Seed old duplicate bytes directly; fdorg's writer now deduplicates new rows too.
+    lines = path.read_bytes().splitlines(keepends=True)
+    history = b"".join([*lines, lines[-1]])
+    path.write_bytes(history)
+    fdorg = tmp_path / "fdorg_rejected_rows.csv"
+    fdorg.write_bytes(history)
     _audit(path, [], "b" * 64)
     assert len(list(csv.DictReader(path.open()))) == 1
-    fdorg = tmp_path / "fdorg_rejected_rows.csv"
-    legacy(fdorg, [audit_row(), audit_row()], "a" * 64)
-    assert len(list(csv.DictReader(fdorg.open()))) == 2
+    assert fdorg.read_bytes() == history
 
 
 def test_rows_without_provider_id_keep_distinct_row_numbers(tmp_path):

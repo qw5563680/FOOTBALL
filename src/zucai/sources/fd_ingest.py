@@ -1,6 +1,5 @@
 """Explicit aliases, official-first identity checks and auditable FD ingestion."""
 
-import csv
 import hashlib
 import json
 import logging
@@ -17,6 +16,8 @@ from sqlalchemy.exc import IntegrityError
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import ClosingOdds, Match, Result, Team
 from zucai.sources.base import RawStore
+from zucai.sources.fd_audit import append_unique
+from zucai.sources.fd_counterpart import CounterpartConflict, fdorg_candidate
 from zucai.sources.football_data import (
     ALIASES_PATH,
     LEAGUES_PATH,
@@ -282,6 +283,13 @@ def import_fd_games(session, games, *, seen, assume, aliases, leagues):
                 )
                 result = apply_result(session, observed, seen, assume)
                 closing_groups = _closing(session, key, game.closing) if not older else 0
+                # Check the persisted time: older captures may leave the current fixture unchanged.
+                if all(names):
+                    fdorg = fdorg_candidate(
+                        session, session.get(Match, key, populate_existing=True)
+                    )
+                    if fdorg is not None:
+                        fdorg.counterpart_id = key
                 # Force row constraints before publishing counters or external identity audits.
                 session.flush()
                 counts["closing_groups"] += closing_groups
@@ -295,6 +303,9 @@ def import_fd_games(session, games, *, seen, assume, aliases, leagues):
                 counts[outcome] += 1
                 counts["assumed"] += int(result == "assumed")
                 outcomes.append(dict(audit, match_id=key, outcome=outcome))
+        except CounterpartConflict as exc:
+            counts["suspected_duplicates"] += 1
+            suspected.append(dict(audit, candidates=exc.candidates, reason=str(exc)))
         except (ValueError, KeyError, TypeError, IntegrityError) as exc:
             counts["rejected_rows"] += 1
             rejected.append(dict(audit, reason=str(exc)))
@@ -325,13 +336,17 @@ def _append_audit(path, rows):
         "reason",
         "candidates",
     )
-    with path.open("a", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
-        if stream.tell() == 0:
-            writer.writeheader()
-        writer.writerows(
-            {**row, "candidates": json.dumps(row.get("candidates", []))} for row in rows
-        )
+    append_unique(
+        path,
+        fields,
+        ({**row, "candidates": json.dumps(row.get("candidates", []))} for row in rows),
+        lambda row: (
+            row.get("div_code"),
+            row.get("row_number"),
+            row.get("raw_sha256"),
+            row.get("reason"),
+        ),
+    )
 
 
 def fetch_fd(

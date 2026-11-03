@@ -24,6 +24,7 @@ WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
         ("workflow_dispatch", "probe", "", "success", False, False),
         ("workflow_dispatch", "identity", "", "success", False, False),
         ("workflow_dispatch", "reconcile", "", "success", False, False),
+        ("workflow_dispatch", "relink-fdorg", "", "success", False, False),
         ("push", "", "", "success", False, False),
     ],
 )
@@ -54,8 +55,8 @@ def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
     assert "publish-football-feeds.sh" in job
     assert "group: write-football-feed-data" in text
     assert (
-        "options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile]"
-        in text
+        "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
+        "identity, reconcile, relink-fdorg]" in text
     )
 
 
@@ -68,6 +69,9 @@ def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
         ],
         ("backfill", "football-ingest-run-t18"),
         ("backfill", "football-ingest-verify-t18"),
+        ("relink-fdorg", "codex/T24-fd-fdorg-counterpart"),
+        ("relink-fdorg", "football-ingest-run-t24"),
+        ("relink-fdorg", "football-ingest-verify-t24"),
         ("reconcile", "codex/T23-identity-alignment"),
         ("reconcile", "football-ingest-run-t23"),
         ("reconcile", "football-ingest-verify-t23"),
@@ -85,8 +89,8 @@ def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
 def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(operation, ref_name):
     text = WORKFLOW.read_text()
     assert (
-        "options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile]"
-        in text
+        "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
+        "identity, reconcile, relink-fdorg]" in text
     )
     jobs = dict(
         re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
@@ -111,7 +115,8 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
         )
 
     expected = {
-        "apis": operation in {"apis", "verify", "backfill", "probe", "identity", "reconcile"},
+        "apis": operation
+        in {"apis", "verify", "backfill", "probe", "identity", "reconcile", "relink-fdorg"},
         "sporttery": operation == "sync",
         "predict": operation == "predict",
     }
@@ -122,7 +127,8 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
     if operation != "scoreboard":  # This job never consumes the collection-mode variable.
         assert evaluate(mode) == (
             operation
-            if operation in {"verify", "sync", "backfill", "probe", "identity", "reconcile"}
+            if operation
+            in {"verify", "sync", "backfill", "probe", "identity", "reconcile", "relink-fdorg"}
             else "apis"
         )
     assert "zucai.cloud_feeds backfill" in jobs["apis"]

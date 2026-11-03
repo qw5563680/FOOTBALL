@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，probe 权限探测，identity 身份核验，reconcile 合并已核验存量身份'
+        description: 'apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，probe 权限探测，identity 身份核验，reconcile 合并已核验存量身份，relink-fdorg 补 fd/fdorg 链接'
         type: choice
-        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile]
+        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile, relink-fdorg]
         default: verify
       source:
         description: 'backfill 来源；probe / identity 固定使用 apif'
@@ -60,11 +60,11 @@ defaults:
     shell: bash
 
 env:
-  FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'reconcile') && 'reconcile' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'identity') && 'identity' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'probe') && 'probe' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
+  FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-fdorg') && 'relink-fdorg' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'reconcile') && 'reconcile' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'identity') && 'identity' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'probe') && 'probe' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
 
 jobs:
   apis:
-    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile')) || (inputs.operation != 'scoreboard' && startsWith(github.ref_name, 'football-ingest-verify-')) }}
+    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg')) || (inputs.operation != 'scoreboard' && startsWith(github.ref_name, 'football-ingest-verify-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -91,7 +91,7 @@ jobs:
         run: python -m pip install -e ./app
       - name: Restore and collect APIs or verify archive
         id: collect
-        if: ${{ env.FEED_MODE != 'sync' && env.FEED_MODE != 'backfill' && env.FEED_MODE != 'probe' && env.FEED_MODE != 'identity' && env.FEED_MODE != 'reconcile' }}
+        if: ${{ env.FEED_MODE != 'sync' && env.FEED_MODE != 'backfill' && env.FEED_MODE != 'probe' && env.FEED_MODE != 'identity' && env.FEED_MODE != 'reconcile' && env.FEED_MODE != 'relink-fdorg' }}
         env:
           FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
@@ -162,12 +162,18 @@ jobs:
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Relink fdorg to existing fd without network
+        if: ${{ env.FEED_MODE == 'relink-fdorg' }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Publish verified data
-        if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' || env.FEED_MODE == 'reconcile' }}
+        if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' || env.FEED_MODE == 'reconcile' || env.FEED_MODE == 'relink-fdorg' }}
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
       - name: Keep collection originals and audit even on rebase conflict
-        if: ${{ !cancelled() && (env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' || env.FEED_MODE == 'reconcile') }}
+        if: ${{ !cancelled() && (env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' || env.FEED_MODE == 'reconcile' || env.FEED_MODE == 'relink-fdorg') }}
         uses: actions/upload-artifact@v4
         with:
           name: apis-source-${{ github.run_id }}-${{ github.run_attempt }}
@@ -261,7 +267,7 @@ jobs:
 
   sporttery:
     needs: apis
-    if: ${{ !cancelled() && inputs.operation != 'backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    if: ${{ !cancelled() && inputs.operation != 'backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
     timeout-minutes: 60
     env:
