@@ -100,7 +100,7 @@ pytest -q
 | job | 运行器 | 时间 / 范围 |
 | --- | --- | --- |
 | `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
-| `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 官方在售赛程与赛果 `sync` 后，单次请求 `/sfc/` 归档当期14场；未配置时整个 job 显示 skipped |
+| `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 官方在售赛程与赛果 `sync` 后，分别单次请求 `/sfc/` 与 `/jczq/` 根页，归档并关联当期14场；未配置时整个 job 显示 skipped |
 | `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告；随后生成未截止期次的14场诊断 |
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
 | `digest` | `ubuntu-latest`，15 分钟上限 | 等待 `scoreboard`，把冻结数字写成每日摘要并推送到当月 Issue；另支持手动 `operation=digest` |
@@ -343,10 +343,13 @@ GitHub App / 邮件是否提醒取决于账号的订阅与通知设置；编辑�
 
 ### 14 场胜负彩自动诊断（T26）
 
-自建 runner 每次 sync 只请求一次 `https://trade.500.com/sfc/` 当期页面，通常每日两班共两次；
-不额外请求竞彩桥接页。沿用已有映射证据或精确身份匹配，无法匹配的行只保存期次快照并进入
+自建 runner 每次 sync 分别请求一次 `https://trade.500.com/sfc/` 当期页面和 `https://trade.500.com/jczq/`
+公开根页，每班共两次、通常每日两班共四次，不带查询参数、不跟随重定向。以数字 ID 对照连接库内竞彩；
+已证实同场的多来源候选按 jc > fd > fdorg 选择，同优先级冲突仍待核。无法匹配的行只保存期次快照并进入
 `state/audit/sfc_unmatched.csv`，不创建球队或比赛。重复抓取同一期不重复入库或追加相同审计。
 采集失败记 partial，保留已采集的竞彩数据。托管机能否直接采集留给 Claude probe。
+sync / apis 将本轮来源状态合入上一份 collection，保留另一腿的记录；每条新增 run_id / observed_utc，
+表示该来源最近一次运行，并非全在本班采集。sync 同时记录 jc 状态，未统计的总请求数不填假零。
 
 预测 job 随后只读取当日最新一次预测的两份冻结 JSON，为所有未截止期次生成14行概率表。
 无模型行保留空概率，按三选处理；默认上限64注，若三选最低注数已经超限，则明确显示无法生成完整复式，

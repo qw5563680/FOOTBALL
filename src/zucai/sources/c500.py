@@ -278,9 +278,11 @@ class C500FixtureBridge(Source[dict]):
 
     def fetch_raw(self) -> Path:
         self.limiter.wait()
-        response = self.session.get(URL)  # Root only; robots excludes historical query strings.
+        response = self.session.get(URL, allow_redirects=False)
         path = self.store.save_response(self.name, "current", response, "html")
         response.raise_for_status()
+        if 300 <= response.status_code < 400:
+            raise ValueError("比赛ID对照根页发生重定向，拒绝跟随未核实的路径")
         return path
 
     def parse(self, raw: bytes) -> list[dict]:

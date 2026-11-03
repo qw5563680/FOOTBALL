@@ -144,6 +144,13 @@ def test_full_chain_restores_three_sources_closing_prices_and_reuses_quota(
     environment, tmp_path, monkeypatch
 ):
     configure_fd(monkeypatch, tmp_path)
+    manifest_path = environment / "feed_manifest.json"
+    previous = json.loads(manifest_path.read_bytes())
+    prior_sources = {
+        source: {"status": "complete", "run_id": "previous-sync"} for source in ("jc", "sfc")
+    }
+    previous["collection"] = prior_sources
+    manifest_path.write_text(json.dumps(previous))
     aliases_before = {p: p.read_bytes() for p in (ROOT / "data/team_aliases").glob("*.json")}
     with responses.RequestsMock() as api:
         mock_apis(api, fd=True)
@@ -152,6 +159,8 @@ def test_full_chain_restores_three_sources_closing_prices_and_reuses_quota(
     assert meta["counts"]["matches"] == 6
     assert meta["counts"]["closing_odds"] == 1
     assert meta["collection_status"] == "complete"
+    assert all(meta["collection"][key] == value for key, value in prior_sources.items())
+    assert meta["collection"]["apif"]["run_id"] == "first"
     assert meta["collection"]["apif"]["requests"] == 3
     assert meta["collection"]["fdorg"]["requests"] == 1
     assert meta["collection"]["fd"]["inserted"] == 1

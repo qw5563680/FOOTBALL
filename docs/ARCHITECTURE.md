@@ -342,8 +342,9 @@ JSONL SHA256，`files` 覆盖所有表、CSV、配额、审计及候选；旧 v1
 已确认别名作为锚点，待审候选从不作为锚点或自动入库配置。不同批次证据保留，
 跨原件同 ID 身份冲突、候选与正式别名冲突、多个候选 ID 指向同一规范名均需人工复核。
 竞彩逾期未结补抓仅查询 jc 所有的场次；API 赛程不会触发永远无法由竞彩解除的补抓。
-`collection` 与 `collection_status` 描述最后导出 job 的批次；此前 job 的运行摘要保留在 Actions，
-manifest 不充当跨 job 历史运行日志。
+T26 起 sync / apis 把本轮 collection 按来源合入恢复的 manifest，未运行来源原样保留；
+新记录含 run_id / observed_utc，表示各来源最近一轮，非同一批采集。collection_status 汇总保留状态及待补抓记录；
+Actions 步骤摘要仍只列本轮，完整历史保留在 Actions，manifest 不是历史运行日志。其他手动操作的口径不变。
 
 没有数据库迁移；T14 不改变解析、去重、比分可知性或训练输入。
 
@@ -618,8 +619,8 @@ CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
 五账户只读 accounts.1.05 的资金、现金、ROI；账本只展示该档昨日生成或昨日结算的 ticket，保留原注额、
 SP、返还、盈亏与 replayed 标记。聚合账户值不从裁剪后的账本重建。
 
-四来源状态、疑似重复与 partial 原因照录 feed_manifest.collection；jc sync 可能将 collection 覆盖为空，
-此时明确「未记录」，不从全局 complete 推断来源成功。APIF 配额缺少 collection 字段时可读 feed 清单中
+四来源状态、疑似重复与 partial 原因照录 feed_manifest.collection；T26 的 sync / apis 保留各来源最近状态，
+旧归档缺记录时明确「未记录」，不从全局 complete 推断来源成功。APIF 配额缺少 collection 字段时可读 feed 清单中
 已验哈希的 state/api_football_quota.json，注明快照 UTC 日期；不查询实时配额。页面标示采集归档时间与
 记分板截点，旧快照不冒充本次采集结果。源文本含禁止购买措辞时失败，不发布被改写的摘要。
 
@@ -640,11 +641,18 @@ SP、返还、盈亏与 replayed 标记。聚合账户值不从裁剪后的账�
 ## T26 14 场胜负彩每日诊断
 
 `sources.sfc.collect_current_sfc` 仅在 sync 自建 runner 路径运行：复用 C500Sfc 的静态页面解析，
-每次单个无参数 `/sfc/` GET，无重定向/自动重试/额外桥接请求。`mapped_only=True` 沿用 T07 的
-库内 counterpart、既有期次数字ID证据及精确身份匹配，但不创建或修改 Team/Match。未匹配/歧义的
+每班无参数 `/sfc/` 与 `/jczq/` 根页各 GET 一次，共用无重试 session 与至少1秒间隔，拒绝重定向。
+`C500FixtureBridge` 解析出的 bridges 连同原URL/读取UTC/原件哈希传入 `ingest_issue(mapped_only=True)`；
+校验 fixture_id、体彩 ID、来源主客球队 ID 与开球，沿用已有 counterpart、归档桥接及精确身份匹配。
+同场候选经 counterpart 或同联赛/开球/主客 ID 确认后，按 jc > fd > fdorg 取唯一最高优先级；
+真实冲突及最高优先级并列仍 ambiguous。桥接命中体彩 ID 且两个500页面联赛标签一致时，云端允许
+库内联赛显示名不同，原标签与 matched_identity.league 分存，不生成通用别名，手工 T07 联赛校验不变。
+不创建或修改 Team/Match。未匹配/歧义的
 snapshot 行保持 match_id、matched_identity 为 null，全部14行仍保留；只有已匹配行写 sfc_issue_matches。
 旧手工 T07 默认行为保留。审计 sfc_unmatched.csv 按期号/序号/fixture/reason/candidates 去重，保留首次原件哈希。
 SFC 失败不撤销已采集竞彩，collection.sfc 标 partial 并保存安全原因，手机摘要也显示该状态。
+sync 另写 collection.jc（赛程处理数、赔率快照数、结果窗口数、未解决拒绝行及状态）；
+请求总数与新入库数未计量则为 null，不把处理数误写为新增数。sync / apis 合并上一份来源状态，避免互相抹除。
 
 `sfc_state.py` 从数据库导出 `state/sfc/<issue>.json`，含 schema_version=1、issue 全字段及 mapped matches；
 纳入 feed_manifest 的路径/哈希清单。恢复时在临时数据库原表数据恢复之后校验14序号、fixture唯一性、

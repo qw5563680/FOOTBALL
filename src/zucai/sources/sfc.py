@@ -34,6 +34,38 @@ def _find_team(session, name):
     return candidates[0] if candidates else None
 
 
+def _preferred_candidate(candidates):
+    """Collapse proven same-fixture rows; never break a source-priority tie."""
+    if not candidates:
+        return None
+    priorities = {"jc": 0, "fd": 1, "fdorg": 2}
+    ordered = sorted(candidates, key=lambda m: priorities.get(m.source, 3))
+    if len(ordered) == 1:
+        return ordered[0]
+    if priorities.get(ordered[0].source, 3) == priorities.get(ordered[1].source, 3):
+        return None
+
+    def equivalent(a, b):
+        return (
+            a.counterpart_id == b.match_id
+            or b.counterpart_id == a.match_id
+            or (
+                (a.league, a.home_team_id, a.away_team_id)
+                == (b.league, b.home_team_id, b.away_team_id)
+                and datetime.fromisoformat(a.kickoff_utc) == datetime.fromisoformat(b.kickoff_utc)
+            )
+        )
+
+    group, pending = [ordered[0]], ordered[1:]
+    while pending:
+        joined = [m for m in pending if any(equivalent(m, other) for other in group)]
+        if not joined:
+            return None
+        group.extend(joined)
+        pending = [m for m in pending if m not in joined]
+    return ordered[0]
+
+
 def _map_fixture(session, fixture, bridges, *, mapped_only=False):
     own_id = "c500:" + fixture.fixture_id
     own = session.get(Match, own_id)
@@ -51,23 +83,36 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
             datetime.fromisoformat(bridge["kickoff_utc"]) != fixture.kickoff_utc
         ):
             raise ValueError(f"{own_id} ID对照主客球队或开球冲突")
-        if own and own.counterpart_id and own.counterpart_id != bridge["jc_id"]:
-            raise ValueError(f"{own_id} 已存与新增比赛ID对照冲突")
         target = session.get(Match, bridge["jc_id"])
+        if own and own.counterpart_id and own.counterpart_id != bridge["jc_id"]:
+            previous = session.get(Match, own.counterpart_id)
+            if (
+                previous is None
+                or target is None
+                or _preferred_candidate([previous, target]) is None
+            ):
+                raise ValueError(f"{own_id} 已存与新增比赛ID对照冲突")
         if target is not None:
             linked.append(target)
         evidence = {"basis": "provider_fixture_and_team_ids", **bridge}
     linked = list({m.match_id: m for m in linked}.values())
-    if len(linked) > 1:
-        raise ValueError(f"{own_id} ID对照指向多个比赛")
     if linked:
-        match = linked[0]
+        match = _preferred_candidate(linked)
+        if match is None:
+            raise ValueError(f"{own_id} ID对照指向多个比赛")
+        # Cloud ID bridging checks both source pages' league labels when the
+        # official league label differs; it never creates a reusable name alias.
+        source_league_confirmed = (
+            mapped_only
+            and bridge
+            and match.match_id == bridge["jc_id"]
+            and _league_key(bridge["league"]) == _league_key(fixture.league)
+        )
         if (
-            _league_key(match.league) != _league_key(fixture.league)
-            or datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc
-        ):
+            _league_key(match.league) != _league_key(fixture.league) and not source_league_confirmed
+        ) or datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc:
             raise ValueError(f"{own_id} ID对照与比赛联赛或开球冲突")
-        return match, "matched", [match.match_id], evidence
+        return match, "matched", [m.match_id for m in linked], evidence
     home_name = bridge["home"] if bridge else fixture.home
     away_name = bridge["away"] if bridge else fixture.away
     home, away = _find_team(session, home_name), _find_team(session, away_name)
@@ -100,8 +145,9 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
                 )
             )
         )
-    if len(candidates) == 1:
-        return candidates[0], "matched", [candidates[0].match_id], evidence
+    preferred = _preferred_candidate(candidates)
+    if preferred is not None:
+        return preferred, "matched", [m.match_id for m in candidates], evidence
     if mapped_only:
         return (
             None,
@@ -299,7 +345,7 @@ def fetch_sfc(issue=None, *, db=None, matches_out=None):
 
 
 def collect_current_sfc(db):
-    """Collect one current page without creating or updating match identities."""
+    """Read current SFC and JC root pages without changing match identities."""
     import json
 
     result = dict(
@@ -307,7 +353,7 @@ def collect_current_sfc(db):
         inserted=0,
         linked_existing=0,
         rejected_rows=0,
-        requests=1,
+        requests=0,
         errors=[],
         issue_no=None,
         mapped=0,
@@ -321,9 +367,24 @@ def collect_current_sfc(db):
     try:
         source = C500Sfc()
         engine = get_engine(db)
+        result["requests"] += 1
         path = source.fetch_raw(current_only=True)
         raw, meta = source.store.load(path), source.store.load_metadata(path)
         issue = source.parse(raw)[0]
+        # Share the no-retry session and limiter: one GET per root, spaced >=1s.
+        bridge_source = C500FixtureBridge(store=source.store, session=source.session)
+        bridge_source.limiter = source.limiter
+        result["requests"] += 1
+        bridge_path = bridge_source.fetch_raw()
+        bridge_raw = source.store.load(bridge_path)
+        bridge_meta = source.store.load_metadata(bridge_path)
+        bridges = bridge_source.parse(bridge_raw)
+        for bridge in bridges:
+            bridge["provenance"] = dict(
+                url=bridge_meta["url"],
+                observed_utc=bridge_meta["fetched_at_utc"],
+                raw_sha256=hashlib.sha256(bridge_raw).hexdigest(),
+            )
         init_db(engine)
         with session_scope(engine) as session:
             record = ingest_issue(
@@ -332,6 +393,7 @@ def collect_current_sfc(db):
                 observed=datetime.fromisoformat(meta["fetched_at_utc"]),
                 url=meta["url"],
                 raw_sha256=hashlib.sha256(raw).hexdigest(),
+                bridges=bridges,
                 mapped_only=True,
             )
             rows = [

@@ -282,7 +282,7 @@ def _anomaly_sections(feed, summary, quota, repository):
             f"{_text(record.get('suspected_duplicates'))}；{reason}。"
         )
     apif = collection.get("apif", {})
-    # A jc sync may replace collection metadata. Preserve explicit provenance of quota fallback.
+    # Legacy/manual archives can lack quota metadata; preserve the fallback's provenance.
     if quota:
         lines.append(
             f"- 配额快照来源：{_link('state/api_football_quota.json', repository)}；"
