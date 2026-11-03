@@ -100,6 +100,8 @@ def test_writeback_publishes_forecasts_with_exact_bytes_on_windows_checkouts(tmp
         "scoreboard/ledger.jsonl": b'{"stake":100}\n',
         "scoreboard/summary.json": b"{}\n",
         "scoreboard/scoreboard.md": b"virtual only\n",
+        "daily/2026-11-03.md": b"daily fixture\n",
+        "daily/latest.md": b"daily fixture\n",
     }
     for name, raw in artifacts.items():
         path = run / name
