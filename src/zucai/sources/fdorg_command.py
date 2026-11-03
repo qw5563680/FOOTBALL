@@ -17,6 +17,7 @@ from zucai.sources.cup_identity import (
     needs_cup_union,
     resolve_cup_aliases,
 )
+from zucai.sources.fd_audit import append_unique
 from zucai.sources.fdorg_ingest import COUNT_KEYS, import_fdorg_games
 from zucai.sources.football_data import CONFIG_ROOT, read_json
 from zucai.sources.football_data_org import FootballDataOrg
@@ -103,19 +104,22 @@ def _audit(path, rows, sha):
         "reason",
         "candidates",
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fields, extrasaction="ignore")
-        if stream.tell() == 0:
-            writer.writeheader()
-        for row in rows:
-            writer.writerow(
-                {
-                    **row,
-                    "raw_sha256": sha,
-                    "candidates": json.dumps(row.get("candidates", []), ensure_ascii=False),
-                }
-            )
+    append_unique(
+        path,
+        fields,
+        (
+            {
+                **row,
+                "raw_sha256": sha,
+                "candidates": json.dumps(row.get("candidates", []), ensure_ascii=False),
+            }
+            for row in rows
+        ),
+        lambda row: (
+            row.get("provider_match_id"),
+            "" if row.get("provider_match_id") else row.get("row_number"),
+        ),
+    )
 
 
 def _unmatched_teams(path, names, seen):

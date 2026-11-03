@@ -90,6 +90,18 @@ T09 用 `FootballDataOrg` 下载原始响应，用 `ApiGame` 传递 UTC 赛程�
 读取训练历史和直接拟合均拒绝三个来源间已知的同场重复。较高优先级赛程晚到时，如果 fdorg 场次只有部分球队
 已对齐、主客颠倒，或临时球队身份无法排除同窗候选，会报告比赛 ID 并阻止这些身份进入同一训练集。
 
+T24 补充 fd 后到的路径：只有同联赛、开球相差不超过三小时、规范主客球队 ID 完全相同，
+且两侧均唯一、没有不同 counterpart 或其他比赛占用时，才把既有 fdorg 的 `counterpart_id` 指向 fd；
+fd 行照常保存；按最终保留的开球时刻复核链接，后续改时超出窗口时隔离，旧观察不改变原时间规则。
+fdorg 重采确认该链接，不更新 fd 比分，也不重写原 fdorg 比分/可知时间。
+jc > fd > fdorg 优先级不变；多候选、反向主客或已有冲突链接仍隔离，不使用名字匹配。
+四张 fd/fdorg 拒绝/疑似重复 CSV 仅追加新 `(行键, raw_sha256, reason)`；fd 行键为联赛代码和原件行号，
+fdorg 优先数字比赛 ID，解析缺 ID 时用原件行号；既有历史重复行原样保留，新原件哈希或新原因仍留记录。
+`workflow_dispatch operation=relink-fdorg` 调用 `cloud_feeds backfill --relink-fdorg`，入口拒绝本地和 schedule，
+不注入凭据、不联网、不执行回填下载。它扫描同窗存量对，只补 counterpart，遇 jc 候选亦跳过；
+清单和补链/跳过原因写入 collection 与 Actions 摘要。沿用写锁、归档恢复校验和冻结预测哈希校验，
+不删比赛、不改赛果/可知时间/训练选择；再次运行新增链接为 0。
+
 T10 新增 `ApiFootball`、`apif_quota`、`apif_ingest`、`apif_command`、`apif_verify`；复用 `ApiGame`，
 不新增表或列。来源 `apif`、主键 `apif:<fixture_id>`，球队绑定 `apif:<league>:team:<id>`，
 未知球队名 `apif:team:<id>`。别名三状态复用 T08 规范查找，数字ID负责本源身份。

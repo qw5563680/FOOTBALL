@@ -57,6 +57,7 @@ python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/pa
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 --source fdorg --leagues CL --from 2023 --to 2026
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2025 --to 2026
+python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --run-id fd-links-1  # 仅审查者在 Actions 手动补链，不联网
 python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF 存量身份，不联网
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases evaluate --provider apif --leagues 3,848 --archive ../cloud-data --out work/identity-evaluation.json
@@ -183,6 +184,8 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
+- `operation=relink-fdorg`：仅手动 Actions 补存量 fd/fdorg 链接，对应 `backfill --relink-fdorg`；
+  不采集、不注入 key、不训练、不运行记分板。摘要列补链/跳过数、原因和逐对清单；只改 counterpart，保留赛果和预测原件。
 - `operation=reconcile`：仅手动运行 APIF 存量身份合并，不触发采集、预测或记分板；
   复用写回锁，保持竞彩水位，归档恢复及冻结预测哈希校验后发布。
 - `operation=backfill`：**一次性历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），

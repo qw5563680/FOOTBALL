@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from zucai.db import upsert_match
 from zucai.models import Match, Result, Team
+from zucai.sources.fd_counterpart import CounterpartConflict, fdorg_candidate
 from zucai.sources.fd_ingest import WINDOW, _canonical
 from zucai.sources.results import GameResult, apply_result
 from zucai.sources.teams import normalize_team
@@ -258,12 +259,31 @@ def _link_target(session, key, game, sides, existing, per_team):
     for source in ("jc", "fd"):
         matches = exact[source]
         candidates = conflicts[source] + [m.match_id for m in matches]
-        if conflicts[source] or len(matches) > 1 or (existing and matches):
+        if conflicts[source] or len(matches) > 1 or (existing and matches and source == "jc"):
             raise _Suspected(f"{source} 候选身份不全、主客冲突或存在重复比赛", candidates)
         if matches:
             target = matches[0]
             _check_claims(game, per_team, target)
+            if source == "fd" and existing:
+                if (
+                    existing.source != "fdorg"
+                    or existing.league != game.league
+                    or (existing.home_team_id, existing.away_team_id) != pair
+                ):
+                    raise _Suspected("既有 fdorg 身份与当前观察冲突", [key])
+                try:
+                    candidate = fdorg_candidate(session, target)
+                except CounterpartConflict as exc:
+                    raise _Suspected(str(exc), exc.candidates) from exc
+                if candidate is None or candidate.match_id != key:
+                    raise _Suspected("既有 fdorg 与 fd 开球窗口无法复核", [key, target.match_id])
             break
+    if (
+        existing
+        and (existing.counterpart_id or "").startswith("fd:")
+        and (target is None or target.match_id != existing.counterpart_id)
+    ):
+        raise _Suspected("既有 fd 链接与当前身份或开球窗口不符", [existing.counterpart_id])
     claimed = set(session.scalars(select(Match.match_id).where(Match.counterpart_id == key)))
     if claimed and (target is None or claimed != {target.match_id}):
         raise _Suspected("来源比赛ID已有另一关联，当前身份或开球无法复核", claimed)
@@ -462,6 +482,8 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
                     sides = index.sides(session, game, unknown)
                     target = _link_target(session, key, game, sides, existing, per_team)
                     if target:
+                        if target.source == "fd" and existing:
+                            existing.counterpart_id = target.match_id
                         match_id = target.match_id
                         outcome = "linked_existing" if target.source == "jc" else "linked_fd"
                         if target.source == "jc" and target.counterpart_id is None:

@@ -397,7 +397,28 @@ def main():
     )
     parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
     parser.add_argument("--to", dest="last", help="仅 backfill：终止年或赛季，如 2026 / 2627")
+    parser.add_argument(
+        "--relink-fdorg",
+        action="store_true",
+        help="仅 Actions 手动 backfill：只补存量 fd/fdorg 链接，不采集",
+    )
     args = parser.parse_args()
+    if args.relink_fdorg:
+        if args.command != "backfill" or any(
+            v is not None
+            for v in (
+                args.source,
+                args.leagues,
+                args.first,
+                args.last,
+                args.seasons,
+                args.probe_kind,
+            )
+        ):
+            parser.error("--relink-fdorg 仅供无来源/范围参数的 backfill 使用")
+        from zucai.sources.fd_counterpart import require_relink_actions
+
+        require_relink_actions()
     if args.command not in {"backfill", "probe", "identity"} and any(
         v is not None for v in (args.leagues, args.source)
     ):
@@ -495,7 +516,11 @@ def main():
 
         provider = args.source or "fd"
         options = dict(codes=args.leagues, first=args.first, last=args.last)
-        if provider == "fd":
+        if args.relink_fdorg:
+            from zucai.sources.fd_counterpart import relink_fdorg
+
+            result = relink_fdorg(target)
+        elif provider == "fd":
             result = collect_backfill(target, args.run_id, **options)
         else:
             from zucai.cloud_api_backfill import collect_api_backfill
@@ -517,7 +542,9 @@ def main():
     if args.command == "backfill":
         from zucai.forecast_archive import verify_forecasts
 
-        if provider == "fd":
+        if args.relink_fdorg:
+            from zucai.sources.fd_counterpart import write_summary
+        elif provider == "fd":
             from zucai.cloud_backfill import write_summary
         else:
             from zucai.cloud_api_backfill import write_summary
