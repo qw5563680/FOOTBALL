@@ -483,8 +483,9 @@ T06 冻结 JSON 仍兼容 schema 1/2；新批次 `validation_status=league_gated
 
 ## T17 定时训练与冻结预测
 
-晚班（UTC 09:40 / 北京 17:40）采集后或 `workflow_dispatch operation=predict` 运行 hosted
-`predict` job，依赖 `apis` 和 `sporttery`；早班不运行。沿用工作流级 `write-football-feed-data` 锁，
+每次 schedule 采集后（早晚班及迟到班次）或 `workflow_dispatch operation=predict` 运行 hosted
+`predict` job，依赖 `apis` 和 `sporttery`；手动 apis 不触发预测。定时采集传 `--slot auto`，
+以实际 UTC 09:00 为界判定 early/late，apis job 输出 slot；fd 仍仅 UTC 周一 early 采集。沿用工作流级 `write-football-feed-data` 锁，
 `apis` 失败或整体取消时不运行，竞彩 job 跳过仍运行并提示「竞彩数据非今日」。手动 predict 不采集。
 安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。单次上限 45 分钟。
 
@@ -502,6 +503,7 @@ SHA256 必须一致，不插入 Prediction、不迁移输入库、不改 schema�
 数据分支以 `models/<run-id>/<league>.pkl`、`<league>.train.json` 保存本次训练，失败只有 JSON；
 `models/latest.json` 保留每联赛最新成功模型，失败时仍指向上次成功项。
 `forecasts/<YYYY-MM-DD 北京日>/<run-id>/` 保存 T06 四件套，不覆盖旧 run。
+同一北京日的多个 run 分目录保留；记分板按生成时刻选择同场开球前最后一批，不按目录日期去重。
 独立 `forecast_manifest.json` v1 的 `runs` 记录训练库/参数 SHA256、截点、联赛状态和 P2、两日批次及
 预测/排除数量；`files` 覆盖模型、训练 JSON、所有四件套与 latest 索引的 SHA256。
 发布失败只回滚本次新目录与索引；已有冻结文件保持原字节。数据分支 Git 属性关闭新归档路径的换行转换。
@@ -571,8 +573,8 @@ CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
 
 数据分支保存 `scoreboard/scored.jsonl`、`ledger.jsonl`、`summary.json`、`scoreboard.md` 四件套；
 代码分支没有运行产物或 reports 新增。发布脚本显式暂存 scoreboard，并用 `scoreboard/** -text` 保持字节哈希。
-`scoreboard` job 依赖 `[predict]`，早晚定时、手动 predict 后和手动 scoreboard 都可运行；早班预测跳过或
-预测失败时仍能结算旧批次，取消则停止。托管机 30 分钟，共用写回锁，artifact 90 天，Actions 贴前 60 行。
+`scoreboard` job 依赖 `[predict]`，早晚定时、手动 predict 后和手动 scoreboard 都可运行；预测跳过或
+失败时仍能结算旧批次，取消则停止。托管机 30 分钟，共用写回锁，artifact 90 天，Actions 贴前 60 行。
 漂移仅提示：四个连续完整且有样本的北京周平局偏差绝对值均>5个百分点，或最近100场LL高于等概率；不自动 tune。
 
 ## T20 欧战采集与一次性 API 回填
