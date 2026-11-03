@@ -419,12 +419,15 @@ T20 已随 main `171f41a` 合入本分支；`backfill --source apif` 复用其�
 写入 `state/alias_candidates/apif.json` 和 `state/audit/apif_identity.csv`。
 Claude 实跑后，实现者只复制真实 `auto_verified` 条目到正式文件，保留证据再审查。
 欧战继续按同一 APIF 数字球队 ID 桥接正式条目，待审候选不生效。
+输出前跨联赛检查同源 ID 的规范名；出现冲突时撤回整轮新候选并报告 partial，不发布矛盾身份。
 无法核验的球队由只读 `zucai aliases proposals` 输出审批清单；jc 候选中文名仅作未核验参考，
 国家或赛季字段缺失时明确说明，建议规范名留空。新批准条目必须记录批准人、UTC 时间和 PR 链接。
 
 回填将另存 `apif_identity_matches.csv` 的身份字段与范围完整标记，方便离线计数和核验；
 此表不含赛果/赔率，不进入模型。两张 APIF 拒绝/疑似重复审计按 `(provider_match_id, raw_sha256, reason)`
 去重；缺合法比赛 ID 时用原件行号区分。不同原件或原因保留，fd/fdorg 审计不变。
+另由 `apif_identity_scopes.csv` 记录每季最近一次尝试的 UTC、哈希、完整状态和行数；
+空响应、拒绝或失败不会沿用旧成功，重现旧哈希仍视为新的观察。评估只选最近范围对应的比赛原件。
 
 **放宽规则仅离线评估。** `zucai aliases evaluate` 读取完整 2025/2026 证据，统计同联赛 ±3h 双向唯一
 配对且同队在两场不同比赛中一致的候选，扣除现有严格图已经能核验的球队，并列冲突。

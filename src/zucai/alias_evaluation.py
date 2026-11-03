@@ -16,14 +16,25 @@ def complete_scopes(data, selected):
     for row in data["audits"]["identity_matches"]:
         key = row["league"], row.get("season"), row["raw_sha256"]
         groups.setdefault(key, {})[row["provider_match_id"]] = row
-    latest = {(league, year): rows for (league, year, _), rows in groups.items()}
+    latest = {
+        (row["league_id"], row["season"]): row for row in data["audits"].get("identity_scopes", [])
+    }
     rows, missing = [], []
     for code, config in selected.items():
         for year in ("2025", "2026"):
-            scope = list(latest.get((config["league"], year), {}).values())
-            if not scope or any(
-                row.get("complete") != "true" or row.get("scope_size") != str(len(scope))
-                for row in scope
+            attempt = latest.get((code, year), {})
+            scope = list(
+                groups.get((config["league"], year, attempt.get("raw_sha256")), {}).values()
+            )
+            if (
+                attempt.get("league") != config["league"]
+                or attempt.get("complete") != "true"
+                or attempt.get("scope_size") != str(len(scope))
+                or not scope
+                or any(
+                    row.get("complete") != "true" or row.get("scope_size") != str(len(scope))
+                    for row in scope
+                )
             ):
                 missing.append(f"{code}/{year}")
             else:

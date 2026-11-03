@@ -7,7 +7,7 @@ from collections import Counter
 from copy import deepcopy
 from datetime import UTC, datetime
 
-from zucai.apif_identity_metrics import record_matches
+from zucai.apif_identity_metrics import record_matches, record_scope
 from zucai.cloud_aliases import _validate_candidates
 from zucai.cloud_apis import failure_reason
 from zucai.cloud_identity_probe import identity_codes, require_confirmed_leagues
@@ -56,6 +56,18 @@ def identity_scopes(codes=None, seasons=None):
     return selected, years
 
 
+def validate_global_ids(aliases, candidates):
+    known = {}
+    for groups in (aliases, candidates):
+        for league, entries in groups.items():
+            for key in entries:
+                canonical = _canonical(groups, league, key)
+                if canonical:
+                    if key in known and known[key] != canonical:
+                        raise ValueError("同一 APIF 球队 ID 跨联赛规范名冲突，须人工核验")
+                    known[key] = canonical
+
+
 def collect_identity(database, run_id, *, codes=None, seasons=None):
     require_probe_actions()
     selected, years = identity_scopes(codes, seasons)
@@ -65,6 +77,8 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
     candidates = read_json(target) if target.exists() else {}
     aliases = read_json(ALIASES)
     validate_approvals(aliases, require_metadata=True)
+    validate_global_ids(aliases, candidates)
+    original_candidates, all_audit = deepcopy(candidates), []
     client = ApiFootball(
         store=RawStore(database.parent / "raw"),
         quota_path=state / "api_football_quota.json",
@@ -80,6 +94,7 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
             appearances = {year: Counter() for year in (2025, 2026)}
             inconsistent = False
             for year in years:
+                record_scope(state / "audit/apif_identity_scopes.csv", code, league, year)
                 try:
                     scope = dict(league_id=code, season=year)
                     path = client._request(client.request_url(**scope))
@@ -161,11 +176,12 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
                     entry = deepcopy(entries[key])
                     if entry["status"] == "auto_verified" and not _canonical(aliases, league, key):
                         prior = candidates.setdefault(league, {}).get(key)
-                        if prior and prior["canonical"] != entry["canonical"]:
-                            raise ValueError("identity 与历史候选身份冲突")
-                        if prior:
-                            entry["evidence"] = prior["evidence"] + [
-                                e for e in entry["evidence"] if e not in prior["evidence"]
+                        if prior and _canonical(candidates, league, key):
+                            if prior["canonical"] != entry["canonical"]:
+                                raise ValueError("identity 与历史候选身份冲突")
+                            old_evidence = prior.get("evidence", [])
+                            entry["evidence"] = old_evidence + [
+                                e for e in entry["evidence"] if e not in old_evidence
                             ]
                         candidates[league][key] = entry
                     references = sorted(
@@ -200,7 +216,7 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
                         )
                     )
                 _validate_candidates(candidates, aliases)
-                append_csv(state / "audit/apif_identity.csv", FIELDS, audit)
+                all_audit.extend(audit)
                 count = sum(entries[key]["status"] == "auto_verified" for key in labels)
                 report["leagues"][code] = dict(
                     league=league,
@@ -213,6 +229,18 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
                 candidates = before
                 report["status"] = "partial"
                 report["errors"].append(f"{code}: {failure_reason(exc)}")
+        try:
+            validate_global_ids(aliases, candidates)
+        except ValueError as exc:
+            # Do not publish whichever league happened to be checked first.
+            candidates = original_candidates
+            report["status"], report["auto_verified"] = "partial", 0
+            report["errors"].append(str(exc))
+            for row in all_audit:
+                row.update(status="proposed", canonical="", reason=str(exc))
+            for item in report["leagues"].values():
+                item.update(auto_verified=0, proposed=item["teams"])
+        append_csv(state / "audit/apif_identity.csv", FIELDS, all_audit)
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(
             target, (json.dumps(candidates, ensure_ascii=False, indent=2) + "\n").encode()

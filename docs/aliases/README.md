@@ -48,3 +48,4 @@ zucai aliases evaluate --provider apif --leagues 3,848,292,119,188,244,169 --arc
 评估会扣除现有严格图已经能确认的球队，列出额外数量和冲突；缺少完整季证据时标
 `insufficient_evidence`。即使额外解决至少 20 支且零冲突，也只作为下一任务的讨论依据，
 不会写入别名或放宽生产规则。当前真实身份核验、第一批正式清单与批准后评估均待 Claude/所有者完成。
+完整性以最近的 `apif_identity_scopes.csv` 范围记录为准；旧归档或最近失败/空响应不能借用更早的成功数据。

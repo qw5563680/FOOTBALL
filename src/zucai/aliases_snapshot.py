@@ -50,6 +50,7 @@ def snapshot(archive):
                 "suspected_duplicates",
                 "rejected_rows",
                 "identity_matches",
+                "identity_scopes",
             )
         }
         path = state / "alias_candidates/apif.json"

@@ -161,6 +161,13 @@ def test_incomplete_or_ambiguous_season_never_activates_identities(
         (identity_database.parent / "state/alias_candidates/apif.json").read_bytes()
     )
     assert not candidates.get("英超")
+    if problem != "ambiguous":
+        scopes = list(
+            csv.DictReader(
+                (identity_database.parent / "state/audit/apif_identity_scopes.csv").open()
+            )
+        )
+        assert scopes[-1]["complete"] == "false"
 
 
 @pytest.mark.parametrize(
@@ -172,6 +179,88 @@ def test_identity_scope_rejected_before_any_request(actions, tmp_path, codes, se
     with responses.RequestsMock() as http, pytest.raises(ValueError):
         collect_identity(tmp_path / "data/zucai.db", "bad", codes=codes, seasons=seasons)
     assert not http.calls
+
+
+def test_identity_rejects_conflicting_formal_id_in_another_league(
+    identity_database, actions, tmp_path, monkeypatch
+):
+    from zucai.cloud_identity import collect_identity
+
+    aliases = tmp_path / "conflict.json"
+    aliases.write_text(
+        json.dumps(
+            {
+                "欧罗巴": {
+                    "9101": {
+                        "canonical": "合成丙",
+                        "status": "auto_verified",
+                    }
+                }
+            }
+        )
+    )
+    monkeypatch.setattr("zucai.cloud_identity.ALIASES", aliases)
+    with responses.RequestsMock() as http:
+        http.get(
+            "https://v3.football.api-sports.io/fixtures?league=39&season=2025",
+            json=fixture_doc(FIXTURE["leagues"][0], 2025),
+        )
+        report = collect_identity(identity_database, "conflict", codes="39", seasons="2025")
+    assert report["status"] == "partial" and report["auto_verified"] == 0
+    candidates = json.loads(
+        (identity_database.parent / "state/alias_candidates/apif.json").read_bytes()
+    )
+    assert not candidates
+    audit = identity_database.parent / "state/audit/apif_identity.csv"
+    assert all(row["status"] != "auto_verified" for row in csv.DictReader(audit.open()))
+
+
+def test_conflict_between_two_new_bridge_leagues_withdraws_both(identity_database, actions):
+    from zucai.cloud_identity import collect_identity
+
+    with sqlite3.connect(identity_database) as con:
+        con.execute("INSERT INTO teams VALUES(5,'合成丙','[]'),(6,'合成丁','[]')")
+        con.execute("UPDATE matches SET home_team_id=5,away_team_id=6 WHERE league='西甲'")
+    with responses.RequestsMock() as http:
+        for league in FIXTURE["leagues"][:2]:
+            http.get(
+                f"https://v3.football.api-sports.io/fixtures?league={league['code']}&season=2025",
+                json=fixture_doc(league, 2025),
+            )
+        report = collect_identity(identity_database, "conflict", codes="39,140", seasons="2025")
+    assert report["status"] == "partial" and report["auto_verified"] == 0
+    candidates = json.loads(
+        (identity_database.parent / "state/alias_candidates/apif.json").read_bytes()
+    )
+    assert not candidates
+
+
+def test_old_unverified_proposal_does_not_block_new_match_evidence(identity_database, actions):
+    from zucai.cloud_identity import collect_identity
+
+    target = identity_database.parent / "state/alias_candidates/apif.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(
+            {
+                "英超": {
+                    "9101": {
+                        "name": "Synthetic Alpha",
+                        "canonical": None,
+                        "status": "proposed",
+                    }
+                }
+            }
+        )
+    )
+    with responses.RequestsMock() as http:
+        http.get(
+            "https://v3.football.api-sports.io/fixtures?league=39&season=2025",
+            json=fixture_doc(FIXTURE["leagues"][0], 2025),
+        )
+        report = collect_identity(identity_database, "promote", codes="39", seasons="2025")
+    assert report["status"] == "complete" and report["auto_verified"] == 2
+    assert json.loads(target.read_bytes())["英超"]["9101"]["canonical"] == "合成甲"
 
 
 def test_identity_archive_roundtrip_keeps_database_watermark_and_frozen_forecasts(

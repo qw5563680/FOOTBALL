@@ -145,7 +145,12 @@ def collect_api_backfill(
 
     try:
         if provider == "apif":
-            from zucai.apif_identity_metrics import jc_links, jc_window_metrics, record_matches
+            from zucai.apif_identity_metrics import (
+                jc_links,
+                jc_window_metrics,
+                record_matches,
+                record_scope,
+            )
 
             prior_links = jc_links(database)
             report.update(new_linked_jc=0, isolated_2026=0)
@@ -176,6 +181,8 @@ def collect_api_backfill(
                 status="complete",
             )
             report["scopes"].append(item)
+            if provider == "apif":
+                record_scope(audit / "apif_identity_scopes.csv", code, names[code], scope["season"])
             try:
                 path = source.fetch_raw(**scope)
                 meta = store.load_metadata(path)

@@ -3,6 +3,7 @@
 import csv
 import io
 import sqlite3
+from datetime import UTC, datetime
 
 from zucai.sources.base import _atomic_write
 from zucai.sources.cup_identity import alignment_counts
@@ -23,6 +24,44 @@ FIELDS = (
     "complete",
     "scope_size",
 )
+SCOPE_FIELDS = (
+    "league_id",
+    "league",
+    "season",
+    "observed_utc",
+    "raw_sha256",
+    "complete",
+    "scope_size",
+)
+
+
+def record_scope(path, code, league, season, *, raw_sha256="", complete=False, scope_size=0):
+    """Latest attempt per season, including failed/empty observations and hash replays."""
+    records = {}
+    if path.exists():
+        with path.open(encoding="utf-8", newline="") as stream:
+            reader = csv.DictReader(stream, strict=True)
+            if reader.fieldnames != list(SCOPE_FIELDS):
+                raise ValueError("身份范围审计字段无效")
+            for row in reader:
+                if None in row or any(value is None for value in row.values()):
+                    raise ValueError("身份范围审计行无效")
+                records[row["league_id"], row["season"]] = row
+    records[str(code), str(season)] = dict(
+        league_id=code,
+        league=league,
+        season=season,
+        observed_utc=datetime.now(UTC).isoformat(),
+        raw_sha256=raw_sha256,
+        complete=str(complete).lower(),
+        scope_size=scope_size,
+    )
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, SCOPE_FIELDS)
+    writer.writeheader()
+    writer.writerows(records.values())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(path, buffer.getvalue().encode("utf-8"))
 
 
 def record_matches(path, captures):
@@ -53,16 +92,30 @@ def record_matches(path, captures):
                 scope_size=len(capture["games"]),
             )
             records[str(game.provider_match_id), capture["raw_sha256"]] = row
-    if not records:
-        return
-    buffer = io.StringIO(newline="")
-    writer = csv.DictWriter(buffer, FIELDS)
-    writer.writeheader()
-    writer.writerows(records.values())
-    encoded = buffer.getvalue().encode("utf-8")
-    if not path.exists() or path.read_bytes() != encoded:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(path, encoded)
+    if records:
+        buffer = io.StringIO(newline="")
+        writer = csv.DictWriter(buffer, FIELDS)
+        writer.writeheader()
+        writer.writerows(records.values())
+        encoded = buffer.getvalue().encode("utf-8")
+        if not path.exists() or path.read_bytes() != encoded:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(path, encoded)
+    from zucai.sources.api_football import LEAGUES
+    from zucai.sources.football_data import read_json
+
+    config = read_json(LEAGUES)
+    for capture in captures:
+        code = str(capture["scope"]["league_id"])
+        record_scope(
+            path.with_name("apif_identity_scopes.csv"),
+            code,
+            config[code]["league"],
+            capture["scope"]["season"],
+            raw_sha256=capture["raw_sha256"],
+            complete=capture["complete"],
+            scope_size=len(capture["games"]),
+        )
 
 
 def jc_links(database):

@@ -159,12 +159,18 @@ def test_cup_backfill_roundtrips_and_second_run_inserts_zero(
     assert {p: p.read_bytes() for p in aliases} == aliases
 
 
+@pytest.mark.parametrize("year", [2024, 2026])
 def test_repeated_apif_backfill_keeps_suspected_and_rejected_audits_unchanged(
-    environment, tmp_path, monkeypatch
+    environment, tmp_path, monkeypatch, year
 ):
     import csv
 
     doc = json.loads((FIXTURES / "apif_3_2024.json").read_bytes())
+    doc["parameters"]["season"] = str(year)
+    for row in doc["response"]:
+        instant = datetime.fromisoformat(row["fixture"]["date"]).replace(year=year)
+        row["fixture"].update(date=instant.isoformat(), timestamp=int(instant.timestamp()))
+        row["league"]["season"] = year
     doc["response"][0]["score"]["fulltime"]["home"] = -1
     stamp = doc["response"][1]["fixture"]["date"]
     seed = tmp_path / "ambiguous/data/zucai.db"
@@ -183,8 +189,14 @@ def test_repeated_apif_backfill_keeps_suspected_and_rejected_audits_unchanged(
     first = {}
     for label in ("dedup-first", "dedup-second"):
         with responses.RequestsMock() as api:
-            api.get("https://v3.football.api-sports.io/fixtures?league=3&season=2024", json=doc)
-            run_backfill(environment, tmp_path / label, monkeypatch, "apif", "3")
+            api.get(f"https://v3.football.api-sports.io/fixtures?league=3&season={year}", json=doc)
+            report = run_backfill(
+                environment, tmp_path / label, monkeypatch, "apif", "3", first=year, last=year
+            )
+        assert report["suspected_duplicates"] > 0
+        assert report["isolated_2026"] == (report["suspected_duplicates"] if year == 2026 else 0)
+        if label == "dedup-second":
+            assert report["inserted"] == 0
         for filename in ("apif_suspected_duplicates.csv", "apif_rejected_rows.csv"):
             path = environment / "state/audit" / filename
             assert list(csv.DictReader(path.open()))
