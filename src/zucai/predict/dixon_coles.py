@@ -2,6 +2,7 @@
 
 import pickle
 from collections.abc import Mapping
+from copy import deepcopy
 from datetime import datetime
 from math import isfinite, log
 from pathlib import Path
@@ -21,6 +22,7 @@ from zucai.predict.base import (
     utc,
 )
 from zucai.predict.calibration import fit_draw_offset
+from zucai.predict.pooled_fit import FITTING_METHOD, fit_pooled_engine
 
 
 class InsufficientHistory(ValueError):
@@ -29,18 +31,26 @@ class InsufficientHistory(ValueError):
 
 class DixonColes(Model):
     def __init__(
-        self, half_life_days: float = 90, *, unknown_team_prior=True, draw_calibration=False
+        self,
+        half_life_days: float = 90,
+        *,
+        unknown_team_prior=True,
+        draw_calibration=False,
+        pooled=False,
     ):
         if not isfinite(half_life_days) or half_life_days <= 0:
             raise ValueError("半衰期必须是正数")
         self.half_life_days = half_life_days
         self.unknown_team_prior = unknown_team_prior
         self.draw_calibration = draw_calibration
+        self.pooled = pooled
+        if pooled:
+            self.prediction_leagues = ["欧冠", "欧罗巴", "欧协联"]
         self.engine = None
 
     def fit(self, history: pd.DataFrame, *, as_of: datetime) -> Self:
         cutoff = utc(as_of)
-        if history.league.nunique() > 1:
+        if not getattr(self, "pooled", False) and history.league.nunique() > 1:
             raise ValueError("每个模型须指定一个联赛，不能混合多个联赛")
         sources = model_sources(
             {"sources": history.attrs.get("sources", sorted(history.source.unique()))}
@@ -52,6 +62,14 @@ class DixonColes(Model):
         eligible = history.loc[
             (history.kickoff_utc < cutoff) & (known < cutoff) & (known > history.kickoff_utc)
         ].copy()
+        if getattr(self, "pooled", False) and "training_leagues" in history.attrs:
+            declared = history.attrs["training_leagues"]
+            if (
+                not isinstance(declared, (list, tuple, set))
+                or any(not isinstance(league, str) or not league.strip() for league in declared)
+                or not set(eligible.league).issubset(declared)
+            ):
+                raise ValueError("可用训练联赛超出声明的训练联赛范围")
         teams = set(eligible.home) | set(eligible.away)
         if len(teams) < 2 or len(eligible) < 2 * len(teams) + 1:
             raise InsufficientHistory("截点前可用赛果不足以拟合球队参数")
@@ -72,10 +90,29 @@ class DixonColes(Model):
         engine = DixonColesGoalModel(
             eligible.home_goals, eligible.away_goals, eligible.home, eligible.away, weights=weights
         )
-        engine.fit()
+        if getattr(self, "pooled", False) and eligible.league.nunique() > 1:
+            diagnostics = fit_pooled_engine(engine)
+            fitting_method = FITTING_METHOD
+        else:
+            # Preserve upstream arithmetic for domestic and single-league pooled fits.
+            engine.fit()
+            if getattr(self, "pooled", False):
+                fitting_method = "penaltyblog_slsqp"
+                diagnostics = dict(
+                    optimizer="SLSQP",
+                    gradient="penaltyblog",
+                    initialization="penaltyblog_default",
+                    maxiter=1000,
+                    ftol=1e-6,
+                    success=bool(engine._res.success),
+                    iterations=int(engine._res.nit),
+                )
         if not np.isfinite(engine.loglikelihood):
             raise ValueError("拟合未得到有限的对数似然")
         self.engine, self.teams = engine, teams
+        if getattr(self, "pooled", False):
+            self.fitting_method = fitting_method
+            self.solver_diagnostics = diagnostics
         params = engine.get_params()
         attack = np.sort([params[f"attack_{team}"] for team in teams])
         defence = np.sort([params[f"defence_{team}"] for team in teams])
@@ -109,7 +146,29 @@ class DixonColes(Model):
             else "mixed"
         )
         self.latest_available = eligible.available_utc.max()
-        self.league = eligible.league.iloc[0]
+        self.league = "欧战" if getattr(self, "pooled", False) else eligible.league.iloc[0]
+        if getattr(self, "pooled", False):
+            self.training_leagues = {
+                league: int(count)
+                for league, count in eligible.league.value_counts().sort_index().items()
+            }
+            self.training_league_scope = sorted(
+                set(history.attrs.get("training_leagues", self.training_leagues))
+            )
+            appearances = pd.concat(
+                [
+                    eligible[["league", "home"]].rename(columns={"home": "team"}),
+                    eligible[["league", "away"]].rename(columns={"away": "team"}),
+                ],
+                ignore_index=True,
+            )
+            self.team_training_leagues = {
+                team: {
+                    league: int(count)
+                    for league, count in group.league.value_counts().sort_index().items()
+                }
+                for team, group in appearances.groupby("team", sort=True)
+            }
         # sources is the selected corpus, including sources without eligible rows.
         self.sources = sources
         self.training_source_counts = {
@@ -126,9 +185,9 @@ class DixonColes(Model):
             raise ValueError("请先训练或载入模型")
         if utc(row["kickoff_utc"]) <= self.as_of:
             raise ValueError("模型截点必须早于开球")
-        if row.get("league", self.league) != self.league or (
-            "source" in row and row["source"] not in model_sources(self)
-        ):
+        if (
+            not getattr(self, "pooled", False) and row.get("league", self.league) != self.league
+        ) or ("source" in row and row["source"] not in model_sources(self)):
             raise ValueError("联赛或数据来源与模型不一致")
         home, away = row["home"], row["away"]
         unknown = home not in self.teams or away not in self.teams
@@ -153,7 +212,7 @@ class DixonColes(Model):
         if getattr(self, "draw_calibration", False):
             matrix[np.diag_indices(10)] *= np.exp(self.draw_offset)
             matrix /= matrix.sum()
-        return matrix, {
+        metadata = {
             "draw_calibration": getattr(self, "draw_calibration", False),
             "draw_offset": getattr(self, "draw_offset", 0.0),
             "calibration_training_rows": getattr(self, "calibration_training_rows", 0),
@@ -176,6 +235,17 @@ class DixonColes(Model):
             "availability_basis": getattr(self, "availability_basis", "unknown"),
             "excluded_score_mass": max(0.0, 1.0 - retained),
         }
+        if getattr(self, "pooled", False):
+            metadata.update(
+                pooled=True,
+                fitting_method=getattr(self, "fitting_method", "legacy_penaltyblog_slsqp"),
+                solver_diagnostics=deepcopy(getattr(self, "solver_diagnostics", None)),
+                training_leagues=dict(self.training_leagues),
+                home_training_leagues=dict(self.team_training_leagues.get(home, {})),
+                away_training_leagues=dict(self.team_training_leagues.get(away, {})),
+                home_advantage=float(self.engine.get_params()["home_advantage"]),
+            )
+        return matrix, metadata
 
     def _fit_draw_calibration(self, eligible, weights):
         probabilities, outcomes, sample_weights = [], [], []
@@ -254,4 +324,5 @@ class DixonColes(Model):
         if not isinstance(model, cls) or model.engine is None:
             raise ValueError("模型文件类型不正确")
         model.sources = model_sources(model)
+        model.pooled = getattr(model, "pooled", False)
         return model

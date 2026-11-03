@@ -1189,6 +1189,146 @@
         "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
         "bet_allowed": false
       }
+    },
+    "欧战": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.006047592217158365
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 540.0,
+          "draw_calibration": true,
+          "selection_draw_bias": 0.04269553794168712
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.025807305518262852
+        }
+      ],
+      "generated_utc": "2026-11-03T18:51:33.539767+00:00",
+      "database_sha256": "385035b903b4aa575365a8635f187e7d18bd49b5c24ab46cdfdfd5ed386ea1dd",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "market_paired_n_below_300_or_mismatch",
+          "market_gap_above_0.05_or_missing"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 1736,
+            "log_loss": 1.037793513988135
+          },
+          "uniform": {
+            "n": 1736,
+            "log_loss": 1.0986122886681093
+          },
+          "market": {
+            "n": 0,
+            "log_loss": null
+          },
+          "paired_model": {
+            "n": 0,
+            "log_loss": null
+          }
+        },
+        "uniform_log_loss_gain": 0.06081877467997443,
+        "market_log_loss_gap": null,
+        "as_of_utc": "2026-11-03T17:21:12.748620+00:00",
+        "bet_allowed": false,
+        "group": "欧战",
+        "fitting_method": "pooled_dc_full_gradient_al_slsqp_v1",
+        "target_leagues": [
+          "欧冠",
+          "欧协联",
+          "欧罗巴"
+        ],
+        "training_leagues": [
+          "德甲",
+          "意甲",
+          "挪超",
+          "欧冠",
+          "欧协联",
+          "欧罗巴",
+          "法甲",
+          "瑞超",
+          "芬超",
+          "英超",
+          "荷甲",
+          "葡超",
+          "西甲"
+        ],
+        "gate": {
+          "complete_seasons": 2,
+          "min_evaluated": 500,
+          "min_uniform_log_loss_gain": 0.05,
+          "fold": "weekly",
+          "bet_allowed": false,
+          "require_two_nonempty_complete_seasons": true,
+          "require_no_skips_or_unavailable_labels": true,
+          "artifact_corpus": "matching_sources_and_cumulative_nonreplayed_policy",
+          "evidence_recency": "latest_two_complete_seasons_at_prediction",
+          "min_market_paired": 300,
+          "max_market_log_loss_gap": 0.05,
+          "market_source": "jc_pre_kickoff_had"
+        }
+      },
+      "pooled": true,
+      "fitting_method": "pooled_dc_full_gradient_al_slsqp_v1",
+      "leagues": [
+        "欧冠",
+        "欧协联",
+        "欧罗巴"
+      ],
+      "training_leagues": [
+        "德甲",
+        "意甲",
+        "挪超",
+        "欧冠",
+        "欧协联",
+        "欧罗巴",
+        "法甲",
+        "瑞超",
+        "芬超",
+        "英超",
+        "荷甲",
+        "葡超",
+        "西甲"
+      ]
     }
   }
 }
