@@ -59,8 +59,9 @@ python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1 
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 --source fdorg --leagues CL --from 2023 --to 2026
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2025 --to 2026
 python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --run-id fd-links-1  # 仅审查者在 Actions 手动补链，不联网
-python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF 存量身份，不联网
+python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF/FDORG 存量身份，不联网
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
+zucai aliases proposals --scope cups-history --archive ../cloud-data --out docs/aliases/2026-11-04-apif-cups-history.md  # 第二批历史清单，只读、不覆盖
 zucai aliases evaluate --provider apif --leagues 3,848 --archive ../cloud-data --out work/identity-evaluation.json
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
 python -m zucai.daily_digest --archive ../cloud-data --out ../cloud-data/daily  # 只读冻结数字，生成每日摘要
@@ -166,6 +167,10 @@ identity 不额外查询 status，不补拉分页；不完整响应不作为核�
 之后欧战复用已有 `same_provider_id` 桥接。未确认的球队使用快速开始里的 `aliases proposals` 生成
 只读审批清单，jc 参考名不绑定，建议规范名留给所有者填写。具体批准格式及顺序见
 [别名审批说明](docs/aliases/README.md)。`aliases evaluate` 只输出离线评估，不放宽生产规则。
+T29 的 `--scope cups-history` 列出仍为临时身份、欧罗巴/欧协联合计至少 10 场的 apif ID，
+按出场数降序；给出来源原名、赛季范围、近两季最多三个已绑定对手，建议中文名留空。
+末尾另列待审批 fdorg 身份、没有 apif 生效别名的 jc 欧战球队供对照，以及身份/场数度量。
+不带 `--scope` 仍生成 T23 第一批清单；历史模式固定两项赛事，不使用 `--leagues` 筛选。
 
 T20 的三项欧战在导入前另做运行期核验：复用同源已生效的国内联赛数字球队 ID，
 再用完整响应与 jc 的双向唯一主客方向图补充身份；不读取待审候选作为生效别名。
@@ -174,11 +179,17 @@ T20 的三项欧战在导入前另做运行期核验：复用同源已生效的�
 依据写入 `state/audit/{fdorg,apif}_cup_aliases.csv`，已入库的来源 ID 绑定随数据库归档保存。
 无法核验的保留 `fdorg:team:<id>` / `apif:team:<id>`，写入各源未对齐 CSV，不猜中文名。
 导入器仍拒绝直接重绑已有独立身份。T23 另提供审查者手动触发的 `operation=reconcile`：
-仅按已生效的正式别名与欧战同源 ID 桥接，把 `apif:team:<id>` 在对应联赛的比赛重指到唯一规范球队。
+T29 将其扩展为：同一 apif ID 在任意联赛的正式别名为 `auto_verified/approved`，即可在该 ID
+有历史的所有联赛逐一检查并合并；`fdorg:team:<id>` 同样依据 football_data_org.json 处理。
+`same_provider_id` 只在同一数据源内生效，APIF 与 FDORG 的相同数字不是同一球队证据。
 规范名缺失/不唯一、三小时内已有比赛、其他来源 ID 绑定、临时身份带 aliases 等情况跳过并记审计。
 比赛编号、赛果、赔率、预测不改，临时行没有任何比赛引用后才删除；不发请求、不注入 API key。
-Actions 摘要显示合并球队、重定向比赛、删除空临时行和冲突数。先 reconcile，再 backfill；
-第二次 reconcile 合并 0。它不接受 source/leagues/seasons，检查全库 APIF 临时身份；未批准的 proposed 不处理。
+Actions 摘要显示合并球队、重定向比赛、删除空临时行和冲突数，并列合并前后的 jc 欧战球队
+少于 20/60 场数量、两源临时身份数及欧战出场数。统计沿用任务单 2025-07-01 UTC 起的 jc 参赛样本，
+不代表当前销售状态；库内场数也不是有效训练场数。先 reconcile，再 backfill；第二次 reconcile 合并 0。
+它不接受 source/leagues/seasons，检查全库两源临时身份；没有任何正式生效同源 ID 的 proposed 不处理。
+上线前仍需核对跨联赛目标的后续采集：若目标国内联赛正式别名仍为 proposed，历史合并后，
+原导入器会把该队新比赛记为“已有绑定但别名未获核准”。这次保留该隔离规则；目标联赛的正式别名/后续处理须由审查者与所有者确认。
 
 Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
 `source` 选项统一为 fd / fdorg / apif，用于 backfill；probe 固定 apif，避免页面默认 fd 造成误用。
@@ -191,7 +202,7 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
   每次定时运行均预测，手动 apis 仍不触发预测；fd 仍只在 UTC 周一 early 采集。
 - `operation=relink-fdorg`：仅手动 Actions 补存量 fd/fdorg 链接，对应 `backfill --relink-fdorg`；
   不采集、不注入 key、不训练、不运行记分板。摘要列补链/跳过数、原因和逐对清单；只改 counterpart，保留赛果和预测原件。
-- `operation=reconcile`：仅手动运行 APIF 存量身份合并，不触发采集、预测或记分板；
+- `operation=reconcile`：仅手动运行 APIF/FDORG 存量身份合并，不触发采集、预测或记分板；
   复用写回锁，保持竞彩水位，归档恢复及冻结预测哈希校验后发布。
 - `operation=backfill`：**一次性历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），
   `sporttery` 与 `predict` 跳过；沿用写回锁和发布脚本。

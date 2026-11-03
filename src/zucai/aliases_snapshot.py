@@ -14,6 +14,7 @@ from zucai.sources.football_data import CONFIG_ROOT, read_json
 
 LEAGUES = CONFIG_ROOT / "api_football/leagues.json"
 ALIASES = CONFIG_ROOT / "team_aliases/api_football.json"
+FDORG_ALIASES = CONFIG_ROOT / "team_aliases/football_data_org.json"
 
 
 def formal_aliases():
@@ -21,6 +22,14 @@ def formal_aliases():
 
     aliases = read_json(ALIASES)
     validate_approvals(aliases, require_metadata=True)
+    return aliases
+
+
+def fdorg_formal_aliases():
+    from zucai.sources.apif_aliases import validate_approvals
+
+    aliases = read_json(FDORG_ALIASES)
+    validate_approvals(aliases)  # Pre-T23 fdorg approvals retain their existing provenance.
     return aliases
 
 
@@ -53,14 +62,19 @@ def snapshot(archive):
                 "identity_scopes",
             )
         }
+        audits["fdorg_unmatched_teams"] = csv_rows(state / "audit/fdorg_unmatched_teams.csv")
         path = state / "alias_candidates/apif.json"
         candidates = read_json(path) if path.exists() else {}
         with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True) as con:
             con.row_factory = sqlite3.Row
+            teams = [
+                dict(row) for row in con.execute("SELECT id,name,aliases FROM teams ORDER BY id")
+            ]
             matches = [
                 dict(row)
                 for row in con.execute(
                     "SELECT m.match_id,m.source,m.league,m.kickoff_utc,m.counterpart_id,"
+                    "m.home_team_id,m.away_team_id,"
                     "h.name home,a.name away,h.aliases home_aliases,a.aliases away_aliases "
                     "FROM matches m JOIN teams h ON h.id=m.home_team_id "
                     "JOIN teams a ON a.id=m.away_team_id ORDER BY m.match_id"
@@ -69,6 +83,7 @@ def snapshot(archive):
     return dict(
         audits=audits,
         candidates=candidates,
+        teams=teams,
         matches=matches,
         manifest=manifest,
         manifest_sha256=hashlib.sha256((archive / "feed_manifest.json").read_bytes()).hexdigest(),

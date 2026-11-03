@@ -8,6 +8,9 @@ def add_aliases_parser(sub):
     commands = parser.add_subparsers(dest="aliases_command", required=True)
     proposals = commands.add_parser("proposals", help="生成所有者审批清单，不启用别名")
     proposals.add_argument("--provider", choices=("apif",), default="apif")
+    proposals.add_argument(
+        "--scope", choices=("first-batch", "cups-history"), default="first-batch"
+    )
     proposals.add_argument("--leagues", default="3,848,292,119,188,244,169")
     proposals.add_argument(
         "--archive", default="../cloud-data", help="data/football-feeds 的本地检出目录"
@@ -31,7 +34,12 @@ def run_aliases(args):
             result["additional_teams"],
         )
         return
-    from zucai.alias_proposals import write_proposals
+    if args.scope == "cups-history":
+        from zucai.cups_history_proposals import write_cups_history
 
-    count = write_proposals(args.archive, args.leagues, args.out)
-    logging.getLogger(__name__).info("已生成 %d 条未核验审批候选：%s", count, args.out)
+        count = write_cups_history(args.archive, args.out)
+    else:
+        from zucai.alias_proposals import write_proposals
+
+        count = write_proposals(args.archive, args.leagues, args.out)
+    logging.getLogger(__name__).info("已生成 %d 条审批清单条目：%s", count, args.out)
