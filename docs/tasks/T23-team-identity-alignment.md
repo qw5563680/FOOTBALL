@@ -55,17 +55,49 @@ API-Football 对同一俱乐部在所有赛事里使用同一个球队 ID。只�
 7. **测试**（离线）：identity 模式只对 identity-only 联赛生效且不触发导入；桥接把 identity-only 联赛的别名用于欧战；
    审批清单生成（含 jc 参考列只读不绑定）；`approved` 条目生效与字段校验；审计去重；现有 1085 项不回退。
 
+8. **存量独立身份合并（2026-11-03 补充，审查者 Claude 根据首轮真实回填结果加入）**
+   （`src/zucai/sources/apif_ingest.py` 旁新模块，例如 `apif_reconcile.py`；`cloud_feeds` 加 `operation=reconcile` 或作为 `identity` 的子步骤）：
+   - **为什么必须做**：PR #34 合入 130 条桥接别名后，首轮真实回填 run 41615438667（欧罗巴 / 欧协联 2021–2026）
+     12 个范围全部 `partial`：拒绝 1215 行、新建 jc 关联 0、2026 季隔离 39，jc 同窗对齐率只有 44% / 33%。
+     原因是 T20 / T22 回填时这些俱乐部没有别名，被按临时身份 `apif:team:<id>` 入库（库内 483 个临时身份，
+     其中 63 个现已由桥接联赛核验，占欧罗巴 884 场 + 欧协联 462 场）；`_Teams.resolve` 的既有规则
+     「在本联赛已有独立球队身份，须先核对存量比赛」让新别名对这些存量比赛完全无效。不合并存量身份，
+     任何 `auto_verified` / `approved` 别名（包括第 2 项的所有者批准）都不会生效，目标 1 不可达。
+   - **处理对象**：库里每个 `apif:team:<id>` 临时身份，在它有比赛的每个联赛 L 上，用与导入器完全相同的解析
+     （`_canonical` + `resolve_cup_aliases` 的 `same_provider_id` 桥接）求规范名；只处理解析结果状态为
+     `auto_verified` 或 `approved` 的 (L, id)。`proposed` 一律不碰，不按名字合并。
+   - **前置检查**（任一不满足就跳过该 (L, id) 并写审计，不中止运行）：规范球队在库里恰好一条（按 name / aliases
+     查找，与 `_Teams.one` 一致）；规范球队在联赛 L 内没有与该临时身份任何一场开球相差 3 小时以内的比赛
+     （避免合并后同场两行）；规范球队没有另一个不同的 `apif:L:team:<其他 id>` 绑定；临时身份的 aliases 为空。
+   - **动作**：把该临时身份在联赛 L 的 `matches.home_team_id / away_team_id` 改指规范球队；给规范球队 `aliases`
+     追加 `apif:L:team:<id>`；临时身份在所有联赛都不再有比赛时删除该 `teams` 行。`match_id`、开球时间、状态、
+     `results` 不变；`results / odds / closing_odds / predictions / sfc_issue_matches` 只引用 `match_id`，不改。
+   - **审计与摘要**：`state/audit/apif_identity_merges.csv`（run_id、league、team_id、provisional_team_row_id、
+     canonical、matches_rekeyed、alias_status、alias_source、reason），按 `(league, team_id, canonical)` 去重追加；
+     feed manifest `collection.apif` 增加 `merged_teams`、`rekeyed_matches`、`skipped_conflicts`。
+   - **幂等与归档**：同一归档连续执行两次，第二次合并 0；`export_feeds` 后 `restore_feeds` + `verify_forecasts`
+     通过；`counts.matches` 不变，`counts.teams` 减少量等于删除的临时身份数。导入器规则本身不改，训练输入不变。
+   - **顺序**：合并 → 重跑 `backfill` 3,848 与九联赛 → 再按验收标准计 2026 季隔离与 jc 对齐率。
+     审查者已核对首轮数据：63 个可解析临时身份与规范球队之间 0 处 3 小时内同联赛冲突，规范球队全部唯一存在。
+   - **同时注意**：首轮 89 场 2026 季在售欧战中，桥接别名能解析双方的只有 12 场，44 场缺一方、33 场双方都缺，
+     共 46 支球队（Celtic 247、Beşiktaş 549、Plzen 567、Salzburg 571……）只能靠第 2 项的审批清单；
+     所以第一批审批与本项合并都在关键路径上，批准后的条目同样经本项合并才能对存量比赛生效。
+
 ## 不做
 - 不按名字相似度自动绑定；不把审批清单里的参考列当作证据。
 - 不导入 identity-only 联赛的比赛，不把它们加入每日采集；不改 fd / fdorg / jc 的身份规则。
 - 不训练模型、不改 `params.json`（T21）。
 - 不在开发环境用正式 key 发真实请求（AGENTS 第 10 条）。
 - 不改 `reserve=10` 与 6.1 秒间隔。
+- 第 8 项只合并 apif 临时身份；fd 的英文临时队名、`fdorg:team:` 临时身份不在本任务处理（见 T24 及后续）。
 
 ## 验收标准
 - 真实运行（审查者触发）：`probe` 确认 7 个桥接联赛 ID；`identity` 两季共 ≤ 14 次请求，每个桥接联赛 `auto_verified` ≥ 18 / 20 支球队；
   候选文件与审计表写入数据分支。
 - 正式别名 PR：新增 `auto_verified` 条目每条带比赛证据；审批清单第一批合入，`approved` 条目带 `approved_by` / `approved_utc`。
-- 重跑回填：欧罗巴 / 欧协联 2026 季隔离场数 ≤ 10；jc 有比赛的欧战球队对齐率 ≥ 90%；同范围第二次回填新增 0。
+- 真实运行（审查者触发）：`reconcile` 合并的临时身份数 ≥ 63（以运行时生效别名为准）、重定向约 1346 场、冲突跳过 0；
+  随后回填的 `apif_rejected_rows.csv` 中「已有独立球队身份」原因新增 0 行。
+- 重跑回填（在第 8 项合并与第一批审批落地之后计）：欧罗巴 / 欧协联 2026 季隔离场数 ≤ 10；jc 有比赛的欧战球队对齐率 ≥ 90%；同范围第二次回填新增 0。
+- 离线测试覆盖第 8 项：幂等、冲突跳过、规范名缺失或多条跳过、同一临时身份跨两个联赛一次处理、删除无比赛的临时身份、`match_id` 不变。
 - 审计表在连续两次相同回填后行数不变。
 - `pytest -q` 全绿、`ruff check src tests examples` 与 `ruff format --check src tests` 通过；测试不联网。

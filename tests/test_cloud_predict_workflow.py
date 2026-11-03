@@ -22,6 +22,7 @@ WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
         ("workflow_dispatch", "backfill", "", "success", False, False),
         ("workflow_dispatch", "probe", "", "success", False, False),
         ("workflow_dispatch", "identity", "", "success", False, False),
+        ("workflow_dispatch", "reconcile", "", "success", False, False),
         ("push", "", "", "success", False, False),
     ],
 )
@@ -51,7 +52,10 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
     assert "zucai.cloud_predict run" in job
     assert "publish-football-feeds.sh" in job
     assert "group: write-football-feed-data" in text
-    assert "options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity]" in text
+    assert (
+        "options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile]"
+        in text
+    )
 
 
 @pytest.mark.parametrize(
@@ -63,6 +67,9 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
         ],
         ("backfill", "football-ingest-run-t18"),
         ("backfill", "football-ingest-verify-t18"),
+        ("reconcile", "codex/T23-identity-alignment"),
+        ("reconcile", "football-ingest-run-t23"),
+        ("reconcile", "football-ingest-verify-t23"),
         ("identity", "codex/T23-identity-alignment"),
         ("identity", "football-ingest-run-t23"),
         ("identity", "football-ingest-verify-t23"),
@@ -76,7 +83,10 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
 )
 def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(operation, ref_name):
     text = WORKFLOW.read_text()
-    assert "options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity]" in text
+    assert (
+        "options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile]"
+        in text
+    )
     jobs = dict(
         re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
     )
@@ -100,7 +110,7 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
         )
 
     expected = {
-        "apis": operation in {"apis", "verify", "backfill", "probe", "identity"},
+        "apis": operation in {"apis", "verify", "backfill", "probe", "identity", "reconcile"},
         "sporttery": operation == "sync",
         "predict": operation == "predict",
     }
@@ -111,7 +121,7 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
     if operation != "scoreboard":  # This job never consumes the collection-mode variable.
         assert evaluate(mode) == (
             operation
-            if operation in {"verify", "sync", "backfill", "probe", "identity"}
+            if operation in {"verify", "sync", "backfill", "probe", "identity", "reconcile"}
             else "apis"
         )
     assert "zucai.cloud_feeds backfill" in jobs["apis"]
@@ -154,6 +164,20 @@ def test_shared_inputs_have_safe_defaults_for_backfill_and_probe():
     assert "options: [fd, fdorg, apif]" in source and "default: fd" in source
     leagues = text.split("      leagues:\n", 1)[1].split("      seasons:\n", 1)[0]
     assert "default: ''" in leagues
+
+
+def test_reconcile_step_has_no_key_or_collection_and_keeps_publish_lock():
+    text = WORKFLOW.read_text()
+    steps = text.split("      - name:")
+    reconcile = next(step for step in steps if "Reconcile verified APIF" in step)
+    assert "env.FEED_MODE == 'reconcile'" in reconcile
+    assert "zucai.cloud_feeds reconcile" in reconcile
+    assert "secrets." not in reconcile and "API_FOOTBALL_KEY" not in reconcile
+    collect = next(step for step in steps if "Restore and collect APIs" in step)
+    assert "env.FEED_MODE != 'reconcile'" in collect
+    for title in ("Publish verified data", "Keep collection originals"):
+        assert "env.FEED_MODE == 'reconcile'" in next(s for s in steps if title in s)
+    assert "group: write-football-feed-data" in text
 
 
 @pytest.mark.parametrize(

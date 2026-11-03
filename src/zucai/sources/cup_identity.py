@@ -169,6 +169,10 @@ def _bridge(provider, database, league, labels, aliases):
 
 
 def _audit_aliases(path, rows):
+    if path.name == "apif_cup_aliases.csv":
+        from zucai.sources.apif_audit import audit_cup_aliases
+
+        return audit_cup_aliases(path, rows)
     fields = ["league", "team_id", "name", "canonical", "status", "reason", "evidence"]
     previous = []
     if path.exists():

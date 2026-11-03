@@ -416,6 +416,32 @@ APIF 两张拒绝/疑似重复表选择**汇总表去重**方案：按
 已能严格核验的 ID 不算额外解决。缺范围或行数不完整则 `insufficient_evidence`，不会把无数据当零冲突成功。
 输出只作研究结果，即使达到至少 20 支、零冲突，也不改变任何生产身份规则。
 
+### 存量 APIF 身份合并（T23 第 8 项）
+
+`cloud_feeds reconcile` 是独立的手动 Actions 操作，不接收来源/联赛/年份选择，不访问网络或注入 key。
+`apif_reconcile` 遍历 `apif:team:<正整数>` 临时行及其有比赛的每个联赛，只用正式 active 别名；
+欧战直接复用 `cup_identity._bridge` 的同源 ID/既有绑定解析，不额外推断比赛图，不读取待审候选。
+`proposed` 不处理。目标查找复用 `_Teams.one`（规范化 name/aliases），兼容 `auto_verified` 与具完整批准来源的 `approved`。
+正式别名文件与导入器的“已有独立身份”拒绝规则保持原样。
+
+逐联赛前置检查：目标唯一存在、临时 aliases 为空、目标无不同的本联赛 APIF ID，当前 ID 未被其他球队占用；
+同联赛目标的任何比赛与待移动比赛相差 ≤3h 均算冲突，临时行若被非 APIF 比赛引用也跳过。
+冲突只跳过该联赛/ID，写明原因；通过后仅更新 matches 的 home_team_id/away_team_id，追加来源绑定。
+所有联赛不再引用临时行才删除它；无别名/未批准行保留。SQLite 事务内处理，审计写入失败时回滚数据库；
+数据库最终提交失败时恢复原审计（原本不存在则移除），避免失败产物误报成功；本轮不发布。
+match_id、开球、状态及其他字段、results/odds/closing_odds/predictions/sfc_issue_matches 均不改，无 schema 迁移。
+
+`state/audit/apif_identity_merges.csv` 保存任务单九列，alias_source 包含正式文件哈希与解析证据；
+按 `(league, team_id, canonical)` 保留一行，语义不变时保留原 run_id/字节；冲突解决后的成功更新原行而不重复追加。
+`collection.apif.merged_teams` 计本轮实际移动过的不同临时行，`rekeyed_matches` 计不同比赛 ID（主客都移动也只算一场），
+`deleted_teams` 计最终删掉的无引用行，`skipped_conflicts` 只计已有解析结果却未通过检查的联赛/ID。
+没有 active 解析结果单列 unresolved_pairs，不计冲突。队表减少数等于 deleted_teams，比赛数保持不变。
+恢复/导出仍使用原数据分支格式与全局写锁，竞彩水位不前进；再次恢复及 verify_forecasts 校验后发布。
+
+`apif_cup_aliases.csv` 改为按球队状态和语义证据去重并整理旧重复行：比较 evidence 时递归忽略
+`seen_utc`、`sidecar`，保留首次原始证据供追踪；不同 raw_sha256、规范名、状态或实际匹配依据仍保留。
+不修改 fdorg 的别名审计写法。新审计仍走既有 `state/audit/apif_*.csv` 归档白名单。
+
 ## T15 评估与参数文件（无数据库迁移）
 
 T16按所有者选择的A1采用策略绑定：`model_readiness` 不再要求训练库与评估库SHA256相等；

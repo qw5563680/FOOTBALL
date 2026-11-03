@@ -378,7 +378,8 @@ def write_apif_quota(summary, result):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("export", "sync", "apis", "verify", "backfill", "probe", "identity")
+        "command",
+        choices=("export", "sync", "apis", "verify", "backfill", "probe", "identity", "reconcile"),
     )
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--db", type=Path, default=Path("data/zucai.db"))
@@ -407,6 +408,10 @@ def main():
         parser.error("--seasons 仅供 probe / identity 使用")
     if args.command != "probe" and args.probe_kind is not None:
         parser.error("--probe-kind 仅供 probe 使用")
+    if args.command == "reconcile":
+        from zucai.cloud_probe import require_probe_actions
+
+        require_probe_actions()
     if args.command in {"probe", "identity"}:
         from zucai.cloud_probe import probe_scopes, require_probe_actions
 
@@ -432,7 +437,7 @@ def main():
     archive = args.archive.resolve()
     day = args.through or datetime.now(BEIJING).date()
     collection = None
-    if args.command in {"sync", "apis", "verify", "backfill", "probe", "identity"}:
+    if args.command in {"sync", "apis", "verify", "backfill", "probe", "identity", "reconcile"}:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
         if target.parent != Path("data").resolve():
@@ -463,6 +468,12 @@ def main():
 
         collection = collect_apis(target, datetime.now(UTC), args.days, args.slot)
         # API collection must not advance the official results reconciliation watermark.
+        day = date.fromisoformat(meta["through_beijing"])
+    if args.command == "reconcile":
+        from zucai.sources.apif_reconcile import reconcile
+        from zucai.sources.apif_reconcile import write_summary as identity_summary
+
+        collection = {"apif": reconcile(target, args.run_id)}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command in {"probe", "identity"}:
         if args.command == "identity":
@@ -516,7 +527,7 @@ def main():
         verify_forecasts(archive)
         LOG.info("%s 历史回填归档恢复校验通过", provider)
         write_summary(collection[provider])
-    if args.command in {"probe", "identity"}:
+    if args.command in {"probe", "identity", "reconcile"}:
         from zucai.forecast_archive import verify_forecasts
 
         with TemporaryDirectory(prefix="apif-probe-verify-") as temporary:

@@ -10,3 +10,6 @@ apif_league_probes.csv 是 Claude 的 Actions run 41612517821 产生的 7 行真
 来自数据提交 d12e1ff（同时包含在 68c1c2b）。stage1_provenance.json 记录数据提交、run ID、
 原审计/候选文件哈希，以及按中文联赛分组的 130 条正式别名规范化 JSON 哈希，验证 evidence 原样保留。
 CSV 副本仅归一换行；来源字节哈希与副本哈希分别记录。这些文件可离线验证，不会触发 API 请求。
+
+reconcile.json 是存量身份合并的纯合成样本：两个临时 ID 跨欧罗巴/欧协联及一个国内联赛，
+同时包含未批准候选和 fdorg 临时行。fixture 中的 approved 仅用于测试，不是所有者对生产条目的批准。

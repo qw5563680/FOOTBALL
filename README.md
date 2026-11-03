@@ -57,6 +57,7 @@ python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/pa
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 --source fdorg --leagues CL --from 2023 --to 2026
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2025 --to 2026
+python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF 存量身份，不联网
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases evaluate --provider apif --leagues 3,848 --archive ../cloud-data --out work/identity-evaluation.json
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
@@ -167,7 +168,12 @@ T20 的三项欧战在导入前另做运行期核验：复用同源已生效的�
 避免先入库的未知身份挡住较新赛季的证据。后续下载失败仍保留此前完整范围的导入结果。
 依据写入 `state/audit/{fdorg,apif}_cup_aliases.csv`，已入库的来源 ID 绑定随数据库归档保存。
 无法核验的保留 `fdorg:team:<id>` / `apif:team:<id>`，写入各源未对齐 CSV，不猜中文名。
-已存在独立身份的球队仍受原有存量身份校验保护，不自动合并。仓库正式别名文件不改。
+导入器仍拒绝直接重绑已有独立身份。T23 另提供审查者手动触发的 `operation=reconcile`：
+仅按已生效的正式别名与欧战同源 ID 桥接，把 `apif:team:<id>` 在对应联赛的比赛重指到唯一规范球队。
+规范名缺失/不唯一、三小时内已有比赛、其他来源 ID 绑定、临时身份带 aliases 等情况跳过并记审计。
+比赛编号、赛果、赔率、预测不改，临时行没有任何比赛引用后才删除；不发请求、不注入 API key。
+Actions 摘要显示合并球队、重定向比赛、删除空临时行和冲突数。先 reconcile，再 backfill；
+第二次 reconcile 合并 0。它不接受 source/leagues/seasons，检查全库 APIF 临时身份；未批准的 proposed 不处理。
 
 Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
 `source` 选项统一为 fd / fdorg / apif，用于 backfill；probe 固定 apif，避免页面默认 fd 造成误用。
@@ -177,6 +183,8 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
+- `operation=reconcile`：仅手动运行 APIF 存量身份合并，不触发采集、预测或记分板；
+  复用写回锁，保持竞彩水位，归档恢复及冻结预测哈希校验后发布。
 - `operation=backfill`：**一次性历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），
   `sporttery` 与 `predict` 跳过；沿用写回锁和发布脚本。
   `source=fd`（默认）保持国内历史回填；`source=fdorg` 默认欧冠 CL 2023 至当季；

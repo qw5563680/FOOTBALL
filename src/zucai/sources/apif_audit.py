@@ -54,3 +54,40 @@ def audit_apif(path, rows, sha):
     writer.writerows(records.values())
     path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write(path, buffer.getvalue().encode("utf-8"))
+
+
+def audit_cup_aliases(path, rows):
+    """Deduplicate identity evidence, retaining the first original provenance."""
+    fields = ["league", "team_id", "name", "canonical", "status", "reason", "evidence"]
+    previous = []
+    if path.exists():
+        with path.open(encoding="utf-8", newline="") as stream:
+            reader = csv.DictReader(stream, strict=True)
+            if reader.fieldnames != fields:
+                raise ValueError("APIF 欧战别名审计字段无效")
+            previous = list(reader)
+        if any(None in row or any(v is None for v in row.values()) for row in previous):
+            raise ValueError("APIF 欧战别名审计行无效")
+
+    def stable(value):
+        if isinstance(value, dict):
+            return {k: stable(v) for k, v in value.items() if k not in {"seen_utc", "sidecar"}}
+        if isinstance(value, list):
+            return [stable(v) for v in value]
+        return value
+
+    records = {}
+    for row in [*previous, *rows]:
+        evidence = json.dumps(
+            stable(json.loads(row.get("evidence") or "[]")), ensure_ascii=False, sort_keys=True
+        )
+        key = tuple(row.get(k, "") for k in fields[:-1]) + (evidence,)
+        records.setdefault(key, row)
+    if list(records.values()) == previous:
+        return
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fields)
+    writer.writeheader()
+    writer.writerows(records.values())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(path, output.getvalue().encode("utf-8"))
