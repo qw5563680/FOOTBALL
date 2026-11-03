@@ -174,7 +174,7 @@ CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知
 ## 5. football-data.org v4（欧洲主流联赛全量赛程与赛果，T09）
 
 - 基地址 `https://api.football-data.org/v4/`，请求头 `X-Auth-Token`；key 仅从运行时环境变量 `FOOTBALL_DATA_ORG_TOKEN` 读取，不进命令、仓库、日志或 sidecar。
-- 本源只映射九个国内联赛 `PL ELC PD SA BL1 FL1 DED PPL BSA`；欧冠、欧洲杯、世界杯不入库。免费档限非商业使用，README 标注来源。
+- 本源映射九个国内联赛 `PL ELC PD SA BL1 FL1 DED PPL BSA` 和欧冠 `CL`（T20）；欧洲杯、世界杯不入库。免费档限非商业使用，README 标注来源。
 - 端点：`GET /competitions/{code}/matches?season=YYYY[&status=FINISHED]`、`GET /matches?dateFrom&dateTo&competitions=`。
 - `utcDate` 为 UTC ISO；`dateTo` **排他**。真实接口单次日期跨度最多 **10 天**，超出返回 HTTP 400 `Specified period must not exceed 10 days.`。
   `--days N` 的 `2N+1` 天自动拆成不超过 10 天的连续窗口，端点无重叠/无空档；如 UTC 2026-11-02 的 `--days 7` 为 `[2026-10-26,2026-11-05)`、`[2026-11-05,2026-11-10)`。
@@ -205,6 +205,29 @@ CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知
   本轮提交前再次检查 token 的原始字节与 JSON 解码回显。pytest 只读离线样本，不使用真实 key 联网。
 - 逐联赛实际入库、链接率、未链接名单、部分重建基线限制及同截点回测见 [T09 验收](../reports/2026-11-02-t09-acceptance/README.md)。
   来源署名及使用条件以 [站方条款](https://www.football-data.org/client/register) 为准；API `robots.txt` 本轮 HTTP 404。
+
+### T20 欧冠访问实测（北京时间 2026-11-03）
+
+使用本账户只读请求确认 `CL` / 数字 ID `2001` 为 UEFA Champions League；按 7 月换季。
+2022 返回 HTTP 403，2023–2026 返回 HTTP 200。2023/24 共 125 场，2024/25、2025/26 各 189 场；
+2026/27 当前列出 144 场联赛阶段（54 场完赛），后续淘汰赛尚未排定，不用缺少的赛程补造记录。
+前三季各含 3 场加时或点球完赛，仍按既有 `regularTime` 取 90 分钟比分，不合并两回合。
+
+| 起始年 | HTTP | 场数 / 完赛 | 原件 SHA256 |
+| --- | ---: | ---: | --- |
+| 2022 | 403 | 0 / 0 | `2ed7e446e2d24b88fc0a2944c28555c9df188c3193a9ca7f0189709b821d3c44` |
+| 2023 | 200 | 125 / 125 | `3584b91d4624d6b79cb90d6d717de6357073a1bdeab8023dd1cbb31490cc29e9` |
+| 2024 | 200 | 189 / 189 | `1544614455fc30a1b07060dd3221981f3a8654defdb5697fd69730795890bd2e` |
+| 2025 | 200 | 189 / 189 | `e0492ec52276ca36aaa10f0348638c3f7b0717de6a731cd3bf43b4879cd98a0d` |
+| 2026 | 200 | 144 / 54 | `8d16386bc62c727812f6a471b81f946879f59f6ad2a3a8c6cf164c784cbf44a4` |
+
+实现前匿名复读 API robots.txt：HTTP 404，未提供规则；原件 SHA256：
+`55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0`。五次带凭据赛季 GET 间隔至少 6.1 秒；无赔率、阵容等额外请求。
+每日 CL 并入原 fdorg `competitions=` 日期窗口，窗口和请求次数不变。核验 UTC 另见 competitions.json。
+
+欧战别名只复用同源数字球队 ID 的已核验关联及 T09/T10 主客方向比赛图；没有证据的球队保留
+`fdorg:team:<id>` / `apif:team:<id>`，写入现有未对齐审计。名称相似和比分都不作为身份依据。
+正式配置与持久身份有冲突时沿用隔离/拒绝，不能自动覆盖竞彩赛果或非空 counterpart。
 
 ## 6. API-Football v3 / api-sports.io（亚洲与北欧联赛，T10）
 
@@ -237,6 +260,27 @@ HTTP 200 且 `errors.plan` 明确提示仅允许 2022–2024。年份用赛季�
 日端点覆盖所有赛事，再按配置联赛过滤。**整季当季不可用，但最近三天增量可用**，两者分开披露。
 窗口随账户和运行日期改变，不能把本轮日期当作永久权限规则；未来实际 API 错误仍中止，不能当空成功。
 配置及逐请求 SHA256、核验 UTC 见 `data/api_football/leagues.json`。
+
+### T20 欧罗巴与欧协联访问实测（北京时间 2026-11-03）
+
+`/leagues?id=3` 确认为 UEFA Europa League（欧罗巴），`id=848` 确认为 UEFA Europa Conference League（欧协联）；
+两项元数据当前季均为 2026。逐年读取 fixtures 后，只有 2022–2024 整季可读；2021、2025、2026
+均是 HTTP 200 + `errors.plan`，不得当成空成功。整季响应均为一页，含资格赛，统计口径不等同正赛场数。
+
+| ID | 2022 场数 | 2023 场数 | 2024 场数 | 2021 / 2025 / 2026 |
+| --- | ---: | ---: | ---: | --- |
+| 3 | 175 | 175 | 269 | errors.plan |
+| 848 | 415 | 417 | 409 | errors.plan |
+
+两次联赛元数据和十二次赛季探测共 14 次 APIF GET，均经既有 DailyQuota、reserve=10 与 6.1 秒间隔；
+配额从数据分支持久状态接续，末次有效响应头剩余 91。部分响应头向上跳变，仍按既有规则记录，
+不能把它解释为请求未发送或每天可额外请求。原件 SHA256、各次 UTC、权限与分页证据逐条写入
+`data/api_football/leagues.json` 的 `season_probes`；裁剪样本来源和哈希见 `data/fixtures/t20/provenance.json`。
+
+实现前匿名复读 API robots.txt：HTTP 403，提示需应用凭据，无法取得规则；没有附加 key 试探 robots。
+原件 SHA256：`655336a82939309b1dee698b9e2541264ba4a22338046a8c76d9ddea4add456b`。本轮只请求授权 API 的 leagues/fixtures 端点。
+日常仍用最近三个 UTC 日的全赛事 fixtures 响应，只增加 3 / 848 的本地过滤，额外请求为 0；
+整季回填只由手动 backfill 触发。欧冠只使用 fdorg，APIF 配置不加入欧冠 ID 2。
 
 ### 配额和安全归档
 

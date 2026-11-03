@@ -31,6 +31,7 @@ LEAGUE_CODES = {
     "2003": "DED",
     "2017": "PPL",
     "2013": "BSA",
+    "2001": "CL",
 }
 QUOTA_HEADERS = (
     "x-requests-available-minute",
@@ -312,7 +313,7 @@ class FootballDataOrg(Source[ApiGame]):
                 and entry["league"].strip()
             ):
                 return entry["league"]
-        raise ValueError("赛事不在已配置的九个联赛中")
+        raise ValueError("赛事不在已配置的赛事中")
 
     def _scope(self, competition, season, date_from, date_to, status):
         if not isinstance(competition, str):

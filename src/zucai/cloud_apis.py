@@ -12,13 +12,14 @@ from zucai.sources.api_common import CredentialError, LocalValidationError
 from zucai.sources.apif_command import fetch_apif
 from zucai.sources.apif_quota import DailyQuota
 from zucai.sources.base import RawStore, _atomic_write
+from zucai.sources.cup_identity import CUP_LEAGUES, league_counts
 from zucai.sources.fd_ingest import fetch_fd
 from zucai.sources.fdorg_command import COMPETITIONS, _requests, fetch_fdorg
 from zucai.sources.football_data import LEAGUES_PATH, read_json, verified_league
 from zucai.sources.football_data_org import FdorgHttpError, FootballDataOrg
 
 LOG = logging.getLogger(__name__)
-COMPETITION_CODES = "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA"
+COMPETITION_CODES = "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA,CL"
 
 
 def fd_due(now, slot):
@@ -108,6 +109,7 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
         for source in ("fd", "fdorg", "apif")
     }
     captures = {"fdorg": [], "apif": []}
+    cup_before = {provider: league_counts(database, provider) for provider in captures}
     reports["fd"].pop("requests")
     reports["fd"]["downloaded_files"] = 0
     common = dict(db=database, audit_dir=audit, raw_root=raw)
@@ -190,4 +192,16 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
             )
         except Exception as exc:
             _failed(reports[provider], "alias verification", exc)
+        after = league_counts(database, provider)
+        reports[provider]["cups"] = {
+            league: dict(
+                matches_after=after.get(league, {}).get("matches", 0),
+                results_after=after.get(league, {}).get("results", 0),
+                matches_added=after.get(league, {}).get("matches", 0)
+                - cup_before[provider].get(league, {}).get("matches", 0),
+                results_added=after.get(league, {}).get("results", 0)
+                - cup_before[provider].get(league, {}).get("results", 0),
+            )
+            for league in sorted(CUP_LEAGUES[provider])
+        }
     return reports

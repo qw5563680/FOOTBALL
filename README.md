@@ -54,6 +54,8 @@ zucai features build --out data/features.parquet  # 提取球队特征，市场�
 python -m zucai.cloud_feeds apis --archive ../cloud-data --days 3 --run-id manual  # 在全新隔离目录运行
 python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/params.json --run-id manual-1
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
+python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 --source fdorg --leagues CL --from 2023 --to 2026
+python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2022 --to 2024
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
 pytest -q
 ```
@@ -88,7 +90,7 @@ pytest -q
 
 | job | 运行器 | 时间 / 范围 |
 | --- | --- | --- |
-| `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九联赛前后各 `days` 个 UTC 日，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
+| `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
 | `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 沿用官方在售赛程与赛果 `sync`；未配置时整个 job 显示 skipped |
 | `predict` | `ubuntu-latest`，45 分钟上限 | 仅晚班采集后（UTC 09:40 / 北京 17:40）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告 |
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，早班预测跳过也运行；另支持手动 `operation=scoreboard` |
@@ -117,12 +119,23 @@ API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`
 jc 比赛 ID、UTC 时间差追加到 `state/alias_candidates/fdorg.json` 和 `apif.json`。
 候选不参与后续自动导入；审查方定期核对证据后另开 PR 合入 main 的正式别名文件。
 
+T20 的三项欧战在导入前另做运行期核验：复用同源已生效的国内联赛数字球队 ID，
+再用完整响应与 jc 的双向唯一主客方向图补充身份；不读取待审候选作为生效别名。
+历史回填（包括直接 fetch 重复指定 `--season`）先下载所选全部赛季，再统一核验，
+避免先入库的未知身份挡住较新赛季的证据。后续下载失败仍保留此前完整范围的导入结果。
+依据写入 `state/audit/{fdorg,apif}_cup_aliases.csv`，已入库的来源 ID 绑定随数据库归档保存。
+无法核验的保留 `fdorg:team:<id>` / `apif:team:<id>`，写入各源未对齐 CSV，不猜中文名。
+已存在独立身份的球队仍受原有存量身份校验保护，不自动合并。仓库正式别名文件不改。
+
 Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
-- `operation=backfill`：**一次性 fd 历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），
-  `sporttery` 与 `predict` 跳过；沿用写回锁和发布脚本。无需 API key，不回填 fdorg/apif。
+- `operation=backfill`：**一次性历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），
+  `sporttery` 与 `predict` 跳过；沿用写回锁和发布脚本。
+  `source=fd`（默认）保持国内历史回填；`source=fdorg` 默认欧冠 CL 2023 至当季；
+  `source=apif` 默认欧罗巴 3、欧协联 848 各 2022–2024 三季。
+  `leagues` 可空，或填该来源的逗号分隔代码；API 回填凭据仍只取 Actions Secrets。
 - `operation=verify`：托管机恢复并校验归档文件、表行数、来源哈希与独立的 `forecast_manifest.json`；不写数据分支，摘要为 `verified`，没有预测的旧归档仍兼容。
 - `operation=predict`：跳过采集，在托管机使用现有归档训练并预测；`days` / `slot` 不影响预测。
   `sporttery` 跳过、失败或归档水位不是今日时，摘要注明「竞彩数据非今日」。
@@ -140,7 +153,7 @@ JPN/SWE/NOR/FIN/USA/BRA 的 2021–2026 六个起始自然年；共 60 份 CSV�
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-subset --leagues E0,JPN --from 2425 --to 2526
 ```
 
-`--from/--to` 含首尾，接受赛季代码 `2425` 或起始自然年 `2024`；上述两联赛示例分别对应
+fd 的 `--from/--to` 含首尾，接受赛季代码 `2425` 或起始自然年 `2024`；上述两联赛示例分别对应
 E0 的 2425/2526 与 JPN 的 2024–2025。省略时默认 2021–2026；这些筛选参数仅用于 backfill。
 回填先恢复现有归档，沿用 jc > fd、既有别名/疑似重复规则和开球后 3h 的 `assumed` 假设；
 重复相同文件不新增比赛或赛果，比分更正仍按原导入器处理，不改官方比分和可知时间。
@@ -152,6 +165,16 @@ E0 的 2425/2526 与 JPN 的 2024–2025。省略时默认 2021–2026；这些�
 逐跳请求记录追加到数据分支 `state/audit/fd_backfill_requests.csv`；CSV/robots 原件及 SHA256 校验文件、
 完整运行记录、审计作为 `apis-source-<run-id>-<attempt>` artifact 保留 90 天，不提交到 main。
 回填成功后手动运行 `operation=predict` 使用新增历史；每周一当季增量逻辑保持原样。
+
+欧战回填使用快速开始里的 `--source fdorg|apif` 命令，API 的 `--from/--to` 只接受四位起始年。
+fdorg 每季一次请求（CL 2023–2026 共 4 次），apif 两项赛事三季共 6 次整季请求；
+若有分页继续沿用原分页和 `reserve=10` 配额守卫。源的 6 秒 / 6.1 秒限速保持原样。
+2026-11-02 实测 apif 2025、2026 整季均被套餐拒绝，默认只选已核验可读赛季，失败不当作空赛季成功。
+当季日增量仍可由现有日期请求采集，不增加每日请求次数；摘要单列三项欧战库内比赛/赛果与本次新增行数。
+回填摘要另列每赛事每季解析、入库、链接竞彩、拒绝、疑似重复、不同球队 ID 对齐率及未对齐数，
+来源行数包含欧战并经过恢复校验；不覆盖竞彩比分，历史赛果沿用开球后 3h 的 assumed。
+欧冠 2026 当前只公布 144 场，后续淘汰赛尚未全部排出；apif 历史包含资格赛，
+详见 [数据来源 §5、§6](docs/DATA_SOURCES.md)。本任务只接数据，欧战模型另由 T21 处理。
 
 自托管变量由审查方在合并后设置为单个标签 **`football-local`**，`runs-on` 直接使用该字符串；
 当前 Windows 运行器已注册在 `D:\actions-runner`，通过用户登录计划任务运行 `run.cmd`。注册和停用见
