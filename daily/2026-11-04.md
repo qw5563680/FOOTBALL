@@ -3,16 +3,16 @@
 
 # 每日摘要 2026-11-04（北京时间）
 
-本次 run ID：41680202535-1；摘要生成 UTC：2026-11-03T17:02:43.417921+00:00。
-竞彩同步至：2026-11-04；采集状态：jc=complete / fd=未记录 / fdorg=未记录 / apif=未记录。
-采集归档 UTC：2026-11-03T16:55:37.092011+00:00；记分板截点 UTC：2026-11-03T17:00:07.652894+00:00。
+本次 run ID：41682907193-1；摘要生成 UTC：2026-11-03T17:24:54.654162+00:00。
+竞彩同步至：2026-11-04；采集状态：jc=complete / fd=skipped / fdorg=partial / apif=partial。
+采集归档 UTC：2026-11-03T17:21:12.748620+00:00；记分板截点 UTC：2026-11-03T17:23:56.189997+00:00。
 缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。
 
 ## 今日与明日预测
 
 ### 今日 2026-11-04
 
-来源：[forecasts/2026-11-04/41679438266-1/forecast.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/forecasts/2026-11-04/41679438266-1/forecast.json)；批次 41679438266-1-2026-11-04；生成 UTC：2026-11-03T16:59:05.895963+00:00。
+来源：[forecasts/2026-11-04/41682907193-1/forecast.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/forecasts/2026-11-04/41682907193-1/forecast.json)；批次 41682907193-1-2026-11-04；生成 UTC：2026-11-03T17:22:56.796579+00:00。
 
 #### 亚冠精英
 
@@ -36,7 +36,7 @@
 
 ### 明日 2026-11-05
 
-来源：[forecasts/2026-11-05/41679438266-1/forecast.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/forecasts/2026-11-05/41679438266-1/forecast.json)；批次 41679438266-1-2026-11-05；生成 UTC：2026-11-03T16:59:05.940691+00:00。
+来源：[forecasts/2026-11-05/41682907193-1/forecast.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/forecasts/2026-11-05/41682907193-1/forecast.json)；批次 41682907193-1-2026-11-05；生成 UTC：2026-11-03T17:22:56.830169+00:00。
 
 #### 欧冠
 
@@ -133,10 +133,10 @@
 来源：[feed\_manifest.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/feed_manifest.json) collection。
 
 - jc：complete；疑似重复 未记录；未记录原因。
-- fd：未记录；疑似重复 未记录；未记录原因。
-- fdorg：未记录；疑似重复 未记录；未记录原因。
-- apif：未记录；疑似重复 未记录；未记录原因。
+- fd：skipped；疑似重复 未记录；仅 UTC 周一早班采集。
+- fdorg：partial；疑似重复 20；单行拒绝或疑似重复，详见 state/audit。
+- apif：partial；疑似重复 5；单行拒绝或疑似重复，详见 state/audit。
 - 配额快照来源：[state/api\_football\_quota.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/state/api_football_quota.json)；UTC 日 2026-11-03（不是当前实时余额）。
-- apif 配额剩余：7220；plan：Pro；limit_day：7500。
+- apif 配额剩余：7216；plan：Pro；limit_day：7500。
 
 仅转述冻结数据；缺失不填零，门槛标记不授予 BET 权限。
