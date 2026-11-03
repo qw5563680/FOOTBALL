@@ -17,7 +17,7 @@ from zucai.report.render import write_report
 
 
 @pytest.fixture
-def scoreboard_archive(tmp_path):
+def scoreboard_archive(tmp_path, request):
     archive = tmp_path / "archive"
     db = tmp_path / "seed.db"
     engine = get_engine(db)
@@ -69,8 +69,10 @@ def scoreboard_archive(tmp_path):
         (stage / train_path).write_text("{}")
         sha = hashlib.sha256(raw).hexdigest()
         batch["models"][0]["model_version"] = sha
+        batch["models"][0].update(getattr(request, "param", {}))
         for row in batch["predictions"]:
             row["model_version"] = sha
+            row.update(getattr(request, "param", {}))
         forecasts = {}
         for day in ("2026-11-01", "2026-11-02"):
             frozen = deepcopy(batch)

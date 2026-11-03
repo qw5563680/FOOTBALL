@@ -110,6 +110,7 @@ def render_scoreboard(summary):
         "insufficient_cash": "可用资金或凯利上下限不满足",
         "no_edge_above_threshold": "没有超过门槛的选项",
         "no_frozen_sp": "没有完整冻结 SP",
+        "model_not_p2_ready": "模型为 P2 实验，不下注",
         "result_already_known": "生成时已有赛果",
     }
     for reason, count in audit["paper_skips"].items():

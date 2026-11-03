@@ -217,6 +217,7 @@ def advance_ledger(forecasts, results, existing, as_of):
         if not late:
             candidates, favourites = [], []
             for row in rows:
+                not_ready = row.get("p2_ready") is not True
                 market = frozen_market(row)
                 # Result data never ranks candidates. A known-before-generation result
                 # invalidates that forecast, rather than supplying a selection advantage.
@@ -226,7 +227,10 @@ def advance_ledger(forecasts, results, existing, as_of):
                     and result.get("available_utc")
                     and instant(result["available_utc"]) <= when
                 )
-                if not market or known_result:
+                if not_ready or not market or known_result:
+                    reason = "result_already_known" if known_result else "no_frozen_sp"
+                    if not_ready:
+                        reason = "model_not_p2_ready"
                     for threshold in THRESHOLDS:
                         for account in ("A", "B", "C"):
                             skip(
@@ -234,7 +238,7 @@ def advance_ledger(forecasts, results, existing, as_of):
                                 threshold,
                                 batch,
                                 row["match_id"],
-                                "result_already_known" if known_result else "no_frozen_sp",
+                                reason,
                             )
                     continue
                 legs = [_leg(row, k, market) for k in OUTCOMES]
