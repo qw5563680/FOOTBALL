@@ -25,6 +25,7 @@ from zucai.predict.parameters import (
     read_parameters,
     resolve_parameters,
 )
+from zucai.predict.pooled import POOL, SOURCES, model_targets
 from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
 from zucai.report.render import write_report
@@ -63,6 +64,13 @@ def _summary(archive, run):
             f"{result['half_life_days']:g} 天 / {result['parameter_source']} | "
             f"{result['p2_label']} | {result['predicted']} |"
         )
+    for result in run["leagues"].values():
+        if result.get("training_leagues"):
+            lines.append(
+                "\n欧战训练语料："
+                + "、".join(f"{name} {n} 场" for name, n in result["training_leagues"].items())
+                + "。\n"
+            )
     for day, forecast in run["forecasts"].items():
         lines += [
             "",
@@ -97,8 +105,11 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
         raise ValueError("参数文件没有联赛条目")
     for league, entry in config["leagues"].items():
         _component(league)
-        if not entry.get("sources") or not set(entry["sources"]) <= {"jc", "fd"}:
-            raise ValueError(f"{league} 的训练来源必须显式配置且仅限 jc / fd")
+        allowed = set(SOURCES) if league == POOL else {"jc", "fd"}
+        if not entry.get("sources") or not set(entry["sources"]) <= allowed:
+            raise ValueError(f"{league} 的训练来源必须显式配置且仅限 {' / '.join(sorted(allowed))}")
+        if league == POOL and "jc" not in entry["sources"]:
+            raise ValueError("欧战每日预测的训练来源须包含 jc，才能注册三项竞彩赛事")
     cutoff = _now()
     with TemporaryDirectory(prefix="zucai-forecast-") as temporary:
         stage = Path(temporary)
@@ -145,6 +156,8 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
                     sha256=digest(stage / model_path),
                     training_rows=training["training_rows"],
                 )
+                if getattr(model, "pooled", False):
+                    result["training_leagues"] = model.training_leagues
                 LOG.info("%s 训练成功：%s 场", league, training["training_rows"])
             except Exception as exc:
                 # One league must not prevent independently fitted leagues from being published.
@@ -159,6 +172,9 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
             outcomes[league].update(
                 model_readiness(model, as_of=prediction_time, params_file=params)
             )
+        outcome_keys = {
+            target: name for name, model in fitted.items() for target in model_targets(model)
+        }
         day = prediction_time.astimezone(BEIJING).date()
         result = {
             "run_id": run_id,
@@ -221,7 +237,7 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
                         predicted = 0
                         for row in batch["predictions"]:
                             if row["status"] == "predicted":
-                                outcomes[row["league"]]["predicted"] += 1
+                                outcomes[outcome_keys[row["league"]]]["predicted"] += 1
                                 predicted += 1
                         result["forecasts"][forecast_day.isoformat()] = {
                             "path": directory,

@@ -17,6 +17,7 @@ from zucai.predict.base import model_sources, utc
 from zucai.predict.derive import had
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 from zucai.predict.parameters import model_readiness
+from zucai.predict.pooled import model_targets
 from zucai.sources.sporttery import BEIJING
 
 
@@ -29,7 +30,12 @@ def _models(paths, as_of, params_file=None, *, allow_empty=False):
         if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise ValueError("模型文件在载入期间发生变化")
         sources = model_sources(model)
-        keys = [(source, model.league) for source in sources]
+        keys = [
+            (source, league)
+            for source in sources
+            for league in model_targets(model)
+            if not getattr(model, "pooled", False) or source == "jc"
+        ]
         if any(key in registry for key in keys):
             raise ValueError("同一来源/联赛提供了多个模型，请明确选择一个版本")
         error = None
@@ -52,6 +58,14 @@ def _models(paths, as_of, params_file=None, *, allow_empty=False):
             "assumed_training_share": getattr(model, "assumed_training_share", None),
         }
         meta.update(model_readiness(model, as_of=as_of, params_file=params_file))
+        if getattr(model, "pooled", False):
+            meta.update(
+                pooled=True,
+                fitting_method=model.fitting_method,
+                prediction_leagues=model_targets(model),
+                training_leagues=model.training_leagues,
+                training_league_scope=model.training_league_scope,
+            )
         meta["parameter_provenance"] = dict(getattr(model, "parameter_provenance", {}))
         meta["parameter_provenance"].setdefault("params_path", meta["params_path"])
         for key in keys:

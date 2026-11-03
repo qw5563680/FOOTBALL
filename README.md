@@ -49,6 +49,7 @@ zucai train --model dixon-coles       # 训练并按周回测
 zucai tune --league 英超 --source jc,fd --db work/t15/static.db --grid 90,180,270,365,540,730
 zucai train --league 英超 --source jc,fd --db work/t15/static.db --seasons 2425,2526 --fold weekly
 zucai train --league 英超 --source jc,fd --predictions-out work/backtest.jsonl  # 逐场另存JSONL
+zucai train --league 欧战 --db data/zucai.db --output work/cups.pkl  # 已恢复快照上的联合模型
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
 zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶段历史回放
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
@@ -489,6 +490,40 @@ T16按A1改为策略绑定：来源集合、累计训练策略、半衰期、先
 哈希只用于追溯语料，策略不符或证据过期仍显示“P2 实验”。历史评估不等于新增数据的前瞻验证。
 **BET 始终禁用，P2 达标不授予任何执行权限。** 本任务不自动训练；该项顺延T17。
 
+### 欧战联合模型（T21）
+
+`--league 欧战` 将欧冠、欧罗巴、欧协联和有参赛球队的已核验国内联赛合在一个 Dixon–Coles 中拟合，
+共用一个主场参数；没有人为联赛系数或 Elo。训练只用球队身份、赛果和时间权重。
+`params.json` 的 `欧战.leagues` 是三个预测目标，`training_leagues` 是训练语料范围，
+`sources` 为 `jc,fd,fdorg,apif`。未配置训练范围时，从已有国内联赛条目中按球队 ID 查询参赛关系。
+尚未对齐的 `apif:team:*` / `fdorg:team:*` 保持独立球队；样本量不代表身份全部对齐。
+新联合模型的求解路径补齐低比分修正的导数，并先求初值再做带约束拟合，保存 `fitting_method`；
+原公式与约束不变，但数值结果不保证与依赖旧梯度一致。国内及单联赛拟合路径保持原样。
+
+```bash
+# 只读已恢复的数据分支快照；不采集、不请求 API
+python -m zucai train --league 欧战 --db data/zucai.db --as-of 2026-11-03T17:21:12+00:00 \
+  --seasons 2324,2425,2526 --output work/cups.pkl --predictions-out work/cups-predictions.jsonl
+# 单独复制参数文件后选参，避免覆盖已发布配置；默认来源读取欧战条目
+cp data/model/params.json work/cups-params.json
+python -m zucai tune --league 欧战 --db data/zucai.db --params-file work/cups-params.json \
+  --seasons 2324,2425,2526 --as-of 2026-11-03T17:21:12+00:00
+```
+
+按 UTC 7 月换季，仍用 S 季 monthly 选择半衰期和校准开关，S+1 季 weekly 评估。
+训练用全语料，只给三项欧战评分。市场列只取 **jc 严格赛前最后一份完整 had 快照去水**，
+没有快照就为 null；国内联赛的收盘价不能补入欧战市场列。历史赛季的市场配对数量可能为零。
+
+三赛事共用「欧战」P2 证据：最新两完整季 n ≥ 500、模型 LL 比等概率低 ≥ 0.05，
+同场 jc 市场配对 n ≥ 300，配对模型 LL 不比市场高超过 0.05；其余完整性规则沿用 T15。
+来源、训练联赛范围、三项目标、已冻结参数或证据季不匹配时显示「P2 实验」。15 个国内联赛仍用原门槛和原参数。
+静态历史评估不是前瞻验证，BET 保持禁用。指标与身份限制见
+[T21 评估报告](reports/2026-11-04-t21-cups-model/README.md)。
+
+每次定时预测训练一次「欧战」，注册到 `(jc, 欧冠)`、`(jc, 欧罗巴)`、`(jc, 欧协联)`。
+摘要显示欧战总训练数和各训练联赛场数；比赛概率、比分前五和 P2 标签沿用 T06 冻结格式。
+比赛自身仍保留实际赛事名，T19 记分板和模拟账户继续分别统计，无需改评分或账户规则。
+
 ### 多赛季历史数据（T08）
 
 `fetch fd` 只导入已核实时区的 football-data.co.uk 常规时间赛果。下载前须具有站方允许的用途和访问许可；
@@ -550,7 +585,8 @@ Football data provided by the [Football-Data.org API](https://www.football-data.
 别名在 `data/team_aliases/api_football.json`，proposed 逐条保留待审查，尚未核验的名称不自动合并。
 官方比分优先，其次 fd/fdorg；拒绝、可疑重复和未对齐清单写入审计目录，默认不提交。
 本轮韩职、澳超链接率及仅jc训练样本未满足完整验收，见[实际结果](reports/2026-11-02-t10-acceptance/README.md)。
-T14 已接入最近三天的定时采集；配额与规范化数据在数据分支持久化，原始 JSON 保留为 Actions artifact；T17 定时模型只使用已配置的 jc/fd 来源。
+T14 已接入最近三天的定时采集；配额与规范化数据在数据分支持久化，原始 JSON 保留为 Actions artifact。
+T17 国内模型仍只使用已配置的 jc/fd；T21 欧战联合模型单独使用 jc/fd/fdorg/apif。
 [接口实测与权限](docs/DATA_SOURCES.md#6-api-football-v3--api-sportsio亚洲与北欧联赛t10)。
 
 ### 批量预测与冻结报告（T06）

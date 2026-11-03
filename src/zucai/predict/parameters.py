@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from zucai.predict.base import utc
+from zucai.predict.pooled import CUPS, POOL, POOL_FITTING_METHOD, configuration
 from zucai.predict.seasons import latest_complete_seasons
 
 PARAMS_PATH = Path(__file__).resolve().parents[3] / "data/model/params.json"
@@ -30,6 +31,12 @@ GATE = {
     "require_no_skips_or_unavailable_labels": True,
     "artifact_corpus": "matching_sources_and_cumulative_nonreplayed_policy",
     "evidence_recency": "latest_two_complete_seasons_at_prediction",
+}
+CUPS_GATE = {
+    **{key: value for key, value in GATE.items() if "closing" not in key},
+    "min_market_paired": 300,
+    "max_market_log_loss_gap": 0.05,
+    "market_source": "jc_pre_kickoff_had",
 }
 
 
@@ -121,9 +128,21 @@ def _validate_entry(league, entry):
             "p2_ready": lambda value: isinstance(value, bool),
             "p2_evidence": lambda value: isinstance(value, dict),
             "evaluation_windows": lambda value: isinstance(value, list),
+            "leagues": _text_list,
+            "training_leagues": _text_list,
+            "pooled": lambda value: isinstance(value, bool),
+            "fitting_method": _text,
         },
         required=required,
     )
+    if league == POOL:
+        configuration(league, entry)
+        if entry.get("p2_ready") and not all(
+            entry.get(key) for key in ("pooled", "leagues", "training_leagues", "fitting_method")
+        ):
+            raise ValueError(
+                "欧战 P2 条目须绑定 pooled、leagues、training_leagues 与 fitting_method"
+            )
     if "training_policy" in entry:
         validators = {
             "history_scope": _text,
@@ -233,6 +252,8 @@ def write_parameters(league, entry, path=None):
 
 
 def p2_gate(report, *, league, as_of):
+    if league == POOL:
+        return _cups_p2_gate(report, as_of=as_of)
     seasons = latest_complete_seasons(as_of, league)
     rows = [report.get("seasons", {}).get(season) for season in seasons]
     reasons = []
@@ -292,6 +313,75 @@ def p2_gate(report, *, league, as_of):
     )
 
 
+def _cups_p2_gate(report, *, as_of):
+    seasons = latest_complete_seasons(as_of, POOL)
+    rows = [report.get("seasons", {}).get(season) for season in seasons]
+    reasons = []
+    if report.get("fold") != "weekly":
+        reasons.append("requires_weekly_folds")
+    if not report.get("pooled") or sorted(report.get("target_leagues", [])) != sorted(CUPS):
+        reasons.append("requires_three_cups_pooled_evidence")
+    if report.get("fitting_method") != POOL_FITTING_METHOD:
+        reasons.append("incompatible_pooled_fitting_method")
+    if any(not row or not row.get("complete") for row in rows):
+        reasons.append("missing_complete_seasons")
+    if any(row and not row.get("model", {}).get("n", 0) for row in rows):
+        reasons.append("empty_season_evidence")
+    if any(row and any(row.get("skipped", {}).values()) for row in rows):
+        reasons.append("skipped_evaluation_games")
+    if any(row and row.get("unavailable_labels", 0) for row in rows):
+        reasons.append("unavailable_evaluation_labels")
+    if any(row and row.get("in_period") != row["model"]["n"] for row in rows):
+        reasons.append("unreconciled_evaluation_population")
+    totals = {}
+    for name in ("model", "uniform", "market", "paired_model"):
+        parts = [(r[name]["n"], r[name]["log_loss"]) for r in rows if r and name in r]
+        n = sum(count for count, ll in parts if ll is not None)
+        totals[name] = dict(
+            n=n,
+            log_loss=sum(count * ll for count, ll in parts if ll is not None) / n if n else None,
+        )
+    if totals["model"]["n"] < CUPS_GATE["min_evaluated"]:
+        reasons.append("evaluation_n_below_500")
+    if totals["market"]["n"] < CUPS_GATE["min_market_paired"] or (
+        totals["market"]["n"] != totals["paired_model"]["n"]
+    ):
+        reasons.append("market_paired_n_below_300_or_mismatch")
+    gain = (
+        totals["uniform"]["log_loss"] - totals["model"]["log_loss"]
+        if all(totals[key]["log_loss"] is not None for key in ("uniform", "model"))
+        else None
+    )
+    gap = (
+        totals["paired_model"]["log_loss"] - totals["market"]["log_loss"]
+        if all(totals[key]["log_loss"] is not None for key in ("paired_model", "market"))
+        else None
+    )
+    if (
+        gain is None
+        or not math.isfinite(gain)
+        or gain < CUPS_GATE["min_uniform_log_loss_gain"] - 1e-12
+    ):
+        reasons.append("uniform_gain_below_0.05")
+    if gap is None or not math.isfinite(gap) or gap > CUPS_GATE["max_market_log_loss_gap"] + 1e-12:
+        reasons.append("market_gap_above_0.05_or_missing")
+    return dict(
+        p2_ready=not reasons,
+        reasons=reasons,
+        seasons=seasons,
+        metrics=totals,
+        uniform_log_loss_gain=gain,
+        market_log_loss_gap=gap,
+        as_of_utc=utc(as_of).isoformat(),
+        bet_allowed=False,
+        group=POOL,
+        fitting_method=report.get("fitting_method"),
+        target_leagues=sorted(report.get("target_leagues", [])),
+        training_leagues=sorted(report.get("training_leagues", [])),
+        gate=CUPS_GATE,
+    )
+
+
 def model_readiness(model, *, as_of, params_file=None):
     """A new config cannot silently retune or certify an incompatible fitted artifact."""
     from zucai.predict.base import model_sources
@@ -317,6 +407,27 @@ def model_readiness(model, *, as_of, params_file=None):
             and getattr(model, "prior_parameters", {}).get("method")
             == entry.get("unknown_team_prior")
             and getattr(model, "draw_calibration", False) == entry.get("draw_calibration", False)
+        )
+    if model.league == POOL or getattr(model, "pooled", False):
+        ready = ready and (
+            model.league == POOL
+            and getattr(model, "pooled", False)
+            and entry.get("pooled") is True
+            and getattr(model, "fitting_method", None)
+            == entry.get("fitting_method")
+            == evidence.get("fitting_method")
+            == POOL_FITTING_METHOD
+            and sorted(getattr(model, "prediction_leagues", [])) == sorted(CUPS)
+            and sorted(entry.get("leagues", [])) == sorted(CUPS)
+            and sorted(getattr(model, "training_league_scope", []))
+            == sorted(entry.get("training_leagues", []))
+            and evidence.get("group") == POOL
+            and evidence.get("gate") == CUPS_GATE
+            and evidence.get("p2_ready") is True
+            and not evidence.get("reasons")
+            and sorted(evidence.get("target_leagues", [])) == sorted(CUPS)
+            and sorted(evidence.get("training_leagues", []))
+            == sorted(entry.get("training_leagues", []))
         )
     return dict(
         p2_ready=bool(ready),

@@ -498,6 +498,51 @@ T06 冻结 JSON 仍兼容 schema 1/2；新批次 `validation_status=league_gated
 保持原渲染字节。读取新配置不会改变已拟合权重或旧报告；BET 始终 false。
 
 
+## T21 欧战联合模型
+
+`DixonColes(pooled=True)` 允许混合联赛历史，模型名仍为 dixon-coles，模型联赛为「欧战」。
+同一规范球队名共享攻防参数，未知 `apif:team:*` / `fdorg:team:*` 原样作为独立身份；
+不按名字猜测、不补别名、不重写数据库。全池只有一个 `home_advantage` 和一个低比分修正参数，
+无联赛系数、Elo 或赛事类型主场偏移。先验、时间衰减与平局校准沿用 T15。
+国内及单联赛 pooled 原样使用 penaltyblog 拟合路径。多联赛使用
+`pooled_dc_full_gradient_al_slsqp_v1`：保留原 DC 负对数似然、参数边界、attack 和等式约束及最终
+SLSQP 精度；为完整似然提供解析梯度（含四类低比分修正及原 `1e-9` floor 的导数）。
+依赖原梯度漏掉低比分修正对进球强度的导数，不能把它与新路径称作数值等价。
+同折、同边界的增广拉格朗日 L-BFGS-B 只求初值，固定最多 8 外步、每步 300 内迭代，
+不引用其他折的参数或验证结果；最终仍经原目标的 SLSQP，独立检查成功、有限值、边界与 attack 和残差 ≤ `1e-6`。
+预求解失败回落本折原始起点，最终失败拒绝产物。`fitting_method/solver_diagnostics` 保存这一路径，
+参数条目和 P2 证据均绑定方法版本；单联赛路径不能冒用多联赛证据。数值加速不是预测改善证据。
+
+参数条目 `欧战.leagues` 固定三个预测目标；`training_leagues` 为累计训练范围，`sources`
+记录所选来源。默认范围是三项欧战，加已有国内联赛条目中、截止前通过球队 ID 有欧战参赛关系的联赛。
+来源保持 `jc > fd > fdorg > apif`：只在 pooled 内存视图中选择**已经有 counterpart 链接**、
+同联赛同主客身份且符合既有三小时时窗的高优先行，记录排除的低优先 match_id；
+不推断新链接、不改采集/去重/可知时间规则。未链接或冲突的交叠继续由原训练守卫拒绝。
+只读事务与读取前后库哈希检查仍生效。
+
+模型保存 `training_leagues={实际联赛: 截点前场数}`、声明范围 `training_league_scope`、
+`prediction_leagues`，以及 `team_training_leagues`。逐场 `predict_with_metadata` 另给
+`pooled`、全池场数、`home_training_leagues` / `away_training_leagues` 和共同主场参数。
+这些数量只来自严格早于训练截点、可知时间有效的记录；声明范围不能代替实际支持量。
+
+`evaluate(target_leagues=...)` 训练用全语料，只对三项目标评分；统一 UTC 7 月换季，
+保持周/月起点前一微秒冻结、跨季拆折和物理隔离 S+1 的选参规则。
+逐场保留真实赛事名，`by_league` 给赛事 × 赛季的 model / uniform / market 与配对模型指标。
+`home_mean/home_rate/home_bias` 分别为平均主胜概率、主胜频率、两者差值；共同主场参数是 log 进球强度尺度，
+不是胜率百分点。报告披露这些指标，主队偏差只作为 T21a 的研究依据，不在本任务补偏移。
+市场只读取 jc 严格赛前最后一份三项完整 had 快照并倒数归一化；缺失为 null。
+欧战不读 closing_odds，赔率不进入模型、先验、校准或候选排序。
+
+欧战单独门槛 `CUPS_GATE`：最新两完整季合计模型 n ≥ 500、相对等概率 LL 改善 ≥ 0.05、
+jc 市场配对 n ≥ 300、配对模型 LL 不比市场差超过 0.05；weekly、两季非空、无跳过/不可知标签等规则保留。
+证据同时绑定「欧战」组、三个目标和训练联赛范围；`model_readiness` 再核来源、实际模型范围、
+参数/先验/校准、策略与证据时效。两库哈希继续采用 T16 A1 追溯规则。
+市场证据不足即「P2 实验」，不借其他赔率或降低门槛。15 个国内条目及其 P2 证据保持原值，BET 禁用。
+
+T06 注册键为 `(jc, 欧冠)`、`(jc, 欧罗巴)`、`(jc, 欧协联)`，共享一次训练的同一模型对象及版本；
+冻结批次 `models` 只有一条「欧战」模型，预测行保留实际赛事名和来源，渲染器按声明目标校验证据。
+T07 读取同一冻结目标映射；T19 仍按预测行赛事名计分和统计虚拟账户，无评分或账户算法改动。
+
 ## T17 定时训练与冻结预测
 
 每次 schedule 采集后（早晚班及迟到班次）或 `workflow_dispatch operation=predict` 运行 hosted
@@ -507,9 +552,11 @@ T06 冻结 JSON 仍兼容 schema 1/2；新批次 `validation_status=league_gated
 安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。单次上限 45 分钟。
 
 `cloud_predict.run` 在临时目录调用 `restore_feeds` 并记录工作库 SHA256。每个联赛调用现有 `train`，
-来源严格取配置且只允许 jc/fd；配置决定半衰期、先验和校准，默认累计历史、非 strict、无 replay。
+来源严格取配置，国内条目只允许 jc/fd；T21 的「欧战」条目允许 jc/fd/fdorg/apif。
+配置决定半衰期、先验和校准，默认累计历史、非 strict、无 replay。
 `since=cutoff−56d` 仅缩短冒烟回测，训练仍使用截点前的累计可知历史；不导出逐场回测，不重算 P2 门槛。
 单联赛失败记录原因、整次标记 partial，其他训练继续。模型 P2 标签由 `model_readiness` 计算。
+欧战只训练一次，摘要附实际 `training_leagues` 场数；注册到三个 jc 杯赛键，归档模型键仍为「欧战」。
 
 预测阶段按真实时间取北京今天与明天的开球日，仅选 jc 比赛 ID。复用 `predict_batch`，显式
 `persist=False, allow_empty=True`，SQLite 连接 `query_only=ON`；普通 T06 CLI 的默认行为不变。

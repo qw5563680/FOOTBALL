@@ -15,6 +15,7 @@ from sqlalchemy import select
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, Team
 from zucai.predict.base import model_sources
+from zucai.predict.pooled import model_targets
 from zucai.report.render import (
     _beijing,
     _csv_cell,
@@ -91,9 +92,11 @@ def build_sfc_report(
         raise ValueError("冻结批次包含重复比赛ID")
     as_of, forecast_time = _timestamp(batch["as_of_utc"]), _timestamp(batch["generated_utc"])
     models = {
-        (m["model_version"], source, m["league"]): m
+        (m["model_version"], source, league): m
         for m in batch["models"]
         for source in model_sources(m)
+        for league in model_targets(m)
+        if not m.get("pooled") or source == "jc"
     }
     for row in rows:
         row.update(probabilities=None, reason=None, top_outcome=None, selection=None)
