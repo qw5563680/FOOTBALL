@@ -18,6 +18,7 @@ from zucai.predict.parameters import (
     read_parameters,
     resolve_parameters,
 )
+from zucai.predict.pooled import POOL, SOURCES, configuration, default_scope
 from zucai.predict.seasons import season_bounds
 
 
@@ -27,7 +28,14 @@ def parse_cutoff(value):
     return utc(value)
 
 
-def load_corpus(db=None, league=None, source=None, *, replay_known_after=None):
+def load_corpus(
+    db=None, league=None, source=None, *, replay_known_after=None, params_file=None, as_of=None
+):
+    config, _ = read_parameters(params_file)
+    entry = config["leagues"].get(league, {})
+    pool = configuration(league, entry)
+    if pool and source is None:
+        source = ",".join(entry.get("sources", SOURCES))
     database = Path(db or os.environ.get("ZUCAI_DB", "data/zucai.db")).expanduser().resolve()
     if not database.is_file():
         raise ValueError("输入数据库不存在，请先恢复已有归档或采集数据")
@@ -38,9 +46,24 @@ def load_corpus(db=None, league=None, source=None, *, replay_known_after=None):
             conn.exec_driver_sql("PRAGMA query_only=ON")
             conn.exec_driver_sql("BEGIN")
             with Session(bind=conn) as session:
-                games = read_history(session, league, source, replay_known_after=replay_known_after)
-                market = read_market(session, games)
-                closing = read_closing(session, games)
+                scope = None
+                if pool:
+                    scope = pool["training_leagues"] or default_scope(
+                        session,
+                        [name for name in config["leagues"] if name != POOL],
+                        as_of=utc(as_of if as_of is not None else datetime.now(UTC)),
+                    )
+                games = read_history(
+                    session,
+                    league,
+                    source,
+                    replay_known_after=replay_known_after,
+                    training_leagues=scope,
+                )
+                market = read_market(session, games, jc_only=bool(pool))
+                closing = {} if pool else read_closing(session, games)
+                if pool:
+                    games.attrs["prediction_leagues"] = pool["leagues"]
     finally:
         engine.dispose()
     if hashlib.sha256(database.read_bytes()).hexdigest() != digest:
@@ -76,9 +99,15 @@ def train(
         if destination in {database, Path(output).resolve(), parameters_path(params_file)}:
             raise ValueError("逐场输出不能与数据库、模型或参数文件路径相同")
     games, prices, closing, digest = load_corpus(
-        db, league, source, replay_known_after=replay_known_after
+        db,
+        league,
+        source,
+        replay_known_after=replay_known_after,
+        params_file=params_file,
+        as_of=cutoff,
     )
-    league = games.league.iloc[0]
+    pool = league == POOL
+    league = POOL if pool else games.league.iloc[0]
     parameters = resolve_parameters(
         league, as_of=cutoff, params_file=params_file, half_life_days=half_life_days
     )
@@ -92,9 +121,11 @@ def train(
         if parameters["params_sha256"]
         else "default"
     )
-    model = DixonColes(parameters["half_life_days"], draw_calibration=calibrate).fit(
-        training, as_of=cutoff
-    )
+    model = DixonColes(
+        parameters["half_life_days"],
+        draw_calibration=calibrate,
+        **({"pooled": True} if pool else {}),
+    ).fit(training, as_of=cutoff)
     model.parameter_source = parameters["source"]
     model.parameter_provenance = parameters
     model.database_sha256 = digest
@@ -129,6 +160,7 @@ def train(
         parameters_by_season=mapping,
         draw_calibration=draw_calibration if draw_calibration is not None else False,
         calibration_by_season=calibration_mapping,
+        **({"target_leagues": games.attrs["prediction_leagues"]} if pool else {}),
     )
     report = evaluate(games, prices, **options)
     strict_report = (
@@ -170,6 +202,22 @@ def train(
         "market_source": "pre-kickoff had snapshots",
         "closing_source": "publisher closing; B365 > PS > Avg; comparison only",
         "model_path": str(output),
+        **(
+            {
+                "pooled": True,
+                "fitting_method": model.fitting_method,
+                "solver_diagnostics": model.solver_diagnostics,
+                "prediction_leagues": model.prediction_leagues,
+                "training_leagues": model.training_leagues,
+                "training_league_scope": model.training_league_scope,
+                "linked_rows_excluded": games.attrs.get("linked_rows_excluded", []),
+                "home_advantage": float(model.engine.get_params()["home_advantage"]),
+                "market_source": "jc pre-kickoff had snapshots only",
+                "closing_source": None,
+            }
+            if pool
+            else {}
+        ),
         **summaries,
     }
 

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from zucai.predict.base import model_sources
+from zucai.predict.pooled import model_targets
 
 BEIJING = timezone(timedelta(hours=8))
 EXPORT_FILES = ("forecast.json", "report.md", "report.csv")
@@ -76,6 +77,7 @@ def _validate_batch(batch: object) -> None:
             raise ValueError("models 项必须为对象")
         for key in ("model_name", "model_version", "league", "availability_basis"):
             _text(model.get(key), key)
+        model_targets(model)
         if batch["schema_version"] == 1:
             _text(model.get("source"), "source")
         else:
@@ -109,8 +111,9 @@ def _validate_batch(batch: object) -> None:
                 m
                 for m in batch["models"]
                 if m["model_version"] == prediction["model_version"]
-                and m["league"] == prediction["league"]
+                and prediction["league"] in model_targets(m)
                 and prediction["source"] in model_sources(m)
+                and (not m.get("pooled") or prediction["source"] == "jc")
             ]
             if (
                 len(matched) != 1
