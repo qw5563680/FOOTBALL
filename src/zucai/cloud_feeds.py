@@ -378,7 +378,8 @@ def write_apif_quota(summary, result):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("export", "sync", "apis", "verify", "backfill", "probe")
+        "command",
+        choices=("export", "sync", "apis", "verify", "backfill", "probe", "identity", "reconcile"),
     )
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--db", type=Path, default=Path("data/zucai.db"))
@@ -390,25 +391,45 @@ def main():
     parser.add_argument(
         "--source", choices=("fd", "fdorg", "apif"), help="backfill 默认 fd；probe 仅 apif"
     )
-    parser.add_argument("--seasons", help="仅 probe：YYYY-YYYY 或逗号分隔年份，默认 2021-2026")
+    parser.add_argument("--seasons", help="probe 的年份；identity 默认 2025,2026")
+    parser.add_argument(
+        "--probe-kind", choices=("seasons", "leagues"), help="仅 probe：赛季权限或桥接联赛元数据"
+    )
     parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
     parser.add_argument("--to", dest="last", help="仅 backfill：终止年或赛季，如 2026 / 2627")
     args = parser.parse_args()
-    if args.command not in {"backfill", "probe"} and any(
+    if args.command not in {"backfill", "probe", "identity"} and any(
         v is not None for v in (args.leagues, args.source)
     ):
-        parser.error("--source / --leagues 仅供 backfill / probe 使用")
+        parser.error("--source / --leagues 仅供 backfill / probe / identity 使用")
     if args.command != "backfill" and any(v is not None for v in (args.first, args.last)):
         parser.error("--from / --to 仅供 backfill 使用")
-    if args.command != "probe" and args.seasons is not None:
-        parser.error("--seasons 仅供 probe 使用")
-    if args.command == "probe":
+    if args.command not in {"probe", "identity"} and args.seasons is not None:
+        parser.error("--seasons 仅供 probe / identity 使用")
+    if args.command != "probe" and args.probe_kind is not None:
+        parser.error("--probe-kind 仅供 probe 使用")
+    if args.command == "reconcile":
+        from zucai.cloud_probe import require_probe_actions
+
+        require_probe_actions()
+    if args.command in {"probe", "identity"}:
         from zucai.cloud_probe import probe_scopes, require_probe_actions
 
         if args.source not in (None, "apif"):
-            parser.error("probe 仅支持 --source apif")
+            parser.error("probe / identity 仅支持 --source apif")
         require_probe_actions()
-        probe_scopes(args.leagues, args.seasons, datetime.now(UTC))
+        if args.command == "identity":
+            from zucai.cloud_identity import identity_scopes
+
+            identity_scopes(args.leagues, args.seasons)
+        elif args.probe_kind == "leagues":
+            from zucai.cloud_identity_probe import identity_codes
+
+            if args.seasons is not None:
+                parser.error("联赛元数据 probe 不接受 --seasons")
+            identity_codes(args.leagues)
+        else:
+            probe_scopes(args.leagues, args.seasons, datetime.now(UTC))
     if not 0 <= args.days <= 366:
         parser.error("--days 必须在 0–366 之间")
     logging.basicConfig(level=logging.INFO)
@@ -416,7 +437,7 @@ def main():
     archive = args.archive.resolve()
     day = args.through or datetime.now(BEIJING).date()
     collection = None
-    if args.command in {"sync", "apis", "verify", "backfill", "probe"}:
+    if args.command in {"sync", "apis", "verify", "backfill", "probe", "identity", "reconcile"}:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
         if target.parent != Path("data").resolve():
@@ -448,12 +469,26 @@ def main():
         collection = collect_apis(target, datetime.now(UTC), args.days, args.slot)
         # API collection must not advance the official results reconciliation watermark.
         day = date.fromisoformat(meta["through_beijing"])
-    if args.command == "probe":
-        from zucai.cloud_probe import collect_probe
+    if args.command == "reconcile":
+        from zucai.sources.apif_reconcile import reconcile
+        from zucai.sources.apif_reconcile import write_summary as identity_summary
 
-        collection = {
-            "apif": collect_probe(target, args.run_id, codes=args.leagues, seasons=args.seasons)
-        }
+        collection = {"apif": reconcile(target, args.run_id)}
+        day = date.fromisoformat(meta["through_beijing"])
+    if args.command in {"probe", "identity"}:
+        if args.command == "identity":
+            from zucai.cloud_identity import collect_identity as collector
+            from zucai.cloud_identity import write_identity_summary as identity_summary
+        elif args.probe_kind == "leagues":
+            from zucai.cloud_identity_probe import collect_league_probe as collector
+            from zucai.cloud_identity_probe import write_league_probe_summary as identity_summary
+        else:
+            from zucai.cloud_probe import collect_probe as collector
+            from zucai.cloud_probe import write_probe_summary as identity_summary
+        options = dict(codes=args.leagues)
+        if args.probe_kind != "leagues":
+            options["seasons"] = args.seasons
+        collection = {"apif": collector(target, args.run_id, **options)}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "backfill":
         from zucai.cloud_backfill import collect_backfill
@@ -492,14 +527,13 @@ def main():
         verify_forecasts(archive)
         LOG.info("%s 历史回填归档恢复校验通过", provider)
         write_summary(collection[provider])
-    if args.command == "probe":
-        from zucai.cloud_probe import write_probe_summary
+    if args.command in {"probe", "identity", "reconcile"}:
         from zucai.forecast_archive import verify_forecasts
 
         with TemporaryDirectory(prefix="apif-probe-verify-") as temporary:
             restore_feeds(archive, Path(temporary) / "data/zucai.db")
         verify_forecasts(archive)
-        write_probe_summary(collection["apif"])
+        identity_summary(collection["apif"])
     if manifest["pending_result_count"]:
         LOG.warning(
             "部分归档 partial：待补抓 %d 场，拒绝清单已持久保存", manifest["pending_result_count"]

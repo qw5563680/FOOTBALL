@@ -71,6 +71,9 @@ class _Teams:
         self.collisions = set()
         if not isinstance(aliases, dict):
             raise LocalValidationError("别名配置必须按联赛和数字ID组织")
+        from zucai.sources.apif_aliases import validate_approvals
+
+        validate_approvals(aliases)
         for league, entries in aliases.items():
             if not isinstance(entries, dict):
                 raise ValueError(f"联赛别名配置无效：{league}")

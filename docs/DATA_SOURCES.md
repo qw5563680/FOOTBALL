@@ -380,11 +380,125 @@ T22 起本地实际发送数上限默认等于 `limit_day`，可用 `ZUCAI_APIF_
 `state/audit/apif_season_probes.csv`，全部原件在该 run 的 artifact，任何失败仍为 partial。
 T20 已随 main `171f41a` 合入本分支；`backfill --source apif` 复用其导入与欧战身份核验，
 允许范围取 `seasons_available`，默认两项欧战，也可显式选择九联赛。
-真实回填、同范围重复新增 0、合并后的每日三次请求以及各赛事回填前后对齐率仍待 Claude 的 Actions 验收。
+这些 T22 真实验收已由 Claude 完成，run ID、数据提交与场数见
+[T22 审查阶段二](reviews/2026-11-03-t22-review.md)；
+欧战仍有身份隔离，因此由 T23 继续处理。
 本次开发也未重新访问 robots；沿用第 6 节与 T14 的既有访问记录，真实复核留给审查者的 Actions 验证。
 正式凭据只保存在 Actions Secrets，任何开发环境不得用正式 key 发请求。
 
+### T23 identity-only 桥接（2026-11-03，Claude 已完成第一轮实测）
+
+正式凭据仅由 Claude 在 Actions 使用，开发环境没有发 API、status 或 robots 请求。
+robots 沿用上文记录，本轮未重新探测。真实证据：
+
+- [probe 41612517821](https://github.com/qw5563680/FOOTBALL/actions/runs/41612517821)：
+  7 次 `/leagues?id=` 全部 HTTP 200 / ok，数据提交 `d12e1ff032fd20f3a46d4c37328bdae46cada88b`。
+- [identity 41612781709](https://github.com/qw5563680/FOOTBALL/actions/runs/41612781709)：
+  14 次 fixtures，130 / 150 支自动核验，数据提交
+  [`68c1c2bff2f16c983d97524c1a621812bd405754`](https://github.com/qw5563680/FOOTBALL/commit/68c1c2bff2f16c983d97524c1a621812bd405754)。
+
+| ID | 规范联赛 | API 名称 / 国家 | metadata verified_utc（UTC） | 自动核验 / 两季球队数 |
+| --- | --- | --- | --- | ---: |
+| 39 | 英超 | Premier League / England | 2026-11-03T09:38:25.720340Z | 19 / 23 |
+| 140 | 西甲 | La Liga / Spain | 2026-11-03T09:38:31.770928Z | 20 / 23 |
+| 135 | 意甲 | Serie A / Italy | 2026-11-03T09:38:37.915228Z | 20 / 23 |
+| 78 | 德甲 | Bundesliga / Germany | 2026-11-03T09:38:43.961523Z | 18 / 21 |
+| 61 | 法甲 | Ligue 1 / France | 2026-11-03T09:38:50.063059Z | 18 / 18 |
+| 88 | 荷甲 | Eredivisie / Netherlands | 2026-11-03T09:38:56.161772Z | 18 / 21 |
+| 94 | 葡超 | Primeira Liga / Portugal | 2026-11-03T09:39:02.265570Z | 17 / 21 |
+
+七个条目的 `verification_status=verified`，`verified_utc` 原样取
+[`apif_league_probes.csv`](https://github.com/qw5563680/FOOTBALL/blob/68c1c2bff2f16c983d97524c1a621812bd405754/state/audit/apif_league_probes.csv)
+对应行的 `observed_utc`，配置保留 probe run/提交/原件哈希。元数据均列 2010–2026，
+不据此开放导入：仍为 `identity_only=true`、`seasons_available=[]`、`identity_seasons=[2025,2026]`，
+不进入日采集、backfill 或直接 fetch 导入。
+
+[`state/alias_candidates/apif.json`](https://github.com/qw5563680/FOOTBALL/blob/68c1c2bff2f16c983d97524c1a621812bd405754/state/alias_candidates/apif.json)
+七联赛的 130 条 `auto_verified` 已按中文联赛键原样复制进正式别名，所有 evidence 字段保留。
+审计副本及逐联赛内容哈希见 `data/fixtures/t23/apif_league_probes.csv` 与 `stage1_provenance.json`。
+葡超实际 17 支未达到任务单逐联赛至少 18 支的目标；审批和回填验收尚未完成，不能宣称全部验收通过。
+
+**Brighton 51 / Nacional 225 未核验原因（对 68c1c2b 的只读离线定位）。**
+两队并非名称格式不一致，而是 T08 正式 fd 别名表根本没有相应条目。数据库仍分别使用原名
+`Brighton`（team 480）和 `Nacional`（team 503），共有 192 / 73 条 fd 比赛（全历史口径）。
+这些行不能通过 `read_counterparts` 的“双方都具备已核验中文名”条件。例如
+`fd:E0:20260830:chelsea:brighton`、`fd:P1:20260919:nacional:famalicao` 均被排除。
+
+APIF 两季分别有 38+38 / 34+34 场；竞彩同窗参考分别有 29 / 5 个，
+但同窗不是同队证据。两联赛当前 jc 的所有中文球队名都已属于其他已核验 APIF ID；
+在完整对照图收敛后，两队虽各有 124 / 68 条时间邻近边，兼容边均为 0，没有可证明的主客对应。
+因此保留 `proposed` 是正确结果，不能按英文名称猜中文、放宽图规则或把参考列当作绑定。
+后续审批清单应包含这两队；另外 18 支未核验球队全部只有 2025 季出场，标「仅 2025 季」供所有者判断。
+本次不补写未经核验的 T08 别名，不替所有者批准这 20 支球队。
+
+由审查者运行 `operation=probe probe_kind=leagues`，默认一次请求一个候选 ID，共 7 次
+`/leagues?id=`，沿用安全归档、6.1 秒间隔和 reserve=10。返回 ID、名称、国家及 League 类型须全部
+与候选配置相符；分页、数量或 API 错误都记失败。逐次 UTC、HTTP、原件 SHA256 和结论写
+`state/audit/apif_league_probes.csv`，原件在 artifact。元数据年份不作为付费读取权限证明。
+
+有成功 metadata 审计后，`operation=identity` 默认七联赛各取 2025/2026 两季，最多 **14 次 fixtures**；
+不另查 status，不追分页。响应必须完整单页且无解析拒绝，才参与同联赛主客方向图。
+对照只用已有 jc 与 T08 已核验时区和中文规范名的 fd；同场 jc/fd 已知对照优先保留 jc。
+不依赖球队名字相似度，不使用比分或赔率挑选身份。输出候选和身份审计，不导入任何比赛、球队或赛果。
+
+候选证据含来源比赛 ID、对方比赛 ID、UTC 差、整季原件 SHA256、元数据 SHA256、fd 配置 SHA256；
+写入 `state/alias_candidates/apif.json` 和 `state/audit/apif_identity.csv`。
+本轮已仅复制真实 `auto_verified` 条目到正式文件，保留证据交 Claude 再审查。
+欧战继续按同一 APIF 数字球队 ID 桥接正式条目，待审候选不生效。
+输出前跨联赛检查同源 ID 的规范名；出现冲突时撤回整轮新候选并报告 partial，不发布矛盾身份。
+无法核验的球队由只读 `zucai aliases proposals` 输出审批清单；jc 候选中文名仅作未核验参考，
+国家或赛季字段缺失时明确说明，建议规范名留空。新批准条目必须记录批准人、UTC 时间和 PR 链接。
+
+回填将另存 `apif_identity_matches.csv` 的身份字段与范围完整标记，方便离线计数和核验；
+此表不含赛果/赔率，不进入模型。两张 APIF 拒绝/疑似重复审计按 `(provider_match_id, raw_sha256, reason)`
+去重；缺合法比赛 ID 时用原件行号区分。不同原件或原因保留，fd/fdorg 审计不变。
+另由 `apif_identity_scopes.csv` 记录每季最近一次尝试的 UTC、哈希、完整状态和行数；
+空响应、拒绝或失败不会沿用旧成功，重现旧哈希仍视为新的观察。评估只选最近范围对应的比赛原件。
+
+**放宽规则仅离线评估。** `zucai aliases evaluate` 读取完整 2025/2026 证据，统计同联赛 ±3h 双向唯一
+配对且同队在两场不同比赛中一致的候选，扣除现有严格图已经能核验的球队，并列冲突。
+合成 fixture 中两支球队虽满足双场一致，但现有严格图同样能核验，额外解决为 0；
+这只是离线测试结论，不能外推到生产库。缺完整范围时输出 `insufficient_evidence`，不宣称零冲突成功。
+正式结论须等真实 identity、别名审查和所有者审批完成后再对数据分支评估；当前尚无该阶段数据。
+即使额外至少 20 支且零冲突，也只为下一任务提供依据，本任务不放宽任何生产身份规则。
+
+第一批 41 条已获所有者批准并写入正式文件，另有两条欧战运行期自动核验转正，来源见下节。
+待 Claude 继续验收：复核本轮正式别名后再合并及回填，补充 2026 隔离数、
+新增 jc 关联、竞彩已售比赛对应率/球队绑定率和同范围重复运行的行数不变证明。
+
 ### 字段和身份边界
+
+T23 阶段二由 Claude 在 `fd12c4b` 真实回填：欧战 run 41615438667、九联赛 41615881200，
+重复运行 41617361107 / 41617536712，数据最终提交 `75371c2`。
+欧战拒绝 1215 行、新建 jc 关联 0、2026 隔离 39；根因是历史 `apif:team:<id>` 独立身份挡住新别名。
+详见 [PR #34 阶段二审查](https://github.com/qw5563680/FOOTBALL/pull/34#issuecomment-6601053083)。
+按新增第 8 项提供独立 `operation=reconcile`，复用已核验 ID 和导入器的规范名查找，严格检查同联赛三小时冲突，
+不放宽身份推断或导入器拒绝规则；审计写 `apif_identity_merges.csv`，冻结内容与比赛编号不改。
+欧战别名审计的重复时间/runner 路径不再形成新行，实际不同原件与身份依据保留。
+Claude 随后在 `604726d` 真实运行 reconcile [41623813368](https://github.com/qw5563680/FOOTBALL/actions/runs/41623813368)：
+合并/删除 63 队、重定向 1104 个不同比赛 ID（按联赛/球队计 1346 次）、冲突 0，比赛数不变。
+欧战回填 [41624033560](https://github.com/qw5563680/FOOTBALL/actions/runs/41624033560) 新建 jc 关联 12；
+重复回填 [41624065507](https://github.com/qw5563680/FOOTBALL/actions/runs/41624065507) 新增/新关联均 0，
+四张 APIF 审计字节不变，最终数据提交 `1d0152677977cd807dd4f49ff3985c8ed49319b5`。
+这些是本轮正式别名更新前的结果，详见 [复审评论](https://github.com/qw5563680/FOOTBALL/pull/34#issuecomment-6602226081)。
+
+**第 9 项及首批批准（2026-11-03）。** 从上述提交的 `apif_cup_aliases.csv` 全部 825 行中筛出
+status=auto_verified 且 evidence 含 counterpart_id 的欧战行，共两条，均为 jc 比赛证据：
+欧协联 400 FC Copenhagen → 哥本哈根（apif:1636406 / jc:2041986），
+632 Universitatea Craiova → 克拉约瓦（apif:1636482 / jc:2041989）。
+name、canonical、status、完整 evidence 原样转入正式文件，保留原始时间及 runner 路径，不复制 proposed。
+
+按 [批准评论 6602500381](https://github.com/qw5563680/FOOTBALL/pull/34#issuecomment-6602500381)，
+将 [原表第 4 节](https://github.com/qw5563680/FOOTBALL/pull/34#issuecomment-6601053083) 全部 41 行写为 approved：
+欧罗巴 13、韩职 12、澳超 9、挪超 1、美职 4、日职 2。来源名、中文规范名逐字取原表，
+approved_by=qw5563680，approved_utc=2026-11-03T11:11:00+00:00，approval_pr 为 PR #34 完整链接。
+仅改变这 43 个联赛/ID，既有 130 条桥接及表外 proposed、其他联赛原样保留；来源副本及哈希在
+`data/fixtures/t23/stage3_*`，可完全离线核对。本地没有真实 API 请求、真实合并或 workflow_dispatch。
+
+本轮批准后的 reconcile → 欧战/九联赛回填 → 重复回填仍由 Claude 验收。
+按任务单最新口径，要求竞彩已售的 2026 欧战全部有 apif 对应（更新前基线 10/32、2/4），
+已售球队绑定率 ≥90%（基线 16/29、6/8）。isolated_2026 继续报告；它含竞彩未售场次，
+不再作为 ≤10 的门槛。当前 73 不能与此前在身份检查即拒绝的 39 直接比较。
 
 时间仅取 `fixture.timestamp`（Unix UTC），不从可能改格式的显示字符串推断。
 常规时间比分只取 `score.fulltime`，半场取 `score.halftime`。真实韩职 `apif:1317866`

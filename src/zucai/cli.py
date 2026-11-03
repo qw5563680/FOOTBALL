@@ -13,6 +13,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="zucai", description="中国足彩比赛分析与预测")
     parser.add_argument("-v", "--verbose", action="store_true", help="输出调试日志")
     sub = parser.add_subparsers(dest="command")
+    from zucai.aliases_command import add_aliases_parser
+
+    add_aliases_parser(sub)
 
     sub.add_parser("version", help="显示版本")
     db = sub.add_parser("db", help="数据库管理")
@@ -183,6 +186,17 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    if args.command == "aliases":
+        from sqlite3 import Error as SQLiteError
+
+        from zucai.aliases_command import run_aliases
+
+        try:
+            run_aliases(args)
+        except (ValueError, OSError, SQLiteError) as exc:
+            logging.getLogger(__name__).error("别名清单未生成：%s", exc)
+            return 2
+        return 0
     if args.command == "version":
         from zucai import __version__
 
