@@ -3,6 +3,7 @@
 import argparse
 import csv
 import hashlib
+import html
 import json
 import logging
 import os
@@ -364,24 +365,50 @@ def date_windows(database: Path, previous: date, today: date, days: int) -> list
     return [(d, d) for d in sorted(extra)] + [(start, today)]
 
 
+def write_apif_quota(summary, result):
+    plan = html.escape(str(result.get("plan") or "未知（待 probe）"))
+    fallback = "（回退）" if result.get("quota_fallback") else ""
+    summary.write(
+        f"\nAPI-Football plan: {plan}；limit_day: {result.get('limit_day', '未知')}{fallback}；"
+        f"本地日上限: {result.get('local_daily_cap', '未知')}；"
+        f"另计 /status 请求: {result.get('status_requests', 0)}。\n"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("export", "sync", "apis", "verify", "backfill"))
+    parser.add_argument(
+        "command", choices=("export", "sync", "apis", "verify", "backfill", "probe")
+    )
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--db", type=Path, default=Path("data/zucai.db"))
     parser.add_argument("--through", type=date.fromisoformat)
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--slot", choices=("auto", "early", "late"), default="auto")
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--source", choices=("fd", "fdorg", "apif"), help="仅 backfill：默认 fd")
-    parser.add_argument("--leagues", help="仅 backfill：逗号分隔的 fd 代码、fdorg CL 或 apif 3,848")
+    parser.add_argument("--leagues", help="backfill 的来源赛事代码；probe 的 apif 联赛 ID")
+    parser.add_argument(
+        "--source", choices=("fd", "fdorg", "apif"), help="backfill 默认 fd；probe 仅 apif"
+    )
+    parser.add_argument("--seasons", help="仅 probe：YYYY-YYYY 或逗号分隔年份，默认 2021-2026")
     parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
     parser.add_argument("--to", dest="last", help="仅 backfill：终止年或赛季，如 2026 / 2627")
     args = parser.parse_args()
-    if args.command != "backfill" and any(
-        v is not None for v in (args.source, args.leagues, args.first, args.last)
+    if args.command not in {"backfill", "probe"} and any(
+        v is not None for v in (args.leagues, args.source)
     ):
-        parser.error("--source / --leagues / --from / --to 仅供 backfill 使用")
+        parser.error("--source / --leagues 仅供 backfill / probe 使用")
+    if args.command != "backfill" and any(v is not None for v in (args.first, args.last)):
+        parser.error("--from / --to 仅供 backfill 使用")
+    if args.command != "probe" and args.seasons is not None:
+        parser.error("--seasons 仅供 probe 使用")
+    if args.command == "probe":
+        from zucai.cloud_probe import probe_scopes, require_probe_actions
+
+        if args.source not in (None, "apif"):
+            parser.error("probe 仅支持 --source apif")
+        require_probe_actions()
+        probe_scopes(args.leagues, args.seasons, datetime.now(UTC))
     if not 0 <= args.days <= 366:
         parser.error("--days 必须在 0–366 之间")
     logging.basicConfig(level=logging.INFO)
@@ -389,15 +416,19 @@ def main():
     archive = args.archive.resolve()
     day = args.through or datetime.now(BEIJING).date()
     collection = None
-    if args.command in {"sync", "apis", "verify", "backfill"}:
+    if args.command in {"sync", "apis", "verify", "backfill", "probe"}:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
         if target.parent != Path("data").resolve():
             parser.error("云端同步请在隔离的工作目录运行，数据库放在该目录的 data 下")
         meta = restore_feeds(archive, target)
         if args.command == "verify":
+            from zucai.apif_budget import normalize_quota
             from zucai.forecast_archive import verify_forecasts
 
+            quota_file = target.parent / "state/api_football_quota.json"
+            if quota_file.exists():
+                normalize_quota(json.loads(quota_file.read_bytes()))
             forecasts = verify_forecasts(archive)
             LOG.info("私有云端归档已恢复并校验：%s", meta["counts"])
             if os.environ.get("GITHUB_STEP_SUMMARY"):
@@ -416,6 +447,13 @@ def main():
 
         collection = collect_apis(target, datetime.now(UTC), args.days, args.slot)
         # API collection must not advance the official results reconciliation watermark.
+        day = date.fromisoformat(meta["through_beijing"])
+    if args.command == "probe":
+        from zucai.cloud_probe import collect_probe
+
+        collection = {
+            "apif": collect_probe(target, args.run_id, codes=args.leagues, seasons=args.seasons)
+        }
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "backfill":
         from zucai.cloud_backfill import collect_backfill
@@ -454,6 +492,14 @@ def main():
         verify_forecasts(archive)
         LOG.info("%s 历史回填归档恢复校验通过", provider)
         write_summary(collection[provider])
+    if args.command == "probe":
+        from zucai.cloud_probe import write_probe_summary
+        from zucai.forecast_archive import verify_forecasts
+
+        with TemporaryDirectory(prefix="apif-probe-verify-") as temporary:
+            restore_feeds(archive, Path(temporary) / "data/zucai.db")
+        verify_forecasts(archive)
+        write_probe_summary(collection["apif"])
     if manifest["pending_result_count"]:
         LOG.warning(
             "部分归档 partial：待补抓 %d 场，拒绝清单已持久保存", manifest["pending_result_count"]
@@ -486,8 +532,11 @@ def main():
                         f"{linked} | {result['rejected_rows']} | {calls} | "
                         f"{result.get('remaining_quota', '—')} |\n"
                     )
+                    if provider == "apif":
+                        write_apif_quota(summary, result)
                     for error in result["errors"]:
-                        summary.write(f"\n- {provider}: {error}\n")
+                        safe_error = html.escape(error) if provider == "apif" else error
+                        summary.write(f"\n- {provider}: {safe_error}\n")
                 summary.write("\n次数口径：fd 为成功下载文件数；API 为请求数（含失败请求）。\n")
                 summary.write(
                     "\n| 来源 | 欧战赛事 | 本次新增比赛 | 本次新增赛果 | 库内比赛 | 库内赛果 |\n"

@@ -237,7 +237,7 @@ CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知
 
 ### 账户、赛季与日期权限实测
 
-`/status` 返回 Free、active=true、limit_day=100。`/leagues?id=` 能列出多个赛季，
+以下为 **付费前的历史实测**，不是当前套餐权限：`/status` 返回 Free、active=true、limit_day=100。`/leagues?id=` 能列出多个赛季，
 但这个元数据列表**不代表账户读取权限**。九联赛逐个请求 2021–2026，日职另测元数据标为
 current 的 2027；2022–2024 全部取得整季，2021/2025/2026（及日职2027）均为
 HTTP 200 且 `errors.plan` 明确提示仅允许 2022–2024。年份用赛季起始年，澳超、丹超为跨年赛季。
@@ -264,7 +264,7 @@ HTTP 200 且 `errors.plan` 明确提示仅允许 2022–2024。年份用赛季�
 ### T20 欧罗巴与欧协联访问实测（北京时间 2026-11-03）
 
 `/leagues?id=3` 确认为 UEFA Europa League（欧罗巴），`id=848` 确认为 UEFA Europa Conference League（欧协联）；
-两项元数据当前季均为 2026。逐年读取 fixtures 后，只有 2022–2024 整季可读；2021、2025、2026
+两项元数据当前季均为 2026。以下为付费前的历史实测；当前权限见下方 T22 表。逐年读取 fixtures 后，只有 2022–2024 整季可读；2021、2025、2026
 均是 HTTP 200 + `errors.plan`，不得当成空成功。整季响应均为一页，含资格赛，统计口径不等同正赛场数。
 
 | ID | 2022 场数 | 2023 场数 | 2024 场数 | 2021 / 2025 / 2026 |
@@ -288,22 +288,101 @@ HTTP 200 且 `errors.plan` 明确提示仅允许 2022–2024。年份用赛季�
 有些权限拒绝无配额头，且每日头观察到向上跳变；本地请求数不等同于服务端已收费数。
 实际成功响应带 `x-ratelimit-requests-limit: 100`、`x-ratelimit-requests-remaining`；
 `x-ratelimit-limit: 10`、`x-ratelimit-remaining` 是分钟额度，不能用来当每日剩余。
-UTC 零点重置是本地计数规则，本轮没有跨午夜实测服务端重置。
+UTC 零点重置是本地计数规则，T10 本轮没有跨午夜实测服务端重置。
+后续 Claude 在 T22 审查中记录服务端于 UTC 23:00（当时巴黎零点）重置；每日响应头仍为权威值，
+本地计数保持 UTC 零点重置，只会更保守，不额外释放请求额度。
 
 每次请求前在 `data/api_football_quota.json` 持久预占，包括权限错误及网络失败；
 线程锁和进程文件锁覆盖整个 GET。每日头是剩余额度的权威值；缺头则延用保守本地扣减，
-本地实际发送数另有100的硬上限。剩余 ≤ `--reserve`（默认10）停止并报错，损坏配额文件也报错。
+T22 起本地实际发送数上限默认等于 `limit_day`，可用 `ZUCAI_APIF_DAILY_CAP` 下调；
+日上限优先使用 `x-ratelimit-requests-limit`，`/status` 可提供缺失的上限，未取得二者时回退 100 并显示「回退」。
+剩余缺失时按 `limit_day - used` 保守计算；已有服务端剩余额度则继续扣减，不因某次缺头而重置。
+剩余 ≤ `--reserve`（默认10、范围 0 至 `limit_day-1`）停止并报错，损坏配额文件也报错。
 文件只适用于使用同一持久目录的采集进程；其他机器使用同一 key 的消耗靠下一次响应头反映，不能实时共享。
 不隐式重试或跟随重定向，默认间隔6.1秒。429 中止；每个后续 GET 都重新过守卫。
 
-原始 JSON 和 sidecar 仅写 `data/raw/api-football/`，请求头不落盘。复用 T09
+原始 JSON 和 sidecar 仅写 `data/raw/api-football/`，认证请求头不落盘；sidecar 仅增存合法数字的两个每日配额响应头及头部校验是否通过。复用 T09
 `safe_json_for_archive`，检查原始字节、完整 UTF-8 JSON 的键和值、JSON 转义和重复键覆盖前的值。
 非 JSON、截断 JSON 或 key 回显拒绝归档；即使正文不安全，合法数字配额头仍会被记录。
+配额头校验仍先执行；校验失败则先保存通过安全检查的响应再报错，避免再次丢掉付费档问题的证据。
+`/status` 正文与当前响应头的日上限不一致时拒绝混用计数；请求、头部处理与正文配额更新在同一把锁内完成，防止恢复已被另一请求消耗的额度。
 真实裁剪 fixture 在导出前后再检查，原件/裁剪件 SHA256 写进 `data/fixtures/t10/provenance.json`。
 
 多页时原件逐页保存并计数；所有页面齐全后生成 `assembled-fixtures`（附逐页 URL/UTC/SHA256），
 以最后一页采集时刻保守作为整个集合的 captured 下界，再一次核验身份并入库，防止第一页抢占歧义链接。
 后续页失败保留已下载原件，整个未完成范围不入库；更早已完成赛季保持提交。单独多页片段不得离线入库。
+
+### T22 停用事件与付费档验证（北京时间 2026-11-03）
+
+以下事件来自 T22 任务单和审查者的 Actions 运行记录，本次开发未发正式 key 请求：
+
+- UTC 2026-11-02 23:01–23:10（北京时间 11-03 07:01–07:10），接口返回
+  `errors.access: "Your account is suspended"`。平台给出的常见原因包括共享云 IP；
+  本项目使用共享 GitHub runner 和开发云环境，任务单记录当天约 30 次，低于免费档 100 次。
+  这是平台说明与任务单的判断，不能据此独立确定平台内部封禁机制。
+- 所有者在北京时间 2026-11-03 开通付费订阅；按平台说明，付费会解除免费账号的此类停用。
+- T20 回填 [run 41592640152](https://github.com/qw5563680/FOOTBALL/actions/runs/41592640152)
+  仍失败：旧守卫只允许剩余配额 0–100，付费响应返回数千时在归档前报错。
+  T22 将上限改为按响应读取，并保留安全的失败响应。
+
+**Claude 已在 Actions 验证：当前套餐 Pro，每日上限 7500；两次 probe 的相邻 `/status` 观察均不计费。**
+以下证据来自审查者的真实运行，开发环境没有向 API 发请求：
+
+| 操作 | run ID | 数据分支提交 | 实测结果 |
+| --- | --- | --- | --- |
+| `apis days=3 slot=late` | [41597131650](https://github.com/qw5563680/FOOTBALL/actions/runs/41597131650) | `3f43484eab4787a521fd8b4777a7427e6c24cb48` | 3 次日期请求成功，无 plan/access 错误；limit_day=7500、remaining=7491、无回退；新增 1、链接竞彩 8、更新 2 |
+| `probe leagues=3,848 seasons=2021-2026` | [41597368373](https://github.com/qw5563680/FOOTBALL/actions/runs/41597368373) | `769067c6010f6af1357ebc1a145860d7725d74ab` | 12 个赛季均可读；status 的 current 9→9，两个每日头均为 limit=7500、remaining=7491 |
+| `probe leagues=98,292,188,113,103,244,119,253,169 seasons=2025,2026` | [41597683219](https://github.com/qw5563680/FOOTBALL/actions/runs/41597683219) | `8eb0cedcbb5ab39e290ac594d10c9011792f3392` | 18 个赛季均可读；status 的 current 21→21，两个每日头均为 limit=7500、remaining=7479 |
+
+首组 status 观察 UTC 为 `2026-11-03T07:36:32.172161Z` / `07:36:38.233882Z`，两份原件 SHA256 均为
+`85e68e331127f555fc7bf27318ff2820ed263eb79a5ba854ad2f0cd80ee2d138`；第二组为
+`2026-11-03T07:39:17.299486Z` / `07:39:23.097367Z`，原件 SHA256 均为
+`8fa8a21ab0b45ef947c18cb57b11f39560942fc605e3e2525fb6afbe78242c42`。
+完整逐次证据见 [status 审计](https://github.com/qw5563680/FOOTBALL/blob/8eb0cedcbb5ab39e290ac594d10c9011792f3392/state/audit/apif_status_probes.csv)。
+`data/fixtures/t22/quota_cases.json` 仍是合成测试数据；本次结论依据上述真实审计，不能用合成样本代替。
+
+`operation=probe` 按原 6.1 秒请求间隔查询两次 `/status`，将 `plan`、`current`、`limit_day`、
+两个每日响应头、UTC 和原件 SHA256 写入 `state/audit/apif_status_probes.csv`。
+每次成功或失败尝试都记录 `http/outcome/reason`；无法安全归档或未收到响应时保留失败原因，HTTP/SHA 留空。
+旧八列 CSV 在追加前原子补列，保留已有值与原件哈希；旧行都是成功记录，补为 `http=200/outcome=ok`。
+同一 UTC 日、套餐/上限一致、正文与响应头相符时，计数不变记为 `unbilled`，增加 1 记为 `billed`；
+跨日、缺头、计数冲突或其他变化记为 `unknown`，不得据此开启自动刷新。
+只有持久状态 `status_free=true` 时，后续 `apis` 和 apif `backfill` 开头才自动查一次；摘要把 `/status` 请求单列。
+不计费是本次相邻观测的结论，审查者仍须核对原件；共享账号的并发消耗可能让结果变成未知或计费。
+套餐或上限变化会清除旧结论，等待重新 probe。本地硬上限保守计入 `/status` 的实际发送次数。
+
+以下为付费后的实际权限表。30 个范围均 HTTP 200、`errors=[]`、`paging.current=1,total=1`；
+数字为第一页 `results`，欧战包含资格赛，**不是入库场数或已完赛场数**。破折号表示本次未探测：
+
+| 联赛 ID / 名称 | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 3 / 欧罗巴 | 177 | 175 | 175 | 269 | 271 | 224 |
+| 848 / 欧协联 | 423 | 415 | 417 | 409 | 409 | 366 |
+| 98 / 日职 | — | — | — | — | 380 | 200 |
+| 292 / 韩职 | — | — | — | — | 232 | 228 |
+| 188 / 澳超 | — | — | — | — | 163 | 156 |
+| 113 / 瑞超 | — | — | — | — | 242 | 240 |
+| 103 / 挪超 | — | — | — | — | 242 | 240 |
+| 244 / 芬超 | — | — | — | — | 179 | 179 |
+| 119 / 丹超 | — | — | — | — | 193 | 132 |
+| 253 / 美职 | — | — | — | — | 540 | 510 |
+| 169 / 中超 | — | — | — | — | 240 | 240 |
+
+逐次 UTC、HTTP、分页及原件 SHA256 见 [赛季权限审计](https://github.com/qw5563680/FOOTBALL/blob/8eb0cedcbb5ab39e290ac594d10c9011792f3392/state/audit/apif_season_probes.csv)。
+`leagues.json` 按这 30 行更新 `season_probes`，保留 run ID 和上述数据提交；各联赛 `verified_utc`
+取本次最后一条观察时间。`seasons_available` 为 3/848 的 2021–2026，以及九联赛的 2022–2026
+（2022–2024 沿用 T10 已有证据，不假称本次重测）。除日职外，当季 2026 的 `current_season_accessible=true`；
+日职元数据仍标 current=2027，本次未探测付费档 2027，维持 false 表示未确认，不能解读为付费后拒绝。
+九联赛的 2021 同样没有付费实测，不擅自开放。离线审计副本和来源哈希见 `data/fixtures/t22/provenance.json`。
+
+权限探测唯一入口为审查者手动 `workflow_dispatch operation=probe source=apif`。
+逐赛季只查询第一页，不调用导入器；`http/errors/results/paging/raw_sha256` 保存在
+`state/audit/apif_season_probes.csv`，全部原件在该 run 的 artifact，任何失败仍为 partial。
+T20 已随 main `171f41a` 合入本分支；`backfill --source apif` 复用其导入与欧战身份核验，
+允许范围取 `seasons_available`，默认两项欧战，也可显式选择九联赛。
+真实回填、同范围重复新增 0、合并后的每日三次请求以及各赛事回填前后对齐率仍待 Claude 的 Actions 验收。
+本次开发也未重新访问 robots；沿用第 6 节与 T14 的既有访问记录，真实复核留给审查者的 Actions 验证。
+正式凭据只保存在 Actions Secrets，任何开发环境不得用正式 key 发请求。
 
 ### 字段和身份边界
 

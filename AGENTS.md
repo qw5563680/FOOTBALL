@@ -16,8 +16,9 @@ Codex 负责实现任务单，Claude 负责审查与质量门（见「审查流�
 
 1. 一个任务单 = 一个分支 = 一个 PR。分支名 `codex/Txx-短描述`，PR 标题以 `Txx:` 开头。
 2. 只做任务单「范围」里写的事；「不做」里列的内容即使顺手也不要碰。
-3. 任务单里标注「需验证」的接口或页面结构，先用 fixtures 里的样本或真实请求确认，
-   发现与文档不符时以实际为准，并在 PR 描述里写明差异，同时更新 `docs/DATA_SOURCES.md`。
+3. 任务单里标注「需验证」的接口或页面结构，实现者只用 fixtures 里的离线样本确认；
+   真实确认只通过审查者触发的 Actions probe / 验收运行完成。发现与文档不符时以实际为准，
+   在 PR 描述里写明差异，同时更新 `docs/DATA_SOURCES.md`。
 4. 新增命令行子命令要在 `README.md` 的快速开始里补一行用法。
 5. 数据库表结构变化必须同时更新 `docs/ARCHITECTURE.md` 的「数据模型」一节。
 6. 不要提交 `data/raw/`、`data/*.db`、`.venv/`，`.gitignore` 已覆盖。
@@ -27,6 +28,9 @@ Codex 负责实现任务单，Claude 负责审查与质量门（见「审查流�
    大体积文件放 `data/football-feeds` 分支或 Release 附件，并在 README 里写明位置与哈希。单个 PR 新增的
    `reports/` 内容不超过 200 KB。
 9. 遵守各站 robots.txt：实现前先读一次并把结论写进 `docs/DATA_SOURCES.md`，禁止路径不请求。
+10. 正式 API key 只存在于 GitHub Actions Secrets；任何开发环境（含 Codex、Claude 的云端会话）
+    不得用正式 key 发真实请求。权限探测只能通过 `operation=probe` 由审查者触发，测试一律使用离线 fixtures。
+    需真实验证的接口、计费或权限结论由审查者在 Actions 留下证据后回填，不用合成样本冒充实测。
 
 ## 代码约定
 

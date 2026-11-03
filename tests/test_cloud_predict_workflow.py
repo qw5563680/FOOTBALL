@@ -20,6 +20,7 @@ WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
         ("workflow_dispatch", "sync", "", "skipped", False, False),
         ("workflow_dispatch", "verify", "", "success", False, False),
         ("workflow_dispatch", "backfill", "", "success", False, False),
+        ("workflow_dispatch", "probe", "", "success", False, False),
         ("push", "", "", "success", False, False),
     ],
 )
@@ -49,7 +50,7 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
     assert "zucai.cloud_predict run" in job
     assert "publish-football-feeds.sh" in job
     assert "group: write-football-feed-data" in text
-    assert "options: [apis, sync, verify, predict, backfill, scoreboard]" in text
+    assert "options: [apis, sync, verify, predict, backfill, scoreboard, probe]" in text
 
 
 @pytest.mark.parametrize(
@@ -61,6 +62,9 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
         ],
         ("backfill", "football-ingest-run-t18"),
         ("backfill", "football-ingest-verify-t18"),
+        ("probe", "codex/T22-apif-paid-plan"),
+        ("probe", "football-ingest-run-t22"),
+        ("probe", "football-ingest-verify-t22"),
         ("scoreboard", "codex/T19-scoreboard"),
         ("scoreboard", "football-ingest-run-t19"),
         ("scoreboard", "football-ingest-verify-t19"),
@@ -68,7 +72,7 @@ def test_prediction_job_only_runs_after_late_schedule_or_explicit_dispatch(
 )
 def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(operation, ref_name):
     text = WORKFLOW.read_text()
-    assert "options: [apis, sync, verify, predict, backfill, scoreboard]" in text
+    assert "options: [apis, sync, verify, predict, backfill, scoreboard, probe]" in text
     jobs = dict(
         re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
     )
@@ -92,7 +96,7 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
         )
 
     expected = {
-        "apis": operation in {"apis", "verify", "backfill"},
+        "apis": operation in {"apis", "verify", "backfill", "probe"},
         "sporttery": operation == "sync",
         "predict": operation == "predict",
     }
@@ -102,10 +106,105 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
     mode = re.search(r"FEED_MODE: \$\{\{ (.*?) \}\}", text).group(1)
     if operation != "scoreboard":  # This job never consumes the collection-mode variable.
         assert evaluate(mode) == (
-            operation if operation in {"verify", "sync", "backfill"} else "apis"
+            operation if operation in {"verify", "sync", "backfill", "probe"} else "apis"
         )
     assert "zucai.cloud_feeds backfill" in jobs["apis"]
     assert "timeout-minutes: 60" in jobs["apis"]
     assert "retention-days: 90" in jobs["apis"]
     assert "env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill'" in jobs["apis"]
     assert text.count("- cron:") == 2
+
+
+def test_probe_publishes_quota_audit_without_other_operations():
+    text = WORKFLOW.read_text()
+    steps = text.split("      - name:")
+    probe = next(step for step in steps if "Probe API-Football permissions" in step)
+    assert "env.FEED_MODE == 'probe'" in probe
+    assert (
+        '"$PROBE_SOURCE"' in probe and '"$PROBE_LEAGUES"' in probe and '"$PROBE_SEASONS"' in probe
+    )
+    assert "FOOTBALL_DATA_ORG_TOKEN" not in probe
+    assert "API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}" in probe
+    for title in ("Publish verified data", "Keep collection originals"):
+        step = next(step for step in steps if title in step)
+        assert "env.FEED_MODE == 'probe'" in step
+    collect = next(step for step in steps if "Restore and collect APIs" in step)
+    assert "env.FEED_MODE != 'probe'" in collect
+    job = text.split("  scoreboard:\n", 1)[1].split("  sporttery:\n", 1)[0]
+    expression = re.search(r"if: \$\{\{ (.*?) \}\}", job).group(1)
+    expression = expression.replace("github.event_name", repr("workflow_dispatch")).replace(
+        "inputs.operation", repr("probe")
+    )
+    expression = (
+        expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+    )
+    assert eval(expression, {"__builtins__": {}}, {}) is False
+
+
+def test_shared_inputs_have_safe_defaults_for_backfill_and_probe():
+    text = WORKFLOW.read_text()
+    assert text.count("      source:\n") == text.count("      leagues:\n") == 1
+    source = text.split("      source:\n", 1)[1].split("      leagues:\n", 1)[0]
+    assert "options: [fd, fdorg, apif]" in source and "default: fd" in source
+    leagues = text.split("      leagues:\n", 1)[1].split("      seasons:\n", 1)[0]
+    assert "default: ''" in leagues
+
+
+@pytest.mark.parametrize(
+    "operation,source,leagues,first,last",
+    [
+        ("backfill", "", "", "", ""),
+        ("backfill", "fdorg", "CL", "2023", "2026"),
+        ("backfill", "apif", "3,848", "2025", "2026"),
+        ("probe", "fd", "", "", ""),
+        ("probe", "apif", "98,292", "", ""),
+    ],
+)
+def test_dispatch_scripts_resolve_per_operation_defaults(
+    tmp_path, operation, source, leagues, first, last
+):
+    import os
+    import subprocess
+    import textwrap
+
+    text = WORKFLOW.read_text()
+    title = (
+        "Restore and backfill verified history once"
+        if operation == "backfill"
+        else "Probe API-Football permissions"
+    )
+    step = next(s for s in text.split("      - name:") if title in s)
+    script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+    # Run the actual checked-in Bash, replacing only Python with an argv recorder.
+    recorder = tmp_path / "python"
+    recorder.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$CAPTURE_ARGS"\n')
+    recorder.chmod(0o755)
+    capture = tmp_path / "argv.txt"
+    env = dict(
+        PATH=str(tmp_path) + os.pathsep + os.defpath,
+        WORK_DIR=str(tmp_path / "work"),
+        CAPTURE_ARGS=str(capture),
+        GITHUB_RUN_ID="offline",
+        GITHUB_RUN_ATTEMPT="1",
+        BACKFILL_SOURCE=source,
+        BACKFILL_LEAGUES=leagues,
+        BACKFILL_FROM=first,
+        BACKFILL_TO=last,
+        PROBE_LEAGUES=leagues,
+        PROBE_SEASONS="",
+        PROBE_SOURCE=source,
+    )
+    subprocess.run(["/bin/bash", "-eu", "-c", script], env=env, check=True, capture_output=True)
+    argv = capture.read_text().splitlines()
+    assert argv[:3] == ["-m", "zucai.cloud_feeds", operation]
+    assert argv[argv.index("--source") + 1] == ("apif" if operation == "probe" else source or "fd")
+    if operation == "probe":
+        assert argv[argv.index("--leagues") + 1] == (leagues or "3,848")
+        assert argv[argv.index("--seasons") + 1] == "2021-2026"
+    else:
+        assert ("--leagues" in argv) == bool(leagues)
+        assert ("--from" in argv) == bool(first)
+        assert ("--to" in argv) == bool(last)
+        if first:
+            assert argv[argv.index("--from") + 1] == first
+            assert argv[argv.index("--to") + 1] == last

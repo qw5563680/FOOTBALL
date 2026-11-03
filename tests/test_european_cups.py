@@ -34,7 +34,7 @@ def test_apif_cup_season_and_unfiltered_date_response(code, name):
     doc = json.loads((FIXTURES / f"apif_{code}_2024.json").read_bytes())
     games = source.parse(json.dumps(doc).encode(), league_id=code, season=2024)
     assert games and all(g.league == name for g in games)
-    assert source.leagues[code]["seasons_available"] == [2022, 2023, 2024]
+    assert source.leagues[code]["seasons_available"] == list(range(2021, 2027))
     for row in doc["response"]:
         if row["fixture"]["status"]["short"] in {"FT", "AET", "PEN"}:
             game = next(g for g in games if g.provider_match_id == row["fixture"]["id"])

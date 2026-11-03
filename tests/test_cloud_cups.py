@@ -26,7 +26,7 @@ def test_verified_api_backfill_defaults_and_july_boundary():
     assert api_backfill_scopes("apif") == [
         (code, {"league_id": code, "season": year})
         for code in ("3", "848")
-        for year in (2022, 2023, 2024)
+        for year in range(2021, 2027)
     ]
 
 
@@ -39,7 +39,8 @@ def test_verified_api_backfill_defaults_and_july_boundary():
         ("fdorg", "PL", None, None),
         ("apif", "3,3", None, None),
         ("apif", "", None, None),
-        ("apif", "3", "2025", "2026"),
+        ("apif", "3", "2027", "2027"),
+        ("apif", "98", "2021", "2021"),
         ("fdorg", "CL", "2022", "2023"),
         ("fdorg", "CL", "2324", "2627"),
         ("apif", "3", "2024", "2022"),
@@ -248,6 +249,12 @@ def test_cup_history_links_only_empty_counterpart_and_preserves_jc_score(
         assert report["status"] == "complete"
         assert report["linked_existing"] == 1
         assert report["scopes"][0]["aligned_teams"] == 2
+        if provider == "apif":
+            item = report["scopes"][0]
+            # Ten distinct teams, two verified by JC. Linking that match does not
+            # persist team aliases; a repeat must still verify the same evidence.
+            assert item["alignment_rate_before"] == 0.0
+            assert item["alignment_rate_after"] == 0.2
         if label == "repeat":
             assert report["inserted"] == 0
         with sqlite3.connect(tmp_path / label / "data/zucai.db") as db:

@@ -15,12 +15,13 @@ from requests.adapters import HTTPAdapter
 
 from zucai.sources.api_common import ApiGame, LocalValidationError
 from zucai.sources.apif_quota import DailyQuota
-from zucai.sources.base import RateLimiter, RawStore, Source
+from zucai.sources.base import RateLimiter, RawStore, Source, _atomic_write
 from zucai.sources.football_data import CONFIG_ROOT, read_json
 from zucai.sources.football_data_org import _goals, _id, _team, safe_json_for_archive
 
 API = "https://v3.football.api-sports.io"
 LEAGUES = CONFIG_ROOT / "api_football/leagues.json"
+APIF_LEAGUE_IDS = frozenset({3, 848, 98, 292, 188, 113, 103, 244, 119, 253, 169})
 STATES = {
     "FT",
     "AET",
@@ -43,6 +44,25 @@ STATES = {
     "LIVE",
 }
 FINISHED = {"FT", "AET", "PEN"}
+
+
+class ApifResponseError(LocalValidationError):
+    """Only safely archived plan/access error text may be included in cloud summaries."""
+
+
+def check_api_errors(doc, raw):
+    if isinstance(doc, dict) and doc.get("errors") in ([], {}):
+        return
+    errors = doc.get("errors") if isinstance(doc, dict) else None
+    token = os.environ.get("API_FOOTBALL_KEY", "").strip()
+    if isinstance(errors, dict) and token and safe_json_for_archive(raw, token):
+        messages = [
+            f"errors.{k}: {errors[k]}" for k in ("plan", "access") if isinstance(errors.get(k), str)
+        ]
+        if messages:
+            # Keep the upstream wording; escape controls when rendering a log/Markdown line.
+            raise ApifResponseError("API-Football API 错误：" + "; ".join(messages))
+    raise LocalValidationError("API-Football API 错误（权限、限流或参数），已保留安全归档")
 
 
 class ApiFootball(Source[ApiGame]):
@@ -100,7 +120,7 @@ class ApiFootball(Source[ApiGame]):
             params["page"] = str(page)
         return API + "/fixtures?" + urlencode(params)
 
-    def _request(self, url):
+    def _request(self, url, *, name="fixtures"):
         token = os.environ.get("API_FOOTBALL_KEY", "").strip()
         if not token or not re.fullmatch(r"[!-~]+", token):
             raise LocalValidationError("请设置有效的 API_FOOTBALL_KEY")
@@ -116,7 +136,11 @@ class ApiFootball(Source[ApiGame]):
                 raise LocalValidationError("API-Football 网络请求失败，已计入本地配额") from None
             seen = datetime.now(UTC)
             # Numeric quota headers remain authoritative even when the body cannot be archived.
-            self.quota.observe(response.headers)
+            quota_error = None
+            try:
+                self.quota.observe(response.headers)
+            except ValueError as exc:
+                quota_error = exc
             # Check the body before creating a raw file or sidecar.
             if (
                 response.url != url
@@ -124,21 +148,59 @@ class ApiFootball(Source[ApiGame]):
                 or not safe_json_for_archive(response.content, token)
             ):
                 raise LocalValidationError("API-Football 响应未能安全归档")
-            path = self.store.save_response(
-                self.name, "fixtures", response, "json", captured_at=seen
-            )
+            path = self.store.save_response(self.name, name, response, "json", captured_at=seen)
+            meta = self.store.load_metadata(path)
+            # Only decimal quota headers are retained; never archive authentication headers.
+            meta["quota_headers"] = {
+                k.lower(): v
+                for k, v in response.headers.items()
+                if k.lower() in ("x-ratelimit-requests-limit", "x-ratelimit-requests-remaining")
+                and isinstance(v, str)
+                and v.isascii()
+                and v.isdecimal()
+                and token not in v
+            }
+            meta["quota_headers_valid"] = quota_error is None
+            _atomic_write(path.with_suffix(path.suffix + ".meta.json"), json.dumps(meta).encode())
         self.pages.append(path)
+        if quota_error is not None:
+            raise quota_error
         if response.status_code != 200:
+            doc = json.loads(path.read_bytes())
+            errors = doc.get("errors") if isinstance(doc, dict) else None
+            if isinstance(errors, dict) and any(
+                isinstance(errors.get(key), str) for key in ("plan", "access")
+            ):
+                check_api_errors(doc, path.read_bytes())
             raise LocalValidationError(f"API-Football HTTP {response.status_code}，已保留安全归档")
         return path
+
+    def status(self):
+        # Keep the body observation in the same lock as reservation and header processing.
+        with self.quota.locked():
+            path = self._request(API + "/status", name="status")
+            raw = path.read_bytes()
+            doc = json.loads(raw)
+            check_api_errors(doc, raw)
+            if doc.get("get") != "status":
+                raise LocalValidationError("API-Football status 响应端点不符")
+            meta = self.store.load_metadata(path)
+            self.quota.observe_status(doc, meta["quota_headers"])
+            return dict(
+                plan=doc["response"]["subscription"]["plan"],
+                limit_day=doc["response"]["requests"]["limit_day"],
+                current=doc["response"]["requests"]["current"],
+                observed_utc=meta["fetched_at_utc"],
+                sha256=meta["sha256"],
+                headers=meta["quota_headers"],
+            )
 
     def _document(self, raw, scope=None):
         try:
             doc = json.loads(raw)
         except (ValueError, UnicodeError):
             raise LocalValidationError("API-Football 响应不是 JSON") from None
-        if not isinstance(doc, dict) or doc.get("errors") not in ([], {}):
-            raise LocalValidationError("API-Football API 错误（权限、限流或参数），已保留安全归档")
+        check_api_errors(doc, raw)
         rows = doc.get("response")
         paging = doc.get("paging")
         params = doc.get("parameters")

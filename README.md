@@ -37,12 +37,13 @@ zucai fetch results --source c500 --from 2026-11-02 --to 2026-11-02  # 仅根页
 zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
 zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
-# 在运行采集的环境中预先配置 FOOTBALL_DATA_ORG_TOKEN
+# 以下 API 采集命令由审查者在 Actions 执行，正式凭据只取 Secrets；开发测试用离线 fixtures
+# Actions 配置 FOOTBALL_DATA_ORG_TOKEN
 zucai fetch fdorg --competition PL,PD,SA --days 7  # 自动拆成不超过10天的连续窗口
 zucai fetch fdorg --competition PL --season 2025 --season 2026 --assume-known-after 3h
-# 在运行采集的环境中预先配置 API_FOOTBALL_KEY
+# Actions 配置 API_FOOTBALL_KEY
 zucai fetch apif --league 98 --season 2024 --assume-known-after 3h --reserve 10
-zucai fetch apif --date 2026-11-01  # UTC 日期；免费档当前仅最近三天可用
+zucai fetch apif --date 2026-11-01  # UTC 日期；日常采集固定最近三天
 zucai train --league 英超 --source jc,fd,fdorg --since 2026-09-01 --output models/epl-mixed.pkl
 zucai train --model dixon-coles       # 训练并按周回测
 zucai tune --league 英超 --source jc,fd --db work/t15/static.db --grid 90,180,270,365,540,730
@@ -55,7 +56,7 @@ python -m zucai.cloud_feeds apis --archive ../cloud-data --days 3 --run-id manua
 python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/params.json --run-id manual-1
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 --source fdorg --leagues CL --from 2023 --to 2026
-python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2022 --to 2024
+python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2025 --to 2026
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
 pytest -q
 ```
@@ -78,6 +79,8 @@ pytest -q
 云端自动归档当前仅调用 jc 官方赛果，无 c500 自动备用查询。
 
 ### 云端采集
+
+快速开始：由审查者在 Actions 手动运行 `operation=probe source=apif leagues=3,848 seasons=2021-2026`，查看权限审计表。
 
 [数据分支 `data/football-feeds`](https://github.com/qw5563680/FOOTBALL/tree/data/football-feeds)
 保存四来源 jc / fd / fdorg / apif 的可恢复归档。`matches/YYYY-MM.csv` 按 **UTC 开球月份**分组，
@@ -103,11 +106,15 @@ pytest -q
 在仓库 **Settings → Secrets and variables → Actions → Secrets** 配置
 `FOOTBALL_DATA_ORG_TOKEN`、`API_FOOTBALL_KEY`。工作流只从这两个 Secrets 注入 API 凭据，
 不使用仓库 Variables 或命令行参数传 key。API-Football 配额保存到 `state/api_football_quota.json`，
-每次恢复并继续扣减，默认保留 10 次；损坏时拒绝重新假定完整预算。
+每次恢复并继续扣减；每日上限跟随 `x-ratelimit-requests-limit`，也可由 `/status` 提供，
+两者尚未提供时回退 100，摘要明确标注「回退」。默认保留 10 次，每次请求间隔仍为 6.1 秒；
+本地日上限默认等于套餐上限，可用仓库 Actions Variable `ZUCAI_APIF_DAILY_CAP` 下调（空值表示默认）。
+该值取与套餐上限的较小值，不能扩大服务器额度；损坏配额文件拒绝重新假定完整预算。
+正式 key 只供 Actions 使用，任何开发环境均不得拿正式 key 联网。
 各源拒绝、疑似重复、未对齐 CSV 保存为 `state/audit/<source>_*.csv`，保留已有历史。
 竞彩旧 `state/rejected_results.csv` / `state/unmatched_teams.csv` 继续兼容。
 API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`；摘要列入库、链接、拒绝、请求数（fd 列为成功下载文件数）、
-剩余配额和脱敏失败原因。单行拒绝/疑似重复也标记 partial。
+剩余配额、`plan`、`limit_day` 和失败原因。`errors.plan` / `errors.access` 在通过安全归档检查后保留原文，仍标记 partial；其他上游错误不直接输出正文。单行拒绝/疑似重复也标记 partial。
 数据库、归档校验和写回冲突仍使对应 job 失败。安全检查通过的原始响应和审计状态作为 Actions artifact 保留 90 天，
 可见性继承仓库权限；工作流不会将原始响应提交到 main。
 
@@ -119,6 +126,22 @@ API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`
 jc 比赛 ID、UTC 时间差追加到 `state/alias_candidates/fdorg.json` 和 `apif.json`。
 候选不参与后续自动导入；审查方定期核对证据后另开 PR 合入 main 的正式别名文件。
 
+T22 权限探测由 Claude 在 **Actions → Football cloud feeds → Run workflow** 选择 PR 分支执行：
+`operation=probe source=apif leagues=3,848 seasons=2021-2026`。
+九个既有联赛另跑 `leagues=98,292,188,113,103,244,119,253,169 seasons=2025,2026`。
+每个联赛 × 赛季只取第一页，不入库；HTTP、错误、结果数、分页和原件 SHA256 写入
+`state/audit/apif_season_probes.csv`，原件及 sidecar 留在本次 artifact。
+任务结束沿用统一写锁、数据分支导出及恢复校验，不推进竞彩赛果同步日期。
+
+probe 先连续查询两次 `/status`，将套餐、日计数和每日响应头的变化记录到
+`state/audit/apif_status_probes.csv`。相同 UTC 日、套餐及上限一致，且两次正文/响应头
+一致显示计数不变时才记为不计费；计数增加一次记为计费，其他情况保留「未知」。
+仅已记录不计费时，后续 `apis` 和 apif `backfill` 开头自动刷新一次 `/status`，另列请求数，三次日期采集不变。
+本地硬上限仍保守计入所有实际请求，包括 `/status`。Claude 已在 Actions 验证 Pro / 7500 次，
+连续两次 status 计数保持 9→9（后一次 probe 为 21→21），记录为不计费；详情见 [DATA_SOURCES §6](docs/DATA_SOURCES.md)。
+`apif_status_probes.csv` 同时记录成功和失败尝试；失败列出 HTTP、安全原件 SHA256 或失败原因。
+旧八列审计表自动补列，原有记录和哈希保留。
+
 T20 的三项欧战在导入前另做运行期核验：复用同源已生效的国内联赛数字球队 ID，
 再用完整响应与 jc 的双向唯一主客方向图补充身份；不读取待审候选作为生效别名。
 历史回填（包括直接 fetch 重复指定 `--season`）先下载所选全部赛季，再统一核验，
@@ -128,14 +151,20 @@ T20 的三项欧战在导入前另做运行期核验：复用同源已生效的�
 已存在独立身份的球队仍受原有存量身份校验保护，不自动合并。仓库正式别名文件不改。
 
 Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
+`source` 选项统一为 fd / fdorg / apif，用于 backfill；probe 固定 apif，避免页面默认 fd 造成误用。
+`leagues` 输入默认留空，由步骤脚本决定：probe 用 `3,848`，backfill 用该来源默认范围。
+`seasons` 仅供 probe（留空用 `2021-2026`）；`from_season` / `to_season` 仅供 backfill，含首尾。
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件用 cron 确定早晚班，手动 auto 以 UTC 09:00 为界。
 - `operation=backfill`：**一次性历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），
   `sporttery` 与 `predict` 跳过；沿用写回锁和发布脚本。
   `source=fd`（默认）保持国内历史回填；`source=fdorg` 默认欧冠 CL 2023 至当季；
-  `source=apif` 默认欧罗巴 3、欧协联 848 各 2022–2024 三季。
+  `source=apif` 默认欧罗巴 3、欧协联 848 各 2021–2026 六季；显式 `leagues` 也可选择原有九联赛。
   `leagues` 可空，或填该来源的逗号分隔代码；API 回填凭据仍只取 Actions Secrets。
+  例如 `source=apif leagues=3,848 from_season=2025 to_season=2026`；2021 可单独再跑起止均为 2021。
+  九联赛用 `leagues=98,292,188,113,103,244,119,253,169 from_season=2025 to_season=2026`。
+  允许年份始终取 `leagues.json` 的实测 `seasons_available`，不按套餐名推测权限。
 - `operation=verify`：托管机恢复并校验归档文件、表行数、来源哈希与独立的 `forecast_manifest.json`；不写数据分支，摘要为 `verified`，没有预测的旧归档仍兼容。
 - `operation=predict`：跳过采集，在托管机使用现有归档训练并预测；`days` / `slot` 不影响预测。
   `sporttery` 跳过、失败或归档水位不是今日时，摘要注明「竞彩数据非今日」。
@@ -167,11 +196,11 @@ E0 的 2425/2526 与 JPN 的 2024–2025。省略时默认 2021–2026；这些�
 回填成功后手动运行 `operation=predict` 使用新增历史；每周一当季增量逻辑保持原样。
 
 欧战回填使用快速开始里的 `--source fdorg|apif` 命令，API 的 `--from/--to` 只接受四位起始年。
-fdorg 每季一次请求（CL 2023–2026 共 4 次），apif 两项赛事三季共 6 次整季请求；
+fdorg 每季一次请求（CL 2023–2026 共 4 次），apif 两项赛事六季共 12 次整季请求，另计已验证不计费的 status；
 若有分页继续沿用原分页和 `reserve=10` 配额守卫。源的 6 秒 / 6.1 秒限速保持原样。
-2026-11-02 实测 apif 2025、2026 整季均被套餐拒绝，默认只选已核验可读赛季，失败不当作空赛季成功。
+2026-11-03 付费后实测两项欧战 2021–2026、九联赛 2025/2026 可读；历史免费档拒绝已记录在 DATA_SOURCES，失败仍不当作空赛季成功。
 当季日增量仍可由现有日期请求采集，不增加每日请求次数；摘要单列三项欧战库内比赛/赛果与本次新增行数。
-回填摘要另列每赛事每季解析、入库、链接竞彩、拒绝、疑似重复、不同球队 ID 对齐率及未对齐数，
+回填摘要另列每赛事每季解析、入库、链接竞彩、拒绝、疑似重复、不同球队 ID 对齐率（apif 显示回填前→后）及未对齐数，
 来源行数包含欧战并经过恢复校验；不覆盖竞彩比分，历史赛果沿用开球后 3h 的 assumed。
 欧冠 2026 当前只公布 144 场，后续淘汰赛尚未全部排出；apif 历史包含资格赛，
 详见 [数据来源 §5、§6](docs/DATA_SOURCES.md)。本任务只接数据，欧战模型另由 T21 处理。
@@ -422,8 +451,9 @@ Football data provided by the [Football-Data.org API](https://www.football-data.
 
 数据来源：[API-Football / API-Sports](https://www.api-football.com/)。
 支持日职98、韩职292、澳超188、瑞超113、挪超103、芬超244，以及丹超119、美职253、中超169。
-本账户实测整季只开放起始年2022、2023、2024；当季整季被拒绝。`--date` 则允许最近三天，
-本轮 UTC 2026-10-31 至2026-11-02均可读取。元数据的 current 赛季不等于免费权限。
+免费档历史实测只开放 2022、2023、2024；2026-11-03 Claude 的付费档 probe 已确认九联赛 2025、2026，
+可用年份现为 2022–2026。日职元数据 current=2027 尚未在付费档验证，仍标未确认。
+`--date` 继续采最近三天；元数据 current 不代表实际读取权限。
 
 历史回填必须显式假定可知延时；日期增量只记真实 captured。比分只取90分钟 `score.fulltime`。
 `--season` 可重复，每个完整赛季独立提交；先归档所有页再整体核对身份，后续失败保留已完成赛季和安全原件。

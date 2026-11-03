@@ -76,7 +76,9 @@ def run_apis(tmp_path, monkeypatch, archive, name, slot="early"):
     return work
 
 
-def mock_apis(api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None, apif_mode=None):
+def mock_apis(
+    api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None, apif_mode=None, paid=False
+):
     if fd:
         api.add(
             responses.GET,
@@ -114,8 +116,11 @@ def mock_apis(api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None
             row["league"]["id"] = 999999
         elif apif_mode:
             doc.update(results=0, response=[])
-        if apif_mode == "plan":
-            doc["errors"] = {"plan": "upstream body must remain private"}
+        if apif_mode in ("plan", "access"):
+            errors = json.loads((ROOT / "data/fixtures/t22/quota_cases.json").read_bytes())[
+                "errors"
+            ]
+            doc["errors"] = {apif_mode: errors[apif_mode]}
         if apif_mode == "malformed":
             doc["results"] = 1
         api.add(
@@ -123,7 +128,12 @@ def mock_apis(api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None
             "https://v3.football.api-sports.io/fixtures",
             json=doc,
             status=401 if apif_mode == "http" else 200,
-            headers={}
+            headers={
+                "x-ratelimit-requests-limit": "7500",
+                "x-ratelimit-requests-remaining": str(7498 - offset),
+            }
+            if paid
+            else {}
             if remaining is None
             else {"x-ratelimit-requests-remaining": str(remaining - offset)},
             match=[responses.matchers.query_param_matcher({"date": day})],
@@ -443,7 +453,7 @@ def test_fdorg_credential_reason_is_bounded(environment, tmp_path, monkeypatch, 
     assert reason in caplog.text
 
 
-@pytest.mark.parametrize("mode", ["empty", "unconfigured", "plan", "malformed", "http"])
+@pytest.mark.parametrize("mode", ["empty", "unconfigured", "plan", "access", "malformed", "http"])
 def test_apif_date_empty_or_local_validation_summary(environment, tmp_path, monkeypatch, mode):
     with responses.RequestsMock(assert_all_requests_are_fired=False) as api:
         mock_apis(api, apif_mode=mode)
@@ -456,8 +466,11 @@ def test_apif_date_empty_or_local_validation_summary(environment, tmp_path, monk
         assert report["errors"] == []
     else:
         reason = (
-            "API-Football API 错误（权限、限流或参数），已保留安全归档"
-            if mode == "plan"
+            "API-Football API 错误：errors."
+            + mode
+            + ": "
+            + json.loads((ROOT / "data/fixtures/t22/quota_cases.json").read_bytes())["errors"][mode]
+            if mode in ("plan", "access")
             else "API-Football fixtures 结构或 results 不符"
         )
         if mode == "http":
@@ -466,7 +479,7 @@ def test_apif_date_empty_or_local_validation_summary(environment, tmp_path, monk
         assert all(reason in error for error in report["errors"])
         summary = (work / "summary.md").read_text()
         assert reason in summary
-        assert "upstream body" not in summary
+        assert "offline-placeholder" not in summary
 
 
 def test_transport_and_untrusted_value_errors_never_disclose_details():
@@ -494,3 +507,38 @@ def test_trusted_local_validation_summary_is_limited_to_80_characters():
     from zucai.sources.api_common import LocalValidationError
 
     assert failure_reason(LocalValidationError("校验失败" * 30)) == ("校验失败" * 30)[:80]
+
+
+def test_paid_daily_three_dates_plus_one_verified_free_status(environment, tmp_path, monkeypatch):
+    cases = json.loads((ROOT / "data/fixtures/t22/quota_cases.json").read_bytes())
+    state = {
+        **cases["paid"],
+        "date_utc": "2026-11-02",
+        "status_free": True,
+        "status_checked_utc": "2026-11-02T02:00:00Z",
+        "status_evidence": ["a" * 64, "b" * 64],
+    }
+    quota_path = environment / "state/api_football_quota.json"
+    quota_path.write_text(json.dumps(state))
+    manifest_path = environment / "feed_manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    from zucai.cloud_feeds import digest
+
+    manifest["files"]["state/api_football_quota.json"] = digest(quota_path)
+    manifest_path.write_text(json.dumps(manifest))
+    with responses.RequestsMock() as api:
+        api.get(
+            "https://v3.football.api-sports.io/status",
+            json=cases["status"],
+            headers=cases["paid_headers"],
+        )
+        mock_apis(api, paid=True)
+        work = run_apis(tmp_path, monkeypatch, environment, "paid-status", slot="late")
+        assert sum("/fixtures?" in call.request.url for call in api.calls) == 3
+        assert sum("/status" in call.request.url for call in api.calls) == 1
+    report = archive_info(environment)["collection"]["apif"]
+    assert report["status"] == "complete" and report["requests"] == 3
+    assert report["status_requests"] == 1 and report["plan"] == "Pro"
+    assert report["limit_day"] == 7500 and not report["quota_fallback"]
+    summary = (work / "summary.md").read_text()
+    assert "7500" in summary and "Pro" in summary

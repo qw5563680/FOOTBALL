@@ -35,9 +35,12 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/c500.py` | 500.com：历史赛果、欧赔/亚盘历史、14 场胜负彩期次 |
 | `zucai/sources/football_data.py` | 历史 CSV 的下载、严格时区转换和解析 |
 | `zucai/sources/fd_ingest.py` | 显式别名、官方优先去重、结果可知时间与独立收盘价归档 |
-| `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export` / `backfill --source fd\|fdorg\|apif`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
+| `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export` / `probe` / `backfill --source fd\|fdorg\|apif`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
 | `zucai/cloud_backfill.py` | 仅手动的 fd 六季历史回填、范围筛选、逐跳请求与联赛增量审计；复用既有下载/导入器 |
-| `zucai/cloud_api_backfill.py` | 仅手动的欧战 API 历史范围、先联合核验后导入、配额守卫、分赛事赛季入库与对齐统计 |
+| `zucai/cloud_probe.py` | Actions 手动权限与计费探测，逐季第一页、CSV 审计、不入库 |
+| `zucai/apif_budget.py` | 跨平台配额格式校验，兼容旧数据分支状态 |
+
+| `zucai/cloud_api_backfill.py` | 仅手动的欧战及 apif 九联赛历史范围、欧战联合核验、配额守卫、分赛事赛季入库与前后对齐统计 |
 | `zucai/sources/cup_identity.py` | 欧战运行期数字 ID 桥接与 T09/T10 主客方向图；证据写审计 CSV，未知身份保持来源编号 |
 | `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
@@ -328,6 +331,38 @@ manifest 不充当跨 job 历史运行日志。
 
 没有数据库迁移；T14 不改变解析、去重、比分可知性或训练输入。
 
+## T22 按套餐配额与手动权限探测
+
+`state/api_football_quota.json` 延续 `date_utc`、`used`、`remaining`，新增：
+
+| 字段 | 含义 |
+| --- | --- |
+| `limit_day` | 服务端每日上限，响应头优先；未知时 100 |
+| `plan` | `/status` 返回的套餐名，未知为 null |
+| `observed_utc` | 最近成功接收配额头或 status 的 UTC 时间，旧文件为 null |
+| `limit_source` | header / status / stored / fallback，摘要显示 fallback 为「回退」 |
+| `current` | 最近 status 的服务端已用次数，未知为 null；不同于本地 used |
+| `status_free` | 两次 status 计数对照的结论：true / false / null（未知） |
+| `status_checked_utc`、`status_evidence` | 计费对照时间与两份原件 SHA256；结论可查证 |
+
+`used` 记录本地所有实际尝试，包括失败与 status；服务端剩余额度以每日响应头为准。
+请求前持锁预占；`reserve=10` 不变，本地日上限为 `min(limit_day, ZUCAI_APIF_DAILY_CAP)`，未设置时等于套餐上限。
+UTC 换日仅清空日计数及剩余额度，保留最近套餐信息；上限/套餐变化清除旧计费结论。
+缺失 remaining 时用 `limit_day-used`，已有剩余额度不因缺头补满。旧三字段文件继续读取并标记回退，
+无效状态拒绝重置。`verify` 使用不依赖 fcntl 的 `apif_budget` 校验新增字段，Windows 路径不加载配额文件锁。
+配额头先校验，安全原件随后落盘；配额校验错误延迟到落盘后抛出，认证回显等不安全原件仍拒绝保存。
+
+`probe` 仅允许手动 Actions，固定允许两个欧战与原有九联赛、2021 至当前 UTC 年，
+默认 3,848 / 2021–2026；每范围一页，不调用比赛导入器或别名核验。
+先做两次 status 计费对照；只有持久结论为不计费时，后续 `apis` 和 apif `backfill` 才开头刷新一次 status。
+status 审计逐次记录 `http/outcome/reason` 和可用的原件 SHA256；旧八列记录原子补列，原值保留。
+两个审计 CSV 按运行追加；恢复/导出沿用 feed manifest v2 与统一写锁，表行、竞彩同步日期、模型及预测冻结文件保持原值。
+probe 不自动改写权限配置。本次按 Claude 的两次真实 probe 更新允许年份和证据哈希；
+T20 回填已接入，九个国内联赛仅扩展范围选择，继续使用原导入器及生效别名，不把欧战推断套用到国内联赛。
+apif 回填的每季和联赛摘要新增前后对齐率：同一批不同球队 ID，回填前按正式别名及既有数据库绑定统计，
+回填后按本轮完整响应联合核验得到的映射统计；该指标不改变身份导入策略。
+仅链接竞彩、未形成持久球队绑定的映射，下次仍需按相同证据重新核验，不计入回填前对齐率。
+
 ## T15 评估与参数文件（无数据库迁移）
 
 T16按所有者选择的A1采用策略绑定：`model_readiness` 不再要求训练库与评估库SHA256相等；
@@ -464,7 +499,7 @@ CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
 ## T20 欧战采集与一次性 API 回填
 
 `cloud_feeds backfill --source` 默认仍为 fd，完整保留 T18 路径；fdorg 只允许 CL，
-默认从配置的最早可读年到按 7 月换季的当季；apif 只允许 3/848，默认配置中已核验的 2022–2024。
+默认从配置的最早可读年到按 7 月换季的当季；apif 默认 3/848 的已核验 2021–2026；显式选择还允许原九联赛，年份只取配置的 `seasons_available`。
 API 范围只接受四位起始年，禁用未核验历史范围；真实套餐/分页失败记 partial，不当空成功。
 沿用原下载器限速、原件校验、APIF 持久配额与 reserve=10，所有分页完整后才进入后续导入。
 
