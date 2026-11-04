@@ -3,16 +3,16 @@
 
 # 每日摘要 2026-11-04（北京时间）
 
-本次 run ID：41710899834-1；摘要生成 UTC：2026-11-03T20:24:11.177297+00:00。
-竞彩同步至：2026-11-04；采集状态：jc=complete / fd=skipped / fdorg=partial / apif=partial。
-采集归档 UTC：2026-11-03T17:21:12.748620+00:00；记分板截点 UTC：2026-11-03T20:23:02.388704+00:00。
+本次 run ID：41767507843-1；摘要生成 UTC：2026-11-04T03:33:39.838015+00:00。
+竞彩同步至：2026-11-04；采集状态：jc=未记录 / fd=skipped / fdorg=partial / apif=partial。
+采集归档 UTC：2026-11-04T03:25:41.434048+00:00；记分板截点 UTC：2026-11-04T03:33:04.523578+00:00。
 缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。
 
 ## 今日与明日预测
 
 ### 今日 2026-11-04
 
-来源：[forecasts/2026-11-04/41710899834-1/forecast.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/forecasts/2026-11-04/41710899834-1/forecast.json)；批次 41710899834-1-2026-11-04；生成 UTC：2026-11-03T20:21:42.980395+00:00。
+来源：[forecasts/2026-11-04/41767507843-1/forecast.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/forecasts/2026-11-04/41767507843-1/forecast.json)；批次 41767507843-1-2026-11-04；生成 UTC：2026-11-04T03:32:21.916373+00:00。
 
 #### 亚冠精英
 
@@ -36,24 +36,22 @@
 
 ### 明日 2026-11-05
 
-来源：[forecasts/2026-11-05/41710899834-1/forecast.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/forecasts/2026-11-05/41710899834-1/forecast.json)；批次 41710899834-1-2026-11-05；生成 UTC：2026-11-03T20:21:43.051431+00:00。
+来源：[forecasts/2026-11-05/41767507843-1/forecast.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/forecasts/2026-11-05/41767507843-1/forecast.json)；批次 41767507843-1-2026-11-05；生成 UTC：2026-11-04T03:32:21.960985+00:00。
 
 #### 欧冠
 
 | 北京开球 | 对阵 | 胜 / 平 / 负 | 模型版本 | P2 | 比分前五 |
 | --- | --- | --- | --- | --- | --- |
-| 11-05 01:45 | 费内巴切 VS 利物浦 | 1.92% / 4.56% / 93.51% | dixon-coles / 85dbb2b65df5e855e313cff4bda4d17d3d27b0477206b9b10cea95d05b2d478b | experimental | 0:4 9.68%；0:3 8.74%；0:5 8.57%；1:4 6.74%；0:6 6.33% |
-| 11-05 04:00 | 莱红牛 VS 曼城 | 21.29% / 20.95% / 57.75% | dixon-coles / 85dbb2b65df5e855e313cff4bda4d17d3d27b0477206b9b10cea95d05b2d478b | experimental | 1:2 9.71%；1:1 9.31%；0:2 7.94%；0:1 7.35%；1:3 6.86% |
-| 11-05 04:00 | 波尔图 VS 那不勒斯 | 44.05% / 28.01% / 27.94% | dixon-coles / 85dbb2b65df5e855e313cff4bda4d17d3d27b0477206b9b10cea95d05b2d478b | experimental | 1:1 13.13%；1:0 12.65%；0:0 9.84%；0:1 9.47%；2:1 8.63% |
-| 11-05 04:00 | 埃因霍温 VS 布鲁日 | 47.46% / 19.40% / 33.14% | dixon-coles / 85dbb2b65df5e855e313cff4bda4d17d3d27b0477206b9b10cea95d05b2d478b | experimental | 2:2 7.04%；2:1 6.91%；1:2 5.80%；1:1 5.79%；3:2 5.70% |
-| 11-05 04:00 | 多特蒙德 VS 贝蒂斯 | 56.38% / 22.29% / 21.33% | dixon-coles / 85dbb2b65df5e855e313cff4bda4d17d3d27b0477206b9b10cea95d05b2d478b | experimental | 1:1 10.37%；2:1 9.89%；1:0 9.01%；2:0 8.89%；3:1 6.38% |
-| 11-05 04:00 | 维京 VS 萨巴赫 | 58.91% / 21.22% / 19.87% | dixon-coles / 85dbb2b65df5e855e313cff4bda4d17d3d27b0477206b9b10cea95d05b2d478b | experimental | 2:1 9.88%；1:1 9.74%；2:0 8.82%；1:0 8.40%；3:1 6.79% |
-| 11-05 04:00 | 朗斯 VS 科莫 | 36.45% / 27.09% / 36.46% | dixon-coles / 85dbb2b65df5e855e313cff4bda4d17d3d27b0477206b9b10cea95d05b2d478b | experimental | 1:1 12.89%；0:1 9.75%；1:0 9.74%；1:2 8.09%；2:1 8.09% |
-| 11-05 04:00 | 斯拉维亚 VS 阿森纳 | 2.67% / 8.30% / 89.03% | dixon-coles / 85dbb2b65df5e855e313cff4bda4d17d3d27b0477206b9b10cea95d05b2d478b | experimental | 0:3 14.51%；0:2 13.89%；0:4 11.37%；0:1 8.80%；0:5 7.13% |
+| 11-05 01:45 | 费内巴切 VS 利物浦 | 15.04% / 18.30% / 66.66% | dixon-coles / 08314c7955b6e5173ac89577753ce6c72a13d5616ec00334c8fe23aafb41aec7 | experimental | 1:2 9.63%；0:2 9.13%；1:1 8.21%；1:3 7.65%；0:1 7.53% |
+| 11-05 04:00 | 莱红牛 VS 曼城 | 21.32% / 21.00% / 57.68% | dixon-coles / 08314c7955b6e5173ac89577753ce6c72a13d5616ec00334c8fe23aafb41aec7 | experimental | 1:2 9.72%；1:1 9.35%；0:2 7.96%；0:1 7.39%；1:3 6.85% |
+| 11-05 04:00 | 波尔图 VS 那不勒斯 | 43.79% / 28.05% / 28.16% | dixon-coles / 08314c7955b6e5173ac89577753ce6c72a13d5616ec00334c8fe23aafb41aec7 | experimental | 1:1 13.15%；1:0 12.60%；0:0 9.85%；0:1 9.52%；2:1 8.60% |
+| 11-05 04:00 | 埃因霍温 VS 布鲁日 | 46.09% / 20.39% / 33.52% | dixon-coles / 08314c7955b6e5173ac89577753ce6c72a13d5616ec00334c8fe23aafb41aec7 | experimental | 2:1 7.64%；2:2 7.22%；1:1 6.99%；1:2 6.50%；3:1 5.66% |
+| 11-05 04:00 | 多特蒙德 VS 贝蒂斯 | 56.02% / 22.40% / 21.58% | dixon-coles / 08314c7955b6e5173ac89577753ce6c72a13d5616ec00334c8fe23aafb41aec7 | experimental | 1:1 10.43%；2:1 9.88%；1:0 9.02%；2:0 8.84%；3:1 6.34% |
+| 11-05 04:00 | 维京 VS 萨巴赫 | 66.59% / 17.53% / 15.88% | dixon-coles / 08314c7955b6e5173ac89577753ce6c72a13d5616ec00334c8fe23aafb41aec7 | experimental | 2:1 9.17%；3:1 7.81%；2:0 7.66%；1:1 7.30%；3:0 6.52% |
+| 11-05 04:00 | 朗斯 VS 科莫 | 36.33% / 27.09% / 36.58% | dixon-coles / 08314c7955b6e5173ac89577753ce6c72a13d5616ec00334c8fe23aafb41aec7 | experimental | 1:1 12.89%；0:1 9.75%；1:0 9.71%；1:2 8.11%；2:1 8.08% |
+| 11-05 04:00 | 斯拉维亚 VS 阿森纳 | 5.03% / 11.82% / 83.15% | dixon-coles / 08314c7955b6e5173ac89577753ce6c72a13d5616ec00334c8fe23aafb41aec7 | experimental | 0:2 13.60%；0:3 12.63%；0:1 9.68%；0:4 8.79%；1:2 7.70% |
 
 ## 14 场胜负彩
-
-采集状态：complete；
 
 期号：26158；第三方所报截止：2026-11-04 17:30:00（北京时间，未截止）。
 来源：[state/sfc/26158.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/state/sfc/26158.json)；仅作诊断，BET 禁用。
@@ -133,11 +131,11 @@
 
 来源：[feed\_manifest.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/feed_manifest.json) collection。
 
-- jc：complete；疑似重复 未记录；未记录原因。
+- jc：未记录；疑似重复 未记录；未记录原因。
 - fd：skipped；疑似重复 未记录；仅 UTC 周一早班采集。
-- fdorg：partial；疑似重复 20；单行拒绝或疑似重复，详见 state/audit。
-- apif：partial；疑似重复 5；单行拒绝或疑似重复，详见 state/audit。
-- 配额快照来源：[state/api\_football\_quota.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/state/api_football_quota.json)；UTC 日 2026-11-03（不是当前实时余额）。
-- apif 配额剩余：7216；plan：Pro；limit_day：7500。
+- fdorg：partial；疑似重复 19；单行拒绝或疑似重复，详见 state/audit。
+- apif：partial；疑似重复 2；单行拒绝或疑似重复，详见 state/audit。
+- 配额快照来源：[state/api\_football\_quota.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/state/api_football_quota.json)；UTC 日 2026-11-04（不是当前实时余额）。
+- apif 配额剩余：7496；plan：Pro；limit_day：7500。
 
 仅转述冻结数据；缺失不填零，门槛标记不授予 BET 权限。
