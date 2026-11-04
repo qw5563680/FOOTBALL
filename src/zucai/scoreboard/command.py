@@ -12,6 +12,11 @@ from tempfile import TemporaryDirectory
 
 from zucai.cloud_feeds import digest, restore_feeds
 from zucai.forecast_archive import _path, verify_forecasts
+from zucai.scoreboard.experimental import (
+    load_experiments,
+    render_experiments,
+    summarize_experiments,
+)
 from zucai.scoreboard.paper import account_statistics, advance_ledger, profit_evidence
 from zucai.scoreboard.render import render_scoreboard
 from zucai.scoreboard.score import (
@@ -103,6 +108,13 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         raise ValueError("不能倒退已有记分板的截点，请用独立归档副本回放")
     forecast_manifest = verify_forecasts(archive)
     forecasts = load_forecasts(archive, at)
+    experimental = load_experiments(archive, forecast_manifest, at)
+    production_existing = [
+        r for r in existing if r.get("validation_status") != "experimental_unadopted"
+    ]
+    experiment_existing = [
+        r for r in existing if r.get("validation_status") == "experimental_unadopted"
+    ]
     inputs = {
         name: digest(archive / name)
         for name in ("feed_manifest.json", "forecast_manifest.json")
@@ -120,13 +132,36 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         restore_feeds(archive, database)
         before = digest(database)
         results = read_results(database)
-        scored, audit = score_forecasts(selected, results, existing, at)
+        scored, audit = score_forecasts(selected, results, production_existing, at)
+        experiment_selected = experimental
+        if replay_days is not None:
+            experiment_selected = [
+                r
+                for r in experiment_selected
+                if instant(r["generated_utc"]) >= at - timedelta(days=replay_days)
+            ]
+        experiment_scored, experiment_audit = score_forecasts(
+            experiment_selected, results, experiment_existing, at, experimental=True
+        )
         ledger = advance_ledger(selected, results, ledger, at)
         if digest(database) != before:
             raise ValueError("记分板计算改变了恢复库")
     latest = {r["match_id"]: r for r in prematch_rows(forecasts, at)}
     audit["active_keys"] = [record_key(r["match_id"], r["batch_id"]) for r in latest.values()]
     probability = summarize_scores(scored, at, active_keys=audit["active_keys"])
+    starts = [
+        instant(r["training_cutoff_utc"])
+        for r in (forecast_manifest or {}).get("runs", {}).values()
+        if r.get("experimental_protocol") == "t34a-strict-v1"
+    ]
+    experiments = summarize_experiments(
+        experimental,
+        experiment_scored,
+        scored,
+        audit["active_keys"],
+        at,
+        activated=min(starts) if starts else None,
+    )
     # Include zero-sample leagues, including models whose batch had no fixtures.
     empty = summarize_scores([], at)["total"]
     for run_info in (forecast_manifest or {}).get("runs", {}).values():
@@ -177,6 +212,8 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         "accounts": accounts,
         "sfc": sfc_summary,
         "audit": audit,
+        "experiments": experiments,
+        "experimental_audit": experiment_audit,
         "gates": {
             "prospective_verified": any(
                 v["prospective_verified"] for v in probability["leagues"].values()
@@ -184,9 +221,13 @@ def run(archive: Path, *, as_of=None, replay_days=None):
             "simulated_profit_evidence": profit_evidence(accounts["1.05"]["A"]),
         },
     }
-    markdown = render_scoreboard(summary) + render_diagnostics(summary)
+    markdown = (
+        render_scoreboard(summary) + render_diagnostics(summary) + render_experiments(experiments)
+    )
     contents = {
-        "scored.jsonl": scored_raw + _jsonl(scored[len(existing) :]),
+        "scored.jsonl": scored_raw
+        + _jsonl(scored[len(production_existing) :])
+        + _jsonl(experiment_scored[len(experiment_existing) :]),
         "ledger.jsonl": _jsonl(ledger),
         "scoreboard.md": markdown.encode(),
     }

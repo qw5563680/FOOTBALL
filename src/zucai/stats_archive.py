@@ -93,7 +93,9 @@ def check_stats(db, *, rows=True):
     for table in ROW_TABLES if rows else ():
         if db.execute(f"""SELECT 1 FROM {table} t JOIN matches m USING(match_id)
             WHERE t.team_id <> CASE t.side WHEN 'home' THEN m.home_team_id ELSE m.away_team_id END
-            OR (t.provider='fd' AND m.source<>'fd')
+            OR (t.provider='fd' AND NOT (
+                (m.source='fd' AND t.provider_fixture_id=t.match_id)
+                OR (m.source='jc' AND COALESCE(m.counterpart_id,'')=t.provider_fixture_id)))
             OR (t.provider='apif' AND NOT EXISTS (
                 SELECT 1 FROM apif_fixture_index i WHERE i.provider_fixture_id=t.provider_fixture_id
                 AND i.match_id=t.match_id AND t.provider_team_id=CASE t.side
@@ -105,7 +107,7 @@ def check_stats(db, *, rows=True):
             if db.execute(
                 f"SELECT 1 FROM {table} t LEFT JOIN matches m USING(match_id) "
                 "LEFT JOIN teams k ON k.id=t.team_id WHERE m.match_id IS NULL OR k.id IS NULL "
-                "OR t.version<1 OR (t.provider='fd' AND t.provider_fixture_id<>t.match_id) LIMIT 1"
+                "OR t.version<1 LIMIT 1"
             ).fetchone():
                 raise ValueError(f"技术数据 {table} 身份、版本或外键校验失败")
     if db.execute("""SELECT 1 FROM apif_fixture_index i JOIN matches m USING(match_id)

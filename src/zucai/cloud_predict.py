@@ -178,6 +178,7 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
         day = prediction_time.astimezone(BEIJING).date()
         result = {
             "run_id": run_id,
+            "experimental_protocol": "t34a-strict-v1",
             "training_cutoff_utc": cutoff.isoformat(),
             "database_sha256": database_sha,
             "params_sha256": params_sha,
@@ -259,6 +260,13 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
         check_snapshot_and_deadlines()
         result["generated_utc"] = _now().isoformat()
         publish_forecasts(archive, stage, result, before_commit=check_snapshot_and_deadlines)
+        # Production is frozen first; experimental restoration/fitting cannot roll it back.
+        try:
+            from zucai.experimental_archive import freeze_parallel
+
+            result = freeze_parallel(archive, database, feed, batches, result, clock=_now)
+        except Exception:
+            LOG.exception("实验归档失败，已冻结的正式预测不受影响")
     _summary(archive, result)
     LOG.info(
         "预测归档 %s：%s；%d/%d 个联赛训练成功",

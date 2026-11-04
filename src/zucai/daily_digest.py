@@ -308,8 +308,9 @@ def _anomaly_sections(feed, summary, quota, repository, coverage=None):
                 f"来源：{_link('state/stats_coverage.json', repository)}；"
                 f"观测 UTC：{_text(coverage.get('observed_utc'))}。数字照录归档，不重算覆盖率。",
                 "",
-                "| 联赛 / 赛季 / 端点 / 阶段 | 应取 | 已取 | 有效 | 空值 | 失败 | 未支持 |",
-                "| --- | --- | --- | --- | --- | --- | --- |",
+                "| 联赛 / 赛季 / 端点 / 阶段 | 应取 | 已取 | 有效 | 空值 | 失败 | 未支持 "
+                "| captured 行数 |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for row in coverage["rows"]:
@@ -320,7 +321,10 @@ def _anomaly_sections(feed, summary, quota, repository, coverage=None):
                 _text(row.get(key))
                 for key in ("expected", "fetched", "valid", "null", "failed", "unsupported")
             )
-            lines.append(f"| {scope} | {counts} |")
+            lines.append(f"| {scope} | {counts} | {_text(row.get('captured_rows'))} |")
+        lines.append(
+            "captured 按联赛季端点的存储行版本计数，同范围不同阶段不相加；旧快照未记录则显示缺失。"
+        )
     lines.extend(["", "仅转述冻结数据；缺失不填零，门槛标记不授予 BET 权限。", ""])
     return lines
 
@@ -343,6 +347,11 @@ def generate(archive, out, *, now=None, run_id="local", repository=None):
     feed = archive_info(archive)
     manifest = verify_forecasts(archive)
     scored, ledger, summary, _ = read_state(archive)
+    # Experimental scores share the append-only score file but never the original
+    # yesterday totals, paper ledger or production evidence gates.
+    scored = [r for r in scored if r.get("validation_status") != "experimental_unadopted"]
+    from zucai.scoreboard.experimental import render_experiments
+
     batches = []
     for run in (manifest or {}).get("runs", {}).values():
         for day, entry in run["forecasts"].items():
@@ -386,6 +395,7 @@ def generate(archive, out, *, now=None, run_id="local", repository=None):
         *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
         *_settlement_sections(scored, summary, batches, today - timedelta(days=1), repository),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
+        *render_experiments((summary or {}).get("experiments")).splitlines(),
         *_anomaly_sections(feed, summary, quota, repository, coverage),
     ]
     text = "\n".join(lines)

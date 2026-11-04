@@ -77,6 +77,10 @@ def _run_files(run_id: str, run: dict) -> set[str]:
         if forecast["path"] != directory:
             raise ValueError("预测目录与北京日 / run ID 不符")
         files.update(f"{directory}/{name}" for name in REPORT_FILES)
+        if "experimental_path" in forecast:
+            if forecast["experimental_path"] != f"{directory}/experimental.json":
+                raise ValueError("实验预测路径与北京日 / run ID 不符")
+            files.add(forecast["experimental_path"])
     return files
 
 
@@ -125,6 +129,42 @@ def verify_forecasts(archive: Path) -> dict | None:
     except (KeyError, TypeError, AttributeError) as exc:
         raise ValueError("预测清单结构不完整") from exc
     return manifest
+
+
+def attach_experiments(archive: Path, documents: dict, run_id: str, *, release=None, clock=None):
+    """Add independent experiment evidence after production is safely frozen."""
+    from zucai.predict.experiments.parallel import raw_json
+
+    manifest = verify_forecasts(archive)
+    before = (archive / MANIFEST).read_bytes()
+    run = manifest["runs"][run_id]
+    created = []
+    try:
+        for day, doc in documents.items():
+            forecast = run["forecasts"][day]
+            name = forecast["path"] + "/experimental.json"
+            path = _path(archive, name)
+            if path.exists() or "experimental_path" in forecast:
+                raise ValueError("实验预测已冻结，不允许覆盖")
+            with path.open("xb") as stream:
+                created.append(path)
+                stream.write(raw_json(doc))
+            forecast["experimental_path"] = name
+            manifest["files"][name] = digest(path)
+        for day, doc in documents.items():
+            run["forecasts"][day]["experimental_published_utc"] = (
+                clock().isoformat() if clock else doc["generated_utc"]
+            )
+        if release:
+            run["experimental_release"] = release
+        _write(archive / MANIFEST, manifest)
+        verify_forecasts(archive)
+    except BaseException:
+        (archive / MANIFEST).write_bytes(before)
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
+    return run
 
 
 def publish_forecasts(archive: Path, stage: Path, run: dict, *, before_commit=None) -> dict:

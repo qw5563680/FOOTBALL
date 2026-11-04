@@ -207,6 +207,17 @@ jobs:
         run: |
           cd "$WORK_DIR"
           python -m zucai.cloud_stats daily --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --max-requests 300
+      - name: Preserve captured statistics from already downloaded fd files
+        if: ${{ env.FEED_MODE == 'apis' && steps.collect.outputs.slot == 'early' }}
+        continue-on-error: true
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd "$WORK_DIR"
+          if [[ -d data/raw/football-data-co-uk ]]; then
+            python -m zucai.cloud_stats daily --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --endpoints fd --max-requests 1
+          fi
       - name: Publish verified data
         if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' || env.FEED_MODE == 'reconcile' || env.FEED_MODE == 'relink-fdorg' }}
         working-directory: cloud-data
@@ -326,6 +337,7 @@ jobs:
         run: python -m pip install -e "./app[model]"
       - name: Train configured leagues and freeze two Beijing days
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPORTTERY_STATUS: ${{ needs.sporttery.result }}
         run: |
           mkdir "$WORK_DIR"

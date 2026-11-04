@@ -180,7 +180,7 @@ def _receipt_detail(rows, inserted, rejected=0):
     )
 
 
-def store_rows(session, rows, metadata, *, clocks=None):
+def store_rows(session, rows, metadata, *, clocks=None, daily=False):
     """Append corrections per logical record; never mutate an earlier observation."""
     inserted = 0
     keys = [(r["provider"], r["provider_fixture_id"], r["endpoint"], r["record_key"]) for r in rows]
@@ -197,6 +197,12 @@ def store_rows(session, rows, metadata, *, clocks=None):
         match = session.get(Match, row["match_id"])
         if not match or row["team_id"] != getattr(match, row["side"] + "_team_id"):
             raise ValueError("技术数据主客身份与比赛不符")
+        if (
+            daily
+            and match.status == "finished"
+            and instant(metadata["captured_utc"]) > instant(match.kickoff_utc) + timedelta(hours=2)
+        ):
+            fields.update(availability_basis="captured", available_utc=metadata["captured_utc"])
         if row["provider"] == "apif":
             index = session.get(ApifFixtureIndex, row["provider_fixture_id"])
             if (
@@ -205,8 +211,11 @@ def store_rows(session, rows, metadata, *, clocks=None):
                 or row["provider_team_id"] != getattr(index, row["side"] + "_provider_id")
             ):
                 raise ValueError("技术数据缺少一致的 fixture 索引")
-        elif match.source != "fd" or row["provider_fixture_id"] != match.match_id:
-            raise ValueError("fd 技术数据仅附着既有 fd 行")
+        elif not (
+            (match.source == "fd" and row["provider_fixture_id"] == match.match_id)
+            or (match.source == "jc" and match.counterpart_id == row["provider_fixture_id"])
+        ):
+            raise ValueError("fd 技术数据须附着既有 fd 行或其已核验 jc counterpart")
         scope = [
             getattr(model, key) == row[key]
             for key in ("provider", "provider_fixture_id", "endpoint", "record_key")
@@ -232,6 +241,8 @@ def store_rows(session, rows, metadata, *, clocks=None):
                 continue
             if value != row["value"]:
                 fields["missing_reason"] = "partial_null_retained"
+                # Retained historical values are not observations in this response.
+                fields.update(availability_basis="backfilled", available_utc=None)
             fields["value"] = value
             if model is not MatchStat:
                 for key in (
@@ -298,7 +309,7 @@ def _record_duplicate(audit, provider_fixture_id, endpoint, metadata):
     return True
 
 
-def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location=None):
+def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location=None, daily=False):
     if endpoint not in {"statistics", "events", "lineups", "players"}:
         raise ValueError("不支持的技术端点")
     # Read the sidecar's requested ID, then independently verify URL, envelope and index.
@@ -394,7 +405,7 @@ def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location
             return dict(inserted=0, rejected=1)
         for row in rows:
             row.update(match_id=index.match_id, team_id=getattr(index, row["side"] + "_team_id"))
-        inserted = store_rows(session, rows, meta, clocks=observation_clocks(audit))
+        inserted = store_rows(session, rows, meta, clocks=observation_clocks(audit), daily=daily)
         receipts = [
             dict(
                 audit_row,
@@ -417,7 +428,9 @@ def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location
     return dict(inserted=inserted, rejected=len(rejected), empty=not rows)
 
 
-def ingest_fd(database, raw_file, *, div, season, leagues_path=None, raw_location=None):
+def ingest_fd(
+    database, raw_file, *, div, season, leagues_path=None, raw_location=None, daily=False
+):
     raw, meta = load_raw(
         raw_file, endpoint="csv", parameters={"div": div, "season": season}, location=raw_location
     )
@@ -446,12 +459,26 @@ def ingest_fd(database, raw_file, *, div, season, leagues_path=None, raw_locatio
             if _record_duplicate(audit, match_id, "csv", meta):
                 continue
             match = session.get(Match, match_id)
+            if match is None and daily:
+                linked = list(
+                    session.scalars(
+                        select(Match).where(
+                            Match.source == "jc",
+                            Match.counterpart_id == match_id,
+                            Match.league == league,
+                            Match.kickoff_utc >= game.kickoff_utc - timedelta(hours=3),
+                            Match.kickoff_utc <= game.kickoff_utc + timedelta(hours=3),
+                        )
+                    )
+                )
+                if len(linked) == 1:
+                    match = linked[0]
             if (
                 ids[match_id] != 1
                 or not match
-                or match.source != "fd"
+                or match.source not in ({"fd", "jc"} if daily else {"fd"})
                 or match.league != league
-                or instant(match.kickoff_utc) != game.kickoff_utc
+                or (match.source == "fd" and instant(match.kickoff_utc) != game.kickoff_utc)
             ):
                 receipts.append(
                     dict(
@@ -467,12 +494,12 @@ def ingest_fd(database, raw_file, *, div, season, leagues_path=None, raw_locatio
                 dict(
                     row,
                     provider_fixture_id=match_id,
-                    match_id=match_id,
+                    match_id=match.match_id,
                     team_id=getattr(match, row["side"] + "_team_id"),
                 )
                 for row in game.statistics
             ]
-            added = store_rows(session, rows, meta, clocks=clocks)
+            added = store_rows(session, rows, meta, clocks=clocks, daily=daily)
             inserted += added
             receipts.append(
                 dict(receipt, outcome="ingested", reason="", detail=_receipt_detail(rows, added))
