@@ -1,5 +1,6 @@
 """Store one complete SFC issue and its conservative cross-source mapping."""
 
+import copy
 import csv
 import hashlib
 import logging
@@ -10,10 +11,15 @@ from sqlalchemy import delete, select
 
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
-from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcSnapshot
+from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
+from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
 
 LOG = logging.getLogger(__name__)
+
+
+def _iso(value):
+    return value.isoformat() if isinstance(value, datetime) else value
 
 
 def _league_key(name):
@@ -80,7 +86,7 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
         evidence = {"basis": "verified_database_counterpart", "provider_match_id": own_id}
     if bridge:
         if (bridge["home_id"], bridge["away_id"]) != (fixture.home_id, fixture.away_id) or (
-            datetime.fromisoformat(bridge["kickoff_utc"]) != fixture.kickoff_utc
+            not mapped_only and datetime.fromisoformat(bridge["kickoff_utc"]) != fixture.kickoff_utc
         ):
             raise ValueError(f"{own_id} ID对照主客球队或开球冲突")
         target = session.get(Match, bridge["jc_id"])
@@ -110,7 +116,7 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
         )
         if (
             _league_key(match.league) != _league_key(fixture.league) and not source_league_confirmed
-        ) or datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc:
+        ) or (not mapped_only and datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc):
             raise ValueError(f"{own_id} ID对照与比赛联赛或开球冲突")
         return match, "matched", [m.match_id for m in linked], evidence
     home_name = bridge["home"] if bridge else fixture.home
@@ -179,6 +185,157 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
     )
 
 
+def _conflict_evidence(session, fixture, bridge, error):
+    """Keep both sides of failed ID evidence, without inferring a new identity."""
+    own_id = "c500:" + fixture.fixture_id
+    own = session.get(Match, own_id)
+    ids = {bridge["jc_id"]} if bridge else set()
+    if own and own.counterpart_id:
+        ids.add(own.counterpart_id)
+    ids.update(session.scalars(select(Match.match_id).where(Match.counterpart_id == own_id)))
+    candidates = []
+    for mid in sorted(ids):
+        match = session.get(Match, mid)
+        if match:
+            candidates.append(
+                dict(
+                    match_id=mid,
+                    home_team_id=match.home_team_id,
+                    away_team_id=match.away_team_id,
+                    home=session.get(Team, match.home_team_id).name,
+                    away=session.get(Team, match.away_team_id).name,
+                    league=match.league,
+                    kickoff_utc=_iso(match.kickoff_utc),
+                )
+            )
+    return dict(
+        basis="conflicting_identity",
+        detail=str(error),
+        bridge=bridge,
+        source_identity=dict(
+            home_id=fixture.home_id,
+            away_id=fixture.away_id,
+            home=fixture.home,
+            away=fixture.away,
+            league=fixture.league,
+            kickoff_utc=fixture.kickoff_utc.isoformat(),
+        ),
+        candidate_identities=candidates,
+    )
+
+
+def _snapshot_rows(session, issue, bridge_map, *, mapped_only, bridge_conflicts=()):
+    snapshot = []
+    for fixture in issue.fixtures:
+        try:
+            if fixture.fixture_id in bridge_conflicts:
+                raise ValueError(f"{fixture.fixture_id} 新旧比赛ID对照冲突，须人工核对")
+            match, mapping, candidates, evidence = _map_fixture(
+                session, fixture, bridge_map, mapped_only=mapped_only
+            )
+        except ValueError as exc:
+            if not mapped_only:
+                raise
+            match, mapping = None, "ambiguous"
+            evidence = _conflict_evidence(session, fixture, bridge_map.get(fixture.fixture_id), exc)
+            if fixture.fixture_id in bridge_conflicts:
+                evidence["previous_bridge"] = bridge_conflicts[fixture.fixture_id]
+            candidates = [c["match_id"] for c in evidence["candidate_identities"]]
+        source_time = fixture.kickoff_utc.isoformat()
+        local = fixture.kickoff_utc.astimezone(BEIJING)
+        placeholder = local.time().isoformat() == "00:00:00" and any(
+            f.kickoff_utc.astimezone(BEIJING).date() != local.date()
+            for f in issue.fixtures
+            if f.seq != fixture.seq
+        )
+        kickoff = _iso(match.kickoff_utc) if match else source_time
+        snapshot.append(
+            dict(
+                seq=fixture.seq,
+                fixture_id=fixture.fixture_id,
+                home=fixture.home,
+                away=fixture.away,
+                league=fixture.league,
+                kickoff_utc=kickoff,
+                source_kickoff_utc=source_time,
+                kickoff_basis="database" if match else "placeholder" if placeholder else "provider",
+                source_ended=fixture.ended,
+                match_id=match.match_id if match else None,
+                mapping=mapping,
+                reason="conflicting_identity"
+                if evidence["basis"] == "conflicting_identity"
+                else mapping
+                if mapping != "matched"
+                else None,
+                candidate_ids=candidates,
+                mapping_evidence=evidence,
+                provider_home_id=fixture.home_id,
+                provider_away_id=fixture.away_id,
+                matched_identity=dict(
+                    home=session.get(Team, match.home_team_id).name,
+                    away=session.get(Team, match.away_team_id).name,
+                    league=match.league,
+                    source=match.source,
+                    kickoff_utc=kickoff,
+                )
+                if match
+                else None,
+            )
+        )
+    return snapshot
+
+
+def refresh_snapshot(session, issue):
+    """Retry unresolved rows against the current DB, without writing any source state."""
+    rows = copy.deepcopy(issue.snapshot)
+    source = SfcSnapshot(
+        issue.issue_no,
+        None,
+        [
+            SfcFixture(
+                seq=r["seq"],
+                fixture_id=r["fixture_id"],
+                home=r["home"],
+                away=r["away"],
+                league=r["league"],
+                kickoff_utc=datetime.fromisoformat(r.get("source_kickoff_utc", r["kickoff_utc"])),
+                ended=r.get("source_ended", False),
+                home_id=r.get("provider_home_id"),
+                away_id=r.get("provider_away_id"),
+            )
+            for r in rows
+        ],
+        issue.date_basis,
+    )
+    bridges = {}
+    conflicts = {}
+    for row in rows:
+        saved = row.get("mapping_evidence", {})
+        bridge = (
+            saved if saved.get("basis") == "provider_fixture_and_team_ids" else saved.get("bridge")
+        )
+        if bridge:
+            bridges[row["fixture_id"]] = bridge
+        if saved.get("previous_bridge"):
+            conflicts[row["fixture_id"]] = saved["previous_bridge"]
+    refreshed = _snapshot_rows(
+        session, source, bridges, mapped_only=True, bridge_conflicts=conflicts
+    )
+    for index, row in enumerate(rows):
+        if row["match_id"] is None:
+            rows[index] = refreshed[index]
+            continue
+        # Previously linked rows (including manual T07 c500 rows) keep their
+        # identity evidence. Only the clock is refreshed; the report still checks
+        # all other identity fields against the DB and the frozen forecast.
+        match = session.get(Match, row["match_id"])
+        if match:
+            row.setdefault("source_kickoff_utc", row["kickoff_utc"])
+            row.update(kickoff_utc=_iso(match.kickoff_utc), kickoff_basis="database")
+            row["matched_identity"]["kickoff_utc"] = _iso(match.kickoff_utc)
+    return rows
+
+
 def ingest_issue(
     session,
     issue: SfcSnapshot,
@@ -201,60 +358,29 @@ def ingest_issue(
         raise ValueError("重复比赛ID对照")
     # The public current page rolls past old fixtures. Preserve their archived
     # ID evidence, including its original capture time, without inventing aliases.
+    bridge_conflicts = {}
     for row in (record.snapshot or []) if record else []:
         saved = row.get("mapping_evidence", {})
-        if saved.get("basis") != "provider_fixture_and_team_ids":
-            continue
+        successful = saved.get("basis") == "provider_fixture_and_team_ids"
+        if saved.get("previous_bridge"):
+            saved, successful = saved["previous_bridge"], True
+        if not successful:
+            saved = saved.get("bridge")
+            if not saved:
+                continue
         fid = row["fixture_id"]
         current = bridge_map.get(fid)
-        if current and any(current[k] != saved[k] for k in ("jc_id", "home_id", "away_id")):
-            raise ValueError(f"{fid} 新旧比赛ID对照冲突，须人工核对")
+        if (
+            successful
+            and current
+            and any(current[k] != saved[k] for k in ("jc_id", "home_id", "away_id"))
+        ):
+            bridge_conflicts[fid] = saved
         if current is None:
             bridge_map[fid] = dict(saved, reused_from_issue_snapshot=True)
-    snapshot = []
-    for fixture in issue.fixtures:
-        try:
-            match, mapping, candidates, evidence = _map_fixture(
-                session, fixture, bridge_map, mapped_only=mapped_only
-            )
-        except ValueError:
-            if not mapped_only:
-                raise
-            match, mapping, candidates, evidence = (
-                None,
-                "ambiguous",
-                [],
-                {"basis": "conflicting_identity"},
-            )
-        home = session.get(Team, match.home_team_id) if match else None
-        away = session.get(Team, match.away_team_id) if match else None
-        snapshot.append(
-            dict(
-                seq=fixture.seq,
-                fixture_id=fixture.fixture_id,
-                home=fixture.home,
-                away=fixture.away,
-                league=fixture.league,
-                kickoff_utc=fixture.kickoff_utc.isoformat(),
-                source_ended=fixture.ended,
-                match_id=match.match_id if match else None,
-                mapping=mapping,
-                reason=mapping if mapping != "matched" else None,
-                candidate_ids=candidates,
-                mapping_evidence=evidence,
-                provider_home_id=fixture.home_id,
-                provider_away_id=fixture.away_id,
-                matched_identity=dict(
-                    home=home.name,
-                    away=away.name,
-                    league=match.league,
-                    source=match.source,
-                    kickoff_utc=fixture.kickoff_utc.isoformat(),
-                )
-                if match
-                else None,
-            )
-        )
+    snapshot = _snapshot_rows(
+        session, issue, bridge_map, mapped_only=mapped_only, bridge_conflicts=bridge_conflicts
+    )
     if (
         len(snapshot) != 14
         or len({x["fixture_id"] for x in snapshot}) != 14
@@ -403,6 +529,11 @@ def collect_current_sfc(db):
                     fixture_id=r["fixture_id"],
                     reason=r["reason"],
                     candidates=json.dumps(r["candidate_ids"], sort_keys=True),
+                    provider_home_id=r["provider_home_id"],
+                    provider_away_id=r["provider_away_id"],
+                    conflicting_identities=json.dumps(
+                        r["mapping_evidence"], ensure_ascii=False, sort_keys=True
+                    ),
                     raw_sha256=record.raw_sha256,
                 )
                 for r in record.snapshot
@@ -416,15 +547,27 @@ def collect_current_sfc(db):
                 rejected_rows=len(rows),
             )
             audit.parent.mkdir(parents=True, exist_ok=True)
-            fields = ["issue_no", "seq", "fixture_id", "reason", "candidates", "raw_sha256"]
+            fields = [
+                "issue_no",
+                "seq",
+                "fixture_id",
+                "reason",
+                "candidates",
+                "provider_home_id",
+                "provider_away_id",
+                "conflicting_identities",
+                "raw_sha256",
+            ]
             previous_audit = audit.read_bytes() if audit.exists() else None
             existing = []
             if audit.exists():
                 with audit.open(encoding="utf-8", newline="") as stream:
                     existing = list(csv.DictReader(stream))
-            seen = {tuple(str(r[k]) for k in fields[:-1]) for r in existing}
+            # Capture timestamps/hashes in evidence change every sync; identity
+            # deduplication still uses the original five-column logical row key.
+            seen = {tuple(str(r[k]) for k in fields[:5]) for r in existing}
             for row in rows:
-                key = tuple(str(row[k]) for k in fields[:-1])
+                key = tuple(str(row[k]) for k in fields[:5])
                 if key not in seen:
                     existing.append(row)
                     seen.add(key)

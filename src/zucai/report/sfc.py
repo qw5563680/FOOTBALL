@@ -27,6 +27,7 @@ from zucai.report.render import (
     _validate_batch,
     load_batch,
 )
+from zucai.sources.sfc import refresh_snapshot
 
 LOG = logging.getLogger(__name__)
 OPTIONS = {"h": "3", "d": "1", "a": "0"}
@@ -77,7 +78,10 @@ def build_sfc_report(
     _validate_batch(batch)
     if not issue.snapshot or len(issue.snapshot) != 14 or not issue.observed_utc:
         raise ValueError("期次缺少完整来源快照，请重新抓取")
-    rows = sorted(copy.deepcopy(issue.snapshot), key=lambda r: r["seq"])
+    rows = sorted(
+        refresh_snapshot(session, issue) if allow_missing else copy.deepcopy(issue.snapshot),
+        key=lambda r: r["seq"],
+    )
     keys = [r["match_id"] for r in rows if r["match_id"] is not None]
     if (
         [r["seq"] for r in rows] != list(range(1, 15))
@@ -99,11 +103,14 @@ def build_sfc_report(
         if not m.get("pooled") or source == "jc"
     }
     for row in rows:
+        mapping_reason = row.get("reason") or row.get("mapping", "unmatched")
         row.update(probabilities=None, reason=None, top_outcome=None, selection=None)
         predicted = predictions.get(row["match_id"])
         match = session.get(Match, row["match_id"]) if row["match_id"] else None
         if not match:
-            row["reason"] = "映射比赛不在数据库中"
+            row["reason"] = "未映射：" + (
+                "映射比赛不在数据库中" if row["match_id"] else mapping_reason
+            )
             continue
         identity = row["matched_identity"]
         current = dict(
@@ -160,7 +167,8 @@ def build_sfc_report(
         for row in rows:
             if row["probabilities"] is None:
                 row["selection"] = list("hda")
-                row["reason"] = "无模型：" + (row["reason"] or "概率缺失")
+                if not row["reason"].startswith("未映射："):
+                    row["reason"] = "无模型：" + (row["reason"] or "概率缺失")
         if minimum_lines <= max_lines:
             known = [r for r in rows if r["probabilities"] is not None]
             combo = optimize_cover([r["probabilities"] for r in known], max_lines // minimum_lines)
@@ -245,7 +253,8 @@ def _markdown(report):
         columns = [
             r["seq"],
             f"{r['league']} {r['home']}—{r['away']}",
-            _beijing(r["kickoff_utc"]),
+            _beijing(r["kickoff_utc"])
+            + ("（占位开球时间，待核实）" if r.get("kickoff_basis") == "placeholder" else ""),
             r["mapping"],
             *[_percent(p.get(k)) for k in "hda"],
             OPTIONS.get(r["top_outcome"], "—"),
@@ -279,7 +288,8 @@ def _markdown(report):
             lines += ["**14场模型输入不完整或存在冲突：无法可靠计算整期覆盖，不生成复式方案。**"]
     if report.get("diagnostic"):
         lines += [
-            f"无模型 {report['missing_models']} 场保留空概率并按三选处理；有模型场次才有单选首项。",
+            f"无模型 {report['missing_models']} 场保留空概率并按三选处理；"
+            "全包＝无预测；有模型场次才有单选首项。",
             "本报告仅作诊断，不设虚拟资金、不估算奖金。"
             "forecast_batch 是当日冻结批次的引用合并视图，",
             "不是新预测；原件路径、哈希与完整批次保存在 forecast_sources，不改写任何原预测。",

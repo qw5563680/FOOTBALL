@@ -108,7 +108,7 @@ def publish_reports(archive, *, now=None):
     at = now or datetime.now(UTC)
     at = _timestamp(at.isoformat() if isinstance(at, datetime) else at)
     manifest = verify_forecasts(archive)
-    read_reports(archive)
+    existing = read_reports(archive)
     runs = [
         run
         for run in (manifest or {}).get("runs", {}).values()
@@ -136,15 +136,8 @@ def publish_reports(archive, *, now=None):
                     for issue in session.scalars(select(SfcIssue).order_by(SfcIssue.issue_no)):
                         if not issue.sale_end_utc or _timestamp(issue.sale_end_utc) <= at:
                             continue
-                        if any(
-                            _timestamp(row["kickoff_utc"]) <= at for row in issue.snapshot or []
-                        ):
-                            LOG.warning("SFC %s 已有开球场次，保留原报告", issue.issue_no)
-                            continue
                         directory = f"sfc/{issue.issue_no}"
                         history = f"{directory}/history/{run['run_id']}"
-                        if _path(archive, history).exists():
-                            continue  # Same source run is never rewritten after identity changes.
                         report = build_sfc_report(
                             session,
                             issue,
@@ -170,10 +163,29 @@ def publish_reports(archive, *, now=None):
                         }
                         for row in report["rows"]:
                             row["forecast_reference"] = references.get(row["match_id"])
+                        if any(
+                            old.get("run_id") == run["run_id"]
+                            and old["rows"] == report["rows"]
+                            and old["source"] == report["source"]
+                            for path, old in existing
+                            if path.startswith(directory + "/")
+                        ):
+                            continue
+                        if _path(archive, history).exists():
+                            # A newly resolved mapping may use the same frozen
+                            # forecasts. Preserve the first report, add a version.
+                            fingerprint = hashlib.sha256(
+                                _json_bytes(dict(rows=report["rows"], source=report["source"]))
+                            ).hexdigest()[:16]
+                            history += "-mapping-" + fingerprint
                         write_sfc_report(report, stage / issue.issue_no)
                         cutoff = min(
-                            _timestamp(issue.sale_end_utc),
-                            *(_timestamp(r["kickoff_utc"]) for r in report["rows"]),
+                            [_timestamp(issue.sale_end_utc)]
+                            + [
+                                _timestamp(r["kickoff_utc"])
+                                for r in report["rows"]
+                                if r["match_id"] is not None
+                            ]
                         )
                         if (at if now else datetime.now(UTC)) >= cutoff:
                             LOG.warning("SFC %s 在写入前已截止，未发布", issue.issue_no)
