@@ -1,10 +1,138 @@
 {
-  "version": 2,
+  "collection": {
+    "apif": {
+      "alias_candidates": 0,
+      "assumed": 0,
+      "availability_corrected": 0,
+      "availability_quarantined": 0,
+      "cancelled": 0,
+      "corrected": 0,
+      "cups": {
+        "欧协联": {
+          "matches_added": 0,
+          "matches_after": 2404,
+          "results_added": 0,
+          "results_after": 2332
+        },
+        "欧罗巴": {
+          "matches_added": 0,
+          "matches_after": 1240,
+          "results_added": 0,
+          "results_after": 1150
+        }
+      },
+      "current": 404,
+      "errors": [
+        "单行拒绝或疑似重复，详见 state/audit"
+      ],
+      "inserted": 0,
+      "limit_day": 7500,
+      "linked_existing": 3,
+      "linked_fd": 0,
+      "linked_fdorg": 0,
+      "local_daily_cap": 7500,
+      "observed_utc": "2026-11-04T10:25:30.391637+00:00",
+      "plan": "Pro",
+      "quota_fallback": false,
+      "rejected_rows": 0,
+      "remaining_quota": 7092,
+      "requests": 3,
+      "run_id": "41813980501-1",
+      "skipped": 0,
+      "status": "partial",
+      "status_requests": 1,
+      "suspected_duplicates": 2,
+      "unchanged": 5,
+      "unmatched_teams": 4,
+      "updated": 0
+    },
+    "fd": {
+      "downloaded_files": 0,
+      "errors": [],
+      "inserted": 0,
+      "linked_existing": 0,
+      "linked_fd": 0,
+      "linked_fdorg": 0,
+      "observed_utc": "2026-11-04T10:25:30.391624+00:00",
+      "reason": "仅 UTC 周一早班采集",
+      "rejected_rows": 0,
+      "run_id": "41813980501-1",
+      "status": "skipped"
+    },
+    "fdorg": {
+      "alias_candidates": 0,
+      "assumed": 0,
+      "availability_corrected": 0,
+      "availability_quarantined": 0,
+      "cancelled": 0,
+      "corrected": 0,
+      "cups": {
+        "欧冠": {
+          "matches_added": 0,
+          "matches_after": 595,
+          "results_added": 0,
+          "results_after": 505
+        }
+      },
+      "errors": [
+        "单行拒绝或疑似重复，详见 state/audit"
+      ],
+      "inserted": 0,
+      "linked_existing": 21,
+      "linked_fd": 7,
+      "linked_fdorg": 0,
+      "observed_utc": "2026-11-04T10:25:30.391633+00:00",
+      "rejected_rows": 0,
+      "remaining_quota": 9,
+      "requests": 1,
+      "run_id": "41813980501-1",
+      "skipped": 0,
+      "status": "partial",
+      "suspected_duplicates": 19,
+      "unchanged": 68,
+      "unmatched_teams": 4,
+      "updated": 0
+    },
+    "stats": {
+      "archive_failed": true,
+      "context_updates": 0,
+      "downloaded_files": 0,
+      "errors": [
+        "技术归档失败，该批数据库/游标未提交：网络请求失败"
+      ],
+      "identity": {
+        "deleted_teams": 1,
+        "merged_teams": 1,
+        "operation": "reconcile_den_haag",
+        "rekeyed_indices": 0,
+        "rekeyed_matches": 8,
+        "rekeyed_stats": 0,
+        "requests": 0,
+        "skipped_conflicts": 0,
+        "status": "complete"
+      },
+      "inserted": 0,
+      "linked_existing": 0,
+      "mode": "backfill",
+      "observed_utc": "2026-11-04T12:44:41.562793+00:00",
+      "rejected_rows": 3411,
+      "remaining_quota": 7062,
+      "requests": 40,
+      "resume": true,
+      "run_id": "41831835744-1",
+      "status": "partial"
+    }
+  },
+  "collection_status": "partial",
   "columns": {
-    "teams": [
-      "id",
-      "name",
-      "aliases"
+    "closing_odds": [
+      "match_id",
+      "bookmaker",
+      "pool",
+      "h",
+      "d",
+      "a",
+      "basis"
     ],
     "matches": [
       "match_id",
@@ -19,15 +147,6 @@
       "result_provider",
       "counterpart_id"
     ],
-    "results": [
-      "match_id",
-      "home_goals",
-      "away_goals",
-      "ht_home_goals",
-      "ht_away_goals",
-      "available_utc",
-      "available_source"
-    ],
     "odds": [
       "id",
       "match_id",
@@ -37,182 +156,29 @@
       "price",
       "snapshot_utc"
     ],
-    "closing_odds": [
+    "results": [
       "match_id",
-      "bookmaker",
-      "pool",
-      "h",
-      "d",
-      "a",
-      "basis"
+      "home_goals",
+      "away_goals",
+      "ht_home_goals",
+      "ht_away_goals",
+      "available_utc",
+      "available_source"
+    ],
+    "teams": [
+      "id",
+      "name",
+      "aliases"
     ]
   },
-  "through_beijing": "2026-11-04",
-  "run": "41813980501-1",
-  "created_utc": "2026-11-04T10:25:33.245018+00:00",
   "counts": {
-    "teams": 1014,
+    "closing_odds": 100030,
     "matches": 34775,
-    "results": 34137,
     "odds": 3345,
-    "closing_odds": 100030
+    "results": 34137,
+    "teams": 1014
   },
-  "sources": {
-    "apif": {
-      "counts": {
-        "matches": 5523,
-        "results": 5054,
-        "odds": 0,
-        "closing_odds": 0
-      },
-      "sha256": {
-        "matches": "7eb38d1752171c064d1a4dbb650239eac8295ac5587fd4e5f9f91da7ab845fd7",
-        "results": "89310f7714438023ee286673914db126aa28c6744b1d855486f69b0f7c128a09",
-        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "closing_odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      }
-    },
-    "fd": {
-      "counts": {
-        "matches": 27673,
-        "results": 27673,
-        "odds": 0,
-        "closing_odds": 98452
-      },
-      "sha256": {
-        "matches": "f5d74d16eefc888ee527aa375b4ca0a102e0ad93eab8385509ceb55dc40be3a4",
-        "results": "d61e9bd9306f108f307abb381154e1fe2a7b26de034b80c3f3754deb0c99a014",
-        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "closing_odds": "9f0fd5128b3721cfe45993e59f897c411056dcfb5f1d3c6502fa814ab48daaae"
-      }
-    },
-    "fdorg": {
-      "counts": {
-        "matches": 690,
-        "results": 546,
-        "odds": 0,
-        "closing_odds": 0
-      },
-      "sha256": {
-        "matches": "da2dd6c48538dbc22a773adb7f261506c4c8848f044555d29c1628a00f0c1924",
-        "results": "6e681dc20229b456f9a48f79df4b6c5f879ae1314955411573a2e989d840335a",
-        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "closing_odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      }
-    },
-    "jc": {
-      "counts": {
-        "matches": 889,
-        "results": 864,
-        "odds": 3345,
-        "closing_odds": 1578
-      },
-      "sha256": {
-        "matches": "600852116709178499ee651b63875d301a8afd1474fa3ed83eb13e1faae5e016",
-        "results": "cedaaae0680d1d7de94bdc6416cb0c48fc96a250d6c7f7f3734988c30f8247ec",
-        "odds": "449ca80f721a09c92b56277850cbcd507ddd85e74955601ca7f1e2a926365fe7",
-        "closing_odds": "3b2208deba8be49040a4078467a13e2e5cfc506c38c6b74f72df13fe433ba31f"
-      }
-    }
-  },
-  "collection": {
-    "apif": {
-      "status": "partial",
-      "inserted": 0,
-      "linked_existing": 3,
-      "linked_fd": 0,
-      "linked_fdorg": 0,
-      "rejected_rows": 0,
-      "requests": 3,
-      "errors": [
-        "单行拒绝或疑似重复，详见 state/audit"
-      ],
-      "remaining_quota": 7092,
-      "status_requests": 1,
-      "updated": 0,
-      "corrected": 0,
-      "availability_corrected": 0,
-      "availability_quarantined": 0,
-      "unchanged": 5,
-      "cancelled": 0,
-      "skipped": 0,
-      "suspected_duplicates": 2,
-      "assumed": 0,
-      "unmatched_teams": 4,
-      "plan": "Pro",
-      "limit_day": 7500,
-      "current": 404,
-      "quota_fallback": false,
-      "local_daily_cap": 7500,
-      "alias_candidates": 0,
-      "cups": {
-        "欧协联": {
-          "matches_after": 2404,
-          "results_after": 2332,
-          "matches_added": 0,
-          "results_added": 0
-        },
-        "欧罗巴": {
-          "matches_after": 1240,
-          "results_after": 1150,
-          "matches_added": 0,
-          "results_added": 0
-        }
-      },
-      "run_id": "41813980501-1",
-      "observed_utc": "2026-11-04T10:25:30.391637+00:00"
-    },
-    "fd": {
-      "status": "skipped",
-      "inserted": 0,
-      "linked_existing": 0,
-      "linked_fd": 0,
-      "linked_fdorg": 0,
-      "rejected_rows": 0,
-      "errors": [],
-      "downloaded_files": 0,
-      "reason": "仅 UTC 周一早班采集",
-      "run_id": "41813980501-1",
-      "observed_utc": "2026-11-04T10:25:30.391624+00:00"
-    },
-    "fdorg": {
-      "status": "partial",
-      "inserted": 0,
-      "linked_existing": 21,
-      "linked_fd": 7,
-      "linked_fdorg": 0,
-      "rejected_rows": 0,
-      "requests": 1,
-      "errors": [
-        "单行拒绝或疑似重复，详见 state/audit"
-      ],
-      "updated": 0,
-      "corrected": 0,
-      "availability_corrected": 0,
-      "availability_quarantined": 0,
-      "unchanged": 68,
-      "cancelled": 0,
-      "skipped": 0,
-      "suspected_duplicates": 19,
-      "assumed": 0,
-      "remaining_quota": 9,
-      "unmatched_teams": 4,
-      "alias_candidates": 0,
-      "cups": {
-        "欧冠": {
-          "matches_after": 595,
-          "results_after": 505,
-          "matches_added": 0,
-          "results_added": 0
-        }
-      },
-      "run_id": "41813980501-1",
-      "observed_utc": "2026-11-04T10:25:30.391633+00:00"
-    }
-  },
-  "collection_status": "partial",
-  "pending_result_count": 0,
-  "pending_result_dates": [],
+  "created_utc": "2026-11-04T10:25:33.245018+00:00",
   "files": {
     "matches/2021-02.csv": "7b21864032ed23e3ef560a38e8f62f7cbbf827bfad71efa3573e2425cf83389d",
     "matches/2021-03.csv": "633b18c304c87a481714fc3d6bf7a16efcb9eab43e81c8bc81d2cd1a56a43e01",
@@ -292,7 +258,7 @@
     "matches/2027-05.csv": "af95b1a5dd95dc7207c6c36dcfdb895954326a0c481c619bb84bdcfc2c2467f8",
     "state/alias_candidates/apif.json": "2facc361cc5aed1045111693ce31476b8d8285c36fa466229f0d3efb649f2771",
     "state/alias_candidates/fdorg.json": "2ed4c40eb701a1037404f2c84851114921b24395f0242122414168069f2b3cd7",
-    "state/api_football_quota.json": "8b8855d4f0fce23db5a9f1cef66c108f698d8d7eac5072f0548841ad500621d6",
+    "state/api_football_quota.json": "194b0d3140e548783dcfabd0f726cf2dca9eb4a1a614d241e87e371e1d4c77a6",
     "state/audit/apif_cup_aliases.csv": "e61ad08486651bf7c9db785694e6996556814e8bb980b1d88edf3c7225af8f1f",
     "state/audit/apif_identity.csv": "d625b8d5595a0603fe73fc034f79451684dcadfd9c90104f0df747c27526f4ed",
     "state/audit/apif_identity_matches.csv": "f99f6921c7835059019ef60c39ce531fa0d50d946bb3a259c5ef8571e1351228",
@@ -322,5 +288,68 @@
     "state/sfc/26158.json": "21aab048b97024a1a5072f2cc748e595158f536baa6b1a20b1a2de6fe1fa96fb",
     "state/teams.jsonl": "40f0cf60014e09e01e1fa35b5be4ea9100f4ce0b0018e010a7c68089c2eeef49",
     "state/unmatched_teams.csv": "9d35d7890201ce933db88420976e4206fefaa9b880baae3aaac3c00545b6d725"
-  }
+  },
+  "pending_result_count": 0,
+  "pending_result_dates": [],
+  "run": "41813980501-1",
+  "sources": {
+    "apif": {
+      "counts": {
+        "closing_odds": 0,
+        "matches": 5523,
+        "odds": 0,
+        "results": 5054
+      },
+      "sha256": {
+        "closing_odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "matches": "7eb38d1752171c064d1a4dbb650239eac8295ac5587fd4e5f9f91da7ab845fd7",
+        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results": "89310f7714438023ee286673914db126aa28c6744b1d855486f69b0f7c128a09"
+      }
+    },
+    "fd": {
+      "counts": {
+        "closing_odds": 98452,
+        "matches": 27673,
+        "odds": 0,
+        "results": 27673
+      },
+      "sha256": {
+        "closing_odds": "9f0fd5128b3721cfe45993e59f897c411056dcfb5f1d3c6502fa814ab48daaae",
+        "matches": "f5d74d16eefc888ee527aa375b4ca0a102e0ad93eab8385509ceb55dc40be3a4",
+        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results": "d61e9bd9306f108f307abb381154e1fe2a7b26de034b80c3f3754deb0c99a014"
+      }
+    },
+    "fdorg": {
+      "counts": {
+        "closing_odds": 0,
+        "matches": 690,
+        "odds": 0,
+        "results": 546
+      },
+      "sha256": {
+        "closing_odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "matches": "da2dd6c48538dbc22a773adb7f261506c4c8848f044555d29c1628a00f0c1924",
+        "odds": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "results": "6e681dc20229b456f9a48f79df4b6c5f879ae1314955411573a2e989d840335a"
+      }
+    },
+    "jc": {
+      "counts": {
+        "closing_odds": 1578,
+        "matches": 889,
+        "odds": 3345,
+        "results": 864
+      },
+      "sha256": {
+        "closing_odds": "3b2208deba8be49040a4078467a13e2e5cfc506c38c6b74f72df13fe433ba31f",
+        "matches": "600852116709178499ee651b63875d301a8afd1474fa3ed83eb13e1faae5e016",
+        "odds": "449ca80f721a09c92b56277850cbcd507ddd85e74955601ca7f1e2a926365fe7",
+        "results": "cedaaae0680d1d7de94bdc6416cb0c48fc96a250d6c7f7f3734988c30f8247ec"
+      }
+    }
+  },
+  "through_beijing": "2026-11-04",
+  "version": 2
 }
