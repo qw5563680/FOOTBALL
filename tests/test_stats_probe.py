@@ -26,6 +26,18 @@ def test_sampler_covers_status_groups_before_filling_and_prefers_existing_ids():
     assert sample_fixtures([], 2, known) == []
 
 
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_jc_counterparts_precede_lower_provider_ids_within_each_status_group(count):
+    from zucai.stats_probe import sample_fixtures
+
+    rows = fixture("fixtures")["response"]
+    case = fixture("sampling_priority")
+    expected = case["expected_by_status"][:count]
+    for ordered in (rows, list(reversed(rows))):
+        selected = sample_fixtures(ordered, count, case["known_ids"])
+        assert [row["fixture"]["id"] for row in selected] == expected
+
+
 @pytest.mark.parametrize("name", ["statistics", "events", "lineups", "players", "injuries"])
 def test_endpoint_audit_reads_fixture_fields_and_preserves_nulls(name):
     from zucai.stats_probe import parse_response

@@ -16,6 +16,14 @@ from zucai.sources.api_football import API
 NOW = datetime(2026, 11, 4, tzinfo=UTC)
 
 
+def test_complete_default_scope_fits_500_request_budget():
+    from zucai.cloud_stats_probe import DEFAULT_PER_SCOPE, stats_plan
+
+    plan = stats_plan(None, None, DEFAULT_PER_SCOPE, NOW)
+    assert plan["per_scope"] == 1 and plan["request_budget"] == 344
+    assert len(plan["leagues"]) == 19 and len(plan["scopes"]) == 54
+
+
 @pytest.fixture
 def database(tmp_path, monkeypatch):
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -155,6 +163,36 @@ def test_champions_league_only_requests_metadata(database):
     assert report["probes"][0]["coverage"]
 
 
+def test_collector_reaches_jc_linked_main_stage_before_provider_only_qualifier(database):
+    from zucai.cloud_stats_probe import collect_stats_probe, known_fixture_ids
+    from zucai.stats_probe import DETAIL_ENDPOINTS
+
+    target = fixture("sampling_priority")["main_stage"]
+    with sqlite3.connect(database) as con:
+        for mid, source, counterpart in (
+            (target["counterpart_id"], "apif", target["match_id"]),
+            (target["match_id"], "jc", target["counterpart_id"]),
+        ):
+            con.execute(
+                "INSERT INTO matches (match_id,source,league,home_team_id,away_team_id,"
+                "kickoff_utc,status,counterpart_id) VALUES (?,?,?,1,2,?,?,?)",
+                (mid, source, "欧罗巴", "2024-09-02T18:00:00Z", "finished", counterpart),
+            )
+    known = known_fixture_ids(database)
+    assert known[str(target["fixture_id"])] == target["match_id"]
+    before = database.read_bytes()
+    with responses.RequestsMock() as http:
+        register(http, sample=(target["fixture_id"],))
+        report = collect_stats_probe(
+            database, "jc-priority", codes="3", seasons="2024", per_scope=1, now=NOW
+        )
+    assert report["status"] == "complete" and report["requests"] == 8
+    detail = [row for row in report["probes"] if row["endpoint"] in DETAIL_ENDPOINTS]
+    assert {row["fixture_id"] for row in detail} == {target["fixture_id"]}
+    assert {row["match_id"] for row in detail} == {target["match_id"]}
+    assert database.read_bytes() == before
+
+
 def test_errors_are_partial_and_next_endpoint_still_runs(database):
     from zucai.cloud_stats_probe import collect_stats_probe
 
@@ -269,8 +307,6 @@ def test_cli_stats_archive_roundtrip_preserves_tables_and_frozen_forecasts(
             "3",
             "--seasons",
             "2024",
-            "--per-scope",
-            "1",
         ],
     )
     with responses.RequestsMock() as http:

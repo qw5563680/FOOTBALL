@@ -26,7 +26,7 @@ from zucai.stats_probe import (
 
 ALLOWED = APIF_IDENTITY_LEAGUE_IDS | APIF_LEAGUE_IDS | {2}
 DEFAULT_SEASONS = "2022,2024,2026"
-DEFAULT_PER_SCOPE = 2
+DEFAULT_PER_SCOPE = 1
 MAX_REQUESTS = 500
 
 
@@ -52,7 +52,7 @@ def stats_plan(codes, seasons, per_scope, now):
 
 
 def known_fixture_ids(database):
-    """Only existing provider IDs/counterparts count; no name/time identity inference."""
+    """Map provider IDs to existing matches, preserving jc identity for sampling priority."""
     database = Path(database)
     if not database.exists():
         return {}

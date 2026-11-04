@@ -43,7 +43,7 @@ FIELDS = (
 
 
 def sample_fixtures(rows, per_scope, known_ids):
-    """One from each status group first, then fill; known source IDs win within a group."""
+    """One per status group first; within a group prefer jc, other known IDs, then unknown."""
     if type(per_scope) is not int or per_scope < 1:
         raise ValueError("per_scope 须为正整数")
     ids = Counter(row.get("fixture", {}).get("id") for row in rows if isinstance(row, dict))
@@ -60,7 +60,11 @@ def sample_fixtures(rows, per_scope, known_ids):
             and row["fixture"].get("status", {}).get("short") in states
         ]
         candidates.sort(
-            key=lambda row: (str(row["fixture"]["id"]) not in known_ids, row["fixture"]["id"])
+            key=lambda row: (
+                not known_ids.get(str(row["fixture"]["id"]), "").startswith("jc:"),
+                str(row["fixture"]["id"]) not in known_ids,
+                row["fixture"]["id"],
+            )
         )
         groups.append(candidates)
     selected = [group[0] for group in groups if group]

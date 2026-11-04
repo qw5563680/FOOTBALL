@@ -10,6 +10,11 @@ import pytest
 WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
 
 
+def test_workflow_default_samples_one_match_per_scope():
+    field = WORKFLOW.read_text().split("      per_scope:\n", 1)[1].split("      from_season:", 1)[0]
+    assert "default: 1" in field
+
+
 @pytest.mark.parametrize("leagues,seasons,count", [("3,848", "2024", "3"), ("", "", "")])
 def test_stats_probe_workflow_preserves_inputs_and_uses_cli_defaults(
     tmp_path, leagues, seasons, count
