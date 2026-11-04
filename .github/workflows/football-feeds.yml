@@ -458,27 +458,6 @@ jobs:
           $bin = Join-Path (Split-Path (Split-Path $git -Parent) -Parent) 'bin'
           if (-not (Test-Path (Join-Path $bin 'bash.exe'))) { throw "Git Bash not found under $bin" }
           Add-Content -Path $env:GITHUB_PATH -Value $bin
-      - name: Validate dispatch options before collection
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        env:
-          DISPATCH_OPTIONS: ${{ inputs.options }}
-        run: |
-          python - <<'PYOPTIONS'
-          import json
-          import os
-          options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope"}
-          if not isinstance(options, dict) or set(options) - allowed:
-              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope")
-          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats"}:
-              raise SystemExit("invalid probe_kind")
-          count = options.get("per_scope", 1)
-          if type(count) is not int or count < 1:
-              raise SystemExit("per_scope must be a positive integer")
-          for key in ("from_season", "to_season"):
-              if key in options and not isinstance(options[key], (str, int)):
-                  raise SystemExit("season bounds must be strings or integers")
-          PYOPTIONS
       - name: Install project
         shell: bash
         run: python -m pip install -e ./app

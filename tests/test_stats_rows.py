@@ -171,6 +171,38 @@ def test_incomplete_previous_snapshot_cannot_be_republished(tmp_path):
         publish(source, tmp_path / "out2", release, previous=original, run_id="two")
 
 
+@pytest.mark.parametrize("damage", [None, "changed_row", "missing_row", "cached_bytes"])
+def test_restore_publish_reuses_downloads_without_weakening_history_checks(tmp_path, damage):
+    from zucai.stats_rows import restore_rows
+
+    source = tmp_path / "feeds.db"
+    seed(source, versions=3)
+    release = LocalRelease(tmp_path / "release")
+    previous = publish(source, tmp_path / "out", release)
+    cache = tmp_path / "batch-cache"
+    restore_rows(source, release=release, shard_cache=cache)
+    downloads = [(s["tag"], s["name"]) for s in previous["row_shards"]]
+    assert release.downloads == downloads
+    if damage == "cached_bytes":
+        next(cache.glob("*.jsonl.zst")).write_bytes(b"corrupt")
+    elif damage:
+        with sqlite3.connect(source) as db:
+            if damage == "changed_row":
+                db.execute("UPDATE match_stats SET value=10 WHERE version=1")
+            else:
+                db.execute("DELETE FROM match_stats WHERE version=1")
+    before = rows(source)
+    if damage:
+        with pytest.raises(ValueError, match="SHA256|snapshot|冲突"):
+            publish(source, tmp_path / "out2", release, run_id="two", shard_cache=cache)
+        assert len(list((release.root / "stats-raw-202611").iterdir())) == 2
+    else:
+        current = publish(source, tmp_path / "out2", release, run_id="two", shard_cache=cache)
+        assert current["snapshot"] == previous["snapshot"]
+    assert release.downloads == downloads
+    assert rows(source) == before
+
+
 def test_publish_failure_does_not_mark_rows_published(tmp_path):
     source = tmp_path / "feeds.db"
     seed(source)
@@ -259,13 +291,19 @@ def test_changed_positive_version_is_rejected_by_snapshot_hash(tmp_path):
     assert source.read_bytes() == before
 
 
-def test_only_approved_den_haag_identity_redirect_preserves_history(tmp_path):
+@pytest.mark.parametrize("cached", [False, True])
+def test_only_approved_den_haag_identity_redirect_preserves_history(tmp_path, cached):
+    from zucai.stats_rows import restore_rows
+
     source = tmp_path / "feeds.db"
     seed(source, versions=3)
     with sqlite3.connect(source) as db:
         db.execute("UPDATE teams SET name='Den Haag' WHERE id=1")
     release = LocalRelease(tmp_path / "release")
     previous = publish(source, tmp_path / "out", release)
+    options = {"shard_cache": tmp_path / "batch-cache"} if cached else {}
+    if cached:
+        restore_rows(source, release=release, **options)
     with sqlite3.connect(source) as db:
         db.execute("INSERT INTO teams(id,name,aliases) VALUES(3,'海牙','[]')")
         db.execute("UPDATE matches SET home_team_id=3")
@@ -279,8 +317,10 @@ def test_only_approved_den_haag_identity_redirect_preserves_history(tmp_path):
         }
     ]
     with pytest.raises(ValueError, match="冲突|snapshot"):
-        publish(source, tmp_path / "unapproved", release, run_id="unapproved")
-    current = publish(source, tmp_path / "approved", release, previous=previous, run_id="approved")
+        publish(source, tmp_path / "unapproved", release, run_id="unapproved", **options)
+    current = publish(
+        source, tmp_path / "approved", release, previous=previous, run_id="approved", **options
+    )
     assert current["counts"]["match_stats"] == 3
     assert current["identity_redirects"] == previous["identity_redirects"]
     with sqlite3.connect(source) as db:
@@ -292,7 +332,12 @@ def test_only_approved_den_haag_identity_redirect_preserves_history(tmp_path):
     previous["identity_redirects"][0]["approval_url"] = "https://github.com/other/approval"
     with pytest.raises(ValueError, match="批准|approval"):
         publish(
-            source, tmp_path / "wrongapproval", release, previous=previous, run_id="wrongapproval"
+            source,
+            tmp_path / "wrongapproval",
+            release,
+            previous=previous,
+            run_id="wrongapproval",
+            **options,
         )
 
 

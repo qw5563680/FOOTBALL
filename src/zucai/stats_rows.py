@@ -96,13 +96,22 @@ def _scope(db, table, row, fd_seasons, cache):
     return cache[key]
 
 
-def _download_shards(block, directory, release, tag=None):
+def _download_shards(block, directory, release, tag=None, *, shard_cache=None):
     prepared = []
+    cache = Path(shard_cache) if shard_cache is not None else None
+    if cache is not None:
+        cache.mkdir(parents=True, exist_ok=True)
     for number, shard in enumerate(block["row_shards"]):
         if tag is not None and shard["tag"] != tag:
             continue
-        compressed = directory / f"{number}.jsonl.zst"
-        release.download(shard["tag"], shard["name"], compressed)
+        compressed = (
+            cache / f"{shard['sha256']}.jsonl.zst"
+            if cache is not None
+            else directory / f"{number}.jsonl.zst"
+        )
+        if cache is None or not compressed.exists():
+            release.download(shard["tag"], shard["name"], compressed)
+        # Batch-local cached bytes save the second download, not integrity checks.
         if compressed.stat().st_size != shard["size"] or sha256(compressed) != shard["sha256"]:
             raise ValueError("技术数据分片 SHA256 或大小校验失败")
         plain = directory / f"{number}.jsonl"
@@ -224,7 +233,7 @@ def _apply(db, prepared, database, *, verify_only=False, redirects=None):
     return inserted
 
 
-def restore_rows(database, archive=None, *, release, tag=None):
+def restore_rows(database, archive=None, *, release, tag=None, shard_cache=None):
     """Hash/decompress every requested asset before staging a fully validated DB replacement."""
     database = Path(database)
     if not database.is_file():
@@ -234,7 +243,7 @@ def restore_rows(database, archive=None, *, release, tag=None):
     block = _manifest(database, archive)
     with TemporaryDirectory(prefix="stats-restore-", dir=database.parent) as temporary:
         directory = Path(temporary)
-        prepared = _download_shards(block, directory, release, tag)
+        prepared = _download_shards(block, directory, release, tag, shard_cache=shard_cache)
         staged = directory / "rows.db"
         with sqlite3.connect(database) as source, sqlite3.connect(staged) as db:
             source.backup(db)
@@ -258,7 +267,9 @@ def restore_rows(database, archive=None, *, release, tag=None):
     return result
 
 
-def publish_rows(database, out, *, release, tag, run_id, previous=None, raw_archives=()):
+def publish_rows(
+    database, out, *, release, tag, run_id, previous=None, raw_archives=(), shard_cache=None
+):
     """Publish a full-history snapshot; no prior row may disappear or change its ID."""
     database, out = Path(database), Path(out)
     if not database.is_file():
@@ -279,7 +290,7 @@ def publish_rows(database, out, *, release, tag, run_id, previous=None, raw_arch
         check_stats(db)
         redirects = _identity_redirects(db, previous or {})
         if previous and previous.get("row_shards"):
-            prepared = _download_shards(previous, Path(temporary), release)
+            prepared = _download_shards(previous, Path(temporary), release, shard_cache=shard_cache)
             _apply(db, prepared, database, verify_only=True, redirects=redirects)
         fd_seasons, cache, groups = _fd_seasons(database), {}, {}
         # One ordered pass through each table, writing directly into each scope's compressor.

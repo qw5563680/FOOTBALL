@@ -255,7 +255,7 @@ def test_stats_backfill_shell_preserves_arguments_without_interpolation(
     ],
 )
 def test_unknown_or_invalid_options_fail_offline_before_any_collector(tmp_path, options, valid):
-    for name in ("apis", "stats-backfill", "sporttery"):
+    for name in ("apis", "stats-backfill"):
         job = jobs()[name]
         validate = step("Validate dispatch options", job)
         assert "secrets." not in validate
@@ -266,6 +266,14 @@ def test_unknown_or_invalid_options_fail_offline_before_any_collector(tmp_path, 
         )
         assert (result.returncode == 0) is valid
         assert not list(tmp_path.iterdir())
+
+
+def test_windows_sporttery_does_not_validate_unused_dispatch_options():
+    job = jobs()["sporttery"]
+    assert "Validate dispatch options" not in job
+    assert "inputs.options" not in job
+    for title in ("Install project", "Restore data, collect fixtures"):
+        assert "shell: bash" in step(title, job)
 
 
 def test_daily_shell_reuses_existing_workdir_and_passes_fixed_budget(tmp_path):

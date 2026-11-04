@@ -31,6 +31,7 @@ class Release:
     def __init__(self, root, fail=None):
         self.root, self.fail = root, fail
         self.uploads = []
+        self.downloads = []
 
     def upload(self, tag, path):
         if self.fail and self.fail in path.name:
@@ -47,6 +48,7 @@ class Release:
         )
 
     def download(self, tag, name, dest):
+        self.downloads.append((tag, name))
         shutil.copyfile(self.root / tag / name, dest)
         return dest
 
@@ -170,11 +172,14 @@ def test_resume_and_repeat_zero_requests_keep_rows_and_base_facts(batch):
         ).fetchone() == (None, "null")
     assert first["coverage"]["rows"][0]["expected"] == 2
     assert not any("state/match_stats" in k for k in archive_info(archive)["files"])
+    shards = archive_info(archive)["technical_data"]["row_shards"]
+    assert release.downloads == []
     with responses.RequestsMock() as http:
         register(http, 103)
         second = run(batch, "two")
         assert second["status"] == "complete" and second["inserted"] == 36, second
         assert second["requests"] == 1 and len(http.calls) == 1
+    assert release.downloads == [(shard["tag"], shard["name"]) for shard in shards]
     assert table(database, "match_stats")[:36] == saved
     before, uploaded = database.read_bytes(), len(release.uploads)
     with responses.RequestsMock() as http:

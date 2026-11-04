@@ -132,6 +132,7 @@ def collect_batch(
     )
     with TemporaryDirectory(prefix="stats-stage-", dir=database.parent.parent) as temp:
         root = Path(temp)
+        shard_cache = root / "history-shards"
         staged = root / "data" / database.name
         shutil.copytree(database.parent, staged.parent)
         raw_root = staged.parent / "raw"
@@ -326,7 +327,7 @@ def collect_batch(
 
         try:
             if original.get("technical_data", {}).get("version") == 2:
-                restore_rows(staged, archive, release=release)
+                restore_rows(staged, archive, release=release, shard_cache=shard_cache)
             with sqlite3.connect(staged) as db:
                 den_haag = dict(
                     db.execute("SELECT name,id FROM teams WHERE name IN ('Den Haag','海牙')")
@@ -401,6 +402,7 @@ def collect_batch(
                     run_id=run_id,
                     previous=previous,
                     raw_archives=raw_archives,
+                    shard_cache=shard_cache,
                 )
             if quota_path.exists():
                 shutil.copyfile(quota_path, state / quota_path.name)
