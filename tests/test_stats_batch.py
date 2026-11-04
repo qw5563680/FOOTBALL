@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import sqlite3
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -37,6 +38,8 @@ class Release:
         if self.fail and self.fail in path.name:
             raise OSError("offline archive failure")
         data = path.read_bytes()
+        if not data:
+            raise ValueError("HTTP 422: GitHub Release rejects empty assets")
         dest = self.root / tag / path.name
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists() and dest.read_bytes() != data:
@@ -217,6 +220,33 @@ def test_archive_failure_rolls_back_database_audits_cursor_but_preserves_quota(b
     assert list((database.parent / "raw").rglob("*.meta.json"))
 
 
+def test_release_http_failure_is_persisted_with_status_and_safe_response(batch):
+    from zucai.stats_release import ReleaseStore
+
+    cases = json.loads((FIX / "t32/release_errors.json").read_text())
+    case = cases["cases"][1]
+    database, archive, _, client = batch
+    before = database.read_bytes()
+    root = "https://api.github.com/repos/owner/repo/releases"
+    upload = "https://uploads.github.com/repos/owner/repo/releases/1/assets"
+    with responses.RequestsMock() as http:
+        register(http, 102)
+        register(http, 103)
+        http.get(root + "/tags/stats-raw-202611", json={"id": 1, "upload_url": upload})
+        http.get(root + "/1/assets", json=[])
+        http.post(upload, status=case["status"], body=case["body"])
+        result = run((database, archive, ReleaseStore("owner/repo", cases["token"]), client))
+    assert result["archive_failed"] and result["requests"] == 2, result
+    assert database.read_bytes() == before
+    expected = case["body"].replace(cases["token"], "[REDACTED]")[:200]
+    expected = expected.replace("\r", "\\r").replace("\n", "\\n")
+    assert result["errors"] == [
+        f"技术归档失败，该批数据库/游标未提交：Release HTTP {case['status']}: {expected}"
+    ]
+    assert archive_info(archive)["collection"]["stats"]["errors"] == result["errors"]
+    assert cases["token"] not in (archive / "feed_manifest.json").read_text()
+
+
 def test_permission_error_marks_scope_unsupported_and_never_retries(batch):
     with responses.RequestsMock() as http:
         register(http, 102, errors=DATA["errors"])
@@ -329,8 +359,40 @@ def test_index_entry_uses_existing_matches_then_publishes_index_only(batch, monk
         )
         assert result["requests"] == len(http.calls) == 1, result
     assert result["linked_existing"] == 2 and result["inserted"] == 0, result
+    assert result["status"] == "complete" and not result.get("archive_failed"), result
     assert len(table(database, "matches")) == 2
-    assert archive_info(archive)["technical_data"]["counts"]["apif_fixture_index"] == 2
+    meta = archive_info(archive)
+    technical = meta["technical_data"]
+    assert technical["counts"] == dict(
+        apif_fixture_index=2, match_stats=0, match_events=0, match_lineups=0
+    )
+    assert technical["row_shards"] == []
+    assert "checksum_asset" not in technical
+    assert release.uploads == ["stats-raw-index.zip", "SHA256SUMS-raw-index"]
+    assert not (database.parent / "stats_assets/SHA256SUMS-index").exists()
+
+    from zucai.cloud_feeds import main
+    from zucai.stats_rows import restore_rows
+
+    restored = tmp_path / "restored/feeds.db"
+    restore_feeds(archive, restored)
+    assert table(restored, "apif_fixture_index") == table(database, "apif_fixture_index")
+    assert restore_rows(restored, archive, release=release) == dict(
+        match_stats=0, match_events=0, match_lineups=0
+    )
+    assert release.downloads == []
+    verify_dir = tmp_path / "verify"
+    verify_dir.mkdir()
+    monkeypatch.chdir(verify_dir)
+    monkeypatch.setattr(
+        sys, "argv", ["feeds", "verify", "--archive", str(archive), "--run-id", "verify-index"]
+    )
+    main()
+    assert table(verify_dir / "data/zucai.db", "apif_fixture_index") == table(
+        database, "apif_fixture_index"
+    )
+    again = export_feeds(restored, tmp_path / "again", date(2026, 11, 4), "again")
+    assert again["technical_data"] == technical
 
 
 def test_fd_entry_ingests_free_file_without_api_requests(batch, monkeypatch):

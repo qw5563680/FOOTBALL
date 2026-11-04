@@ -393,7 +393,8 @@ def collect_batch(
                 raw_archives = []
                 if raw_root.exists() and any(path.is_file() for path in raw_root.rglob("*")):
                     raw = publish_raw(raw_root, assets, release=release, tag=tag, run_id=run_id)
-                    raw_archives.append(raw)
+                    if raw is not None:
+                        raw_archives.append(raw)
                 publish_rows(
                     staged,
                     assets,

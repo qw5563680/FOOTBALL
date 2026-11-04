@@ -1,11 +1,60 @@
 """GitHub Release storage is immutable and never leaks authentication redirects."""
 
 import hashlib
+import json
 import zipfile
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import requests
 import responses
+
+FIXTURE = Path(__file__).parents[1] / "data/fixtures/t32/release_errors.json"
+
+
+def test_empty_checksums_do_not_create_or_upload_any_file(tmp_path):
+    from zucai.stats_release import upload_checksums
+
+    release = Mock()
+    assert upload_checksums(release, "stats-raw-202611", tmp_path, "empty", []) is None
+    assert list(tmp_path.iterdir()) == []
+    release.upload.assert_not_called()
+
+
+def test_empty_raw_directory_does_not_create_or_upload_any_asset(tmp_path):
+    from zucai.stats_release import publish_raw
+
+    raw, out = tmp_path / "raw", tmp_path / "out"
+    (raw / "source/day").mkdir(parents=True)
+    release = Mock()
+    assert publish_raw(raw, out, release=release, tag="stats-raw-202611", run_id="empty") is None
+    assert not out.exists() or list(out.iterdir()) == []
+    release.upload.assert_not_called()
+
+
+@pytest.mark.parametrize("case", json.loads(FIXTURE.read_text())["cases"])
+@responses.activate
+def test_upload_failure_reports_status_and_bounded_redacted_body(tmp_path, case):
+    from zucai.cloud_apis import failure_reason
+    from zucai.stats_release import ReleaseStore
+
+    token = json.loads(FIXTURE.read_text())["token"]
+    path = tmp_path / "rows.zst"
+    path.write_bytes(FIXTURE.read_bytes())
+    root = "https://api.github.com/repos/owner/repo/releases"
+    upload = "https://uploads.github.com/repos/owner/repo/releases/1/assets"
+    responses.get(root + "/tags/stats-raw-202611", json={"id": 1, "upload_url": upload})
+    responses.get(root + "/1/assets", json=[])
+    responses.post(upload, status=case["status"], body=case["body"])
+    with pytest.raises(requests.HTTPError) as caught:
+        ReleaseStore("owner/repo", token).upload("stats-raw-202611", path)
+    expected = case["body"].replace(token, "[REDACTED]")[:200]
+    expected = expected.replace("\r", "\\r").replace("\n", "\\n")
+    reason = failure_reason(caught.value)
+    assert reason == f"Release HTTP {case['status']}: {expected}"
+    assert token not in reason and token not in str(caught.value)
+    assert reason == str(caught.value)
 
 
 def test_raw_zip_preserves_original_and_sidecar(tmp_path):

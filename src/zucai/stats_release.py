@@ -1,6 +1,7 @@
 """Immutable monthly GitHub Release assets for source originals and row snapshots."""
 
 import hashlib
+import json
 import os
 import re
 import zipfile
@@ -47,10 +48,26 @@ def upload_verified(release, tag, path):
 
 
 def upload_checksums(release, tag, out, run_id, assets, *, kind="rows"):
+    validate_tag(tag)
     validate_name(run_id)
+    if not assets:
+        return None
     path = Path(out) / (f"SHA256SUMS-raw-{run_id}" if kind == "raw" else f"SHA256SUMS-{run_id}")
     _atomic_write(path, "".join(f"{a['sha256']}  {a['name']}\n" for a in assets).encode())
     return upload_verified(release, tag, path)
+
+
+class ReleaseHttpError(requests.HTTPError):
+    """Bounded Release diagnostic without request headers, URLs or credentials."""
+
+    def __init__(self, status_code, body, *, token=None):
+        if token:
+            # Redact before truncation, including tokens crossing the 200-character boundary.
+            for secret in {token, quote(token, safe=""), json.dumps(token)[1:-1]}:
+                body = body.replace(secret, "[REDACTED]")
+        excerpt = body[:200].replace("\r", "\\r").replace("\n", "\\n")
+        self.summary = f"Release HTTP {status_code}: {excerpt}"
+        super().__init__(self.summary)
 
 
 class ReleaseStore:
@@ -92,6 +109,10 @@ class ReleaseStore:
         )
         return response
 
+    def _raise_for_status(self, response):
+        if 400 <= response.status_code < 600:
+            raise ReleaseHttpError(response.status_code, response.text, token=self.token)
+
     def _release(self, tag, *, create=False):
         validate_tag(tag)
         response = self._request("GET", f"{self.base}/releases/tags/{quote(tag, safe='')}")
@@ -101,7 +122,7 @@ class ReleaseStore:
             )
             if response.status_code == 422:  # Another writer may have created the month.
                 response = self._request("GET", f"{self.base}/releases/tags/{tag}")
-        response.raise_for_status()
+        self._raise_for_status(response)
         return response.json()
 
     def _assets(self, release):
@@ -112,7 +133,7 @@ class ReleaseStore:
                 f"{self.base}/releases/{int(release['id'])}/assets",
                 params={"per_page": 100, "page": page},
             )
-            response.raise_for_status()
+            self._raise_for_status(response)
             batch = response.json()
             assets.extend(batch)
             if len(batch) < 100:
@@ -129,7 +150,7 @@ class ReleaseStore:
                 url = response.headers["Location"]
                 response.close()
                 continue
-            response.raise_for_status()
+            self._raise_for_status(response)
             dest = Path(dest)
             dest.parent.mkdir(parents=True, exist_ok=True)
             with dest.open("wb") as output:
@@ -167,7 +188,7 @@ class ReleaseStore:
                 data=stream,
                 headers={"Content-Type": "application/octet-stream"},
             )
-        response.raise_for_status()
+        self._raise_for_status(response)
         asset = response.json()
         if asset.get("name") != want["name"] or asset.get("size") != want["size"]:
             raise ValueError("Release 上传大小或文件名不符")
@@ -191,7 +212,7 @@ class ReleaseStore:
 
 
 def publish_raw(raw_root, out, *, release, tag, run_id):
-    """ZIP all originals and sidecars, retaining stable relative paths and bytes."""
+    """ZIP originals and sidecars; an empty source produces no archive or checksum."""
     validate_tag(tag)
     validate_name(run_id)
     root, out = Path(raw_root), Path(out)
@@ -199,21 +220,26 @@ def publish_raw(raw_root, out, *, release, tag, run_id):
         raise ValueError("原件目录无效")
     if out.resolve().is_relative_to(root.resolve()):
         raise ValueError("归档输出路径不能位于原件目录内")
+    files = []
+    for source in sorted(root.rglob("*")):
+        if source.is_symlink() or not source.resolve().is_relative_to(root.resolve()):
+            raise ValueError("原件不允许符号链接或越界路径")
+        if source.is_file():
+            relative = source.relative_to(root).as_posix()
+            if "\\" in relative:
+                raise ValueError("原件路径不允许反斜杠")
+            files.append((source, relative))
+    if not files:
+        return None
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"stats-raw-{run_id}.zip"
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for source in sorted(root.rglob("*")):
-            if source.is_symlink() or not source.resolve().is_relative_to(root.resolve()):
-                raise ValueError("原件不允许符号链接或越界路径")
-            if source.is_file():
-                relative = source.relative_to(root).as_posix()
-                if "\\" in relative:
-                    raise ValueError("原件路径不允许反斜杠")
-                info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
-                info.compress_type = zipfile.ZIP_DEFLATED
-                with source.open("rb") as incoming, archive.open(info, "w") as outgoing:
-                    while block := incoming.read(1024 * 1024):
-                        outgoing.write(block)
+        for source, relative in files:
+            info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            with source.open("rb") as incoming, archive.open(info, "w") as outgoing:
+                while block := incoming.read(1024 * 1024):
+                    outgoing.write(block)
     asset = upload_verified(release, tag, path)
     asset["checksum_asset"] = upload_checksums(release, tag, out, run_id, [asset], kind="raw")
     return asset

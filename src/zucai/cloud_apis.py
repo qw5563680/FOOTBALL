@@ -18,6 +18,7 @@ from zucai.sources.fd_ingest import fetch_fd
 from zucai.sources.fdorg_command import COMPETITIONS, _requests, fetch_fdorg
 from zucai.sources.football_data import LEAGUES_PATH, read_json, verified_league
 from zucai.sources.football_data_org import FdorgHttpError, FootballDataOrg
+from zucai.stats_release import ReleaseHttpError
 
 LOG = logging.getLogger(__name__)
 COMPETITION_CODES = "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA,CL"
@@ -43,7 +44,9 @@ def fd_scopes(today, leagues):
 
 
 def failure_reason(exc):
-    """Only safe APIF plan/access wording is public; other upstream errors stay bounded."""
+    """Publish safe APIF wording and redacted Release diagnostics; bound other errors."""
+    if isinstance(exc, ReleaseHttpError):
+        return exc.summary
     if isinstance(exc, ApifResponseError):
         return exc.summary.replace("\r", "\\r").replace("\n", "\\n")
     if isinstance(exc, requests.RequestException):

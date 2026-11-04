@@ -220,7 +220,7 @@ def validate_stats_manifest(meta):
         validate_asset(asset)
         if "checksum_asset" in asset:
             validate_asset(asset["checksum_asset"])
-    if "checksum_asset" in block:
+    if "checksum_asset" in block and (block["checksum_asset"] is not None or block["row_shards"]):
         validate_asset(block["checksum_asset"])
 
 
