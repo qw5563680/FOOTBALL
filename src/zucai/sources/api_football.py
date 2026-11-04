@@ -91,6 +91,7 @@ class ApiFootball(Source[ApiGame]):
             code: config
             for code, config in configured.items()
             if bool(config.get("identity_only", False)) == identity_only
+            and not config.get("index_only", False)
         }
         self.quota = DailyQuota(quota_path, reserve)
         self.limiter = self.limiter if min_interval is None else RateLimiter(min_interval)

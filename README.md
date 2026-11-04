@@ -15,6 +15,29 @@
 | 竞彩 比分 (crs) / 总进球 (ttg) / 半全场 (hafu) | 由比分分布推导 | 中国竞彩网 |
 | 传统 14 场胜负彩 / 任九 | 每期 14 场的胜平负概率表与组合建议 | 体彩官网 / 500.com |
 
+## 技术数据存储（T31）
+
+快速开始的 `stats` 命令只把技术数据附着到已有比赛。先恢复 feeds 数据库，运行 `stats migrate`，
+再回放原件；`--raw-file` 与 `--fixture-file` 均须有同名 `.meta.json` sidecar（URL、HTTP 200、
+SHA256、带时区的 fetched_at_utc）。原件缺失、请求范围不一致或哈希不符即停止。
+不会新建球队或比赛，也不会训练、生成特征或改写冻结预测。
+
+- `stats ingest-fd`：九个主联赛季文件，每次一份 CSV，只写已有 fd 比赛的射门、角球、犯规等；不解析国别文件或赔率。
+- `stats link`：以正式球队 ID 别名和同联赛季、主客、开球 ±3 小时的一对一证据建立索引；冲突写 `state/audit/stats_link_audit.csv`。
+- `stats ingest-apif`：按 `--endpoint statistics|events|lineups|players` 分别回放；先用已归档 fixtures 页建立索引，导入时仍用该页核对所属比赛及 FT/AET 状态。
+- `--raw-location`：可标注长期原件归档地址；不会上传或搬动文件。真实批量回填与 Release 原件归档留给 T32。
+
+`stats link --fetch --league 39 --season 2024 --db data/zucai.db` 仅允许 Claude 在 Actions 手动执行：
+每次一页 fixtures，七桥接＋欧冠 2 是允许范围，仍过每日配额并保留 10 次，间隔 6.1 秒。
+欧冠是 index_only，不导入赛程或赛果，不加入日常采集/backfill；本地用 `--raw-file` 离线回放。
+没有新增 workflow operation 或自动请求；真实验收由审查者安排。
+
+新表为 match_stats / match_events / match_lineups / apif_fixture_index，随 feeds 导出到四份
+`state/<表名>.jsonl`，manifest v2 的 `technical_data` 扩展记录字段和行数，原文件清单记录 SHA256。
+旧归档仍能恢复；新归档的四表扩展须齐全。`cloud_feeds verify` 同时检查新表和身份关系。
+重复原件不重复写入，空值不覆盖有效值，更正保留旧版本。导入审计随数据分支归档，重复运行字节不变。
+本阶段 available_utc 留空、标 backfilled；FT 与含加时分开，半场统计不可得，不补造数据。
+
 ## 技术栈
 
 - Python 3.11+，命令行工具 `zucai`
@@ -37,6 +60,10 @@ zucai fetch results --source c500 --from 2026-11-02 --to 2026-11-02  # 仅根页
 zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
 zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
+zucai stats migrate --db data/zucai.db  # 仅创建四张技术数据附属表
+zucai stats ingest-fd --db data/zucai.db --div E0 --season 2425 --raw-file work/E0.csv
+zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
+zucai stats ingest-apif --db data/zucai.db --endpoint statistics --raw-file work/statistics.json --fixture-file work/fixtures.json
 # 以下 API 采集命令由审查者在 Actions 执行，正式凭据只取 Secrets；开发测试用离线 fixtures
 # Actions 配置 FOOTBALL_DATA_ORG_TOKEN
 zucai fetch fdorg --competition PL,PD,SA --days 7  # 自动拆成不超过10天的连续窗口

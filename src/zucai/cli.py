@@ -14,8 +14,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-v", "--verbose", action="store_true", help="输出调试日志")
     sub = parser.add_subparsers(dest="command")
     from zucai.aliases_command import add_aliases_parser
+    from zucai.stats_command import add_stats_parser
 
     add_aliases_parser(sub)
+    add_stats_parser(sub)
 
     sub.add_parser("version", help="显示版本")
     db = sub.add_parser("db", help="数据库管理")
@@ -186,6 +188,17 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    if args.command == "stats":
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from zucai.stats_command import run_stats
+
+        try:
+            run_stats(args)
+        except (ValueError, OSError, SQLAlchemyError) as exc:
+            logging.getLogger(__name__).error("技术数据未处理：%s", exc)
+            return 2
+        return 0
     if args.command == "aliases":
         from sqlite3 import Error as SQLiteError
 

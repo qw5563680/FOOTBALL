@@ -453,6 +453,82 @@ Actions 按赛事×季×端点汇总抽样数、有效响应数、有效率、�
 上述两轮使用修复前的抽样规则，jc 关联优先的修复仍待 Claude 补测欧战联赛阶段。
 “剩余≥6900”是实测验收值，不会伪造为每次运行的保证。结果回填本节后再作为 T31 字段字典依据。
 
+#### 审查者回填：三轮真实探测结果（2026-11-04，run 41779592141 / 41783408987 / 41785683100，共 398 次请求）
+
+| 项目 | 实测 |
+| --- | --- |
+| 配额响应头 | `x-ratelimit-limit: 300`（每分钟）、`x-ratelimit-requests-limit: 7500`（每日，Pro） |
+| `/leagues?id=` coverage | 12 个采集联赛与欧冠：events / lineups / statistics_fixtures 全 true；statistics_players 芬超 2022/2024 false；injuries 日职、韩职、中超、欧协联 false，澳超 2022 false |
+| `fixtures/statistics` | 固定 16 类（Shots on/off Goal、Total/Blocked Shots、Shots inside/outsidebox、Fouls、Corner Kicks、Offsides、Ball Possession `"60%"`、Yellow/Red Cards、Goalkeeper Saves、Total passes、Passes accurate、Passes % `"85%"`），偶见 `Free Kicks`；`expected_goals` / `goals_prevented` 为字符串（`"0.96"`）。**xG 自 2024 季起出现，2022 季 19 个联赛全部没有**；2024 季丹超、澳超、2026 季韩职样本为 null |
+| `fixtures/statistics?half=true` | 两次实测：资格赛样本 results 0；联赛阶段样本返回与全场逐项相同数值。参数被忽略，**半场统计不可得** |
+| `fixtures/events` | 54/54 联赛季 + 欧战联赛阶段有数据：`time.elapsed/extra`、`type`（Goal / Card / subst / Var）、`detail`、team、player、assist |
+| `fixtures/lineups` | 全部有数据：formation、coach、startXI / substitutes（player.id/name/number/pos/grid）；赛后抓取不证明赛前已知 |
+| `fixtures/players` | 国内 15 联赛有（games.minutes/rating/position、shots、passes、tackles、duels、dribbles、fouls、cards、penalty）；欧罗巴 / 欧协联**联赛阶段有、资格赛没有**；芬超 2022/2024、韩职 2024 为空 |
+| `injuries?league&season` | 每季一页 200–6000 条，`player.type`（Missing Fixture / Questionable）、`player.reason`、`fixture.id/date`、team；日职、韩职、中超、葡超、欧协联三季为空 |
+| 欧战资格赛 | statistics 为空或仅牌数、players 为空；联赛阶段完整（欧罗巴 AC米兰–本菲卡 xG 0.96 / 0.64） |
+| 欧冠（apif 联赛 2） | 本任务只读元数据（coverage 全 true），联赛阶段未探测 |
+
+原件：artifact `apis-source-41779592141-1`（715 文件，SHA256 `b517cd58…`）、`apis-source-41783408987-1`、`apis-source-41785683100-1`（SHA256 `db30d08f…`）；审计 `state/audit/apif_stats_probes.csv`。审查记录 `docs/reviews/2026-11-04-t30-review.md`。
+
+**T20 范围修订（所有者 2026-11-04 批准）**：允许向 API-Football 请求欧冠（联赛 ID 2）的 `/fixtures?league&season`，**仅用于建立技术数据关联索引**（apif fixture ID ↔ 库内 fdorg / jc `match_id`），不导入赛程、不导入比分、不改 fdorg 优先级；索引规则与其他联赛一致（T31）。
+
+以上三轮结论原样引用 PR #49 所在 `claude/clever-ride-vu4wzz` 分支的审查者回填，
+作为 T31 定稿依据；覆盖上方旧模板中「尚待联赛阶段补测」的历史状态。T31 开发未请求真实 API、
+未读取正式 key、未重新请求 robots，也未把合成 fixtures 当作实测结果。
+
+### T31 技术数据字段字典（2026-11-04 定稿）
+
+| apif statistics.type | 规范 stat_key | 单位 | fd 对应列（主 / 客） |
+| --- | --- | --- | --- |
+| Shots on Goal | shots_on_target | count | HST / AST |
+| Shots off Goal | shots_off_target | count | — |
+| Total Shots | shots | count | HS / AS |
+| Blocked Shots | shots_blocked | count | — |
+| Shots insidebox | shots_inside_box | count | — |
+| Shots outsidebox | shots_outside_box | count | — |
+| Fouls | fouls | count | HF / AF |
+| Corner Kicks | corners | count | HC / AC |
+| Offsides | offsides | count | HO / AO |
+| Ball Possession | possession | % | — |
+| Yellow Cards | yellow_cards | count | HY / AY |
+| Red Cards | red_cards | count | HR / AR |
+| Goalkeeper Saves | saves | count | — |
+| Total passes | passes | count | — |
+| Passes accurate | passes_accurate | count | — |
+| Passes % | pass_accuracy | % | — |
+| expected_goals | expected_goals | goals | — |
+| goals_prevented | goals_prevented | goals（可为负） | — |
+| Free Kicks（可选） | free_kicks | count | — |
+| 无同义映射 | free_kicks_conceded | count | HFKC / AFKC |
+
+只解析 fd 九主联赛季文件 E0/E1/SP1/I1/D1/F1/F2/N1/P1；国别合并文件不解析。
+HFKC/AFKC 不能填进 fouls 或 Free Kicks。fd 缺列记 `column_absent`，空串记 `empty`；
+apif 明确 null 记 `null`、缺项记 `not_provided`、非法数值记 `invalid_value`。
+xG 缺值统一为 `not_provided`，2024 季之前为 `not_provided_before_2024`，不补 0。
+原始数值或字符串完整保存在 raw_value；`"60%" → 60.0`，`"0.96" → 0.96`，`"0" → 0.0`。
+未知 statistics.type 保留在哈希指向的原件中，不擅自赋予规范含义。
+
+FT 的 period_basis 为 `90`；AET/PEN 为 `incl_extra_time`，同时 `extra_time_included=true`、
+`eligible_90=false`；其他状态为 unknown，不进入 90 分钟特征。没有半场列，也不请求 half 参数。
+这里的 FT 标记遵从所有者定稿规则，不声称统计端点自身返回了分段口径。
+
+events 保存 type/detail、time.elapsed/extra、team/player/assist 原文；规范值另外给 elapsed+extra，
+elapsed 未知则总时间未知，不把未知补成 0。lineups 保存 formation/coach/startXI/substitutes 和球员
+id/name/number/pos/grid，规范 role 为 team/start/bench；captured_before_kickoff 严格按原件抓取时间 < 开球判断。
+players 以 role=player_stats 保存完整原文和规范 JSON，单列 games.minutes/rating/position，数字字符串转数值；
+不推断未提供的出场时间、射门或抢断定义。没有球员原文的空响应只记审计。
+
+所有技术数据在 T31 导入均为 `backfilled`，available_utc 留 null；不借用结果可知时间，
+赛后抓取的阵容不宣称赛前已知。原件与 sidecar 的 URL、HTTP、SHA256、抓取 UTC 均须核验；
+原件缺失拒绝入库，HTTP 200 但 errors 非空拒绝并记审计。
+
+T32 使用 `data/api_football/stats_coverage.json` 的初始 unsupported 规则：players 对 3/848 **资格赛**、
+芬超 244 的 2022/2024、韩职 292 的 2024；injuries 对 98/292/169/94/848。这些是探测空响应的
+调度依据，不是永久权限结论；不排除 3/848 联赛阶段的 players。T31 没有实现 injuries 入库。
+欧冠 2 的配置只开放 index_only，不宣称任何赛季 fixtures 权限已核实，日常采集与回填仍排除。
+`stats link --fetch` 仅允许审查者在 Actions 手动对七桥接＋2 请求一页 fixtures，不导入比赛；
+原件回放 `--raw-file` 不发请求。间隔、任务时长与日常请求次数未调整，真实回填留给 T32。
+
 ### T23 identity-only 桥接（2026-11-03，Claude 已完成第一轮实测）
 
 正式凭据仅由 Claude 在 Actions 使用，开发环境没有发 API、status 或 robots 请求。
