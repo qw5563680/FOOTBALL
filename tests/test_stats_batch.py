@@ -159,6 +159,61 @@ def table(database, name):
         return db.execute(f"SELECT * FROM {name} ORDER BY {order}").fetchall()
 
 
+@pytest.mark.parametrize("daily", [False, True])
+def test_injuries_use_existing_single_request_and_publish_nullable_identity(batch, daily):
+    database, archive, release, client = batch
+    data = json.loads((FIX / "t38/injuries.json").read_bytes())
+    data["parameters"]["season"] = "2026"
+    kickoff = json.loads((FIX / "t38/archive.json").read_bytes())["match"]["kickoff_utc"]
+    for row in data["response"]:
+        row["league"]["season"] = 2026
+        row["fixture"]["date"] = kickoff
+    before = {t: table(database, t) for t in ("matches", "results", "teams")}
+    with responses.RequestsMock() as http:
+        http.get(api_football.API + "/injuries?league=39&season=2026", json=data)
+        report = collect_batch(
+            database,
+            archive,
+            plan("39", "2026", "injuries", NOW),
+            release=release,
+            run_id="injuries",
+            now=NOW,
+            daily=daily,
+            client_factory=client,
+        )
+        assert len(http.calls) == report["requests"] == 1
+    assert report["status"] == "complete" and report["inserted"] == 4, report
+    assert not report.get("archive_failed"), report
+    with sqlite3.connect(database) as db:
+        rows = db.execute(
+            "SELECT match_id,team_id,availability_basis,available_utc FROM match_injuries"
+        ).fetchall()
+    assert all(row[:2] == (None, None) for row in rows)
+    assert {row[2] for row in rows} == ({"captured"} if daily else {"backfilled"})
+    assert all((row[3] is not None) == daily for row in rows)
+    meta = archive_info(archive)
+    assert meta["technical_data"]["counts"]["match_injuries"] == 4
+    assert "state/audit/injuries_ingest_audit.csv" in meta["files"]
+    assert "state/match_injuries.jsonl" not in meta["files"]
+    assert {t: table(database, t) for t in before} == before
+    injury_coverage = report["coverage"]["injuries"]
+    assert injury_coverage["total_rows"] == 4 and injury_coverage["linked_rows"] == 0
+    # The cursor skips the successfully parsed page even when identities are unlinked.
+    with responses.RequestsMock() as http:
+        again = collect_batch(
+            database,
+            archive,
+            plan("39", "2026", "injuries", NOW),
+            release=release,
+            run_id="injuries-again",
+            now=NOW,
+            daily=daily,
+            client_factory=client,
+        )
+        assert not http.calls and again["requests"] == 0
+    assert again["inserted"] == 0 and table(database, "match_injuries")
+
+
 def test_resume_and_repeat_zero_requests_keep_rows_and_base_facts(batch):
     database, archive, release, _ = batch
     base = {t: table(database, t) for t in ("matches", "results", "teams")}
@@ -364,7 +419,7 @@ def test_index_entry_uses_existing_matches_then_publishes_index_only(batch, monk
     meta = archive_info(archive)
     technical = meta["technical_data"]
     assert technical["counts"] == dict(
-        apif_fixture_index=2, match_stats=0, match_events=0, match_lineups=0
+        apif_fixture_index=2, match_stats=0, match_events=0, match_lineups=0, match_injuries=0
     )
     assert technical["row_shards"] == []
     assert "checksum_asset" not in technical
@@ -378,7 +433,7 @@ def test_index_entry_uses_existing_matches_then_publishes_index_only(batch, monk
     restore_feeds(archive, restored)
     assert table(restored, "apif_fixture_index") == table(database, "apif_fixture_index")
     assert restore_rows(restored, archive, release=release) == dict(
-        match_stats=0, match_events=0, match_lineups=0
+        match_stats=0, match_events=0, match_lineups=0, match_injuries=0
     )
     assert release.downloads == []
     verify_dir = tmp_path / "verify"

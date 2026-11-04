@@ -2,7 +2,16 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, CheckConstraint, Float, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
@@ -237,6 +246,69 @@ class MatchLineup(TechnicalProvenance, Base):
     captured_before_kickoff: Mapped[bool]
     raw_value: Mapped[dict] = mapped_column(JSON)
     value: Mapped[dict] = mapped_column(JSON)
+
+
+class MatchInjury(Base):
+    """Immutable daily player observations; unresolved source identities remain nullable."""
+
+    __tablename__ = "match_injuries"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "provider_fixture_id", "player_id", "injury_type", "captured_day"
+        ),
+        Index(
+            "uq_match_injuries_nullable_player",
+            "provider",
+            "provider_fixture_id",
+            text("coalesce(player_id, -1)"),
+            "injury_type",
+            "captured_day",
+            unique=True,
+        ),
+        CheckConstraint("provider = 'apif' AND endpoint = 'injuries'"),
+        CheckConstraint("version > 0 AND length(raw_sha256) = 64"),
+        CheckConstraint("captured_day = substr(captured_utc, 1, 10)"),
+        CheckConstraint("captured_before_kickoff = (captured_utc < fixture_kickoff_utc)"),
+        CheckConstraint("availability_basis IN ('backfilled', 'captured')"),
+        CheckConstraint("availability_basis <> 'backfilled' OR available_utc IS NULL"),
+        CheckConstraint(
+            "availability_basis <> 'captured' OR "
+            "(available_utc IS NOT NULL AND available_utc = captured_utc "
+            "AND captured_before_kickoff = 1)"
+        ),
+        CheckConstraint("side IS NULL OR side IN ('home', 'away')"),
+        CheckConstraint(
+            "(match_id IS NULL AND team_id IS NULL AND side IS NULL) OR "
+            "(match_id IS NOT NULL AND team_id IS NOT NULL AND side IS NOT NULL)"
+        ),
+        Index("ix_match_injuries_scope", "league", "provider_season", "captured_utc"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(default="apif")
+    endpoint: Mapped[str] = mapped_column(default="injuries")
+    league: Mapped[str]
+    provider_season: Mapped[int]
+    provider_fixture_id: Mapped[str]
+    match_id: Mapped[str | None] = mapped_column(ForeignKey("matches.match_id"))
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    provider_team_id: Mapped[int | None]
+    side: Mapped[str | None]
+    player_id: Mapped[int | None]
+    player_name: Mapped[str | None]
+    injury_type: Mapped[str]
+    reason: Mapped[str | None]
+    fixture_kickoff_utc: Mapped[str] = mapped_column(UTCString)
+    captured_utc: Mapped[str] = mapped_column(UTCString)
+    captured_day: Mapped[str]
+    available_utc: Mapped[str | None] = mapped_column(UTCString)
+    availability_basis: Mapped[str]
+    captured_before_kickoff: Mapped[bool]
+    raw_sha256: Mapped[str]
+    raw_location: Mapped[str]
+    parser_version: Mapped[str]
+    version: Mapped[int]
+    raw_value: Mapped[dict] = mapped_column(JSON)
 
 
 class ApifFixtureIndex(Base):

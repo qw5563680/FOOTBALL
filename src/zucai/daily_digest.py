@@ -325,6 +325,22 @@ def _anomaly_sections(feed, summary, quota, repository, coverage=None):
         lines.append(
             "captured 按联赛季端点的存储行版本计数，同范围不同阶段不相加；旧快照未记录则显示缺失。"
         )
+        injuries = coverage.get("injuries")
+        if injuries is not None:
+            lines.extend(
+                [
+                    "",
+                    "伤停入库（存储版本数；不进入正式预测）：",
+                    "",
+                    "| captured | backfilled | 已关联 / 总行数 | 关联率 |",
+                    "| --- | --- | --- | --- |",
+                    f"| {_text(injuries.get('captured_rows'))} | "
+                    f"{_text(injuries.get('backfilled_rows'))} | "
+                    f"{_text(injuries.get('linked_rows'))} / {_text(injuries.get('total_rows'))} | "
+                    f"{_text(injuries.get('linkage_rate'))} |",
+                    "空接口或没有名单表示缺失，不能解读为没有伤停。",
+                ]
+            )
     lines.extend(["", "仅转述冻结数据；缺失不填零，门槛标记不授予 BET 权限。", ""])
     return lines
 

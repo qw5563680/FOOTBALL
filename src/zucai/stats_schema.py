@@ -1,10 +1,10 @@
-"""T31 migration deliberately creates only the four attached-data tables."""
+"""Additive migration for technical observations, including T38 injuries."""
 
 from sqlalchemy import inspect
 
-from zucai.models import ApifFixtureIndex, Base, MatchEvent, MatchLineup, MatchStat
+from zucai.models import ApifFixtureIndex, Base, MatchEvent, MatchInjury, MatchLineup, MatchStat
 
-STATS_MODELS = (ApifFixtureIndex, MatchStat, MatchEvent, MatchLineup)
+STATS_MODELS = (ApifFixtureIndex, MatchStat, MatchEvent, MatchLineup, MatchInjury)
 STATS_COLUMNS = {
     model.__tablename__: tuple(column.name for column in model.__table__.columns)
     for model in STATS_MODELS

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sqlalchemy import or_, select
 
-from zucai.models import ApifFixtureIndex, MatchEvent, MatchLineup, MatchStat, Team
+from zucai.models import ApifFixtureIndex, MatchEvent, MatchInjury, MatchLineup, MatchStat, Team
 from zucai.sources.apif_aliases import validate_approvals
 from zucai.sources.apif_ingest import _Teams
 from zucai.sources.apif_reconcile import _references, write_audit
@@ -15,7 +15,7 @@ from zucai.sources.fd_verify import _utc
 from zucai.sources.football_data import ALIASES_PATH, read_json
 from zucai.stats_storage import transaction
 
-TECHNICAL_MODELS = (MatchStat, MatchEvent, MatchLineup)
+TECHNICAL_MODELS = (MatchStat, MatchEvent, MatchLineup, MatchInjury)
 AUDIT_NAME = "fd_identity_merges.csv"
 
 

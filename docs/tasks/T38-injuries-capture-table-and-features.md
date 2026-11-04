@@ -32,8 +32,9 @@ T32（原件与游标）、T33（特征层与实验框架）、T34a（可知时�
 3. **特征层**（`features/injuries.py`，与 `features/stats.py` 同一套截点规则 `cutoff=min(as_of,kickoff)`）：每队每场
    - `missing_n`、`questionable_n`：截点前最新一次抓取中该队对本场的 Missing Fixture / Questionable 人数；
    - `missing_last_starters_n`：其中出现在该队上一场首发名单（`match_lineups`，若有）的人数，无阵容数据则 null；
-   - 每项带 `availability_basis`、`captured_utc`、`n` 与缺失原因；strict 口径只用 `captured` 行，`backfill_replay`
-     口径以「伤停名单在开球前已知」为**假设**并显式标注。
+   - 每项带 `availability_basis`、`captured_utc`、`n` 与缺失原因。本轮所有者明确沿用 T34a：strict 中回填行以真实
+     `captured_utc` 作为 `effective_available_utc`，严格早于截点才可用，原 backfilled 标记保留；captured 行仍检查真实可知时刻。
+     训练用 `backfill_replay`，以「伤停名单在开球前已知」为**假设**并显式标注；目标用 strict_capture_time。
 4. **离线实验**（`predict/experiments/`，协议先冻结）：在 T34b 校准层框架上加伤停特征差（`missing_n` 差、`missing_last_starters_n` 差），
    消融 = 不含伤停的同一校准层；时间切分、自助、六列对照、报告格式沿用 T33 / T34b；全量产物上 Release 资产。
    若 T34b 尚未合入，则以 T33 第一轮的 `dc-sot-v1` 为宿主做同样的加特征 / 消融比较，PR 里说明选择。
@@ -46,7 +47,7 @@ T32（原件与游标）、T33（特征层与实验框架）、T34a（可知时�
 - 不用历史季页冒充赛前已知；不填 0 代替缺失。
 
 ## 测试（离线）
-解析样本的 captured / backfilled 判定、版本保留、唯一键幂等；特征截点（本场抓取晚于截点不进入）、strict 只用 captured；
+解析样本的 captured / backfilled 判定、版本保留、唯一键幂等；特征截点（本场抓取等于或晚于截点不进入）、strict 按真实捕获时刻；
 缺阵名单与上一场首发交集；缺失 → null；实验协议切分不重叠；Release 上传走现有校验。
 
 ## 真实验收（审查者）

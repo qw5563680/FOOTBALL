@@ -106,7 +106,7 @@ def test_empty_snapshot_accepts_missing_or_null_checksum_and_round_trips(tmp_pat
     restored = tmp_path / "restored/feeds.db"
     restore_feeds(archive, restored)
     assert restore_rows(restored, archive, release=release) == dict(
-        match_stats=0, match_events=0, match_lineups=0
+        match_stats=0, match_events=0, match_lineups=0, match_injuries=0
     )
     assert release.downloads == []
     again = export_feeds(restored, tmp_path / "again", date(2026, 11, 4), "again")
@@ -132,7 +132,7 @@ def test_default_restore_empty_explicit_restore_exact_and_repeat_byte_stable(tmp
     assert len(manifest["row_shards"]) == 1
     archive = tmp_path / "archive"
     meta = export_feeds(source, archive, date(2026, 11, 4), "run")
-    assert meta["technical_data"]["version"] == 2
+    assert meta["technical_data"]["version"] == 3
     assert "state/apif_fixture_index.jsonl" in meta["files"]
     assert not any(
         f"state/{t}.jsonl" in meta["files"]

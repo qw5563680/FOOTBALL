@@ -15,7 +15,7 @@
 | 竞彩 比分 (crs) / 总进球 (ttg) / 半全场 (hafu) | 由比分分布推导 | 中国竞彩网 |
 | 传统 14 场胜负彩 / 任九 | 每期 14 场的胜平负概率表与组合建议 | 体彩官网 / 500.com |
 
-## 技术数据存储（T31 / T32）
+## 技术数据存储（T31 / T32 / T38）
 
 快速开始的 `stats` 命令只把技术数据附着到已有比赛。先恢复 feeds 数据库，运行 `stats migrate`，
 再回放原件；`--raw-file` 与 `--fixture-file` 均须有同名 `.meta.json` sidecar（URL、HTTP 200、
@@ -25,6 +25,7 @@ SHA256、带时区的 fetched_at_utc）。原件缺失、请求范围不一致�
 - `stats ingest-fd`：九个主联赛季文件，每次一份 CSV，只写已有 fd 比赛的射门、角球、犯规等；不解析国别文件或赔率。
 - `stats link`：以正式球队 ID 别名和同联赛季、主客、开球 ±3 小时的一对一证据建立索引；冲突写 `state/audit/stats_link_audit.csv`。
 - `stats ingest-apif`：按 `--endpoint statistics|events|lineups|players` 分别回放；先用已归档 fixtures 页建立索引，导入时仍用该页核对所属比赛及 FT/AET 状态。
+- `stats ingest-injuries`：离线回放伤停季页；默认全部标历史回填。只有原本的日常原件才加 `--daily`，且只有抓取早于开球的条目可记赛前捕获。未关联的记录保留空身份并写审计，不创建球队。
 - `--raw-location`：离线回放时可标注长期原件归档地址；上传由 T32 云端批次统一处理。
 
 `stats link --fetch --league 39 --season 2024 --db data/zucai.db` 仅允许 Claude 在 Actions 手动执行：
@@ -32,13 +33,13 @@ SHA256、带时区的 fetched_at_utc）。原件缺失、请求范围不一致�
 欧冠是 index_only，不导入赛程或赛果，不加入普通比赛采集/backfill；本地用 `--raw-file` 离线回放。
 T31 独立回放命令不自动请求；T32 的手动作业与晚班技术增量见下方云端采集，真实验收由审查者安排。
 
-新表为 match_stats / match_events / match_lineups / apif_fixture_index。默认 feeds 仅保存
-`state/apif_fixture_index.jsonl`、覆盖率、游标、审计与分片清单；三个行表不整表提交数据分支。
-manifest v2 的 `technical_data.version=2` 记录外部 Release 分片的行数和 SHA256；
-旧版 `technical_data.version=1` 四表归档仍可恢复。`restore_feeds` 默认只还原索引和审计，
+新表为 match_stats / match_events / match_lineups / match_injuries / apif_fixture_index。默认 feeds 仅保存
+`state/apif_fixture_index.jsonl`、覆盖率、游标、审计与分片清单；四个行表不整表提交数据分支。
+manifest v2 的 `technical_data.version=3` 增加伤停分片行数和 SHA256；
+旧版技术归档 v1/v2 仍可恢复，旧清单不凭空增加伤停行。`restore_feeds` 默认只还原索引和审计，
 日常预测不下载技术行表；T33 需要行表时使用 `stats restore-rows`（见快速开始）。
 重复原件不重复写入，空值不覆盖有效值，更正保留旧版本，审计随数据分支归档。
-本阶段 available_utc 留空、标 backfilled；FT 与含加时分开，半场统计不可得，不补造数据。
+历史技术行 available_utc 留空、标 backfilled；伤停按下节的真实抓取时间区分。FT 与含加时分开，半场统计不可得，不补造数据。
 
 ## T33 技术特征实验（第一轮）
 
@@ -57,6 +58,19 @@ T34a 起 strict 按真实捕获时刻判断，已在截点前抓到的回填可�
 结果目录保存六列模型、市场与均匀基准、缺失原因、原始证据、训练参数、分组与配对自助区间；
 完整压缩 JSONL/JSON 放数据分支 `experiments/t33/`，main 的 reports 仅放 README 和 SHA256SUMS。
 本轮不接入每日预测，不修改正式参数、P2 或虚拟账户，BET 继续禁用。
+
+## T38 伤停信息与独立实验
+
+伤停开始入库，保留“缺阵 / 存疑”、球员 ID、原因、所属比赛和真实抓取时间；缺失原因、球员或球队身份不填零。
+历史季页始终标回填，不能当作当时赛前已经看到的消息。和 T34a 一样，资料真正抓到以后才可用于之后的目标比赛。
+每队取截点前最新完整名单；没有本场名单就记空缺，不当作无人受伤。另与上一场已结束比赛的首发名单取交集，
+上一场阵容不全则该项为空，不估身价或主力权重。同日同球员同类型首次记录不覆盖，变化写审计，次日/类型变化保留新版本。
+
+离线实验先冻结 [T38 协议](docs/experiments/T38-design-and-evaluation.md)。T34b 尚未合入时，以 T33 射正模型为宿主，
+比较加入伤停人数差、上一场首发缺阵人数差前后的结果；训练用历史回放假设，目标仍严格按实际捕获时间。
+候选缺输入时留空，不拿原模型概率充数。历史期没有可用名单时会明确报告“证据不足”，不能说准确率已提高。
+全量结果打包到 `experiments-YYYYMM` Release，上传核对哈希；不写进数据分支。
+每日摘要只增加伤停存储数量与关联率，正式预测、P2、BET 和虚拟账户规则保持原样。
 
 ## 技术栈
 
@@ -80,10 +94,12 @@ zucai fetch results --source c500 --from 2026-11-02 --to 2026-11-02  # 仅根页
 zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
 zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
-zucai stats migrate --db data/zucai.db  # 仅创建四张技术数据附属表
+zucai stats migrate --db data/zucai.db  # 仅创建五张技术数据附属表
 zucai stats restore-rows --db data/zucai.db --archive ../cloud-data --release stats-raw-202611  # 从清单恢复该月行表；省略 --release 恢复全部
 python -m zucai.predict.experiments.command --db data/zucai.db --out work/t33-run --source-commit <数据分支SHA>  # T33：恢复行表后离线实验，只读库，不接入每日预测
 zucai stats ingest-fd --db data/zucai.db --div E0 --season 2425 --raw-file work/E0.csv
+zucai stats ingest-injuries --db data/zucai.db --league 39 --season 2024 --raw-file work/injuries.json  # 离线历史季页，须有 sidecar
+python -m zucai.predict.experiments.injury_command --db data/zucai.db --out work/t38-run --source-commit <数据分支SHA>  # 只读实验；全量归档走 Release
 zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
 zucai stats ingest-apif --db data/zucai.db --endpoint statistics --raw-file work/statistics.json --fixture-file work/fixtures.json
 # 以下 API 采集命令由审查者在 Actions 执行，正式凭据只取 Secrets；开发测试用离线 fixtures
@@ -204,7 +220,7 @@ unsupported 不重试，网络失败计配额且本轮不重试，HTTP 200 + err
 index 页和 fd 文件成功解析后记 ok，拒绝行写审计并单列 `rejected_rows`，不算整页失败、不因拒绝行在 resume 时重复请求；真正响应错误、解析失败或 HTTP 错误仍记失败。
 摘要只在异常节照录 `state/stats_coverage.json` 的冻结数字与观测 UTC。
 
-技术原件与 sidecar 打包为 `stats-raw-<run_id>.zip`，三个行表按联赛×供应商赛季写压缩 JSONL；
+技术原件与 sidecar 打包为 `stats-raw-<run_id>.zip`，四个行表（T38 增加伤停）按联赛×供应商赛季写压缩 JSONL；
 行分片基名 `stats-rows-<league>-<season>` 加内容哈希后缀形成不可变文件名，避免同月多批覆盖。
 二者发布到月度 Release `stats-raw-YYYYMM`，清单分别为 `SHA256SUMS-raw-<run_id>`、`SHA256SUMS-<run_id>`，
 feed manifest 记录 tag、文件名、SHA256、大小及分片行数。先验证外部原件和行分片再提交本批数据库/游标；

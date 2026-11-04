@@ -45,7 +45,7 @@ def freeze_parallel(
             working.parent.mkdir()
             shutil.copyfile(database, working)
             # Restore into a separate DB: production training DB/hash is never changed.
-            if feed.get("technical_data", {}).get("version") == 2:
+            if feed.get("technical_data", {}).get("version") in (2, 3):
                 release = release_factory()
                 restore_rows(working, archive, release=release)
             engine = get_engine(working)
