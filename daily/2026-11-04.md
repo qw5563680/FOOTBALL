@@ -3,9 +3,9 @@
 
 # 每日摘要 2026-11-04（北京时间）
 
-本次 run ID：41767507843-1；摘要生成 UTC：2026-11-04T03:33:39.838015+00:00。
-竞彩同步至：2026-11-04；采集状态：jc=未记录 / fd=skipped / fdorg=partial / apif=partial。
-采集归档 UTC：2026-11-04T03:25:41.434048+00:00；记分板截点 UTC：2026-11-04T03:33:04.523578+00:00。
+本次 run ID：41810191913-1；摘要生成 UTC：2026-11-04T09:56:04.961079+00:00。
+竞彩同步至：2026-11-04；采集状态：jc=未记录 / fd=未记录 / fdorg=未记录 / apif=partial。
+采集归档 UTC：2026-11-04T06:30:57.792359+00:00；记分板截点 UTC：2026-11-04T03:33:04.523578+00:00。
 缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。
 
 ## 今日与明日预测
@@ -53,7 +53,7 @@
 
 ## 14 场胜负彩
 
-期号：26158；第三方所报截止：2026-11-04 17:30:00（北京时间，未截止）。
+期号：26158；第三方所报截止：2026-11-04 17:30:00（北京时间，已截止）。
 来源：[state/sfc/26158.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/state/sfc/26158.json)；仅作诊断，BET 禁用。
 尚无当日冻结报告。
 
@@ -132,10 +132,10 @@
 来源：[feed\_manifest.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/feed_manifest.json) collection。
 
 - jc：未记录；疑似重复 未记录；未记录原因。
-- fd：skipped；疑似重复 未记录；仅 UTC 周一早班采集。
-- fdorg：partial；疑似重复 19；单行拒绝或疑似重复，详见 state/audit。
-- apif：partial；疑似重复 2；单行拒绝或疑似重复，详见 state/audit。
+- fd：未记录；疑似重复 未记录；未记录原因。
+- fdorg：未记录；疑似重复 未记录；未记录原因。
+- apif：partial；疑似重复 未记录；3/2026/fixtures/players: 响应为空；不证明无权限或整个赛季无数据；848/2026/fixtures/statistics: 响应为空；不证明无权限或整个赛季无数据；848/2026/fixtures/players: 响应为空；不证明无权限或整个赛季无数据；848/2026/injuries: 响应为空；不证明无权限或整个赛季无数据。
 - 配额快照来源：[state/api\_football\_quota.json](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/state/api_football_quota.json)；UTC 日 2026-11-04（不是当前实时余额）。
-- apif 配额剩余：7496；plan：Pro；limit_day：7500。
+- apif 配额剩余：7099；plan：Pro；limit_day：7500。
 
 仅转述冻结数据；缺失不填零，门槛标记不授予 BET 权限。
