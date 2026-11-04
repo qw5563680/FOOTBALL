@@ -27,6 +27,8 @@ def validate_approvals(aliases, *, require_metadata=False):
             if instant.utcoffset() != timedelta(0):
                 raise ValueError("审批 approved_utc 须为带偏移的 UTC 时间")
             if not re.fullmatch(
-                r"https://github\.com/qw5563680/FOOTBALL/pull/[1-9][0-9]*", entry["approval_pr"]
+                r"https://github\.com/qw5563680/FOOTBALL/pull/[1-9][0-9]*"
+                r"(?:#issuecomment-[1-9][0-9]*)?",
+                entry["approval_pr"],
             ):
                 raise ValueError("审批 approval_pr 须为本仓库 PR 完整链接")

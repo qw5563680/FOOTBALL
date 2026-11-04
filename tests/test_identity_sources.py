@@ -42,14 +42,20 @@ def test_promoted_bridge_aliases_keep_all_130_original_records_and_evidence():
     aliases = json.loads((ROOT / "data/team_aliases/api_football.json").read_bytes())
     count = 0
     for league, proof in provenance["promoted"].items():
-        records = aliases[league]
+        # T32 adds owner-approved historical IDs beside the original T23 batch.
+        # Keep the original 130 auto-verified records and their evidence hash exact.
+        records = {
+            key: row for key, row in aliases[league].items() if row["status"] == "auto_verified"
+        }
         assert len(records) == proof["count"]
         assert all(row["status"] == "auto_verified" and row["evidence"] for row in records.values())
         encoded = json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         assert hashlib.sha256(encoded.encode()).hexdigest() == proof["canonical_json_sha256"]
         count += len(records)
     assert count == 130
-    assert "51" not in aliases["英超"] and "225" not in aliases["葡超"]
+    for league, key in (("英超", "51"), ("葡超", "225")):
+        assert aliases[league][key]["status"] == "approved"
+        assert aliases[league][key]["approval_pr"].endswith("/49#issuecomment-6627072639")
 
 
 def test_formal_cup_aliases_preserve_inferred_names_and_entire_audit_evidence():

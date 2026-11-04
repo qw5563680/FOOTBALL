@@ -273,9 +273,7 @@ def link_archive(database, raw_file, *, league_id, season, aliases_path, raw_loc
             aliases=read_json(aliases_path),
             metadata=meta,
         )
-        write_audit(
-            audit, [dict(row, endpoint="fixtures", outcome="rejected") for row in result["audit"]]
-        )
+        write_audit(audit, [dict(row, endpoint="fixtures") for row in result["audit"]])
     return {k: v for k, v in result.items() if k != "audit"}
 
 
@@ -300,7 +298,7 @@ def _record_duplicate(audit, provider_fixture_id, endpoint, metadata):
     return True
 
 
-def ingest_apif(database, raw_file, *, fixture_file, endpoint, raw_location=None):
+def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location=None):
     if endpoint not in {"statistics", "events", "lineups", "players"}:
         raise ValueError("不支持的技术端点")
     # Read the sidecar's requested ID, then independently verify URL, envelope and index.
@@ -318,18 +316,33 @@ def ingest_apif(database, raw_file, *, fixture_file, endpoint, raw_location=None
         parameters={"fixture": fixture_id},
         location=raw_location,
     )
-    fixture_meta = json.loads(
-        Path(fixture_file).with_suffix(Path(fixture_file).suffix + ".meta.json").read_bytes()
-    )
-    scope = parse_qs(urlparse(fixture_meta.get("url") or "").query)
-    if set(scope) != {"league", "season"} or any(
-        len(v) != 1 or not v[0].isdecimal() for v in scope.values()
-    ):
-        raise ValueError("fixture 原件范围须为 league + season")
-    scope = {k: v[0] for k, v in scope.items()}
-    fixture_raw, _ = load_raw(fixture_file, endpoint="fixtures", parameters=scope)
-    fixtures = envelope(fixture_raw, "fixtures", scope)
-    found = [row for row in fixtures if str(row.get("fixture", {}).get("id")) == fixture_id]
+    if fixture_file is None:
+        # T32 retains the original fixture/league/teams observation in the verified
+        # index; no synthetic fixture response or additional API request is needed.
+        engine = get_engine(database)
+        try:
+            with session_scope(engine) as session:
+                index = session.get(ApifFixtureIndex, fixture_id)
+                context = index.evidence.get("fixture") if index else None
+                if not isinstance(context, dict):
+                    raise ValueError("索引缺少已归档的 fixture 上下文")
+                scope = {"league": str(index.provider_league_id), "season": str(index.season)}
+                found = [context]
+        finally:
+            engine.dispose()
+    else:
+        fixture_meta = json.loads(
+            Path(fixture_file).with_suffix(Path(fixture_file).suffix + ".meta.json").read_bytes()
+        )
+        scope = parse_qs(urlparse(fixture_meta.get("url") or "").query)
+        if set(scope) != {"league", "season"} or any(
+            len(v) != 1 or not v[0].isdecimal() for v in scope.values()
+        ):
+            raise ValueError("fixture 原件范围须为 league + season")
+        scope = {k: v[0] for k, v in scope.items()}
+        fixture_raw, _ = load_raw(fixture_file, endpoint="fixtures", parameters=scope)
+        fixtures = envelope(fixture_raw, "fixtures", scope)
+        found = [row for row in fixtures if str(row.get("fixture", {}).get("id")) == fixture_id]
     if len(found) != 1:
         raise ValueError("fixture 原件未唯一包含指定比赛")
     identity = fixture_identity(found[0])

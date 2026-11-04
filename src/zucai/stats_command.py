@@ -10,6 +10,13 @@ LOG = logging.getLogger(__name__)
 def add_stats_parser(sub):
     parser = sub.add_parser("stats", help="技术数据解析、存储与身份索引，不生成模型特征")
     commands = parser.add_subparsers(dest="stats_command", required=True)
+    restore = commands.add_parser("restore-rows", help="从 Release 分片恢复全部技术数据历史行")
+    restore.add_argument(
+        "--db", type=Path, default=Path(os.environ.get("ZUCAI_DB", "data/zucai.db"))
+    )
+    restore.add_argument("--archive", type=Path, help="feeds 归档目录；默认读取数据库旁持久清单")
+    restore.add_argument("--release", help="仅恢复指定 stats-raw-YYYYMM 月份；默认恢复全部")
+    restore.add_argument("--repository", help="GitHub owner/repo；默认 GITHUB_REPOSITORY")
     for command in ("migrate", "ingest-fd", "link", "ingest-apif"):
         item = commands.add_parser(command)
         item.add_argument(
@@ -72,7 +79,14 @@ def run_stats(args):
     from zucai.stats_schema import migrate_stats
     from zucai.stats_storage import ingest_apif, ingest_fd, link_archive
 
-    if args.stats_command == "migrate":
+    if args.stats_command == "restore-rows":
+        from zucai.stats_release import ReleaseStore
+        from zucai.stats_rows import restore_rows
+
+        result = restore_rows(
+            args.db, args.archive, release=ReleaseStore(args.repository), tag=args.release
+        )
+    elif args.stats_command == "migrate":
         if not args.db.is_file():
             raise ValueError("技术数据迁移需要已有数据库")
         engine = get_engine(args.db)

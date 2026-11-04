@@ -525,9 +525,55 @@ players 以 role=player_stats 保存完整原文和规范 JSON，单列 games.mi
 T32 使用 `data/api_football/stats_coverage.json` 的初始 unsupported 规则：players 对 3/848 **资格赛**、
 芬超 244 的 2022/2024、韩职 292 的 2024；injuries 对 98/292/169/94/848。这些是探测空响应的
 调度依据，不是永久权限结论；不排除 3/848 联赛阶段的 players。T31 没有实现 injuries 入库。
-欧冠 2 的配置只开放 index_only，不宣称任何赛季 fixtures 权限已核实，日常采集与回填仍排除。
+欧冠 2 的配置只开放 index_only，不宣称任何赛季 fixtures 权限已核实，普通比赛采集与回填仍排除。
 `stats link --fetch` 仅允许审查者在 Actions 手动对七桥接＋2 请求一页 fixtures，不导入比赛；
-原件回放 `--raw-file` 不发请求。间隔、任务时长与日常请求次数未调整，真实回填留给 T32。
+原件回放 `--raw-file` 不发请求。以上为 T31 边界；T32 技术通道的间隔、任务时长与增量如下，普通采集请求不变。
+
+### T32 技术数据调度、配额与覆盖率（离线实现，真实验收待 Claude）
+
+本轮只使用离线 fixtures 和合成 Release transport，没有真实 API/CSV/status/robots 请求、
+没有读取正式 key，也没有触发 Actions。robots 沿用本节 T30/T14 的既有证据；未新增访问结论。
+所有者于 2026-11-04 批准技术通道最小间隔 1.0 秒、分钟 remaining ≤ 20 等下一分钟、429 停批，
+普通赛程与 status 仍为 6.1 秒。以下请求数为调度规则或预算估计，不是已测覆盖率：
+
+| 范围 / 端点 | 请求 / 单位与限制 | 离线合成证据 | 真实验收 |
+| --- | --- | --- | --- |
+| index | 七桥接 39/140/135/78/61/88/94＋欧冠 2，自 2022 起每联赛季 fixtures 一页；约 40 次量级 | 范围、已有比赛链接、页游标；不导入赛程比分 | 待 Claude Actions 首批 index |
+| fd | E0/E1/SP1/I1/D1/F1/F2/N1/P1 九主联赛季文件，免费无 key；页/文件计量 | 离线原件回放、已有 fd 比赛附着；不解析国别/赔率 | 待 Claude 首批 fd |
+| statistics → events → lineups → players | 按已链接比赛逐场，约 22,075 × 4 ≈ 88,400 次；xG 自 2024 季起 | 离线游标、空值、失败/unsupported 分类 | 待 Claude 英超 2025 statistics |
+| injuries | 仅英超、西甲、意甲、德甲、法甲、荷甲、丹超、瑞超、挪超、美职、澳超 11 联赛 | 允许范围、原件归档和游标；不虚构球员数据 | 待 Claude |
+| 历史批次 | 单 run ≤ 7000，reserve 10＋日常预留 300；timeout 300 分钟 | 触底停批和可续跑路径 | 待 Claude 配额与重复运行验收 |
+| 晚班 daily | ≤ 300；复用普通采集 fixtures 页，普通日期/status 请求数不增加 | 昨日完赛、在售 60–30 分钟阵容窗口、错过窗口记录 | 待 Claude 连续两天摘要 |
+
+空响应最多首抓＋2 次补抓，相邻至少 7 天；unsupported 不重试，网络失败计配额且本轮不补发。
+HTTP 200 + errors 判失败，不将错误正文当成功数据。字段 null 保留 null，missing_reason 明示，
+red_cards 等不补 0；T33 可另从 events 推导但本任务不修改模型输入。
+
+覆盖率快照 `state/stats_coverage.json` 与其 SHA256 随数据分支保存，按赛事×供应商赛季×端点×阶段
+列应取/已取/有效/空值/失败/未支持，另外保留 requests/null_fields/missed。逐场端点只以已链接比赛作分母；
+index/fd 分别以页/文件计量，不能与逐场计数相加计算百分比。摘要异常节照录六项冻结数字、观测 UTC 和源链接。
+
+| 当前总体覆盖率 | 应取 | 已取 | 有效 | 空值 | 失败 | 未支持 | 证据性质 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 生产历史与日常全范围 | 未实测 | 未实测 | 未实测 | 未实测 | 未实测 | 未实测 | 待 Claude Actions，不能拿合成样本代填 |
+| 摘要测试：英超 2025 statistics | 380 | 379 | 371 | 8 | 1 | 0 | 仅 `data/fixtures/t32/digest_coverage.json` 合成冻结数字，非真实覆盖 |
+
+真实完成门槛仍为英超 2025/26 statistics ≥95%、余额保留日常额度、中断续跑无重复、相同范围第二批 0 请求、
+连续两日日常摘要有覆盖行。未验收前不声称已达标；本节后续由 Claude 据 Actions 原件回填。
+
+默认 feeds 改为 index-only；三个技术行表按联赛×供应商赛季压缩 JSONL.zst，基名
+`stats-rows-<league>-<season>` 加内容哈希后缀，和 `stats-raw-<run_id>.zip` 原件共同放月度 Release
+`stats-raw-YYYYMM`，分别有 `SHA256SUMS-<run_id>` 与 `SHA256SUMS-raw-<run_id>`。
+manifest 记录 tag/文件名/哈希/大小/分片行数；分支仅保存索引、游标、覆盖率、审计和哈希清单。
+先验证 Release 再提交数据库；归档失败批次回滚但请求扣费不回滚。手动 collector 失败后仍发布
+quota-only 状态和错误记录，使下一次 runner 延续实际已扣额度；无变更启动失败不产生提交，取消/未执行不发布。
+artifact 副本保留 90 天。
+`zucai stats restore-rows --db data/zucai.db --archive ../cloud-data --release stats-raw-202611`
+按清单校验下载；省略 release 装回全部历史。行表只在装回后逐行校验，日常预测无需下载。
+
+所有者已批准的 45 个七桥接 apif ID 按原 PR #49 证据使用，7 个无证据 ID 仍 proposed。
+Den Haag → 海牙 是同一审批中唯一获准的精确 fd 合并，经既有 reconcile 检查执行；不推广 fd 名称猜测。
+模型、特征、参数、赛果可知时钟及冻结预测均不变。
 
 ### T23 identity-only 桥接（2026-11-03，Claude 已完成第一轮实测）
 

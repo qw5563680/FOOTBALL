@@ -91,7 +91,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 前三表共用 `provider/provider_fixture_id/endpoint/record_key/match_id/team_id/provider_team_id/side`，
 `period_basis/extra_time_included/eligible_90`，`captured_utc/available_utc/availability_basis`，
 `raw_sha256/raw_location/parser_version/missing_reason/version`。`raw_location` 可填本地原件路径或未来
-Release 归档位置，T31 不上传原件。`captured_utc` 必须取已校验 sidecar 的实际抓取时间；本阶段导入一律
+Release 归档位置；T31 回放不上传，T32 批次负责上传。`captured_utc` 必须取已校验 sidecar 的实际抓取时间；本阶段导入一律
 `availability_basis=backfilled, available_utc=null`，不借用比赛赛果的时钟。
 首发的 `captured_before_kickoff` 只表示抓取是否严格早于开球，不自行授予历史赛前可用资格。
 FT 标 `90/false/true`；AET/PEN 标 `incl_extra_time/true/false`；其余状态 `unknown/false/false`。
@@ -128,14 +128,66 @@ capture 时钟回执，不重复入表；再次回放同一抓取连审计字节
 本阶段不提供事件集合特征，消费时的快照选择由 T33 实现。
 数据库写入、拒绝审计和回执在一次事务边界内完成，异常或提交失败恢复审计原字节并回滚所有新行。
 
-归档仍为 feeds manifest v2，新增可选 `technical_data={version:1, columns, counts}`，配套四个文件：
+T31 旧归档采用 feeds manifest v2 的可选 `technical_data={version:1, columns, counts}`，配套四个文件：
 `state/match_stats.jsonl`、`state/match_events.jsonl`、`state/match_lineups.jsonl`、`state/apif_fixture_index.jsonl`。
 每行沿用按 columns 排序的 JSON 数组；文件 SHA256 进入原 manifest.files，stats 审计 CSV 一并归档。
 原有五表的 counts、sources 行哈希不改。四表扩展必须整体存在或整体缺失；旧 v1/v2 无扩展归档恢复为空附属表。
 export/restore/verify 检查完整性、哈希、行数、外键和主客/索引一致性，校验失败不替换目标库。
 恢复时 stats 两张审计 CSV 与所恢复的数据库同步；旧归档缺失的技术审计会从目标目录清除，防止残留较新回执误跳过数据。
 没有新建或改写 forecast/report/scoreboard 文件。unsupported 初始名单保存于
-`data/api_football/stats_coverage.json`，供 T32 使用；资格赛与联赛阶段分开，不将抽样空值推广为永久无权限。
+`data/api_football/stats_coverage.json`，供 T32 调度使用；资格赛与联赛阶段分开，不将抽样空值推广为永久无权限。
+
+### T32 批次、游标与外部行表归档
+
+`cloud_stats backfill` 在全新隔离工作目录恢复 feeds；`cloud_stats daily` 使用普通 apis 晚班已恢复的
+数据库和 fixtures 原件，不新增普通 fixtures/status 请求。技术请求走独立 1.0 秒限速通道，分钟头
+remaining ≤ 20 时等到下一分钟，429 立即停止。原普通采集/status 的 6.1 秒规则不变。
+历史批次至多 7000 次，除 reserve=10 外预留日常 300 次；日常至多 300 次。失败请求同样扣配额。
+索引按七桥接＋欧冠 2 的 2022 起赛季页；fd 按九主联赛季文件；四端点依次 statistics/events/lineups/players，
+injuries 仅 11 个有数据联赛。全部范围先验证，未知端点/联赛/季节参数在请求前拒绝。
+
+`state/stats_backfill_cursor.json` version 1 记录每个来源 / 联赛季 / 端点 / fixture / 阶段单元的
+attempts、结果和上次尝试时间，成功回执幂等跳过。空响应最多首抓＋2 次补抓，补抓间隔至少 7 天；
+resume 在每个端点内优先已有未完成单元；no-resume 按所选范围顺序枚举，两者都不清空成功/重试/权限回执。
+unsupported 不再重试。HTTP 200 + errors、网络失败、权限不足分别记录 failed/unsupported，网络失败本批不补发；
+限流和配额触底保留已完成部分，下一批可 resume。赛前阵容仅在 60–30 分钟窗口尝试一次，记录实际捕获 UTC；
+错过窗口写 missed，赛后阵容不能补造赛前可用性。
+请求前在限速等待之后再次检查阵容窗口；HTTP 状态独立于响应体读取，非 JSON 的 429 也停批，
+401/403 也将该联赛季全部端点记 unsupported。日常 injuries 按各联赛当前供应商季取一页；
+默认历史范围单独包含日职已开始的 2027 季，不扩展其他联赛的未来季。
+
+数据分支的新 `technical_data.version=2` 仅保留 `state/apif_fixture_index.jsonl` 与
+`state/stats_rows_manifest.json` 描述副本、游标、覆盖率和 `state/audit/stats_*.csv`。
+`match_stats` / `match_events` / `match_lineups` 按联赛×供应商赛季导出 JSONL.zst，文件名由
+`stats-rows-<league>-<season>` 基名、内容哈希后缀组成；同月新内容用新名字，不覆盖不可变资产。
+三个行表全部历史版本、身份和空值语义一起保存。原件与 sidecar 打包 `stats-raw-<run_id>.zip`；
+原件和行分片同在月度 Release `stats-raw-YYYYMM`。每批清单为 `SHA256SUMS-raw-<run_id>` / `SHA256SUMS-<run_id>`，
+manifest 记录 release tag、文件名、SHA256、大小和行数，数据分支不承载大行表。
+默认 `restore_feeds` 只恢复索引、清单、覆盖率和审计；`check_stats` 在这种模式只验索引。
+`zucai stats restore-rows --db data/zucai.db --archive ../cloud-data --release stats-raw-202611`
+按持久清单下载、解压、逐分片校验后原子替换数据库；省略 `--release` 恢复所有月份并核对完整快照。
+逐行校验仅在行表装回后执行，旧 version 1 归档仍支持。
+同一批次 restore 与 publish 共用临时的按 SHA256 命名的压缩分片缓存，历史分片只下载一次；
+发布前仍校验缓存大小、哈希、行数及历史行内容，批次结束即删除缓存，不增加数据分支文件。
+版本切换不是自动兼容发布：T31 代码不接受 v2；T32 普通导出拒绝丢弃尚未发布分片的 v1 行表。
+真实验收时由审查者协调暂停普通作业（含已排队旧代码运行），完成首次 stats-backfill 迁移和 T32 合入，
+确认代码与归档版本一致后再恢复定时任务；并发写锁不能解决格式不兼容。
+
+原件和行分片须先完成上传与哈希核验，再接纳暂存数据库、游标及归档；归档失败整批不入库，
+已经发送的请求仍保留配额扣减。手动 stats-backfill 的发布步骤在 collector 成功或失败后均执行，
+把归档失败时的 quota-only 状态与错误记录写回数据分支；数据库/游标仍保持回滚。取消或 collector 未执行时跳过，
+启动失败且无归档变化时沿用发布脚本的无变更退出。晚班技术步骤 continue-on-error，普通 feeds 可照常发布。
+Actions 保留 raw/state/stats_assets 90 天，整个工作流共用 `write-football-feed-data` 写锁；
+独立手动 stats-backfill job 超时 300 分钟，不触发其他 job。API key 和 Release token 仅注入技术采集步骤，
+沿用 contents:write；没有新增 cron 或权限。
+
+`state/stats_coverage.json` version 1 的 `observed_utc` 与 rows 按 league/season/endpoint/phase
+保存 expected/fetched/valid/null/failed/unsupported，以及 requests/null_fields/missed。
+逐场端点分母为已链接 fixture，index/fd 的单位分别为页/文件。null_fields 表示空字段，不能作为 0 值；
+不从请求数推算覆盖率。该文件 SHA256 进入 feeds files；daily_digest 仅在异常节照录六项冻结计数、来源链接、
+观测 UTC，旧归档没有该文件时摘要字节不变，不重写任何预测/报告/评分证据。
+Den Haag → 海牙 仅凭所有者对该精确名称的批准，经既有 reconcile 全部检查进行；
+不放宽任意 fd 别名、主客方向、球队身份或冻结历史规则。
 
 ### 既有赛程与赛果存储
 

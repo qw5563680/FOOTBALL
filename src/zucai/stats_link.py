@@ -47,22 +47,23 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
     matches = list(session.scalars(select(Match).where(Match.league == league)))
     previous = {row.provider_fixture_id: row for row in session.scalars(select(ApifFixtureIndex))}
     claimed = {row.match_id: row.provider_fixture_id for row in previous.values()}
-    planned, audit = [], []
+    planned, audit, preferred = [], [], {}
 
-    def reject(fixture_id, reason, detail="", candidates=()):
+    def record_audit(fixture_id, reason, detail="", candidates=(), *, outcome="rejected"):
         audit.append(
             dict(
                 provider_fixture_id=str(fixture_id),
                 league=league,
                 season=season,
                 reason=reason,
+                outcome=outcome,
                 detail=detail,
                 candidates=sorted(candidates),
                 **metadata,
             )
         )
 
-    prepared = []
+    prepared, contexts = [], {}
     for row in rows:
         fixture_id = row["fixture"].get("id", "") if isinstance(row.get("fixture"), dict) else ""
         try:
@@ -73,16 +74,17 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             if provider_season(identity["kickoff_utc"], league_id) != season:
                 raise ValueError("fixture 开球不在声明的供应商联赛赛季")
         except ValueError as exc:
-            reject(fixture_id, "候选不全", str(exc))
+            record_audit(fixture_id, "候选不全", str(exc))
             continue
         prepared.append(identity)
+        contexts[fixture_id] = {key: row[key] for key in ("fixture", "league", "teams")}
     ids = Counter(
         str(row["fixture"].get("id")) for row in rows if isinstance(row.get("fixture"), dict)
     )
     for identity in prepared:
         fixture_id = identity["provider_fixture_id"]
         if ids[fixture_id] != 1:
-            reject(fixture_id, "多对一", "同一响应含重复 fixture ID")
+            record_audit(fixture_id, "多对一", "同一响应含重复 fixture ID")
             continue
         pair = (identity["home_provider_id"], identity["away_provider_id"])
         incoming = []
@@ -102,7 +104,7 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
                 )
         if incoming:
             reason = next(r for r in ("主客反向", "同窗冲突", "多对一") if r in incoming)
-            reject(fixture_id, reason, "整批供应商 fixture 存在同窗身份冲突")
+            record_audit(fixture_id, reason, "整批供应商 fixture 存在同窗身份冲突")
             continue
         sides, evidence = {}, {}
         try:
@@ -125,7 +127,7 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             if sides["home"] == sides["away"]:
                 raise ValueError("正式别名的主客身份相同")
         except ValueError as exc:
-            reject(fixture_id, "身份临时", str(exc))
+            record_audit(fixture_id, "身份临时", str(exc))
             continue
         kickoff = identity["kickoff_utc"]
         window = [
@@ -147,6 +149,16 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             and m not in reverse
             and {m.home_team_id, m.away_team_id} & set(sides.values())
         ]
+        preferred_candidates = []
+        if (
+            len(direct) == 2
+            and not reverse
+            and not conflict
+            and {m.source for m in direct} == {"fd", "fdorg"}
+            and instant(direct[0].kickoff_utc) == instant(direct[1].kickoff_utc)
+        ):
+            preferred_candidates = [m.match_id for m in direct]
+            direct = [m for m in direct if m.source == "fd"]
         reason = (
             "主客反向"
             if reverse
@@ -159,7 +171,9 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             else None
         )
         if reason:
-            reject(fixture_id, reason, candidates=[m.match_id for m in direct + reverse + conflict])
+            record_audit(
+                fixture_id, reason, candidates=[m.match_id for m in direct + reverse + conflict]
+            )
             continue
         match = direct[0]
         old = previous.get(fixture_id)
@@ -176,22 +190,27 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             season,
             league_id,
         ):
-            reject(fixture_id, "同窗冲突", "既有索引禁止重指向", [old.match_id, match.match_id])
+            record_audit(
+                fixture_id, "同窗冲突", "既有索引禁止重指向", [old.match_id, match.match_id]
+            )
             continue
         if match.match_id in claimed and claimed[match.match_id] != fixture_id:
-            reject(fixture_id, "多对一", "目标已被其他 fixture 占用", [match.match_id])
+            record_audit(fixture_id, "多对一", "目标已被其他 fixture 占用", [match.match_id])
             continue
+        if preferred_candidates:
+            preferred[fixture_id] = preferred_candidates
         planned.append((identity, match, sides, evidence, old))
     counts = Counter(match.match_id for _, match, _, _, _ in planned)
     linked, unchanged = 0, 0
     for identity, match, sides, evidence, old in planned:
         if counts[match.match_id] > 1:
-            reject(
+            record_audit(
                 identity["provider_fixture_id"],
                 "多对一",
                 "整批多个 fixture 对应同一比赛",
                 [match.match_id],
             )
+            continue
         elif old:
             unchanged += 1
         else:
@@ -205,9 +224,26 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
                     away_team_id=sides["away"],
                     **metadata,
                     parser_version=PARSER_VERSION,
-                    evidence={**evidence, "aliases_sha256": aliases_sha},
+                    evidence={
+                        **evidence,
+                        "aliases_sha256": aliases_sha,
+                        "fixture": contexts[identity["provider_fixture_id"]],
+                    },
                 )
             )
             linked += 1
+        if identity["provider_fixture_id"] in preferred:
+            record_audit(
+                identity["provider_fixture_id"],
+                "preferred_fd",
+                f"同场 fd/fdorg 双行优先关联 {match.match_id}",
+                preferred[identity["provider_fixture_id"]],
+                outcome="linked",
+            )
     session.flush()
-    return dict(linked=linked, unchanged=unchanged, rejected=len(audit), audit=audit)
+    return dict(
+        linked=linked,
+        unchanged=unchanged,
+        rejected=sum(row["outcome"] == "rejected" for row in audit),
+        audit=audit,
+    )
