@@ -453,6 +453,26 @@ Actions 按赛事×季×端点汇总抽样数、有效响应数、有效率、�
 上述两轮使用修复前的抽样规则，jc 关联优先的修复仍待 Claude 补测欧战联赛阶段。
 “剩余≥6900”是实测验收值，不会伪造为每次运行的保证。结果回填本节后再作为 T31 字段字典依据。
 
+
+#### 审查者回填：三轮真实探测结果（2026-11-04，run 41779592141 / 41783408987 / 41785683100，共 398 次请求）
+
+| 项目 | 实测 |
+| --- | --- |
+| 配额响应头 | `x-ratelimit-limit: 300`（每分钟）、`x-ratelimit-requests-limit: 7500`（每日，Pro） |
+| `/leagues?id=` coverage | 12 个采集联赛与欧冠：events / lineups / statistics_fixtures 全 true；statistics_players 芬超 2022/2024 false；injuries 日职、韩职、中超、欧协联 false，澳超 2022 false |
+| `fixtures/statistics` | 固定 16 类（Shots on/off Goal、Total/Blocked Shots、Shots inside/outsidebox、Fouls、Corner Kicks、Offsides、Ball Possession `"60%"`、Yellow/Red Cards、Goalkeeper Saves、Total passes、Passes accurate、Passes % `"85%"`），偶见 `Free Kicks`；`expected_goals` / `goals_prevented` 为字符串（`"0.96"`）。**xG 自 2024 季起出现，2022 季 19 个联赛全部没有**；2024 季丹超、澳超、2026 季韩职样本为 null |
+| `fixtures/statistics?half=true` | 两次实测：资格赛样本 results 0；联赛阶段样本返回与全场逐项相同数值。参数被忽略，**半场统计不可得** |
+| `fixtures/events` | 54/54 联赛季 + 欧战联赛阶段有数据：`time.elapsed/extra`、`type`（Goal / Card / subst / Var）、`detail`、team、player、assist |
+| `fixtures/lineups` | 全部有数据：formation、coach、startXI / substitutes（player.id/name/number/pos/grid）；赛后抓取不证明赛前已知 |
+| `fixtures/players` | 国内 15 联赛有（games.minutes/rating/position、shots、passes、tackles、duels、dribbles、fouls、cards、penalty）；欧罗巴 / 欧协联**联赛阶段有、资格赛没有**；芬超 2022/2024、韩职 2024 为空 |
+| `injuries?league&season` | 每季一页 200–6000 条，`player.type`（Missing Fixture / Questionable）、`player.reason`、`fixture.id/date`、team；日职、韩职、中超、葡超、欧协联三季为空 |
+| 欧战资格赛 | statistics 为空或仅牌数、players 为空；联赛阶段完整（欧罗巴 AC米兰–本菲卡 xG 0.96 / 0.64） |
+| 欧冠（apif 联赛 2） | 本任务只读元数据（coverage 全 true），联赛阶段未探测 |
+
+原件：artifact `apis-source-41779592141-1`（715 文件，SHA256 `b517cd58…`）、`apis-source-41783408987-1`、`apis-source-41785683100-1`（SHA256 `db30d08f…`）；审计 `state/audit/apif_stats_probes.csv`。审查记录 `docs/reviews/2026-11-04-t30-review.md`。
+
+**T20 范围修订（所有者 2026-11-04 批准）**：允许向 API-Football 请求欧冠（联赛 ID 2）的 `/fixtures?league&season`，**仅用于建立技术数据关联索引**（apif fixture ID ↔ 库内 fdorg / jc `match_id`），不导入赛程、不导入比分、不改 fdorg 优先级；索引规则与其他联赛一致（T31）。
+
 ### T23 identity-only 桥接（2026-11-03，Claude 已完成第一轮实测）
 
 正式凭据仅由 Claude 在 Actions 使用，开发环境没有发 API、status 或 robots 请求。
