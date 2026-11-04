@@ -45,7 +45,7 @@ def write_rows_manifest(database, block):
 
 def read_rows_manifest(database):
     path = Path(database).parent / ROWS_MANIFEST
-    return json.loads(path.read_text()) if path.exists() else None
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 def check_stats(db, *, rows=True):
@@ -232,7 +232,7 @@ def restore_stats(db, archive, meta):
     if block["version"] == 2:
         if (
             ROWS_MANIFEST not in meta["files"]
-            or json.loads((archive / ROWS_MANIFEST).read_text()) != block
+            or json.loads((archive / ROWS_MANIFEST).read_text(encoding="utf-8")) != block
         ):
             raise ValueError("技术数据外部分片持久清单与 manifest 不符")
     tables = STATS_COLUMNS if block["version"] == 1 else ("apif_fixture_index",)
