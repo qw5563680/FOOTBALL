@@ -58,6 +58,7 @@ python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/pa
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 --source fdorg --leagues CL --from 2023 --to 2026
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2025 --to 2026
+python -m zucai.cloud_feeds probe --probe-kind stats --archive ../cloud-data --run-id stats-1 --source apif --leagues 3,848 --seasons 2024 --per-scope 2  # 仅审查者在 Actions 探测技术数据，不入库
 python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --run-id fd-links-1  # 仅审查者在 Actions 手动补链，不联网
 python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF/FDORG 存量身份，不联网
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
@@ -199,6 +200,23 @@ Actions → **Run workflow** 选择代码分支后使用以下参数（`days` �
 `leagues` 输入默认留空，由步骤脚本决定：probe 用 `3,848`，backfill 用该来源默认范围。
 `seasons` 供赛季 probe（留空用 `2021-2026`）及 identity（留空用 `2025,2026`）；
 `probe_kind=leagues` 只查元数据，不接收年份；`from_season` / `to_season` 仅供 backfill，含首尾。
+
+T30 的 `probe_kind=stats` 只在手动 Actions 中探测逐场技术统计、事件、阵容、球员与伤停。
+默认联赛为七个桥接联赛、十一采集联赛和欧冠 2（欧冠只请求元数据）；默认年份 `2022,2024,2026`。
+`per_scope` 默认 1，表示每联赛季最多抽样一场；先按 FT、AET/PEN、PST/CANC 各取一场，
+再补足，名额不足按此顺序截断。同组先选 jc 行 counterpart 已关联的 apif 比赛，再选普通 apif
+来源等库内已知 ID，最后选未知 ID；同档按 ID 排序。不按名称猜关联，也不按 ID 大小判断比赛阶段。
+这样已有竞彩关联的欧战联赛阶段比赛能优先于较小 ID 的资格赛；未关联的历史赛季仍可能只抽到资格赛。
+每个范围只读赛程首页与伤停首页，每个样本读取四个逐场端点；整轮至多加测一次 `half=true`，
+是否支持半场以及统计口径仍需审查原件，不能由成功状态推断。
+所有请求沿用 6.1 秒间隔与 reserve=10，启动前计算最坏请求预算，超过 500 次就拒绝，尚未采集。
+**默认范围最多 344 次请求（19 次元数据＋54×6＋1 次半场候选），在 500 次上限内。**
+显式 `--per-scope 2` 的完整范围仍需 560 次，会被拒绝；可同时缩小联赛/赛季范围，
+例如上方两项欧战单季两场为 23 次。
+`state/audit/apif_stats_probes.csv` 和 Actions 摘要分别记录成功、空响应、权限/限流/结构错误与空字段；
+抽不到比赛时，四个逐场端点各记一条零请求跳过及原因，整轮标为 partial。
+配额触底立即停止并保留部分证据。原件及每日/分钟配额 sidecar 在本次 artifact；不自动改权限配置，
+不导入比赛、不训练，也不触发预测、记分板或摘要推送。抽样有效率不代表全赛季覆盖率。
 
 - `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件一律传 auto，按实际启动时刻以 UTC 09:00 为界判定早晚班，并输出 apis.slot；手动 auto 同样处理。

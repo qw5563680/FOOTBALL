@@ -396,8 +396,11 @@ def main():
     )
     parser.add_argument("--seasons", help="probe 的年份；identity 默认 2025,2026")
     parser.add_argument(
-        "--probe-kind", choices=("seasons", "leagues"), help="仅 probe：赛季权限或桥接联赛元数据"
+        "--probe-kind",
+        choices=("seasons", "leagues", "stats"),
+        help="仅 probe：赛季权限、桥接元数据或技术数据",
     )
+    parser.add_argument("--per-scope", type=int, help="仅 stats probe：每联赛季最多抽样场数")
     parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
     parser.add_argument("--to", dest="last", help="仅 backfill：终止年或赛季，如 2026 / 2627")
     parser.add_argument(
@@ -432,6 +435,8 @@ def main():
         parser.error("--seasons 仅供 probe / identity 使用")
     if args.command != "probe" and args.probe_kind is not None:
         parser.error("--probe-kind 仅供 probe 使用")
+    if args.per_scope is not None and (args.command != "probe" or args.probe_kind != "stats"):
+        parser.error("--per-scope 仅供 probe --probe-kind stats 使用")
     if args.command == "reconcile":
         from zucai.cloud_probe import require_probe_actions
 
@@ -446,6 +451,11 @@ def main():
             from zucai.cloud_identity import identity_scopes
 
             identity_scopes(args.leagues, args.seasons)
+        elif args.probe_kind == "stats":
+            from zucai.cloud_stats_probe import DEFAULT_PER_SCOPE, stats_plan
+
+            args.per_scope = DEFAULT_PER_SCOPE if args.per_scope is None else args.per_scope
+            stats_plan(args.leagues, args.seasons, args.per_scope, datetime.now(UTC))
         elif args.probe_kind == "leagues":
             from zucai.cloud_identity_probe import identity_codes
 
@@ -503,6 +513,9 @@ def main():
         if args.command == "identity":
             from zucai.cloud_identity import collect_identity as collector
             from zucai.cloud_identity import write_identity_summary as identity_summary
+        elif args.probe_kind == "stats":
+            from zucai.cloud_stats_probe import collect_stats_probe as collector
+            from zucai.cloud_stats_probe import write_stats_probe_summary as identity_summary
         elif args.probe_kind == "leagues":
             from zucai.cloud_identity_probe import collect_league_probe as collector
             from zucai.cloud_identity_probe import write_league_probe_summary as identity_summary
@@ -510,6 +523,8 @@ def main():
             from zucai.cloud_probe import collect_probe as collector
             from zucai.cloud_probe import write_probe_summary as identity_summary
         options = dict(codes=args.leagues)
+        if args.probe_kind == "stats":
+            options["per_scope"] = args.per_scope
         if args.probe_kind != "leagues":
             options["seasons"] = args.seasons
         collection = {"apif": collector(target, args.run_id, **options)}
