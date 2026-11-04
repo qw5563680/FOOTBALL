@@ -40,7 +40,7 @@ def _manifest(database, archive):
         path = Path(archive)
         if path.is_dir():
             path = path / "feed_manifest.json"
-        document = json.loads(path.read_text())
+        document = json.loads(path.read_text(encoding="utf-8"))
         block = document.get("technical_data", document)
     if block is None:
         raise ValueError("缺少技术数据分片清单；请先恢复 feeds 归档")
