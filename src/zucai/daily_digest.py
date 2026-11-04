@@ -264,7 +264,7 @@ def _account_sections(ledger, summary, yesterday, repository):
     return lines + [""]
 
 
-def _anomaly_sections(feed, summary, quota, repository):
+def _anomaly_sections(feed, summary, quota, repository, coverage=None):
     lines = [
         "## 异常与采集记录",
         "",
@@ -299,6 +299,28 @@ def _anomaly_sections(feed, summary, quota, repository):
         "settlement_corrections"
     ):
         lines.append("- 记分板记录了赛果或结算更正，请查看原 summary.json 的 audit。")
+    if coverage is not None:
+        lines.extend(
+            [
+                "",
+                "### 技术数据覆盖率",
+                "",
+                f"来源：{_link('state/stats_coverage.json', repository)}；"
+                f"观测 UTC：{_text(coverage.get('observed_utc'))}。数字照录归档，不重算覆盖率。",
+                "",
+                "| 联赛 / 赛季 / 端点 / 阶段 | 应取 | 已取 | 有效 | 空值 | 失败 | 未支持 |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for row in coverage["rows"]:
+            scope = " / ".join(
+                _text(row.get(key)) for key in ("league", "season", "endpoint", "phase")
+            )
+            counts = " | ".join(
+                _text(row.get(key))
+                for key in ("expected", "fetched", "valid", "null", "failed", "unsupported")
+            )
+            lines.append(f"| {scope} | {counts} |")
     lines.extend(["", "仅转述冻结数据；缺失不填零，门槛标记不授予 BET 权限。", ""])
     return lines
 
@@ -331,6 +353,19 @@ def generate(archive, out, *, now=None, run_id="local", repository=None):
     quota = (
         json.loads(_path(archive, quota_path).read_bytes()) if quota_path in feed["files"] else {}
     )
+    coverage_path = "state/stats_coverage.json"
+    coverage = (
+        json.loads(_path(archive, coverage_path).read_bytes())
+        if coverage_path in feed["files"]
+        else None
+    )
+    if coverage is not None and (
+        not isinstance(coverage, dict)
+        or coverage.get("version") != 1
+        or not isinstance(coverage.get("rows"), list)
+        or any(not isinstance(row, dict) for row in coverage["rows"])
+    ):
+        raise ValueError("技术覆盖率快照格式无效")
     states = " / ".join(
         f"{source}={_text(feed.get('collection', {}).get(source, {}).get('status'))}"
         for source in ("jc", "fd", "fdorg", "apif")
@@ -351,7 +386,7 @@ def generate(archive, out, *, now=None, run_id="local", repository=None):
         *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
         *_settlement_sections(scored, summary, batches, today - timedelta(days=1), repository),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
-        *_anomaly_sections(feed, summary, quota, repository),
+        *_anomaly_sections(feed, summary, quota, repository, coverage),
     ]
     text = "\n".join(lines)
     if "建议购买" in text or "推荐" in text:

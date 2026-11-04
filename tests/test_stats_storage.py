@@ -130,10 +130,18 @@ def test_all_endpoint_tables_export_restore(database, tmp_path, endpoint):
         assert values["home:goals_prevented"] == (-0.25, -0.25)
         assert values["away:shots_on_target"] == (0.0, 0)
         assert values["home:saves"] == (None, None)
+    from test_stats_rows import LocalRelease
+    from zucai.stats_rows import publish_rows, restore_rows
+
+    release = LocalRelease(tmp_path / "release")
+    publish_rows(
+        database, tmp_path / "assets", release=release, tag="stats-raw-202611", run_id="roundtrip"
+    )
     archive = tmp_path / "archive"
     meta = export_feeds(database, archive, instant("2026-11-04T12:00:00Z").date(), "offline")
     restored = tmp_path / "restored.db"
     restore_feeds(archive, restored)
+    restore_rows(restored, archive, release=release)
     if endpoint == "statistics":
         assert stats(restored) == stats(database)
     second = export_feeds(

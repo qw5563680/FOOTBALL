@@ -15,7 +15,7 @@
 | 竞彩 比分 (crs) / 总进球 (ttg) / 半全场 (hafu) | 由比分分布推导 | 中国竞彩网 |
 | 传统 14 场胜负彩 / 任九 | 每期 14 场的胜平负概率表与组合建议 | 体彩官网 / 500.com |
 
-## 技术数据存储（T31）
+## 技术数据存储（T31 / T32）
 
 快速开始的 `stats` 命令只把技术数据附着到已有比赛。先恢复 feeds 数据库，运行 `stats migrate`，
 再回放原件；`--raw-file` 与 `--fixture-file` 均须有同名 `.meta.json` sidecar（URL、HTTP 200、
@@ -25,17 +25,19 @@ SHA256、带时区的 fetched_at_utc）。原件缺失、请求范围不一致�
 - `stats ingest-fd`：九个主联赛季文件，每次一份 CSV，只写已有 fd 比赛的射门、角球、犯规等；不解析国别文件或赔率。
 - `stats link`：以正式球队 ID 别名和同联赛季、主客、开球 ±3 小时的一对一证据建立索引；冲突写 `state/audit/stats_link_audit.csv`。
 - `stats ingest-apif`：按 `--endpoint statistics|events|lineups|players` 分别回放；先用已归档 fixtures 页建立索引，导入时仍用该页核对所属比赛及 FT/AET 状态。
-- `--raw-location`：可标注长期原件归档地址；不会上传或搬动文件。真实批量回填与 Release 原件归档留给 T32。
+- `--raw-location`：离线回放时可标注长期原件归档地址；上传由 T32 云端批次统一处理。
 
 `stats link --fetch --league 39 --season 2024 --db data/zucai.db` 仅允许 Claude 在 Actions 手动执行：
 每次一页 fixtures，七桥接＋欧冠 2 是允许范围，仍过每日配额并保留 10 次，间隔 6.1 秒。
-欧冠是 index_only，不导入赛程或赛果，不加入日常采集/backfill；本地用 `--raw-file` 离线回放。
-没有新增 workflow operation 或自动请求；真实验收由审查者安排。
+欧冠是 index_only，不导入赛程或赛果，不加入普通比赛采集/backfill；本地用 `--raw-file` 离线回放。
+T31 独立回放命令不自动请求；T32 的手动作业与晚班技术增量见下方云端采集，真实验收由审查者安排。
 
-新表为 match_stats / match_events / match_lineups / apif_fixture_index，随 feeds 导出到四份
-`state/<表名>.jsonl`，manifest v2 的 `technical_data` 扩展记录字段和行数，原文件清单记录 SHA256。
-旧归档仍能恢复；新归档的四表扩展须齐全。`cloud_feeds verify` 同时检查新表和身份关系。
-重复原件不重复写入，空值不覆盖有效值，更正保留旧版本。导入审计随数据分支归档，重复运行字节不变。
+新表为 match_stats / match_events / match_lineups / apif_fixture_index。默认 feeds 仅保存
+`state/apif_fixture_index.jsonl`、覆盖率、游标、审计与分片清单；三个行表不整表提交数据分支。
+manifest v2 的 `technical_data.version=2` 记录外部 Release 分片的行数和 SHA256；
+旧版 `technical_data.version=1` 四表归档仍可恢复。`restore_feeds` 默认只还原索引和审计，
+日常预测不下载技术行表；T33 需要行表时使用 `stats restore-rows`（见快速开始）。
+重复原件不重复写入，空值不覆盖有效值，更正保留旧版本，审计随数据分支归档。
 本阶段 available_utc 留空、标 backfilled；FT 与含加时分开，半场统计不可得，不补造数据。
 
 ## 技术栈
@@ -61,6 +63,7 @@ zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
 zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
 zucai stats migrate --db data/zucai.db  # 仅创建四张技术数据附属表
+zucai stats restore-rows --db data/zucai.db --archive ../cloud-data --release stats-raw-202611  # 从清单恢复该月行表；省略 --release 恢复全部
 zucai stats ingest-fd --db data/zucai.db --div E0 --season 2425 --raw-file work/E0.csv
 zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
 zucai stats ingest-apif --db data/zucai.db --endpoint statistics --raw-file work/statistics.json --fixture-file work/fixtures.json
@@ -83,6 +86,8 @@ zucai features build --out data/features.parquet  # 提取球队特征，市场�
 python -m zucai.cloud_feeds apis --archive ../cloud-data --days 3 --run-id manual  # 在全新隔离目录运行
 python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/params.json --run-id manual-1
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
+python -m zucai.cloud_stats backfill --archive ../cloud-data --run-id stats-1 --endpoints index,fd,statistics --leagues 39 --seasons 2025 --max-requests 7000 --resume  # 仅审查者在 Actions
+python -m zucai.cloud_stats daily --archive ../cloud-data --run-id stats-daily-1 --max-requests 300  # 复用晚班已恢复数据库和 fixtures 原件
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 --source fdorg --leagues CL --from 2023 --to 2026
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2025 --to 2026
 python -m zucai.cloud_feeds probe --probe-kind stats --archive ../cloud-data --run-id stats-1 --source apif --leagues 3,848 --seasons 2024 --per-scope 2  # 仅审查者在 Actions 探测技术数据，不入库
@@ -135,8 +140,9 @@ pytest -q
 | `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告；随后生成未截止期次的14场诊断 |
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
 | `digest` | `ubuntu-latest`，15 分钟上限 | 等待 `scoreboard`，把冻结数字写成每日摘要并推送到当月 Issue；另支持手动 `operation=digest` |
+| `stats-backfill` | `ubuntu-latest`，300 分钟上限 | 只在手动 `operation=stats-backfill` 时运行；独立恢复数据库、按范围续跑技术数据，与其他 job 共用写锁 |
 
-五个 job 依赖顺序为 `apis → sporttery → predict → scoreboard → digest`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
+定时五个 job 依赖顺序为 `apis → sporttery → predict → scoreboard → digest`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
 写回前执行 `git pull --rebase`；冲突则失败，不强推。fd 主联赛赛季按七月换季推导（如 2627），
 已配置 country 合并文件只导入当前自然年；`leagues.json` 可用 `current_season` 明确覆盖。
 未核验联赛不采集。API 解析、去重规则不变；分页必须完整，额外分页同样消耗配额。
@@ -155,6 +161,56 @@ API 单源、单窗口或单日期失败时继续其他采集并标记 `partial`
 剩余配额、`plan`、`limit_day` 和失败原因。`errors.plan` / `errors.access` 在通过安全归档检查后保留原文，仍标记 partial；其他上游错误不直接输出正文。单行拒绝/疑似重复也标记 partial。
 数据库、归档校验和写回冲突仍使对应 job 失败。安全检查通过的原始响应和审计状态作为 Actions artifact 保留 90 天，
 可见性继承仓库权限；工作流不会将原始响应提交到 main。
+
+T32 技术数据通过审查者手动 `operation=stats-backfill` 接入，未新增 cron 或权限。
+默认 `endpoints=index,fd,statistics,events,lineups,players,injuries`，`max_requests=7000`、`resume=true`；
+`leagues` 可选 API 联赛 ID 或 fd 九主联赛代码，`seasons` 使用 2022 起供应商起始年（如 `2025`、`2022-2025`）。
+日职改制后按供应商结束年记季；默认范围包含已开始的 2027 季，显式 `seasons=2026` 不扩展。
+`resume=true` 在每个端点内先续跑已记录的未完成单元；`resume=false` 按所选范围重新枚举。
+两者都保留成功回执、空响应补抓间隔与 unsupported 记录，不提供清空历史或强制重复请求。
+索引覆盖七桥接联赛＋欧冠 2，每季 fixtures 一页；fd 仅九个主联赛季文件，免费且不使用 API key。
+接入顺序 statistics → events → lineups → players；xG 窗口自 2024 季起，injuries 仅英超、西甲、意甲、
+德甲、法甲、荷甲、丹超、瑞超、挪超、美职、澳超 11 联赛。首次验收顺序为 index → fd → 英超 2025 statistics。
+普通 `apis` 晚班采集后在同一工作目录执行 daily，最多 300 次，复用已采集 fixtures 原件刷新索引，
+不新增普通赛程或 status 请求；昨日完赛数据与开球前 60–30 分钟在售比赛的阵容依游标尝试。
+错过窗口记缺失，不补造赛前数据。技术归档失败不会阻断普通 feeds 的发布。
+
+技术请求间隔至少 1.0 秒，分钟响应头 remaining ≤ 20 等待下分钟，429 立即停止本批；
+历史批次除 reserve=10 外再预留日常 300 次，日常预算上限 300，历史单 run 上限 7000。
+**原有普通赛程与 status 的 6.1 秒间隔不变。** 空响应首抓后最多再补两次，每次间隔至少 7 天；
+unsupported 不重试，网络失败计配额且本轮不重试，HTTP 200 + errors 计失败。
+覆盖率按联赛 / 供应商赛季 / 端点 / 阶段保存应取、已取、有效、空值、失败、未支持；
+逐场分母是已链接比赛，index/fd 单位为页/文件；null 字段保留 null，不补 0。
+摘要只在异常节照录 `state/stats_coverage.json` 的冻结数字与观测 UTC。
+
+技术原件与 sidecar 打包为 `stats-raw-<run_id>.zip`，三个行表按联赛×供应商赛季写压缩 JSONL；
+行分片基名 `stats-rows-<league>-<season>` 加内容哈希后缀形成不可变文件名，避免同月多批覆盖。
+二者发布到月度 Release `stats-raw-YYYYMM`，清单分别为 `SHA256SUMS-raw-<run_id>`、`SHA256SUMS-<run_id>`，
+feed manifest 记录 tag、文件名、SHA256、大小及分片行数。先验证外部原件和行分片再提交本批数据库/游标；
+失败不入库，但已发生请求仍扣配额；手动回填的采集步骤失败后仍发布仅含配额和错误记录的归档更新，
+防止下一次 runner 丢失已扣额度。取消或未执行采集时不发布；启动即失败且归档未变时发布脚本不产生提交。
+Actions artifact 同时保留 raw/state/stats_assets 90 天。
+`stats restore-rows --db ... --archive ... --release ...` 按清单下载、校验和恢复；省略 release 恢复全部月份。
+规范化行不进 main；模型、特征、参数与冻结预测规则不变。
+
+首次切换须由审查者和所有者协调：T31 主分支只能读技术归档 v1，T32 普通导出也不会丢弃尚未上传的
+v1 行表。先暂停普通定时作业并处理已排队的旧代码运行，在 T32 分支完成首次 stats-backfill 的
+Release 发布与 v2 迁移验收，合入 T32 后再恢复普通任务；也可先合入，再在普通任务恢复前立即迁移。
+共享写锁只防同时写入，不能代替这一步版本切换。实现者不执行此生产切换。
+
+工作流 dispatch 总计 10 项输入。原 `from_season`、`to_season`、`probe_kind`、`per_scope` 合并到
+一个 JSON 字符串 `options`（默认 `{}`）；旧调用的其他输入保持原义：
+
+| 原 dispatch 输入 | 新 dispatch 输入 |
+| --- | --- |
+| `from_season=2023 to_season=2026` | `options={"from_season":"2023","to_season":"2026"}` |
+| `probe_kind=stats per_scope=2` | `options={"probe_kind":"stats","per_scope":2}` |
+| `probe_kind=leagues` | `options={"probe_kind":"leagues"}` |
+
+probe 缺省仍为 seasons / 1；JSON 非对象、未知键或非法选项在 API 请求前失败。
+手动 stats-backfill 只启动自己的 job，不连带普通采集、训练、评分或摘要。
+Den Haag → 海牙 仅按所有者在 PR #49 的明确批准通过既有 reconcile 前置检查合并；
+该专用辅助逻辑不推广为 fd 名称自动合并规则。真实覆盖率仍待 Claude 在 Actions 验收，离线合成样本不代表实测。
 
 每次 API 采集后，仅对本次完整且可核验的响应离线执行 T09/T10 主客方向身份图，
 以恢复后的 jc 记录为证据。fdorg 复用 `fdorg_verify` 图与证据生成函数，apif 调用 `apif_verify.infer_aliases`；
@@ -185,7 +241,7 @@ T23 的七个 **identity-only** 联赛只用于核验球队 ID，不进入每日
 [probe 41612517821](https://github.com/qw5563680/FOOTBALL/actions/runs/41612517821) 确认。
 [identity 41612781709](https://github.com/qw5563680/FOOTBALL/actions/runs/41612781709) 核验出 130 条别名，
 已保留完整证据纳入正式文件；剩余 20 支待审批，真实回填验收仍待 Claude。
-核验流程为先运行 `operation=probe probe_kind=leagues`（leagues 留空选择这七个），
+核验流程为先运行 `operation=probe options={"probe_kind":"leagues"}`（leagues 留空选择这七个），
 每个 ID 一次 `/leagues?id=` 请求，核对名称、国家和联赛类型；这不是赛季权限证明。
 有成功审计后再运行 `operation=identity`，默认七联赛、`seasons=2025,2026`，最多 14 次 fixtures 请求。
 identity 不额外查询 status，不补拉分页；不完整响应不作为核验依据。它只用已有 jc 和 T08 已核验的 fd

@@ -11,8 +11,10 @@ WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
 
 
 def test_workflow_default_samples_one_match_per_scope():
-    field = WORKFLOW.read_text().split("      per_scope:\n", 1)[1].split("      from_season:", 1)[0]
-    assert "default: 1" in field
+    text = WORKFLOW.read_text()
+    assert "      per_scope:" not in text
+    assert "PROBE_PER_SCOPE: ${{ fromJSON(inputs.options || '{}').per_scope || 1 }}" in text
+    assert "PROBE_KIND: ${{ fromJSON(inputs.options || '{}').probe_kind || 'seasons' }}" in text
 
 
 @pytest.mark.parametrize("leagues,seasons,count", [("3,848", "2024", "3"), ("", "", "")])

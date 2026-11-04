@@ -22,11 +22,14 @@ from zucai.sfc_state import export_sfc_state, restore_sfc_state
 from zucai.sources.results import ResultRowsRejected, fetch_results
 from zucai.sources.sporttery import BEIJING, fetch_schedule
 from zucai.stats_archive import (
+    INDEX_FILE,
+    ROWS_MANIFEST,
     STATS_FILES,
     check_stats,
     export_stats,
     restore_stats,
     validate_stats_manifest,
+    write_rows_manifest,
 )
 
 LOG = logging.getLogger(__name__)
@@ -60,7 +63,7 @@ TABLES = {
 MANIFEST = "feed_manifest.json"
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 STATE_FILE = (
-    r"state/(?:api_football_quota\.json|"
+    r"state/(?:api_football_quota\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif)\.json)"
 )
@@ -136,7 +139,7 @@ def check_db(db: sqlite3.Connection) -> None:
     if db.execute("""SELECT 1 FROM matches m LEFT JOIN results r USING(match_id)
                   WHERE (m.status='finished') <> (r.match_id IS NOT NULL) LIMIT 1""").fetchone():
         raise ValueError("完赛状态与比分表不一致")
-    check_stats(db)
+    check_stats(db, rows=False)
 
 
 def pending_results(source: Path) -> list[dict[str, str]]:
@@ -204,8 +207,8 @@ def export_feeds(
                 dump_rows(archive / key, db.execute(query + f" ORDER BY {','.join(cols)}"))
                 files.append(key)
         files.extend(export_sfc_state(db, archive))
-        technical_data = export_stats(db, archive)
-        files.extend(sorted(STATS_FILES))
+        technical_data = export_stats(db, archive, source)
+        files.extend((INDEX_FILE, ROWS_MANIFEST))
         sources = source_inventory(db)
         data = db.execute(VIEW)
         for month, group in groupby(data, key=lambda r: r[3][:7]):
@@ -246,7 +249,7 @@ def export_feeds(
     state = source.parent / "state"
     for path in sorted(state.rglob("*")) if state.exists() else []:
         key = "state/" + path.relative_to(state).as_posix()
-        if path.is_file() and re.fullmatch(STATE_FILE, key):
+        if path.is_file() and key != ROWS_MANIFEST and re.fullmatch(STATE_FILE, key):
             if path.is_symlink():
                 raise ValueError("持久状态不允许符号链接")
             (archive / key).parent.mkdir(parents=True, exist_ok=True)
@@ -349,17 +352,26 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                 raise ValueError("各来源行数或哈希校验失败")
         db.close()
         os.replace(dbfile, dest)
-        # Technical observations and their idempotence/freshness receipts are one snapshot.
-        # An older archive must not inherit later receipts from a reused destination directory.
-        for name in ("stats_ingest_audit.csv", "stats_link_audit.csv"):
-            key = f"state/audit/{name}"
+        block = meta.get("technical_data")
+        if block and block.get("version") == 2:
+            write_rows_manifest(dest, block)
+        else:
+            (dest.parent / ROWS_MANIFEST).unlink(missing_ok=True)
+        # Technical rows, receipts, cursor and coverage belong to the selected snapshot.
+        # A reused destination must not retain state from a later backfill run.
+        for key in (
+            "state/audit/stats_ingest_audit.csv",
+            "state/audit/stats_link_audit.csv",
+            "state/stats_backfill_cursor.json",
+            "state/stats_coverage.json",
+        ):
             if key not in meta["files"]:
                 (dest.parent / key).unlink(missing_ok=True)
         for name in ("unmatched_teams.csv", "rejected_results.csv"):
             if f"state/{name}" in meta["files"]:
                 (dest.parent / name).write_bytes((archive / f"state/{name}").read_bytes())
         for key in meta["files"]:
-            if re.fullmatch(STATE_FILE, key):
+            if key != ROWS_MANIFEST and re.fullmatch(STATE_FILE, key):
                 target = dest.parent / key
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(archive / key, target)
