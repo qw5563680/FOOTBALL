@@ -1,5 +1,7 @@
 # 桥接联赛历史身份审批清单（第三批）
 
+> **所有者批准（2026-11-04）**：45 行有库内证据的 apif ID 全部「沿用库内名」；7 行无库内证据的暂不批，继续 `proposed`；fd 别名 `Den Haag` → `海牙` 批准。批准记录见 PR #49 评论（https://github.com/qw5563680/FOOTBALL/pull/49#issuecomment-6627072639）。实现者（T32）据此写入正式别名文件，`approval_pr` 填该评论链接。
+
 数据分支快照：`7ca04b3`（2026-11-04）；索引原件：T30 探测 Actions artifact 41779592141 的 21 页真实 `fixtures?league=&season=`（7 桥接联赛 × 2022/2024/2026）。
 用 PR #50 的 `zucai stats link --raw-file` 对快照建索引时，被判「身份临时」的 fixture 共 2,113 条，全部因为下列 52 个 apif 球队 ID 没有正式别名。
 每行一个来源 ID；「库内 fd 球队」是同联赛 ±3 小时窗口里、对手已由正式别名解析后，同一场 fd 比赛另一侧的球队在库内的现名，附证据场数，
@@ -22,88 +24,88 @@
 
 | apif ID | apif 名称 | 索引页出现赛季 | 出现场次 | 库内 fd 球队（证据场数） | 建议中文规范名（所有者填写） |
 | --- | --- | --- | ---: | --- | --- |
-| 51 | Brighton | 2022/23、2024/25、2026/27 | 114 | Brighton（62） |  |
-| 41 | Southampton | 2022/23、2024/25 | 76 | Southampton（60） |  |
-| 39 | Wolves | 2022/23、2024/25 | 76 | Wolves（60） |  |
-| 46 | Leicester | 2022/23、2024/25 | 76 | Leicester（60） |  |
-| 48 | West Ham | 2022/23、2024/25 | 76 | West Ham（60） |  |
+| 51 | Brighton | 2022/23、2024/25、2026/27 | 114 | Brighton（62） | Brighton（沿用库内名，所有者 2026-11-04 批准） |
+| 41 | Southampton | 2022/23、2024/25 | 76 | Southampton（60） | Southampton（沿用库内名，所有者 2026-11-04 批准） |
+| 39 | Wolves | 2022/23、2024/25 | 76 | Wolves（60） | Wolves（沿用库内名，所有者 2026-11-04 批准） |
+| 46 | Leicester | 2022/23、2024/25 | 76 | Leicester（60） | Leicester（沿用库内名，所有者 2026-11-04 批准） |
+| 48 | West Ham | 2022/23、2024/25 | 76 | West Ham（60） | West Ham（沿用库内名，所有者 2026-11-04 批准） |
 
 ## 西甲（7 支）
 
 | apif ID | apif 名称 | 索引页出现赛季 | 出现场次 | 库内 fd 球队（证据场数） | 建议中文规范名（所有者填写） |
 | --- | --- | --- | ---: | --- | --- |
-| 720 | Valladolid | 2022/23、2024/25 | 76 | Valladolid（60） |  |
-| 547 | Girona | 2022/23、2024/25 | 76 | Girona（60） |  |
-| 798 | Mallorca | 2022/23、2024/25 | 76 | Mallorca（60） |  |
-| 724 | Cadiz | 2022/23 | 38 | Cadiz（30） |  |
-| 723 | Almeria | 2022/23 | 38 | Almeria（30） |  |
-| 534 | Las Palmas | 2024/25 | 38 | Las Palmas（30） |  |
-| 537 | Leganes | 2024/25 | 38 | Leganes（30） |  |
+| 720 | Valladolid | 2022/23、2024/25 | 76 | Valladolid（60） | Valladolid（沿用库内名，所有者 2026-11-04 批准） |
+| 547 | Girona | 2022/23、2024/25 | 76 | Girona（60） | Girona（沿用库内名，所有者 2026-11-04 批准） |
+| 798 | Mallorca | 2022/23、2024/25 | 76 | Mallorca（60） | Mallorca（沿用库内名，所有者 2026-11-04 批准） |
+| 724 | Cadiz | 2022/23 | 38 | Cadiz（30） | Cadiz（沿用库内名，所有者 2026-11-04 批准） |
+| 723 | Almeria | 2022/23 | 38 | Almeria（30） | Almeria（沿用库内名，所有者 2026-11-04 批准） |
+| 534 | Las Palmas | 2024/25 | 38 | Las Palmas（30） | Las Palmas（沿用库内名，所有者 2026-11-04 批准） |
+| 537 | Leganes | 2024/25 | 38 | Leganes（30） | Leganes（沿用库内名，所有者 2026-11-04 批准） |
 
 ## 意甲（6 支）
 
 | apif ID | apif 名称 | 索引页出现赛季 | 出现场次 | 库内 fd 球队（证据场数） | 建议中文规范名（所有者填写） |
 | --- | --- | --- | ---: | --- | --- |
-| 504 | Hellas Verona | 2022/23、2024/25 | 77 | Verona（64） |  |
-| 511 | Empoli | 2022/23、2024/25 | 76 | Empoli（64） |  |
-| 515 | Spezia | 2022/23 | 39 | Spezia（28） |  |
-| 498 | Sampdoria | 2022/23 | 38 | Sampdoria（28） |  |
-| 520 | Cremonese | 2022/23 | 38 | Cremonese（28） |  |
-| 514 | Salernitana | 2022/23 | 38 | Salernitana（28） |  |
+| 504 | Hellas Verona | 2022/23、2024/25 | 77 | Verona（64） | Verona（沿用库内名，所有者 2026-11-04 批准） |
+| 511 | Empoli | 2022/23、2024/25 | 76 | Empoli（64） | Empoli（沿用库内名，所有者 2026-11-04 批准） |
+| 515 | Spezia | 2022/23 | 39 | Spezia（28） | Spezia（沿用库内名，所有者 2026-11-04 批准） |
+| 498 | Sampdoria | 2022/23 | 38 | Sampdoria（28） | Sampdoria（沿用库内名，所有者 2026-11-04 批准） |
+| 520 | Cremonese | 2022/23 | 38 | Cremonese（28） | Cremonese（沿用库内名，所有者 2026-11-04 批准） |
+| 514 | Salernitana | 2022/23 | 38 | Salernitana（28） | Salernitana（沿用库内名，所有者 2026-11-04 批准） |
 
 ## 德甲（6 支）
 
 | apif ID | apif 名称 | 索引页出现赛季 | 出现场次 | 库内 fd 球队（证据场数） | 建议中文规范名（所有者填写） |
 | --- | --- | --- | ---: | --- | --- |
-| 161 | VfL Wolfsburg | 2022/23、2024/25 | 68 | Wolfsburg（56） |  |
-| 176 | Vfl Bochum | 2022/23、2024/25 | 68 | Bochum（56） |  |
-| 180 | 1. FC Heidenheim | 2024/25 | 36 | Heidenheim（26） |  |
-| 159 | Hertha Berlin | 2022/23 | 34 | Hertha（30） |  |
-| 191 | Holstein Kiel | 2024/25 | 34 | Holstein Kiel（26） |  |
-| 186 | FC St. Pauli | 2024/25 | 34 | St Pauli（26） |  |
+| 161 | VfL Wolfsburg | 2022/23、2024/25 | 68 | Wolfsburg（56） | Wolfsburg（沿用库内名，所有者 2026-11-04 批准） |
+| 176 | Vfl Bochum | 2022/23、2024/25 | 68 | Bochum（56） | Bochum（沿用库内名，所有者 2026-11-04 批准） |
+| 180 | 1. FC Heidenheim | 2024/25 | 36 | Heidenheim（26） | Heidenheim（沿用库内名，所有者 2026-11-04 批准） |
+| 159 | Hertha Berlin | 2022/23 | 34 | Hertha（30） | Hertha（沿用库内名，所有者 2026-11-04 批准） |
+| 191 | Holstein Kiel | 2024/25 | 34 | Holstein Kiel（26） | Holstein Kiel（沿用库内名，所有者 2026-11-04 批准） |
+| 186 | FC St. Pauli | 2024/25 | 34 | St Pauli（26） | St Pauli（沿用库内名，所有者 2026-11-04 批准） |
 
 ## 法甲（7 支）
 
 | apif ID | apif 名称 | 索引页出现赛季 | 出现场次 | 库内 fd 球队（证据场数） | 建议中文规范名（所有者填写） |
 | --- | --- | --- | ---: | --- | --- |
-| 93 | Reims | 2022/23、2024/25 | 74 | Reims（58） |  |
-| 83 | Nantes | 2022/23、2024/25 | 72 | Nantes（58） |  |
-| 82 | Montpellier | 2022/23、2024/25 | 72 | Montpellier（58） |  |
-| 98 | Ajaccio | 2022/23 | 38 | Ajaccio（30） |  |
-| 99 | Clermont Foot | 2022/23 | 38 | Clermont（30） |  |
-| 1063 | Saint Etienne | 2024/25 | 34 | St Etienne（28） |  |
-| 112 | Metz | 2024/25 | 2 | 无库内证据 |  |
+| 93 | Reims | 2022/23、2024/25 | 74 | Reims（58） | Reims（沿用库内名，所有者 2026-11-04 批准） |
+| 83 | Nantes | 2022/23、2024/25 | 72 | Nantes（58） | Nantes（沿用库内名，所有者 2026-11-04 批准） |
+| 82 | Montpellier | 2022/23、2024/25 | 72 | Montpellier（58） | Montpellier（沿用库内名，所有者 2026-11-04 批准） |
+| 98 | Ajaccio | 2022/23 | 38 | Ajaccio（30） | Ajaccio（沿用库内名，所有者 2026-11-04 批准） |
+| 99 | Clermont Foot | 2022/23 | 38 | Clermont（30） | Clermont（沿用库内名，所有者 2026-11-04 批准） |
+| 1063 | Saint Etienne | 2024/25 | 34 | St Etienne（28） | St Etienne（沿用库内名，所有者 2026-11-04 批准） |
+| 112 | Metz | 2024/25 | 2 | 无库内证据 | 暂不批（无库内证据，保留 proposed） |
 
 ## 荷甲（13 支）
 
 | apif ID | apif 名称 | 索引页出现赛季 | 出现场次 | 库内 fd 球队（证据场数） | 建议中文规范名（所有者填写） |
 | --- | --- | --- | ---: | --- | --- |
-| 417 | Waalwijk | 2022/23、2024/25 | 68 | Waalwijk（56） |  |
-| 419 | Almere City FC | 2022/23、2024/25 | 40 | Almere City（28） |  |
-| 208 | Emmen | 2022/23 | 38 | FC Emmen（28） |  |
-| 203 | NAC Breda | 2022/23、2024/25 | 38 | NAC Breda（28） |  |
-| 416 | FC Volendam | 2022/23 | 34 | Volendam（28） |  |
-| 200 | Vitesse | 2022/23 | 34 | Vitesse（28） |  |
-| 206 | Heracles | 2024/25 | 34 | Heracles（28） |  |
-| 204 | VVV Venlo | 2022/23 | 4 | 无库内证据 |  |
-| 421 | Den Bosch | 2024/25 | 4 | 无库内证据 |  |
-| 409 | Dordrecht | 2024/25 | 4 | 无库内证据 |  |
-| 422 | FC Eindhoven | 2022/23 | 2 | 无库内证据 |  |
-| 412 | MVV | 2022/23 | 2 | 无库内证据 |  |
-| 199 | De Graafschap | 2024/25 | 2 | 无库内证据 |  |
+| 417 | Waalwijk | 2022/23、2024/25 | 68 | Waalwijk（56） | Waalwijk（沿用库内名，所有者 2026-11-04 批准） |
+| 419 | Almere City FC | 2022/23、2024/25 | 40 | Almere City（28） | Almere City（沿用库内名，所有者 2026-11-04 批准） |
+| 208 | Emmen | 2022/23 | 38 | FC Emmen（28） | FC Emmen（沿用库内名，所有者 2026-11-04 批准） |
+| 203 | NAC Breda | 2022/23、2024/25 | 38 | NAC Breda（28） | NAC Breda（沿用库内名，所有者 2026-11-04 批准） |
+| 416 | FC Volendam | 2022/23 | 34 | Volendam（28） | Volendam（沿用库内名，所有者 2026-11-04 批准） |
+| 200 | Vitesse | 2022/23 | 34 | Vitesse（28） | Vitesse（沿用库内名，所有者 2026-11-04 批准） |
+| 206 | Heracles | 2024/25 | 34 | Heracles（28） | Heracles（沿用库内名，所有者 2026-11-04 批准） |
+| 204 | VVV Venlo | 2022/23 | 4 | 无库内证据 | 暂不批（无库内证据，保留 proposed） |
+| 421 | Den Bosch | 2024/25 | 4 | 无库内证据 | 暂不批（无库内证据，保留 proposed） |
+| 409 | Dordrecht | 2024/25 | 4 | 无库内证据 | 暂不批（无库内证据，保留 proposed） |
+| 422 | FC Eindhoven | 2022/23 | 2 | 无库内证据 | 暂不批（无库内证据，保留 proposed） |
+| 412 | MVV | 2022/23 | 2 | 无库内证据 | 暂不批（无库内证据，保留 proposed） |
+| 199 | De Graafschap | 2024/25 | 2 | 无库内证据 | 暂不批（无库内证据，保留 proposed） |
 
 ## 葡超（8 支）
 
 | apif ID | apif 名称 | 索引页出现赛季 | 出现场次 | 库内 fd 球队（证据场数） | 建议中文规范名（所有者填写） |
 | --- | --- | --- | ---: | --- | --- |
-| 222 | Boavista | 2022/23、2024/25 | 68 | Boavista（54） |  |
-| 225 | Nacional | 2024/25、2026/27 | 68 | Nacional（33） |  |
-| 810 | Vizela | 2022/23、2024/25 | 36 | Vizela（26） |  |
-| 21595 | AVS | 2024/25 | 36 | AVS（28） |  |
-| 216 | Portimonense | 2022/23 | 34 | Portimonense（26） |  |
-| 223 | Chaves | 2022/23 | 34 | Chaves（26） |  |
-| 234 | Pacos Ferreira | 2022/23 | 34 | Pacos Ferreira（26） |  |
-| 231 | Farense | 2024/25 | 34 | Farense（28） |  |
+| 222 | Boavista | 2022/23、2024/25 | 68 | Boavista（54） | Boavista（沿用库内名，所有者 2026-11-04 批准） |
+| 225 | Nacional | 2024/25、2026/27 | 68 | Nacional（33） | Nacional（沿用库内名，所有者 2026-11-04 批准） |
+| 810 | Vizela | 2022/23、2024/25 | 36 | Vizela（26） | Vizela（沿用库内名，所有者 2026-11-04 批准） |
+| 21595 | AVS | 2024/25 | 36 | AVS（28） | AVS（沿用库内名，所有者 2026-11-04 批准） |
+| 216 | Portimonense | 2022/23 | 34 | Portimonense（26） | Portimonense（沿用库内名，所有者 2026-11-04 批准） |
+| 223 | Chaves | 2022/23 | 34 | Chaves（26） | Chaves（沿用库内名，所有者 2026-11-04 批准） |
+| 234 | Pacos Ferreira | 2022/23 | 34 | Pacos Ferreira（26） | Pacos Ferreira（沿用库内名，所有者 2026-11-04 批准） |
+| 231 | Farense | 2024/25 | 34 | Farense（28） | Farense（沿用库内名，所有者 2026-11-04 批准） |
 
 ## 不在本清单里的拒绝
 
