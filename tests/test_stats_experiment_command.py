@@ -120,6 +120,11 @@ def test_offline_command_restores_no_tables_and_preserves_frozen_output(experime
     assert replay["selection_evidence_sufficient"] is True
     assert replay["models"]["market"]["n"] == 0
     assert replay["models"]["candidate_raw"]["n"] == 30
+    group_report = json.loads((output / "group_comparisons.json").read_bytes())
+    assert group_report["refitted"] is False and group_report["reselected"] is False
+    assert group_report["prediction_code_commit"] == group_report["generator_commit"] == "test"
+    for name, digest in group_report["predictions_sha256"].items():
+        assert sha256(output / name) == digest
     with (output / "fd-英超-backfill_replay-predictions.jsonl.zst").open("rb") as stream:
         with zstandard.ZstdDecompressor().stream_reader(stream) as reader:
             rows = [json.loads(line) for line in reader.read().decode().splitlines()]

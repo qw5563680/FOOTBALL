@@ -23,6 +23,7 @@ from zucai.predict.backtest import read_history
 from zucai.predict.base import utc
 from zucai.predict.dixon_coles import InsufficientHistory
 from zucai.predict.experiments.evaluate import evaluate_group, load_protocol
+from zucai.predict.experiments.groups import write_group_report
 from zucai.predict.experiments.metrics import VARIANTS, diagnostics, is_common_experiment, summarize
 
 LOG = logging.getLogger(__name__)
@@ -269,6 +270,7 @@ def run(
                     ),
                 ),
             )
+            write_group_report(destination, generator_commit=code_commit)
             session.rollback()
             if sha256(database) != before:
                 raise RuntimeError("只读实验的输入库哈希发生变化，拒绝发布")
