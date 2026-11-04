@@ -85,6 +85,41 @@ def test_no_rows_silently_exported_without_release(tmp_path):
         export_feeds(source, tmp_path / "archive", date(2026, 11, 4), "run")
 
 
+@pytest.mark.parametrize("checksum", ["absent", None])
+def test_empty_snapshot_accepts_missing_or_null_checksum_and_round_trips(tmp_path, checksum):
+    from zucai.stats_archive import validate_stats_manifest, write_rows_manifest
+    from zucai.stats_rows import restore_rows
+
+    source = tmp_path / "source/feeds.db"
+    source.parent.mkdir()
+    seed(source, versions=0)
+    release = LocalRelease(tmp_path / "release")
+    manifest = publish(source, tmp_path / "out", release)
+    assert list((tmp_path / "out").iterdir()) == []
+    assert not release.root.exists()
+    if checksum is None:
+        manifest["checksum_asset"] = None
+    write_rows_manifest(source, manifest)
+    archive = tmp_path / "archive"
+    meta = export_feeds(source, archive, date(2026, 11, 4), "empty")
+    validate_stats_manifest(meta)
+    restored = tmp_path / "restored/feeds.db"
+    restore_feeds(archive, restored)
+    assert restore_rows(restored, archive, release=release) == dict(
+        match_stats=0, match_events=0, match_lineups=0
+    )
+    assert release.downloads == []
+    again = export_feeds(restored, tmp_path / "again", date(2026, 11, 4), "again")
+    assert again["technical_data"] == manifest
+    meta["technical_data"]["checksum_asset"] = {}
+    with pytest.raises(ValueError, match="Release"):
+        validate_stats_manifest(meta)
+    meta["technical_data"]["checksum_asset"] = None
+    meta["technical_data"]["counts"]["match_stats"] = 1
+    with pytest.raises(ValueError, match="行数"):
+        validate_stats_manifest(meta)
+
+
 def test_default_restore_empty_explicit_restore_exact_and_repeat_byte_stable(tmp_path):
     from zucai.stats_rows import restore_rows
 

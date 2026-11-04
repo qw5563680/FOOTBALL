@@ -163,6 +163,8 @@ unsupported 不再重试。HTTP 200 + errors、网络失败、权限不足分别
 三个行表全部历史版本、身份和空值语义一起保存。原件与 sidecar 打包 `stats-raw-<run_id>.zip`；
 原件和行分片同在月度 Release `stats-raw-YYYYMM`。每批清单为 `SHA256SUMS-raw-<run_id>` / `SHA256SUMS-<run_id>`，
 manifest 记录 release tag、文件名、SHA256、大小和行数，数据分支不承载大行表。
+只建索引且三张行表均为空时，不生成或上传行表校验清单，`checksum_asset` 省略（读取也接受空分片时为 null）；
+索引、游标、覆盖率和审计仍正常发布与恢复。原件目录为空时同样不生成或上传 ZIP 和原件校验清单。
 默认 `restore_feeds` 只恢复索引、清单、覆盖率和审计；`check_stats` 在这种模式只验索引。
 `zucai stats restore-rows --db data/zucai.db --archive ../cloud-data --release stats-raw-202611`
 按持久清单下载、解压、逐分片校验后原子替换数据库；省略 `--release` 恢复所有月份并核对完整快照。
@@ -177,6 +179,7 @@ manifest 记录 release tag、文件名、SHA256、大小和行数，数据分�
 已经发送的请求仍保留配额扣减。手动 stats-backfill 的发布步骤在 collector 成功或失败后均执行，
 把归档失败时的 quota-only 状态与错误记录写回数据分支；数据库/游标仍保持回滚。取消或 collector 未执行时跳过，
 启动失败且无归档变化时沿用发布脚本的无变更退出。晚班技术步骤 continue-on-error，普通 feeds 可照常发布。
+Release HTTP 失败原因保留状态码与响应正文的前 200 字符：先隐藏上传令牌，再截断并转义换行，不附加请求头或请求 URL。
 Actions 保留 raw/state/stats_assets 90 天，整个工作流共用 `write-football-feed-data` 写锁；
 独立手动 stats-backfill job 超时 300 分钟，不触发其他 job。API key 和 Release token 仅注入技术采集步骤，
 沿用 contents:write；没有新增 cron 或权限。

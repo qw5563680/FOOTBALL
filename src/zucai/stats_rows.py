@@ -344,7 +344,9 @@ def publish_rows(
         }
         if previous and previous.get("identity_redirects"):
             block["identity_redirects"] = previous["identity_redirects"]
-        block["checksum_asset"] = upload_checksums(release, tag, out, run_id, shards)
+        checksum = upload_checksums(release, tag, out, run_id, shards)
+        if checksum is not None:
+            block["checksum_asset"] = checksum
         validate_stats_manifest({"technical_data": block, "files": {INDEX_FILE: ""}})
     write_rows_manifest(database, block)
     return block
