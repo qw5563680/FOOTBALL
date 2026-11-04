@@ -306,6 +306,12 @@ def _markdown(batch: dict) -> str:
             values[3] += " · " + (
                 "前瞻已验证" if prediction["prospective_verified"] else "仅历史证据"
             )
+        metadata = prediction.get("metadata") or {}
+        if prediction["status"] == "predicted" and metadata.get("rho_clipped") is True:
+            values[3] += (
+                " · 低比分修正受限（rho "
+                f"{metadata['rho_before']:.17g} → {metadata['rho_after']:.17g}）"
+            )
         lines.append("| " + " | ".join(values) + " |")
     lines.extend(["", "## 比分前五与快照", ""])
     for prediction in batch["predictions"]:

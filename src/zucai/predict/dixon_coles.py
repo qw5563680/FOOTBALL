@@ -195,10 +195,9 @@ class DixonColes(Model):
             raise InsufficientHistory(f"模型缺少球队历史记录：{home} / {away}")
         if home == away:
             raise ValueError("主客队不能相同")
-        clipped = False
-        if unknown:
-            raw, clipped = self._prior_grid(home, away)
-        else:
+        raw, guard = self._guarded_grid(home, away)
+        if not unknown and not guard["rho_clipped"]:
+            # Keep the exact upstream path for unaffected known-team predictions.
             raw = self.engine.predict(home, away, max_goals=15, normalize=False).grid[:10, :10]
         retained = float(raw.sum())
         if (
@@ -221,7 +220,8 @@ class DixonColes(Model):
             ),
             "unknown_team_prior": unknown,
             "prior_method": self.prior_parameters["method"] if unknown else None,
-            "prior_rho_clipped": bool(clipped),
+            "prior_rho_clipped": unknown and guard["rho_clipped"],
+            **guard,
             "half_life_days": self.half_life_days,
             "parameter_source": getattr(self, "parameter_source", "explicit"),
             "as_of_utc": self.as_of.isoformat(),
@@ -271,36 +271,61 @@ class DixonColes(Model):
         self.calibration_training_rows = len(probabilities)
         self.calibration_skipped_training_rows = len(eligible) - len(probabilities)
 
-    def _prior_grid(self, home, away):
+    def _guarded_grid(self, home, away):
+        """Constrain only this prediction's rho; never mutate fitted parameters.
+
+        The four DC multipliers require max(-1/lambda, -1/mu) <= rho <=
+        min(1, 1/(lambda*mu)). Use the upstream routine's rates so bounds and
+        the matrix share the same exp arithmetic. Boundary roundoff is handled
+        by at most eight representable steps toward zero, explicitly recorded.
+        Other invalid matrices still fail the caller's checks; no cell is clipped.
+        """
         params = self.engine.get_params()
-        attack_home = params.get(f"attack_{home}", self.prior_parameters["attack"])
-        attack_away = params.get(f"attack_{away}", self.prior_parameters["attack"])
-        defence_home = params.get(f"defence_{home}", self.prior_parameters["defence"])
-        defence_away = params.get(f"defence_{away}", self.prior_parameters["defence"])
-        home_rate = np.exp(attack_home + defence_away + params["home_advantage"])
-        away_rate = np.exp(attack_away + defence_home)
-        # A synthetic team pair may exceed the fitted pairs' valid rho interval.
-        rho = float(
-            np.clip(
-                params["rho"],
-                max(-1 / home_rate, -1 / away_rate),
-                min(1.0, 1 / (home_rate * away_rate)),
+        prior = getattr(self, "prior_parameters", {})
+        strengths = tuple(
+            float(params[f"{kind}_{team}"] if f"{kind}_{team}" in params else prior[kind])
+            for kind, team in (
+                ("attack", home),
+                ("attack", away),
+                ("defence", home),
+                ("defence", away),
             )
         )
+        advantage, original = float(params["home_advantage"]), float(params["rho"])
+        if not np.isfinite((*strengths, advantage, original)).all():
+            raise ValueError("拟合参数未产生有效的比分概率矩阵")
         grid = np.empty(15 * 15, dtype=np.float64)
-        compute_dixon_coles_probabilities(
-            float(attack_home),
-            float(attack_away),
-            float(defence_home),
-            float(defence_away),
-            float(params["home_advantage"]),
-            rho,
-            15,
-            grid,
-            np.empty(1),
-            np.empty(1),
-        )
-        return grid.reshape(15, 15)[:10, :10], rho != params["rho"]
+        home_rate, away_rate = np.empty(1), np.empty(1)
+
+        def compute(rho):
+            compute_dixon_coles_probabilities(
+                *strengths, advantage, rho, 15, grid, home_rate, away_rate
+            )
+
+        compute(original)
+        h, a = float(home_rate[0]), float(away_rate[0])
+        if not all(isfinite(v) and v > 0 for v in (h, a, h * a)):
+            raise ValueError("拟合参数未产生有效的比分概率矩阵")
+        lower, upper = max(-1 / h, -1 / a), min(1.0, 1 / (h * a))
+        rho = float(np.clip(original, lower, upper))
+        reason = "outside_legal_interval" if rho != original else None
+        if rho != original:
+            compute(rho)
+        steps = 0
+        while (grid.reshape(15, 15)[:2, :2] < 0).any() and steps < 8:
+            rho = float(np.nextafter(rho, 0.0))
+            compute(rho)
+            steps += 1
+        if steps and reason is None:
+            reason = "boundary_roundoff"
+        return grid.reshape(15, 15)[:10, :10], {
+            "rho_clipped": rho != original,
+            "rho_before": original,
+            "rho_after": rho,
+            "rho_legal_interval": [lower, upper],
+            "rho_clip_reason": reason,
+            "rho_roundoff_steps": steps,
+        }
 
     def save(self, path: Path) -> None:
         if self.engine is None:
