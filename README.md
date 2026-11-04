@@ -40,6 +40,20 @@ manifest v2 的 `technical_data.version=2` 记录外部 Release 分片的行数�
 重复原件不重复写入，空值不覆盖有效值，更正保留旧版本，审计随数据分支归档。
 本阶段 available_utc 留空、标 backfilled；FT 与含加时分开，半场统计不可得，不补造数据。
 
+## T33 技术特征实验（第一轮）
+
+独立入口 `python -m zucai.predict.experiments.command` 只读取已恢复行表的 feeds 库，
+按先提交的 `docs/experiments/T33-evaluation-protocol.json` 做月度选窗、每周滚动评价。
+可用 `--provider fd --leagues 英超 英冠` 运行协议内子集；输出目录必须不存在。
+fd 九联赛射正与 apif 四联赛 xG 分表，完整与去掉对手被射正/xGA项的消融共用完整样本。
+候选系数从历史比分拟合，赔率只在模型和窗口选择全部结束后作为独立市场对照加入。
+
+`strict` 排除回填行；`backfill_replay` 把历史开球+3小时当作**假设**可用时间，
+只称历史回放，不能证明当时拿到了这些版本。窗口缺值保留 null，并逐场记录回退的原模型版本。
+结果目录保存六列模型、市场与均匀基准、缺失原因、原始证据、训练参数、分组与配对自助区间；
+完整压缩 JSONL/JSON 放数据分支 `experiments/t33/`，main 的 reports 仅放 README 和 SHA256SUMS。
+本轮不接入每日预测，不修改正式参数、P2 或虚拟账户，BET 继续禁用。
+
 ## 技术栈
 
 - Python 3.11+，命令行工具 `zucai`
@@ -64,6 +78,7 @@ zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
 zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
 zucai stats migrate --db data/zucai.db  # 仅创建四张技术数据附属表
 zucai stats restore-rows --db data/zucai.db --archive ../cloud-data --release stats-raw-202611  # 从清单恢复该月行表；省略 --release 恢复全部
+python -m zucai.predict.experiments.command --db data/zucai.db --out work/t33-run --source-commit <数据分支SHA>  # T33：恢复行表后离线实验，只读库，不接入每日预测
 zucai stats ingest-fd --db data/zucai.db --div E0 --season 2425 --raw-file work/E0.csv
 zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
 zucai stats ingest-apif --db data/zucai.db --endpoint statistics --raw-file work/statistics.json --fixture-file work/fixtures.json

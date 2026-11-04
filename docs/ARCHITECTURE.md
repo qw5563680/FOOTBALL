@@ -942,3 +942,49 @@ jc > fd > fdorg > apif、只填空 counterpart、常规时间比分、历史 ass
 不改变 schema、feed manifest 版本、导出表格式或既有冻结文件；仍恢复归档并校验来源行数与 forecast 哈希。
 workflow_dispatch 的 source/leagues 通过环境变量和 Bash 参数数组传递，API key 仅从 Secrets 注入。
 backfill 不触发模型训练，欧战模型由 T21 处理。
+
+## T33 赛前技术特征与独立实验（第一轮）
+
+`features/stats.py` 从已恢复的 `match_stats` 建立只读版本索引，不创建表、不抓取数据。
+`StatsFeatures.build` 的截点为 `min(as_of,kickoff)`；窗口保留同来源、同联赛最近5/10场
+已结束比赛，历史开球+3小时必须严格早于截点。同场对手视角取同一 match_id 的另一队，
+不重复累计 counterpart。缺比赛/统计、非90分钟、未知时段均保留缺失，不用更早场次凑数。
+每项输出有效 n/N、算术均值、90天半衰期加权均值、比赛ID、原件哈希、版本与可知时间证据。
+权重为 `exp(-ln(2)*距截点天数/90)`，只有 N 场都有效才输出均值；0有效，null不填0。
+研究字段包括 xG/xGA、射门/射正/被射正、角球、主客子集、红牌比赛标记、T13休息天数；
+对手DC参数只在参数截点早于比赛特征截点时返回。本轮阵容不入模，标 not_used_in_first_round。
+
+时间口径分开保存：`strict` 拒绝所有 backfilled；captured 行要求自身 available_utc 与
+captured_utc 均早于截点，并且 available 不早于 captured。`backfill_replay` 显式以历史
+开球+3小时假设回填可用，携带真实后采时间，不称当时已知；最新回填可能含后来更正。
+captured 更正仅选择截点前可用版本。训练样本的 feature_cutoff 是样本自身开球，
+fit_cutoff 是该轮训练边界，两个时间分别保存，评价周不能倒灌进过去的训练特征。
+
+`predict/experiments/intensity.py` 为独立 DC 强度回归：
+`log λh=b0+home+b_for*log1p(home_for)+b_against*log1p(away_against)`，
+`log λa=b0+b_for*log1p(away_for)+b_against*log1p(home_against)`。
+只用四项同供应商近期衰减统计解释强度，以90分钟整数进球作似然标签；xG不强转整数，
+射正数不当进球。截距、主场项、两项系数、低比分rho均在训练折拟合，系数边界仅作数值约束。
+新名为 dc-xg-v1 / dc-sot-v1；消融去掉 against 项，两臂共同要求四项齐全、至少11场，
+训练比赛及回退行集合一致。预测rho若需合法性裁剪则记录。仅复用T15训练折平局偏移，
+不增加第二轮的特征校准层。TEAM 拟合、先验、校准、选窗均不读取赔率。
+
+`evaluate.py` / `metrics.py` / `command.py` 实现冻结协议：2024/25月度选择5/10场窗口，
+2025/26按T15周一及7月季初边界逐周重拟合；所有臂半衰期固定90天。
+基线是原样 DixonColes 实现及未知球队先验，不声称复现线上后来调参的配置。
+统计不足或拟合失败时两臂均回退对应基线，逐场保存实际与请求版本及缺失原因，
+全目标和真正实验共同样本分开。只在所有拟合/选窗结束后，将明确counterpart且同联赛、
+主客规范ID一致、开球相差不超过3小时的 jc had 截点前完整报价去水，作为 MARKET 列；
+无同场同时报价则为 null，不用 fd 收盘价替代。赔率不进入历史训练帧。
+
+指标包括不裁剪的LL（零概率为Infinity字符串）、三分类求和Brier、并列首项均分命中贡献、
+10桶校准、平局偏差和覆盖率；比分Brier使用现行归一化0..9网格加概率0的其他类，
+超网格真值仍评分，另留归一化前排除质量，不声称尾部已校准。六组配对对照固定同为raw
+或同为calibrated，按UTC周整块自助2000次、seed3301、95%区间；跨联赛同周共用块。
+联赛/赛季、冷启动、统计缺失分别汇总，欧战没有足够统计时明确未覆盖。
+历史回放不是新增未见验证；无选择期实验时默认5仅作诊断，不宣称有效选参或模型改善。
+
+入口用SQLite只读URI与query_only，并核对前后库哈希；输出禁止覆盖。
+数据分支 `experiments/t33/<批次>/` 保存 protocol/input_manifest/summary、逐场预测及特征证据、
+每折参数和训练ID、选窗输出（JSONL.zst）及SHA256SUMS。正式分支 reports 只提交
+README和SHA256SUMS，合计不超过200KB。无生产模型注册，不修改 params/P2/BET/T28。
