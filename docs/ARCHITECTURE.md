@@ -858,13 +858,19 @@ SP、返还、盈亏与 replayed 标记。聚合账户值不从裁剪后的账�
 `sources.sfc.collect_current_sfc` 仅在 sync 自建 runner 路径运行：复用 C500Sfc 的静态页面解析，
 每班无参数 `/sfc/` 与 `/jczq/` 根页各 GET 一次，共用无重试 session 与至少1秒间隔，拒绝重定向。
 `C500FixtureBridge` 解析出的 bridges 连同原URL/读取UTC/原件哈希传入 `ingest_issue(mapped_only=True)`；
-校验 fixture_id、体彩 ID、来源主客球队 ID 与开球，沿用已有 counterpart、归档桥接及精确身份匹配。
+校验 fixture_id、体彩 ID、来源主客球队 ID，沿用已有 counterpart、归档桥接及精确身份匹配。
+T35：云端已由 ID 桥接/counterpart 确认的场次采用库内开球时间，不因500页面时间不同拒绝已确定的关联；
+无 ID 桥接的精确身份匹配仍要求同开球时间。手工 T07 的桥接时间核验不变。
 同场候选经 counterpart 或同联赛/开球/主客 ID 确认后，按 jc > fd > fdorg 取唯一最高优先级；
 真实冲突及最高优先级并列仍 ambiguous。桥接命中体彩 ID 且两个500页面联赛标签一致时，云端允许
 库内联赛显示名不同，原标签与 matched_identity.league 分存，不生成通用别名，手工 T07 联赛校验不变。
 不创建或修改 Team/Match。未匹配/歧义的
 snapshot 行保持 match_id、matched_identity 为 null，全部14行仍保留；只有已匹配行写 sfc_issue_matches。
 旧手工 T07 默认行为保留。审计 sfc_unmatched.csv 按期号/序号/fixture/reason/candidates 去重，保留首次原件哈希。
+T35 补 provider_home_id、provider_away_id、conflicting_identities 列；`conflicting_identity` 保存
+来源双方 ID/名称、桥接双方 ID/体彩 ID、候选库内双方身份及冲突原因。下一次 sync 使用新桥接重试，
+旧失败证据不等于已生效绑定；已有成功桥接与新桥接相冲突时仍拒绝该行并保留前后证据。
+英冠/巴甲短名在 jc 开售后沿同一500 fixture/球队 ID 桥接补映射，不生成名字相似度规则。
 SFC 失败不撤销已采集竞彩，collection.sfc 标 partial 并保存安全原因，手机摘要也显示该状态。
 sync 另写 collection.jc（赛程处理数、赔率快照数、结果窗口数、未解决拒绝行及状态）；
 请求总数与新入库数未计量则为 null，不把处理数误写为新增数。sync / apis 合并上一份来源状态，避免互相抹除。
@@ -881,10 +887,18 @@ sync 另写 collection.jc（赛程处理数、赔率快照数、结果窗口数�
 不是新增模型推断。复用 T07 build_sfc_report 的身份/时间/模型核验和 optimize_cover 动态规划。
 云端缺概率行显示「无模型」，概率/单选首项保持 null、复式强制三选；先扣除 3^missing 所需注数再优化已知场。
 最少注数超64时 combo=null，显示最低注数和不可行原因，不伪造覆盖率。完整三选覆盖的缺模型行无需补造概率，
-其余覆盖仍明确跨场独立近似。未截止且尚无开球场次才发布，写入前再次核截止。
+其余覆盖仍明确跨场独立近似。T35 冻结条件为「截止前且所有已映射比赛未开球」，写入前再次检查
+截止和这些库内开球时间；未映射行不参与已开球判断，显示「未映射：原因」。
+快照/报告新增 `source_kickoff_utc` 保留页面时钟，`kickoff_basis` 为 database / provider / placeholder；
+已映射行的 kickoff_utc 和 matched_identity.kickoff_utc 一律来自库内 Match。
+未映射行仅在北京整点00:00且日期与同期期内其他场次不一致时标 placeholder，保留原值并注明待核实，
+同日期的正常午夜场不自动标占位。报告每次只读重查未映射行，复用归档桥接并查询最新恢复库，
+已映射行刷新库内时钟，仍核对原身份与冻结预测。不会改写源期次、球队、比赛或预测文件。
 
 每期最新四文件在 `sfc/<issue>/{report.md,report.csv,sfc.json,manifest.json}`，相同内容冻结在
-`sfc/<issue>/history/<run-id>/`；同 run 不覆盖，换批保留旧历史，写失败恢复当前视图。每份清单验证JSON/MD/CSV原字节，
+`sfc/<issue>/history/<run-id>/`；同 run 补上映射或来源证据变化时另存
+`<run-id>-mapping-<rows/source哈希前16位>`，相同行内容/来源重复运行不新增，旧历史永不覆盖。
+换批保留旧历史，写失败恢复当前视图。每份清单验证JSON/MD/CSV原字节，
 引用的 T06 原件也核验；`sfc/** -text whitespace=cr-at-eol` 保留发布与恢复字节。
 
 `scoreboard.sfc` 选择截止且所有比赛开球前最后一份报告，不把事后重建作为诊断。只在14场全部有 finished、
@@ -895,7 +909,9 @@ summary.sfc 保存 issues、average_single_hits、hit_distribution、latest、se
 记分板末节显示诊断；SFC JSONL 与记分板四文件一起写，失败一起回滚，既有概率评分和竞彩账户公式不变。
 
 `sfc_digest.section` 只读并核验以上档案，在今明预测之后显示最新期号、第三方截止、14行概率、复式注数与覆盖、
-上一已结算期命中数；没报告时仍从归档快照列14行和「无模型」。不新增资金账户、不估奖金、不做任九。
+上一已结算期命中数；没报告时仍从归档快照列14行。T35 将未映射、占位开球时间和无模型分开展示，
+占位时钟注明待核实，缺概率的三选明确「全包＝无预测」。结算条件及记分口径不变，未齐14场身份/赛果继续待结。
+不新增资金账户、不估奖金、不做任九。
 真实 sync/predict/摘要/结算验收由 Claude 在 Actions 执行，离线 tests 不承担访问能力证明。
 
 ## T20 欧战采集与一次性 API 回填

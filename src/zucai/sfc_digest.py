@@ -58,12 +58,19 @@ def section(archive, feed, summary, now, link):
         p = row.get("probabilities") or {}
         selection = row.get("selection") or (list("hda") if not p else [])
         reason = row.get("reason") or ("模型诊断" if p else "尚无冻结概率")
-        if not p and not reason.startswith("无模型"):
-            reason = "无模型：" + reason
+        if not p:
+            if row.get("match_id") is None:
+                if not reason.startswith("未映射："):
+                    reason = "未映射：" + reason
+            elif not reason.startswith("无模型"):
+                reason = "无模型：" + reason
+        kickoff = _beijing(row["kickoff_utc"])
+        if row.get("kickoff_basis") == "placeholder":
+            kickoff += "（占位开球时间，待核实）"
         values = [
             row["seq"],
             f"{row['home']} VS {row['away']}",
-            _beijing(row["kickoff_utc"]),
+            kickoff,
             *[_percent(p.get(k)) for k in "hda"],
             OPTIONS.get(row.get("top_outcome"), "—"),
             "+".join(OPTIONS[k] for k in selection) or "—",
@@ -102,4 +109,4 @@ def section(archive, feed, summary, now, link):
         ]
     else:
         lines += ["上一期命中数：尚无已结算记录。"]
-    return lines + ["不估奖金、不设资金账户；无模型三选不计作单选命中。", ""]
+    return lines + ["不估奖金、不设资金账户；3+1+0 全包＝无预测，无模型三选不计作单选命中。", ""]
