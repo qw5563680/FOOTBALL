@@ -155,3 +155,57 @@ def test_declared_european_season_must_contain_kickoff(engine):
         result = link(session, raw=raw)
         assert result["linked"] == 0
         assert result["audit"][0]["reason"] == "候选不全"
+
+
+@pytest.mark.parametrize("reverse,reason", [(True, "主客反向"), (False, "同窗冲突")])
+def test_all_incoming_fixtures_participate_in_conflict_check(engine, reverse, reason):
+    raw, _ = source()
+    other = copy.deepcopy(raw["response"][0])
+    other["fixture"]["id"] = 103
+    if reverse:
+        other["teams"]["home"], other["teams"]["away"] = (
+            other["teams"]["away"],
+            other["teams"]["home"],
+        )
+    else:
+        other["teams"]["away"]["id"] = 3
+    raw["response"].append(other)
+    raw["results"] = 2
+    with session_scope(engine) as session:
+        result = link(session, raw=raw)
+        assert result["linked"] == 0
+        assert len(result["audit"]) == 2
+        assert {row["reason"] for row in result["audit"]} == {reason}
+
+
+def test_offline_calendar_league_cannot_link_wrong_declared_season(engine):
+    raw, meta = source()
+    raw["parameters"]["league"] = "113"
+    raw["response"][0]["league"]["id"] = 113
+    raw["response"][0]["fixture"]["date"] = "2026-10-02T19:00:00Z"
+    del raw["response"][0]["fixture"]["timestamp"]
+    with session_scope(engine) as session:
+        match = session.get(Match, "jc:1")
+        match.league, match.kickoff_utc = "瑞超", "2026-10-02T19:00:00Z"
+        session.flush()
+        result = link_fixtures(
+            session,
+            raw,
+            league_id=113,
+            season=2024,
+            aliases=json.loads((FIX / "aliases.json").read_text()),
+            metadata=meta,
+        )
+        assert result["linked"] == 0
+        assert result["audit"][0]["reason"] == "候选不全"
+
+
+def test_duplicate_id_with_invalid_other_row_still_blocks_the_valid_row(engine):
+    raw, _ = source()
+    bad = copy.deepcopy(raw["response"][0])
+    del bad["fixture"]["date"]
+    raw["response"].append(bad)
+    raw["results"] = 2
+    with session_scope(engine) as session:
+        result = link(session, raw=raw)
+        assert result["linked"] == 0 and len(result["audit"]) == 2

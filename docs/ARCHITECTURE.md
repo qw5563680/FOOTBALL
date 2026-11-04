@@ -107,24 +107,31 @@ FT 标 `90/false/true`；AET/PEN 标 `incl_extra_time/true/false`；其余状态
 开球 ±3 小时和两侧唯一性；可沿用其他联赛的正式 same_provider_id，但不能凭英文名或相似度猜测。
 未合并的临时身份、反向、多个候选、同窗球队冲突均隔离到 `state/audit/stats_link_audit.csv`，
 reason 为「候选不全 / 多对一 / 主客反向 / 身份临时 / 同窗冲突」。整页检查完才建立索引，
-既有索引不自动重指向，也不折叠多个来源行来猜唯一对象。
+既有索引不自动重指向，也不折叠多个来源行来猜唯一对象。待导入整页中的反向、重复和共享球队同窗冲突
+会隔离所有涉及的 fixture，而非只检查数据库里的候选；自然年联赛也核对原件声明的赛季，不能只比较两个开球时刻。
 离线可回放已有采集联赛的 fixtures 原件；新增索引请求只允许七桥接 ID 39/140/135/78/61/88/94 与欧冠 2，
 每联赛季一次 `/fixtures?league&season`，不跟分页。2 的 `index_only=true` 与普通导入、日常采集、backfill 隔离；
 `--fetch` 仅在手动 Actions 下可运行，沿用配额 reserve=10 与 6.1 秒间隔。T31 不安排任何定时采集。
 
 `stats_storage.py` 按 `(provider, provider_fixture_id, endpoint, record_key, version)` 追加，
 同原件哈希和逻辑键唯一；已处理的 `(provider_fixture_id, endpoint, raw_sha256)` 在导入审计中保留回执，
-包括空响应和全数值不变的响应。重复回放连审计字节也不变；旧抓取快照不替代更新的观察。
+包括空响应和全数值不变的响应。回执保存当次解析的 record_keys 和有值的 valid_keys；有值但不变的
+较新观察同样推进该行的观察时钟，防止较旧、未见哈希的响应反向更正。相同正文哈希的新抓取只记新的
+capture 时钟回执，不重复入表；再次回放同一抓取连审计字节也不变。
 新 null 不覆盖已有有效值；更正值写下一 version，旧行保留。复合事件/阵容的 null 字段保留前一版本的
 有效规范值，原始 JSON 仍保留本次原文，并以 `partial_null_retained` 明示；不冒充新原件实际提供了这些值。
-事件没有供应商事件 ID，`record_key=event:<响应中的序号>`；每次原件及旧版本均可重放，不能把序号当跨供应商事件 ID。
+只对同一事件身份（主客/类型/时间/球员）保留空值；教练/球员/助攻等嵌套 ID 改变时也不混入旧实体字段。
+事件没有供应商事件 ID，`record_key=event:<响应中的序号>`；每次原件及旧版本均可重放，不能把序号当事件实体 ID。
+事件插入/删除后的完整集合必须按选定响应原件及其回执 record_keys 解释，不能把所有位置的最新版本简单拼成当前事件集合；
+本阶段不提供事件集合特征，消费时的快照选择由 T33 实现。
 数据库写入、拒绝审计和回执在一次事务边界内完成，异常或提交失败恢复审计原字节并回滚所有新行。
 
 归档仍为 feeds manifest v2，新增可选 `technical_data={version:1, columns, counts}`，配套四个文件：
 `state/match_stats.jsonl`、`state/match_events.jsonl`、`state/match_lineups.jsonl`、`state/apif_fixture_index.jsonl`。
 每行沿用按 columns 排序的 JSON 数组；文件 SHA256 进入原 manifest.files，stats 审计 CSV 一并归档。
 原有五表的 counts、sources 行哈希不改。四表扩展必须整体存在或整体缺失；旧 v1/v2 无扩展归档恢复为空附属表。
-export/restore/verify 检查完整性、哈希、行数、外键和主客/索引一致性，失败不替换目标库。
+export/restore/verify 检查完整性、哈希、行数、外键和主客/索引一致性，校验失败不替换目标库。
+恢复时 stats 两张审计 CSV 与所恢复的数据库同步；旧归档缺失的技术审计会从目标目录清除，防止残留较新回执误跳过数据。
 没有新建或改写 forecast/report/scoreboard 文件。unsupported 初始名单保存于
 `data/api_football/stats_coverage.json`，供 T32 使用；资格赛与联赛阶段分开，不将抽样空值推广为永久无权限。
 

@@ -8,7 +8,6 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from zucai.models import ApifFixtureIndex, Match
-from zucai.predict.seasons import season_for
 from zucai.sources.api_football import APIF_IDENTITY_LEAGUE_IDS, LEAGUES
 from zucai.sources.apif_aliases import validate_approvals
 from zucai.sources.apif_ingest import _Teams
@@ -18,6 +17,20 @@ from zucai.sources.fd_ingest import normalize_team
 from zucai.sources.football_data import read_json
 
 INDEX_REQUEST_LEAGUES = APIF_IDENTITY_LEAGUE_IDS | {2}
+CALENDAR_LEAGUES = {292, 113, 103, 244, 253, 169}
+
+
+def provider_season(kickoff, league_id):
+    if league_id in CALENDAR_LEAGUES:
+        return kickoff.year
+    if league_id == 98:
+        # APIF uses the ending year after J1's 2026 transition (current_season=2027).
+        if (kickoff.year, kickoff.month) >= (2026, 8):
+            return kickoff.year + (kickoff.month >= 8)
+        return kickoff.year
+    if league_id in INDEX_REQUEST_LEAGUES | {3, 848, 119, 188}:
+        return kickoff.year - (kickoff.month < 7)
+    raise ValueError("联赛的供应商赛季规则未配置")
 
 
 def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=None):
@@ -49,23 +62,47 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             )
         )
 
-    ids = Counter(str(row.get("fixture", {}).get("id")) for row in rows)
+    prepared = []
     for row in rows:
-        fixture_id = row.get("fixture", {}).get("id", "")
+        fixture_id = row["fixture"].get("id", "") if isinstance(row.get("fixture"), dict) else ""
         try:
             identity = fixture_identity(row)
             fixture_id = identity["provider_fixture_id"]
             if identity["provider_league_id"] != league_id or identity["season"] != season:
                 raise ValueError("fixture 联赛季与请求不一致")
-            if league_id in INDEX_REQUEST_LEAGUES | {3, 848}:
-                kickoff = identity["kickoff_utc"]
-                if kickoff.year - (kickoff.month < 7) != season:
-                    raise ValueError("fixture 开球不在声明的欧战/桥接联赛赛季")
+            if provider_season(identity["kickoff_utc"], league_id) != season:
+                raise ValueError("fixture 开球不在声明的供应商联赛赛季")
         except ValueError as exc:
             reject(fixture_id, "候选不全", str(exc))
             continue
+        prepared.append(identity)
+    ids = Counter(
+        str(row["fixture"].get("id")) for row in rows if isinstance(row.get("fixture"), dict)
+    )
+    for identity in prepared:
+        fixture_id = identity["provider_fixture_id"]
         if ids[fixture_id] != 1:
             reject(fixture_id, "多对一", "同一响应含重复 fixture ID")
+            continue
+        pair = (identity["home_provider_id"], identity["away_provider_id"])
+        incoming = []
+        for other in prepared:
+            other_pair = (other["home_provider_id"], other["away_provider_id"])
+            if other["provider_fixture_id"] == fixture_id or abs(
+                other["kickoff_utc"] - identity["kickoff_utc"]
+            ) > timedelta(hours=3):
+                continue
+            if set(pair) & set(other_pair):
+                incoming.append(
+                    "主客反向"
+                    if pair == other_pair[::-1]
+                    else "多对一"
+                    if pair == other_pair
+                    else "同窗冲突"
+                )
+        if incoming:
+            reason = next(r for r in ("主客反向", "同窗冲突", "多对一") if r in incoming)
+            reject(fixture_id, reason, "整批供应商 fixture 存在同窗身份冲突")
             continue
         sides, evidence = {}, {}
         try:
@@ -95,7 +132,7 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             m
             for m in matches
             if abs(instant(m.kickoff_utc) - kickoff) <= timedelta(hours=3)
-            and season_for(m.kickoff_utc, league) == season_for(kickoff, league)
+            and provider_season(instant(m.kickoff_utc), league_id) == season
         ]
         direct = [
             m for m in window if (m.home_team_id, m.away_team_id) == (sides["home"], sides["away"])

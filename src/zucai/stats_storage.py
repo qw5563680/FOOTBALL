@@ -148,19 +148,50 @@ def _preserve(new, old):
     if new is None or new == "" or new == [] or new == {}:
         return old
     if isinstance(new, dict) and isinstance(old, dict):
+        if new.get("id") is not None and new.get("id") != old.get("id"):
+            return new  # A changed coach/player/assist is a different entity, not missing fields.
         return {key: _preserve(new.get(key), old.get(key)) for key in old.keys() | new.keys()}
     if isinstance(new, list) and isinstance(old, list) and len(new) == len(old):
         return [_preserve(n, o) for n, o in zip(new, old, strict=True)]
     return new
 
 
-def store_rows(session, rows, metadata):
+def observation_clocks(audit):
+    """Unchanged valid observations advance freshness without inventing a new value version."""
+    clocks = {}
+    for receipt in read_audit(audit):
+        if receipt["outcome"] != "ingested":
+            continue
+        detail = json.loads(receipt["detail"])
+        for key in detail.get("valid_keys", []):
+            identity = (receipt["provider_fixture_id"], receipt["endpoint"], key)
+            stamp = instant(receipt["captured_utc"])
+            clocks[identity] = max(clocks.get(identity, stamp), stamp)
+    return clocks
+
+
+def _receipt_detail(rows, inserted, rejected=0):
+    return dict(
+        inserted=inserted,
+        empty=not rows,
+        rejected=rejected,
+        record_keys=[row["record_key"] for row in rows],
+        valid_keys=[row["record_key"] for row in rows if row["value"] is not None],
+    )
+
+
+def store_rows(session, rows, metadata, *, clocks=None):
     """Append corrections per logical record; never mutate an earlier observation."""
     inserted = 0
     keys = [(r["provider"], r["provider_fixture_id"], r["endpoint"], r["record_key"]) for r in rows]
     if len(set(keys)) != len(keys):
         raise ValueError("技术数据逻辑行键重复")
     for row in rows:
+        observed = (clocks or {}).get(
+            (row["provider_fixture_id"], row["endpoint"], row["record_key"])
+        )
+        if observed is not None and instant(metadata["captured_utc"]) < observed:
+            continue
         fields = dict(row, **metadata, available_utc=None, availability_basis="backfilled")
         model = MODELS[row["endpoint"]]
         match = session.get(Match, row["match_id"])
@@ -188,11 +219,13 @@ def store_rows(session, rows, metadata):
         if old is not None:
             if instant(metadata["captured_utc"]) < instant(old.captured_utc):
                 continue  # An older previously unseen snapshot cannot supersede a later capture.
-            value = (
-                _preserve(row["value"], old.value)
-                if row["team_id"] == old.team_id
-                else row["value"]
-            )
+            same_entity = row["team_id"] == old.team_id
+            if model is MatchEvent:
+                same_entity = same_entity and all(
+                    row.get(key) == getattr(old, key)
+                    for key in ("event_type", "elapsed", "extra", "player_id")
+                )
+            value = _preserve(row["value"], old.value) if same_entity else row["value"]
             if value == old.value and all(
                 row.get(k) == getattr(old, k) for k in ("period_basis", "team_id")
             ):
@@ -213,7 +246,7 @@ def store_rows(session, rows, metadata):
                     "player_id",
                     "assist_id",
                 ):
-                    if key in fields and fields[key] is None and old.team_id == fields["team_id"]:
+                    if key in fields and fields[key] is None and same_entity:
                         fields[key] = getattr(old, key)
         fields["version"] = 1 if old is None else old.version + 1
         session.add(model(**fields))
@@ -246,14 +279,25 @@ def link_archive(database, raw_file, *, league_id, season, aliases_path, raw_loc
     return {k: v for k, v in result.items() if k != "audit"}
 
 
-def _seen(audit, provider_fixture_id, endpoint, sha):
-    return any(
-        row["provider_fixture_id"] == str(provider_fixture_id)
-        and row["endpoint"] == endpoint
-        and row["raw_sha256"] == sha
-        and row["outcome"] == "ingested"
+def _record_duplicate(audit, provider_fixture_id, endpoint, metadata):
+    previous = [
+        row
         for row in read_audit(audit)
-    )
+        if row["provider_fixture_id"] == str(provider_fixture_id)
+        and row["endpoint"] == endpoint
+        and row["raw_sha256"] == metadata["raw_sha256"]
+        and row["outcome"] == "ingested"
+    ]
+    if not previous:
+        return False
+    latest = max(previous, key=lambda row: instant(row["captured_utc"]))
+    if instant(metadata["captured_utc"]) > instant(latest["captured_utc"]):
+        # A fresh capture of identical bytes is no new data row, but is new clock evidence.
+        # Replaying that same capture again leaves both database and audit bytes unchanged.
+        write_audit(
+            audit, [dict(latest, **metadata, record_key=f"capture:{metadata['captured_utc']}")]
+        )
+    return True
 
 
 def ingest_apif(database, raw_file, *, fixture_file, endpoint, raw_location=None):
@@ -297,7 +341,7 @@ def ingest_apif(database, raw_file, *, fixture_file, endpoint, raw_location=None
         provider_fixture_id=fixture_id, endpoint=endpoint, season=identity["season"], **meta
     )
     with transaction(database, "stats_ingest_audit.csv") as (session, audit):
-        if _seen(audit, fixture_id, endpoint, meta["raw_sha256"]):
+        if _record_duplicate(audit, fixture_id, endpoint, meta):
             return dict(inserted=0, rejected=0, duplicate=True)
         index = session.get(ApifFixtureIndex, fixture_id)
         if (
@@ -337,7 +381,7 @@ def ingest_apif(database, raw_file, *, fixture_file, endpoint, raw_location=None
             return dict(inserted=0, rejected=1)
         for row in rows:
             row.update(match_id=index.match_id, team_id=getattr(index, row["side"] + "_team_id"))
-        inserted = store_rows(session, rows, meta)
+        inserted = store_rows(session, rows, meta, clocks=observation_clocks(audit))
         receipts = [
             dict(
                 audit_row,
@@ -353,7 +397,7 @@ def ingest_apif(database, raw_file, *, fixture_file, endpoint, raw_location=None
                 audit_row,
                 outcome="ingested",
                 reason="",
-                detail={"inserted": inserted, "empty": not rows},
+                detail=_receipt_detail(rows, inserted, len(rejected)),
             )
         )
         write_audit(audit, receipts)
@@ -382,10 +426,11 @@ def ingest_fd(database, raw_file, *, div, season, leagues_path=None, raw_locatio
         )
     ids = Counter(fd_match_id(game) for game in games)
     with transaction(database, "stats_ingest_audit.csv") as (session, audit):
+        clocks = observation_clocks(audit)
         for game in games:
             match_id = fd_match_id(game)
             receipt = dict(base, provider_fixture_id=match_id)
-            if _seen(audit, match_id, "csv", meta["raw_sha256"]):
+            if _record_duplicate(audit, match_id, "csv", meta):
                 continue
             match = session.get(Match, match_id)
             if (
@@ -414,10 +459,10 @@ def ingest_fd(database, raw_file, *, div, season, leagues_path=None, raw_locatio
                 )
                 for row in game.statistics
             ]
-            added = store_rows(session, rows, meta)
+            added = store_rows(session, rows, meta, clocks=clocks)
             inserted += added
             receipts.append(
-                dict(receipt, outcome="ingested", reason="", detail={"inserted": added})
+                dict(receipt, outcome="ingested", reason="", detail=_receipt_detail(rows, added))
             )
         write_audit(audit, receipts)
     return dict(inserted=inserted, rejected=rejected)

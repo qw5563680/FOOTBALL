@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from zucai.cloud_feeds import export_feeds, restore_feeds
 from zucai.db import get_engine, init_db, session_scope
-from zucai.models import ApifFixtureIndex, Match, MatchStat, Team
+from zucai.models import ApifFixtureIndex, Match, MatchEvent, MatchLineup, MatchStat, Team
 from zucai.sources.apif_stats import instant
 from zucai.sources.base import RawStore
 from zucai.stats_storage import ingest_apif, ingest_fd, link_archive
@@ -247,3 +247,87 @@ def test_commit_failure_restores_existing_audit(database, tmp_path, monkeypatch)
         event.remove(Session, "before_commit", fail_commit)
     assert audit.read_bytes() == before
     assert stats(database) == values
+
+
+def test_event_reordering_and_changed_coach_do_not_mix_identities(database, tmp_path):
+    import copy
+
+    fixture = setup_link(database, tmp_path)
+    data = json.loads((FIX / "t30/events.json").read_text())
+    data["response"][0]["assist"] = {"id": 11, "name": "Previous Assist"}
+    original = save(tmp_path, "events", data)
+    ingest_apif(database, original, fixture_file=fixture, endpoint="events")
+    new_event = copy.deepcopy(data["response"][0])
+    new_event["player"] = {"id": 20, "name": "Other Player"}
+    new_event["assist"] = {"id": None, "name": None}
+    new_event["time"]["elapsed"] = 20
+    data["response"].insert(0, new_event)
+    data["results"] = 2
+    changed = save(tmp_path, "events", data)
+    ingest_apif(database, changed, fixture_file=fixture, endpoint="events")
+    engine = get_engine(database)
+    with session_scope(engine) as session:
+        event = session.scalar(
+            select(MatchEvent)
+            .where(MatchEvent.record_key == "event:0")
+            .order_by(MatchEvent.version.desc())
+        )
+        assert event.player_id == 20
+        assert event.assist_id is None and event.value["assist"]["id"] is None
+    data = json.loads((FIX / "t30/lineups.json").read_text())
+    data["response"][0]["coach"] = {"id": 100, "name": "First Coach"}
+    original = save(tmp_path, "lineups", data)
+    ingest_apif(database, original, fixture_file=fixture, endpoint="lineups")
+    data["response"][0]["coach"] = {"id": 200, "name": None}
+    changed = save(tmp_path, "lineups", data)
+    ingest_apif(database, changed, fixture_file=fixture, endpoint="lineups")
+    with session_scope(engine) as session:
+        row = session.scalar(
+            select(MatchLineup)
+            .where(MatchLineup.role == "team")
+            .order_by(MatchLineup.version.desc())
+        )
+        assert row.value["coach"] == {"id": 200, "name": None}
+    engine.dispose()
+
+
+def test_restore_older_snapshot_removes_later_receipts(database, tmp_path):
+    fixture = setup_link(database, tmp_path)
+    archive = tmp_path / "early"
+    export_feeds(database, archive, instant("2026-11-04T12:00:00Z").date(), "early")
+    raw = save(tmp_path, "events")
+    ingest_apif(database, raw, fixture_file=fixture, endpoint="events")
+    restore_feeds(archive, database)
+    assert not (database.parent / "state/audit/stats_ingest_audit.csv").exists()
+    assert ingest_apif(database, raw, fixture_file=fixture, endpoint="events")["inserted"] == 1
+
+
+@pytest.mark.parametrize("different_hash", [True, False])
+def test_newer_unchanged_observation_blocks_older_unseen_correction(
+    database, tmp_path, different_hash
+):
+    fixture = setup_link(database, tmp_path)
+    first = save(tmp_path, "statistics")
+    ingest_apif(database, first, fixture_file=fixture, endpoint="statistics")
+    data = json.loads((FIX / "t30/statistics.json").read_text())
+    if different_hash:
+        data["response"][0]["team"]["name"] += " spelling"
+    newer = save(tmp_path, "statistics", data)
+
+    def stamp(path, clock):
+        sidecar = path.with_suffix(path.suffix + ".meta.json")
+        meta = json.loads(sidecar.read_text())
+        meta["fetched_at_utc"] = clock
+        sidecar.write_text(json.dumps(meta))
+
+    stamp(newer, "2026-11-04T14:00:00Z")
+    ingest_apif(database, newer, fixture_file=fixture, endpoint="statistics")
+    data["response"][0]["statistics"][0]["value"] = 5
+    intermediate = save(tmp_path, "statistics", data)
+    stamp(intermediate, "2026-11-04T13:00:00Z")
+    before = stats(database)
+    assert (
+        ingest_apif(database, intermediate, fixture_file=fixture, endpoint="statistics")["inserted"]
+        == 0
+    )
+    assert stats(database) == before

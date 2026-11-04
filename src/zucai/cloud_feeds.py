@@ -349,6 +349,12 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                 raise ValueError("各来源行数或哈希校验失败")
         db.close()
         os.replace(dbfile, dest)
+        # Technical observations and their idempotence/freshness receipts are one snapshot.
+        # An older archive must not inherit later receipts from a reused destination directory.
+        for name in ("stats_ingest_audit.csv", "stats_link_audit.csv"):
+            key = f"state/audit/{name}"
+            if key not in meta["files"]:
+                (dest.parent / key).unlink(missing_ok=True)
         for name in ("unmatched_teams.csv", "rejected_results.csv"):
             if f"state/{name}" in meta["files"]:
                 (dest.parent / name).write_bytes((archive / f"state/{name}").read_bytes())
