@@ -62,11 +62,18 @@ class StatsFeatures:
         versions = self.statistics.get((game["match_id"], team, key), [])
         eligible, rejected = [], []
         for row in versions:
+            if mode == "strict" and row["availability_basis"] not in {"captured", "backfilled"}:
+                rejected.append("not_captured")
+                continue
             if row["availability_basis"] == "backfilled":
                 if mode == "strict":
-                    rejected.append("backfilled_not_known")
-                    continue
-                effective = game["kickoff_utc"] + np.timedelta64(3, "h")
+                    effective = row["captured_utc"]
+                    if effective >= cutoff:
+                        # Preserve T33's rejection/evidence when captured after its cutoff.
+                        rejected.append("backfilled_not_known")
+                        continue
+                else:
+                    effective = game["kickoff_utc"] + np.timedelta64(3, "h")
             else:
                 effective = row["available_utc"]
                 if effective is None:
@@ -104,6 +111,7 @@ class StatsFeatures:
             provider=self.provider,
             team_id=team,
             stat_id=row["id"],
+            stat_match_id=row["match_id"],
             raw_sha256=row["raw_sha256"],
             version=row["version"],
             captured_utc=row["captured_utc"].isoformat(),
@@ -158,6 +166,7 @@ class StatsFeatures:
         stat_keys=STAT_KEYS,
         research=True,
         opponent_model=None,
+        history_source=None,
     ):
         if mode not in MODES or not windows or any(n not in (5, 10) for n in windows):
             raise ValueError("须指定 strict/backfill_replay 与近5/10场窗口")
@@ -169,7 +178,7 @@ class StatsFeatures:
         cells, rest, opponents = {}, {}, {}
         for side in ("home", "away"):
             team = game[f"{side}_team_id"]
-            key = game["source"], game["league"], team
+            key = history_source or game["source"], game["league"], team
             games = self.histories.get(key, [])
             limit = (cutoff - np.timedelta64(3, "h")).value
             before = games[: bisect_left(self.times.get(key, []), limit)]

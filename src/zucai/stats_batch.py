@@ -253,7 +253,11 @@ def collect_batch(
                         result = {}
                     else:
                         result = ingest_apif(
-                            staged, path, endpoint=endpoint, raw_location=location(path)
+                            staged,
+                            path,
+                            endpoint=endpoint,
+                            raw_location=location(path),
+                            daily=daily,
                         )
                         if result.get("rejected"):
                             parsed.update(
@@ -329,6 +333,11 @@ def collect_batch(
             if original.get("technical_data", {}).get("version") == 2:
                 restore_rows(staged, archive, release=release, shard_cache=shard_cache)
             report["identity"] = reconcile_fd_aliases(staged, run_id)
+            if daily:
+                from zucai.stats_captured_fd import ingest_captured_files
+
+                cached = ingest_captured_files(staged, raw_root, selection, now, cursor, location)
+                report.update(cached)
             if not daily:
                 for item, _ in resume_units(
                     ((row, None) for row in index_units(selection)), cursor, resume
@@ -362,6 +371,9 @@ def collect_batch(
             if any(row["outcome"] == "error" for row in cursor["records"].values()):
                 report["status"] = "partial"
             summary = coverage(cursor, now)
+            from zucai.stats_availability import annotate_coverage
+
+            annotate_coverage(summary, staged)
             save_json(cursor_path, cursor)
             save_json(state / "stats_coverage.json", summary)
             prior_path = state / "stats_rows_manifest.json"
@@ -375,6 +387,7 @@ def collect_batch(
             if (
                 source.request_count
                 or report["downloaded_files"]
+                or report.get("reused_files", 0)
                 or report["context_updates"]
                 or report["identity"]["merged_teams"]
                 or previous is None

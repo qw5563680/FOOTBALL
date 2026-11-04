@@ -65,7 +65,7 @@ def read_results(database: Path) -> dict:
         return {row["match_id"]: dict(row) for row in rows}
 
 
-def prematch_rows(forecasts, as_of):
+def prematch_rows(forecasts, as_of, *, by_model=False):
     seen = {}
     for row in forecasts:
         if row["status"] != "predicted" or row["mode"] != "prematch":
@@ -73,7 +73,11 @@ def prematch_rows(forecasts, as_of):
         generated, kickoff = instant(row["generated_utc"]), instant(row["kickoff_utc"])
         if not instant(row["as_of_utc"]) <= generated < kickoff or generated > instant(as_of):
             continue
-        key = record_key(row["match_id"], row["batch_id"])
+        key = (
+            record_key(row["match_id"], row["batch_id"], row["model_name"])
+            if by_model
+            else record_key(row["match_id"], row["batch_id"])
+        )
         if key in seen and seen[key] != row:
             raise ValueError("同一比赛/批次包含冲突预测")
         seen[key] = row
@@ -141,15 +145,26 @@ def _loss(probabilities, actual):
     }
 
 
-def score_forecasts(forecasts, results, existing, as_of):
-    latest = {row["match_id"]: row for row in prematch_rows(forecasts, as_of)}
+def score_forecasts(forecasts, results, existing, as_of, *, experimental=False):
+    latest = {
+        (row["match_id"], row["model_name"]) if experimental else row["match_id"]: row
+        for row in prematch_rows(forecasts, as_of, by_model=experimental)
+    }
+
+    def identity(row):
+        return (
+            record_key(row["match_id"], row["batch_id"], row["model_name"])
+            if experimental
+            else record_key(row["match_id"], row["batch_id"])
+        )
+
     scored = list(existing)
     known = {row["record_id"]: row for row in existing}
     if len(known) != len(existing):
         raise ValueError("已存评分含重复比赛/批次")
     excluded, corrections = Counter(), set()
     for row in latest.values():
-        key = record_key(row["match_id"], row["batch_id"])
+        key = identity(row)
         result = results.get(row["match_id"])
         reason = result_reason(row, result, as_of)
         if reason:
@@ -189,11 +204,14 @@ def score_forecasts(forecasts, results, existing, as_of):
                 "model": _loss(row["model_probabilities"], actual),
                 "uniform": _loss(dict.fromkeys(OUTCOMES, 1 / 3), actual),
                 "market": {**market, **_loss(market["probabilities"], actual)} if market else None,
+                **({"validation_status": "experimental_unadopted"} if experimental else {}),
             }
         )
+        if experimental and row["model_probabilities"][actual] == 0:
+            scored[-1]["model"]["log_loss"] = "Infinity"
     return scored, {
         "excluded": dict(excluded),
-        "active_keys": [record_key(r["match_id"], r["batch_id"]) for r in latest.values()],
+        "active_keys": [identity(r) for r in latest.values()],
         "result_corrections": sorted(corrections),
         "selected_matches": len(latest),
         "newly_scored": len(scored) - len(existing),
@@ -278,8 +296,10 @@ def summarize_scores(scored, as_of, *, active_keys=None):
             latest[row["match_id"]] = row
     rows = sorted(latest.values(), key=lambda r: (instant(r["kickoff_utc"]), r["match_id"]))
     leagues, versions, months = defaultdict(list), defaultdict(list), defaultdict(list)
+    model_leagues = defaultdict(list)
     for row in rows:
         leagues[row["league"]].append(row)
+        model_leagues[row["model_name"], row["league"]].append(row)
         versions[row["league"], row["model_version"]].append(row)
         months[instant(row["kickoff_utc"]).astimezone(BEIJING).strftime("%Y-%m")].append(row)
     result = {
@@ -287,6 +307,10 @@ def summarize_scores(scored, as_of, *, active_keys=None):
         "leagues": {},
         "league_versions": [],
         "months": {k: _aggregate(v) for k, v in sorted(months.items())},
+        "model_leagues": [
+            dict(model_name=name, league=league, **_aggregate(v))
+            for (name, league), v in sorted(model_leagues.items())
+        ],
     }
     for league, values in sorted(leagues.items()):
         item = _aggregate(values)

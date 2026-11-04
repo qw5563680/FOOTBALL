@@ -95,8 +95,8 @@ def main(argv=None):
             "statistics,events,lineups,players,injuries" if args.command == "daily" else None
         )
         selection = plan(args.leagues, args.seasons, endpoints, now)
-        if args.command == "daily" and set(selection["endpoints"]) & {"index", "fd"}:
-            raise ValueError("daily 不额外请求索引页或 fd 文件")
+        if args.command == "daily" and "index" in selection["endpoints"]:
+            raise ValueError("daily 不额外请求索引页；fd 只复用本次已下载文件")
         if not args.db.exists():
             restore_feeds(args.archive, args.db)
         release = ReleaseStore()

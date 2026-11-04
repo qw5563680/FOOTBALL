@@ -13,13 +13,13 @@ import requests
 
 from zucai.sources.base import _atomic_write
 
-TAG = r"stats-raw-[0-9]{4}(?:0[1-9]|1[0-2])"
+TAG = r"(?:stats-raw|experiments)-[0-9]{4}(?:0[1-9]|1[0-2])"
 NAME = r"[A-Za-z0-9][A-Za-z0-9_.-]*"
 
 
 def validate_tag(tag):
     if not isinstance(tag, str) or not re.fullmatch(TAG, tag):
-        raise ValueError("Release tag 必须为 stats-raw-YYYYMM")
+        raise ValueError("Release tag 必须为 stats-raw-YYYYMM 或 experiments-YYYYMM")
 
 
 def validate_name(name):
