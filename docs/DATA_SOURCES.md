@@ -242,7 +242,8 @@ CLI必须显式启用 `--assume-known-after`；重复相同比分保留原可知
 
 北京时间 2026-11-02（实际采集 UTC 2026-11-01）在本账户完成带凭据验证。
 基地址 `https://v3.football.api-sports.io/`，只支持 api-sports.io 直连；头为
-`x-apisports-key`，值只读运行环境 `API_FOOTBALL_KEY`。不访问赔率、事件、阵容或统计端点。
+`x-apisports-key`，值只读运行环境 `API_FOOTBALL_KEY`。T10/T22 日常采集不访问赔率、事件、阵容或统计端点；
+T30 另允许审查者通过手动 Actions 对技术数据端点做有界探测，不入库、不进入模型，见下方模板。
 
 ### 账户、赛季与日期权限实测
 
@@ -394,6 +395,58 @@ T20 已随 main `171f41a` 合入本分支；`backfill --source apif` 复用其�
 欧战仍有身份隔离，因此由 T23 继续处理。
 本次开发也未重新访问 robots；沿用第 6 节与 T14 的既有访问记录，真实复核留给审查者的 Actions 验证。
 正式凭据只保存在 Actions Secrets，任何开发环境不得用正式 key 发请求。
+
+### 技术数据端点实测（T30，待审查者回填）
+
+本段是探测入口及记录模板，**尚无 T30 真实实测结论**。开发仅使用 `data/fixtures/t30/` 合成响应，
+没有请求真实 API、使用正式 key 或重新请求 robots；沿用本节已有访问记录，真实复核交由审查者。
+
+`operation=probe probe_kind=stats` 复用 T22 的安全归档、动态每日配额、reserve=10、6.1 秒间隔；
+不改变 60 分钟 job 上限。默认七桥接＋十一采集＋欧冠 2 的 19 个 ID，年份 `2022,2024,2026`。
+每个 ID 一次 `/leagues?id=` 保存逐年 coverage（七桥接同时刷新，不能把既有 true 当作统计有值）；
+除欧冠 2 外每联赛季取 fixtures 首页、injuries 首页；每个样本依次请求
+`fixtures/statistics`、`fixtures/events`、`fixtures/lineups`、`fixtures/players`。
+端点是待验证候选；必须核对响应 `get`、请求参数回显、results 与列表、首页分页，错误保留原件，
+不自动尝试别的端点，不请求赔率/预测。即使 metadata coverage=false，仍用小样本观察记录实际结果。
+
+抽样先覆盖 FT、AET/PEN、PST/CANC 三组，每组内优先已有 `match_id`/`counterpart_id` 的 apif 数字 ID，
+其余按 ID 稳定排序；再补足同组剩余样本，按 per_scope 截断。不抽进行中/未开始比赛，不按队名匹配。
+整轮首次 FT statistics 成功后最多加测一次候选 `half=true`；单列参数、原件与字段，`period_basis=unknown`，
+由审查者核实是否被接受且真正含半场统计。其他样本的 FT/AET 仅标开球记录的完赛状态，
+**不证明统计是 90 分钟还是含加时，更不能将 AET 数据用于 90 分钟模型**。
+
+原任务 per_scope=2 的完整范围最坏为 19＋54×(1＋2×4＋1)＋1＝560 次，超出 500 次硬上限；
+当前默认会在恢复归档、写状态和发送请求前拒绝，等待所有者确认调整，不暗中放宽预算或缩小抽样。
+显式 `per_scope=1` 为 344 次；两项欧战单季 per_scope=2 为 23 次。
+预算含元数据、赛程、逐场端点、伤停和半场候选；不另查 status，不追分页，不自动重试。
+
+CSV `state/audit/apif_stats_probes.csv` 逐请求保存 run_id、UTC、联赛/季/fixture、已知 match_id、
+状态、endpoint/parameters/response_get、HTTP/errors/results/paging、coverage、响应叶字段路径、
+statistics type 列表、expected_goals 出现/非空两个标志、null/空字符串字段计数、period_basis、SHA256、
+耗时（含限速等待与归档）、本项实际请求数、剩余配额、outcome/reason。数值 0 和字符串 "0" 不是缺失；
+expected_goals 未出现不补造。空事件/伤停不能据此判为无权限；HTTP 200 errors 非空一定失败。
+有效响应还需通过对应端点的记录结构检查；只有球队信息而没有阵容/球员统计，记为空数据。
+伤停正文的联赛与赛季必须匹配请求。无法抽到比赛时，四个逐场端点各写零请求 skipped 行，
+注明赛程首页失败/为空或无合适状态；不补造 HTTP/原件哈希，整轮记 partial。
+去重键为 run_id、联赛、季、fixture、端点、参数、原件哈希、outcome、reason；相同观察重复追加不改字节，
+不同 run/原件/失败原因继续保留。网络或归档失败没有完整原件时 SHA 留空，实际发送仍计入配额；
+配额触底停止整轮并保留 partial。其他请求失败继续下一项，原件归档失败不会记成功。
+安全 sidecar 仅保存数字每日/分钟配额头，不保存认证头；原件在 data/raw/api-football 下随 artifact 保留。
+
+Actions 按赛事×季×端点汇总抽样数、有效响应数、有效率、空响应数、空字段数、请求数和剩余额度。
+有效率＝有效响应数 / 实际请求数（包括网络失败；未请求显示 —），不作为全季覆盖率。
+有效只表示本次结构通过且有内容，不代表字段准确、全季可用或模型效果；联赛元数据不作为抽样覆盖证明。
+
+| run ID / 日期 | 数据提交 / artifact | 实际请求 / 剩余配额 | 范围 / 抽样规则 | 结论 |
+| --- | --- | --- | --- | --- |
+| 待审查者填写 | 待填写 | 待填写 | 待填写 | 未验证 |
+
+| 联赛 / 赛季 | 端点 / 响应 get | 样本数 / 有效数 / 空响应数 | 字段 / xG / 空值 | FT/AET/半场口径 | 原件 SHA256 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 待填写 | 待填写 | 待填写 | 待填写 | 待填写 | 待填写 | 未验证 |
+
+真实验收由 Claude 触发：原件齐全、≥18 联赛季×5端点、请求≤500，并核对账户当日其他消耗后剩余≥6900；
+“剩余≥6900”是实测验收值，不会伪造为每次运行的保证。结果回填本节后再作为 T31 字段字典依据。
 
 ### T23 identity-only 桥接（2026-11-03，Claude 已完成第一轮实测）
 

@@ -161,7 +161,13 @@ class ApiFootball(Source[ApiGame]):
             meta["quota_headers"] = {
                 k.lower(): v
                 for k, v in response.headers.items()
-                if k.lower() in ("x-ratelimit-requests-limit", "x-ratelimit-requests-remaining")
+                if k.lower()
+                in (
+                    "x-ratelimit-requests-limit",
+                    "x-ratelimit-requests-remaining",
+                    "x-ratelimit-limit",
+                    "x-ratelimit-remaining",
+                )
                 and isinstance(v, str)
                 and v.isascii()
                 and v.isdecimal()
