@@ -3,6 +3,26 @@
 ## 前置依赖
 T32 至少完成英超等 ≥ 3 个联赛 2 个完整赛季的 statistics（含 xG 若有）回填并通过覆盖率验收；T15 评估协议。
 
+## 数据现状与审查者补充（2026-11-04，T32 真实验收后）
+- **已有技术数据**（数据分支 `73365fe` 之后，Release `stats-raw-202611`）：
+  - fd 九主联赛（E0/E1/SP1/I1/D1/F1/F2/N1/P1）2022/23–2026/27 的 `match_stats`：射门 / 射正 / 角球 / 犯规 / 越位 / 黄红牌 / 被判任意球，
+    共 217,008 行；**无 xG**。
+  - apif `fixtures/statistics`：英超 2025/26 全季 380 场（13,680 行，含 `expected_goals` / `goals_prevented`、控球、传球等 16+2 类）。
+  - events / lineups / players / injuries 尚未回填；索引 10,724 场（7 桥接联赛 + 欧冠 2023–2026）。
+- **开工前补回填（审查者触发，需所有者同意额度）**：英超 2024、西甲 / 意甲 / 德甲 2024–2025 的 statistics（约 3,040 次请求，
+  xG 自 2024 季起可得），使 xG 候选至少有 4 个联赛 × 2 季；fd 口径特征（射门 / 角球等）用九联赛五季即可。
+- **数据获取方式**：行表不在数据分支，用 `zucai stats restore-rows --db <feeds.db> --archive <cloud-data>` 从 Release 分片装回；
+  实验代码只读 `match_stats`，不触网。
+- **可知时间口径**：回填行 `available_utc` 为 NULL、`availability_basis=backfilled`，不能当作「赛前已知」。特征层把一场比赛的技术数据
+  最早可用时间记为 `kickoff_utc + 3h`（该场结束后），只允许用于此后开球的比赛；日常增量行若有 `available_utc` 则以其为准。
+  赛前阵容仅 `captured_before_kickoff=true` 且 `available_utc < kickoff` 的行可用（目前尚无此类行）。
+- **空值语义**：apif 返回 null 的 `red_cards` 等保留 null（`missing_reason=null`），特征层不得当 0；牌数从 fd 列或 events 推导。
+  fd `column_absent` / `empty` 与 apif `not_provided` / `not_provided_before_2024` 一律进「缺失 → 回退基线」路径并计入覆盖率。
+- **身份**：10 组 fd 分裂身份已合并（PR #58），英超 2022–2025 索引满额；法甲 2023–2025 各 306 / 380、欧冠 2022 季无索引，
+  按联赛分组报告时要列出技术数据覆盖率，不对缺失场次做任何填充。
+- **范围收敛建议**：第一轮只做候选一（xG / 射正替换进球的 DC 观测输入）与一个消融对照，候选二（校准层）放第二轮；
+  评估先在 fd 九联赛（样本多）跑射门口径，再在有 apif 统计的联赛季跑 xG 口径，两者分表报告。
+
 ## 范围
 1. **特征层**（`features/stats.py`）：按每场 `cutoff=min(as_of,kickoff)`，只用 `available_utc < cutoff`（回填数据 `availability_basis=backfilled` 单独标记）；特征：近 N 场（N=5/10，时间衰减版）本队与对手 xG/xGA（仅同供应商口径）、射门 / 射正 / 被射正、角球、主客分列、对手强弱（对手当时 DC 攻防参数）、休息天数（T13 定义）、红牌场次标记；每项给公式、窗口、样本量 n/N、缺失处理（缺失 → 该特征 null 并回退基线，不填 0）。阵容特征只在 `captured_before_kickoff=true` 时启用。
 2. **模型实验**（`predict/experiments/`，新模型名 `dc-xg-v1` 等）：基线 = 现行 Dixon-Coles / 欧战联合模型（原样可复现）。候选一：以近期 xG/xGA（或射正）替换进球作为 DC 的观测强度输入，参数由拟合估计，不手设；候选二：DC 概率 + 特征的逻辑校准层。每次只比较一个清晰改动或事先固定的一组；做去掉单项特征的对照。
