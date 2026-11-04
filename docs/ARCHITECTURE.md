@@ -433,31 +433,70 @@ APIF 两张拒绝/疑似重复表选择**汇总表去重**方案：按
 已能严格核验的 ID 不算额外解决。缺范围或行数不完整则 `insufficient_evidence`，不会把无数据当零冲突成功。
 输出只作研究结果，即使达到至少 20 支、零冲突，也不改变任何生产身份规则。
 
-### 存量 APIF 身份合并（T23 第 8 项）
+### 存量同源身份合并（T23 第 8 项 / T29）
 
 `cloud_feeds reconcile` 是独立的手动 Actions 操作，不接收来源/联赛/年份选择，不访问网络或注入 key。
-`apif_reconcile` 遍历 `apif:team:<正整数>` 临时行及其有比赛的每个联赛，只用正式 active 别名；
-欧战直接复用 `cup_identity._bridge` 的同源 ID/既有绑定解析，不额外推断比赛图，不读取待审候选。
-`proposed` 不处理。目标查找复用 `_Teams.one`（规范化 name/aliases），兼容 `auto_verified` 与具完整批准来源的 `approved`。
-正式别名文件与导入器的“已有独立身份”拒绝规则保持原样。
+`apif_reconcile` 遍历 `apif:team:<正整数>` 和 `fdorg:team:<正整数>` 临时行及其有比赛的每个联赛。
+T29 的合并授权只来自各自正式文件 api_football.json / football_data_org.json 中的 active 别名：
+同一来源数字 ID 在任意联赛为 `auto_verified/approved`，便对它在所有联赛的存量历史生效，
+包括“欧战正式别名 → 丹超历史”。不额外推断比赛图、不读取待审候选；数据库里单独残留的绑定不能替代正式授权。
+只有 proposed 的 ID 不处理。目标查找复用 `_Teams.one`（规范化 name/aliases）；APIF approved 要有完整批准来源，
+FDORG 既有批准格式继续兼容，有审批来源字段时仍校验。两源数字空间隔离，不因 ID 数字相同跨源认队。
+导入器的“已有独立身份”拒绝规则保持原样。正式别名须先按下面的传播步骤提交审查，再做真实合并。
 
-逐联赛前置检查：目标唯一存在、临时 aliases 为空、目标无不同的本联赛 APIF ID，当前 ID 未被其他球队占用；
-同联赛目标的任何比赛与待移动比赛相差 ≤3h 均算冲突，临时行若被非 APIF 比赛引用也跳过。
+`aliases propagate --archive <目录>`（`alias_propagation.py`）校验并只读恢复归档，按临时身份的
+同源比赛找出有历史的联赛。只从运行前两份正式文件各自的 `auto_verified/approved` ID 传播，
+不读待审候选，不根据名字推断；目标已有 active 条目保持原样，无 active 来源或无临时历史就不写。
+同 ID 的多个 active 来源规范名须一致；选原始证据条目优先于已传播条目，其余按来源联赛名稳定排序。
+canonical/status 取来源原值，已有目标来源名保留（无则取来源名），不沿用目标旧 proposed 的拒绝原因；
+evidence 替换为一条 `{kind: same_provider_id, source_league, source_status, source_aliases_sha256}`，
+哈希是本轮写入前该来源正式文件的原始字节 SHA256。approved_by/approved_utc/approval_pr 原样复制；
+approved 来源缺审批信息则拒绝传播，不补造批准字段。跨联赛规范名冲突、目标反向别名冲突拒绝本次全部写入。
+两份输出全部检查通过后才原子写各文件，第二份写入失败恢复前一份；没有变化则不写文件。
+命令逐条 logging 输出改动和来源证明，不改数据库/数据分支，重复运行 0 条；改动先走 PR 再供 Actions 使用。
+
+reconcile 另检查目标的正式落地：APIF 取配置中非 identity_only 联赛，FDORG 取 cloud_apis 的
+COMPETITION_CODES 对应配置，分别排除 CUP_LEAGUES。若这些日常采集的非杯赛目标缺少正式 active
+(联赛, ID)，写审计 reason=`目标联赛正式别名未传播`、记冲突跳过并保留该联赛临时历史。
+欧战仍按既有跨联赛桥接检查；同一临时身份已合并的其他联赛不受这个跳过影响。
+本轮丹超/400 由欧协联/400 原 auto_verified 传播为哥本哈根，保留同源 ID 证据；未改 `_Teams.resolve`。
+PR #45 评论 6616192600 的 15 个 approved ID 另外按有历史的欧战联赛落地，随后传播新增 6 个联赛条目；
+批准字段及来源原文保存在 t29 离线审批 fixture。实际身份合并仍交由审查者在 Actions 验收。
+
+逐联赛前置检查：同源 ID 的各正式来源联赛规范名一致、来源/目标联赛无反向别名冲突；
+目标唯一存在且不是临时行、临时 aliases 为空、目标无不同的本联赛同源 ID，当前 ID 未被其他球队占用；
+同联赛目标的任何比赛与待移动比赛相差 ≤3h 均算冲突，临时行若被其他来源的比赛引用也跳过。
 冲突只跳过该联赛/ID，写明原因；通过后仅更新 matches 的 home_team_id/away_team_id，追加来源绑定。
 所有联赛不再引用临时行才删除它；无别名/未批准行保留。SQLite 事务内处理，审计写入失败时回滚数据库；
-数据库最终提交失败时恢复原审计（原本不存在则移除），避免失败产物误报成功；本轮不发布。
+数据库最终提交失败时恢复两源原审计（原本不存在则移除），第二张审计写失败亦回退第一张，避免失败产物误报成功；本轮不发布。
 match_id、开球、状态及其他字段、results/odds/closing_odds/predictions/sfc_issue_matches 均不改，无 schema 迁移。
 
-`state/audit/apif_identity_merges.csv` 保存任务单九列，alias_source 包含正式文件哈希与解析证据；
+`state/audit/apif_identity_merges.csv` 与新增 `fdorg_identity_merges.csv` 分开保存任务单九列，
+防止相同数字 ID 的两个来源发生审计键冲突。alias_source 包含 kind=`same_provider_id`、provider、
+source_leagues、source_entries（原状态/批准来源/证据）、正式文件哈希、目标联赛与 ID；
 按 `(league, team_id, canonical)` 保留一行，语义不变时保留原 run_id/字节；冲突解决后的成功更新原行而不重复追加。
-`collection.apif.merged_teams` 计本轮实际移动过的不同临时行，`rekeyed_matches` 计不同比赛 ID（主客都移动也只算一场），
+为兼容既有手动工作流，reconcile 报告仍放 `collection.apif`，T29 各总数为 APIF+FDORG 合计；
+`merged_teams` 计本轮实际移动过的不同临时行，`rekeyed_matches` 计不同比赛 ID（主客都移动也只算一场），
 `deleted_teams` 计最终删掉的无引用行，`skipped_conflicts` 只计已有解析结果却未通过检查的联赛/ID。
 没有 active 解析结果单列 unresolved_pairs，不计冲突。队表减少数等于 deleted_teams，比赛数保持不变。
 恢复/导出仍使用原数据分支格式与全局写锁，竞彩水位不前进；再次恢复及 verify_forecasts 校验后发布。
 
+T29 的 `cup_history` 只读统计 `coverage_before/coverage_after`，与 `aliases proposals --scope cups-history`
+使用同一口径：2025-07-01 UTC 起库内 jc 欧冠/欧罗巴/欧协联球队（任务单基线，不等于实时销售状态），
+分别计库内不同 match_id 少于 20、少于 60 及 20–59 的球队数；少于 60 是包含少于 20 的累计数。
+两源临时身份数含无比赛的行，欧战出场按球队/比赛计，双方均临时的一场计两次；均含所有比赛状态，
+不是训练样本数，不改训练筛选。清单只读，因此本次合并/重定向/冲突跳过均标 0；reconcile 摘要给实际本轮数及前后覆盖。
+
+`cups_history_proposals` 复用 `aliases_snapshot` 校验/临时恢复数据分支，输出 manifest SHA256。
+只列仍临时、欧罗巴/欧协联合计 ≥10 的 APIF ID，按合计降序/数字 ID 升序，一 ID 一行，原名取杯赛审计。
+赛季按既有 7 月换季从开球日期分组；近两季相对于归档 `through_beijing`，不使用运行当天时间。
+对手参考只接受库内 jc 身份或正式 APIF/FDORG active 别名精确对应的规范队，最多三个；不列同窗比赛，规范名填写格保持空白。
+另列未授权 fdorg 身份（原名取 unmatched 审计），末尾附没有 APIF 正式/持久绑定的 jc 欧战球队及 fdorg 正式别名。
+只写新的 Markdown，不覆盖已有文件或写入归档；参考列不影响任何绑定判定。默认 T23 清单和导入器 `_Teams.resolve` 不变。
+
 `apif_cup_aliases.csv` 改为按球队状态和语义证据去重并整理旧重复行：比较 evidence 时递归忽略
 `seen_utc`、`sidecar`，保留首次原始证据供追踪；不同 raw_sha256、规范名、状态或实际匹配依据仍保留。
-不修改 fdorg 的别名审计写法。新审计仍走既有 `state/audit/apif_*.csv` 归档白名单。
+不修改 fdorg 的别名审计写法。身份合并审计走既有 `state/audit/{apif,fdorg}_*.csv` 归档白名单。
 
 ## T15 评估与参数文件（无数据库迁移）
 

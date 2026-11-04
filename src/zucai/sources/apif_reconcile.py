@@ -1,26 +1,30 @@
-"""Rekey verified APIF provisional identities without altering importer policy."""
+"""Rekey formally verified provider identities without altering importer policy."""
 
 import csv
 import hashlib
 import io
 import json
 import logging
-import re
 from copy import deepcopy
 from pathlib import Path
 
 from sqlalchemy import or_, select, text
 
+from zucai.cup_history import PROVISIONAL, coverage_lines, history_metrics
 from zucai.db import get_engine, session_scope
 from zucai.models import Match, Team
+from zucai.sources.api_football import LEAGUES as APIF_LEAGUES
 from zucai.sources.apif_aliases import validate_approvals
 from zucai.sources.apif_command import ALIASES
 from zucai.sources.apif_ingest import _Teams
 from zucai.sources.base import _atomic_write
-from zucai.sources.cup_identity import CUP_LEAGUES, _bridge
+from zucai.sources.cup_identity import CUP_LEAGUES
 from zucai.sources.fd_ingest import WINDOW, _canonical
 from zucai.sources.fd_verify import _utc
+from zucai.sources.fdorg_verify import DEFAULT_ALIASES as FDORG_ALIASES
+from zucai.sources.fdorg_verify import _active
 from zucai.sources.football_data import read_json
+from zucai.sources.football_data_org import COMPETITIONS_PATH
 
 LOG = logging.getLogger(__name__)
 FIELDS = (
@@ -73,14 +77,70 @@ def _references(session, team_id, league=None):
     return list(session.scalars(statement.order_by(Match.match_id)))
 
 
+def _coverage(session):
+    teams = [dict(id=t.id, name=t.name) for t in session.scalars(select(Team))]
+    games = [
+        dict(
+            match_id=m.match_id,
+            source=m.source,
+            league=m.league,
+            home_team_id=m.home_team_id,
+            away_team_id=m.away_team_id,
+            kickoff_utc=m.kickoff_utc,
+        )
+        for m in session.scalars(select(Match))
+    ]
+    return history_metrics(teams, games)
+
+
+def _formal_entry(session, aliases, league, key):
+    """Only a formal active same-provider ID authorizes cross-league history moves."""
+    known = {}
+    teams = _Teams(session, aliases)  # Exact names/aliases only; never calls resolve.
+    for source_league in sorted(aliases):
+        canonical = _canonical(aliases, source_league, key)
+        if canonical is None:
+            continue
+        _active(aliases, source_league)
+        if (source_league, key) in teams.collisions:
+            raise ValueError("来源联赛同一规范球队对应多个生效的来源球队 ID")
+        known[source_league] = aliases[source_league][key]
+    if not known:
+        return None, []
+    names = {_canonical(aliases, origin, key) for origin in known}
+    if len(names) != 1:
+        raise ValueError("跨联赛的同源数字球队 ID 存在规范名冲突")
+    entry = deepcopy(known.get(league, next(iter(known.values()))))
+    return entry, list(known)
+
+
+def _daily_domestic_leagues():
+    from zucai.cloud_apis import COMPETITION_CODES
+
+    apif, fdorg = read_json(APIF_LEAGUES), read_json(COMPETITIONS_PATH)
+    return {
+        "apif": {
+            entry["league"] for entry in apif.values() if not entry.get("identity_only", False)
+        }
+        - CUP_LEAGUES["apif"],
+        "fdorg": {fdorg[code]["league"] for code in COMPETITION_CODES.split(",")}
+        - CUP_LEAGUES["fdorg"],
+    }
+
+
 def reconcile(database, run_id):
-    """Only formal active aliases and the existing cup bridge can authorize a move."""
+    """Apply existing T23 checks in every league, independently for APIF and FDORG."""
     database = Path(database)
     if not database.is_file():
         raise ValueError("待合并数据库不存在")
-    aliases = read_json(ALIASES)
-    validate_approvals(aliases, require_metadata=True)
-    alias_sha = hashlib.sha256(Path(ALIASES).read_bytes()).hexdigest()
+    paths = {"apif": Path(ALIASES), "fdorg": Path(FDORG_ALIASES)}
+    formal = {provider: read_json(path) for provider, path in paths.items()}
+    for provider, aliases in formal.items():
+        validate_approvals(aliases, require_metadata=provider == "apif")
+    hashes = {
+        provider: hashlib.sha256(path.read_bytes()).hexdigest() for provider, path in paths.items()
+    }
+    daily_leagues = _daily_domestic_leagues()
     engine = get_engine(database)
     report = dict(
         status="complete",
@@ -92,19 +152,21 @@ def reconcile(database, run_id):
         skipped_conflicts=0,
         unresolved_pairs=0,
     )
-    merged, rekeyed, audit = set(), set(), []
-    audit_path = database.parent / "state/audit/apif_identity_merges.csv"
-    previous_audit, audit_attempted = None, False
+    merged, rekeyed = set(), set()
+    audits = {provider: [] for provider in paths}
+    previous_audits = {}
     try:
         with session_scope(engine) as session:
             session.execute(text("BEGIN IMMEDIATE"))
+            report["coverage_before"] = _coverage(session)
             provisional = [
                 t
                 for t in session.scalars(select(Team).order_by(Team.id))
-                if re.fullmatch(r"apif:team:[1-9][0-9]*", t.name)
+                if PROVISIONAL.fullmatch(t.name)
             ]
             for temporary in provisional:
-                key = temporary.name.removeprefix("apif:team:")
+                provider, key = PROVISIONAL.fullmatch(temporary.name).groups()
+                aliases = formal[provider]
                 leagues = sorted({m.league for m in _references(session, temporary.id)})
                 for league in leagues:
                     row = dict(
@@ -119,22 +181,24 @@ def reconcile(database, run_id):
                         reason="",
                     )
                     try:
-                        entries = aliases.get(league, {})
-                        if league in CUP_LEAGUES["apif"]:
-                            entries = _bridge(
-                                "apif", database, league, {key: temporary.name}, aliases
-                            )
-                        canonical = _canonical({league: entries}, league, key)
-                        if canonical is None:
+                        entry, origins = _formal_entry(session, aliases, league, key)
+                        if entry is None:
                             report["unresolved_pairs"] += 1
                             continue
-                        entry = entries[key]
+                        entries = {**aliases.get(league, {}), key: entry}
+                        canonical = _canonical({league: entries}, league, key)
                         row.update(
                             canonical=canonical,
                             alias_status=entry["status"],
                             alias_source=json.dumps(
                                 dict(
-                                    formal_aliases_sha256=alias_sha,
+                                    formal_aliases_sha256=hashes[provider],
+                                    kind="same_provider_id",
+                                    provider=provider,
+                                    source_leagues=origins,
+                                    source_entries={
+                                        origin: aliases[origin][key] for origin in origins
+                                    },
                                     evidence=entry.get("evidence", []),
                                     league=league,
                                     team_id=key,
@@ -143,7 +207,12 @@ def reconcile(database, run_id):
                                 sort_keys=True,
                             ),
                         )
-                        if canonical.casefold().startswith("apif:"):
+                        if (
+                            league in daily_leagues[provider]
+                            and _canonical(aliases, league, key) is None
+                        ):
+                            raise ValueError("目标联赛正式别名未传播")
+                        if canonical.casefold().startswith(("apif:", "fdorg:")):
                             raise ValueError("规范队名使用了来源 ID 保留前缀")
                         resolved = deepcopy(aliases)
                         resolved[league] = entries
@@ -153,20 +222,20 @@ def reconcile(database, run_id):
                         target = teams.one(canonical)
                         if target is None:
                             raise ValueError("规范球队在库中缺失")
-                        if target.id == temporary.id:
+                        if target.id == temporary.id or PROVISIONAL.fullmatch(target.name):
                             raise ValueError("规范身份仍为临时球队")
                         if temporary.aliases:
                             raise ValueError("临时身份 aliases 非空")
-                        prefix = f"apif:{league}:team:"
+                        prefix = f"{provider}:{league}:team:"
                         binding = prefix + key
                         owner = teams.one(binding)
                         if owner and owner.id != target.id:
                             raise ValueError("来源 ID 已绑定其他球队")
                         if any(a.startswith(prefix) and a != binding for a in target.aliases):
-                            raise ValueError("规范球队已有不同的本联赛 APIF ID")
+                            raise ValueError(f"规范球队已有不同的本联赛 {provider.upper()} ID")
                         games = _references(session, temporary.id, league)
-                        if any(m.source != "apif" for m in games):
-                            raise ValueError("临时身份被非 APIF 比赛引用")
+                        if any(m.source != provider for m in games):
+                            raise ValueError(f"临时身份被非 {provider.upper()} 比赛引用")
                         existing = _references(session, target.id, league)
                         if any(
                             abs(_utc(g.kickoff_utc) - _utc(m.kickoff_utc)) <= WINDOW
@@ -190,17 +259,23 @@ def reconcile(database, run_id):
                         row["reason"] = str(exc)
                         report["skipped_conflicts"] += 1
                         report["status"] = "partial"
-                    audit.append(row)
+                    audits[provider].append(row)
                 if temporary.id in merged and not _references(session, temporary.id):
                     session.delete(temporary)
                     report["deleted_teams"] += 1
                     session.flush()
-            previous_audit = audit_path.read_bytes() if audit_path.exists() else None
-            audit_attempted = True
-            write_audit(audit_path, audit)
+            report["coverage_after"] = _coverage(session)
+            for provider, rows in audits.items():
+                audit_path = database.parent / f"state/audit/{provider}_identity_merges.csv"
+                if not rows and not audit_path.exists():
+                    continue
+                previous_audits[audit_path] = (
+                    audit_path.read_bytes() if audit_path.exists() else None
+                )
+                write_audit(audit_path, rows)
     except Exception:
         # session_scope has rolled back; don't leave a successful audit of a failed commit.
-        if audit_attempted:
+        for audit_path, previous_audit in previous_audits.items():
             try:
                 if previous_audit is None:
                     audit_path.unlink(missing_ok=True)
@@ -213,7 +288,7 @@ def reconcile(database, run_id):
         engine.dispose()
     report.update(merged_teams=len(merged), rekeyed_matches=len(rekeyed))
     LOG.info(
-        "APIF 身份合并 %d 队，重定向 %d 场，冲突跳过 %d",
+        "APIF/FDORG 身份合并 %d 队，重定向 %d 场，冲突跳过 %d",
         len(merged),
         len(rekeyed),
         report["skipped_conflicts"],
@@ -227,11 +302,15 @@ def write_summary(report):
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
             stream.write(
-                f"### APIF 存量身份合并：{report['status']}\n\n"
+                f"### APIF/FDORG 存量身份合并：{report['status']}\n\n"
                 f"合并临时球队 {report['merged_teams']}；删除空临时行 {report['deleted_teams']}；"
                 f"重定向不同比赛 {report['rekeyed_matches']}；"
                 f"冲突跳过 {report['skipped_conflicts']}；"
                 f"尚无生效别名 {report['unresolved_pairs']} 个联赛/ID。\n\n"
                 "不请求 API，不改 match_id、赛果或冻结预测。"
-                "审计：state/audit/apif_identity_merges.csv。\n"
+                "审计：state/audit/apif_identity_merges.csv、fdorg_identity_merges.csv。\n\n"
             )
+            for title, key in (("合并前", "coverage_before"), ("合并后", "coverage_after")):
+                stream.write(
+                    f"#### {title}\n\n" + "\n\n".join(coverage_lines(report[key])) + "\n\n"
+                )
