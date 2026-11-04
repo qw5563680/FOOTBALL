@@ -1,4 +1,4 @@
-"""Frozen, strict-only daily candidates. No production models or market inputs."""
+"""Replay-trained daily candidates with capture-time strict targets; no market inputs."""
 
 import hashlib
 import json
@@ -16,6 +16,10 @@ SOT_LEAGUES = ("英超", "英冠", "西甲", "意甲", "德甲", "法甲", "法�
 XG_WINDOWS = {"英超": 10, "西甲": 10, "意甲": 10, "德甲": 5}
 NAMES = ("dc-sot-v1", "dc-xg-v1")
 VERSION = "t34a-strict-v1"
+AVAILABILITY_MODES = {
+    "training_availability_mode": "backfill_replay",
+    "target_availability_mode": "strict_capture_time",
+}
 
 
 def raw_json(value):
@@ -49,6 +53,7 @@ def empty_row(target, name, cutoff, reason):
         "bet_allowed": False,
         "validation_status": "experimental_unadopted",
         "availability_mode": "strict",
+        **AVAILABILITY_MODES,
         "training_cutoff_utc": cutoff,
         "feature_cutoff": cutoff,
         "status": "missing",
@@ -91,7 +96,8 @@ def compute(session, targets, *, cutoff):
             training_cutoff_utc=at.isoformat(),
             history_source="aligned_exact_ids",
             provider=provider,
-            availability_mode="strict",
+            availability_mode="backfill_replay",
+            **AVAILABILITY_MODES,
             calibrated=False,
             training=[],
         )
@@ -115,15 +121,16 @@ def compute(session, targets, *, cutoff):
                 snapshot = builder.build(
                     game,
                     as_of=game["earliest_kickoff_utc"],
-                    mode="strict",
+                    mode="backfill_replay",
                     windows=(window,),
                     stat_keys=(stat,),
                     research=False,
                     history_source="aligned",
                 )
+                snapshot.update(AVAILABILITY_MODES)
                 inputs, reasons = intensity_inputs(snapshot, stat, window)
                 if reasons or not complete(inputs):
-                    rejected["strict_training_features_missing"] += 1
+                    rejected["training_features_missing"] += 1
                     continue
                 observation = dict(
                     match_id=game["match_id"],
@@ -134,6 +141,7 @@ def compute(session, targets, *, cutoff):
                     away_goals=label.away_goals,
                     inputs=inputs,
                     history_match_ids=game["history_match_ids"],
+                    **AVAILABILITY_MODES,
                 )
                 training.append(observation)
                 fit["training"].append(dict(observation, features=snapshot))
@@ -170,6 +178,7 @@ def compute(session, targets, *, cutoff):
                     research=False,
                     history_source="aligned",
                 )
+                snapshot.update(AVAILABILITY_MODES)
                 inputs, reasons = intensity_inputs(snapshot, stat, window)
                 row.update(
                     features=snapshot,

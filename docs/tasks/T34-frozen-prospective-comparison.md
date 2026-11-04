@@ -35,13 +35,21 @@ T37（基线无效矩阵）独立，不互相阻塞。
    `stats_coverage.json` 新增按 `availability_basis` 的行数，摘要「技术数据覆盖率」节各加一列 captured。
 2. **并行模型**（`cloud_predict.py` 新增步骤，失败不阻断原模型）：
    - `dc-sot-v1`（fd 射正，窗口按 T33 各联赛选窗结果，九联赛全部 N=10）与 `dc-xg-v1`（apif xG，英超 / 西甲 / 意甲 N=10、
-     德甲 N=5），训练截点 = 当批原模型截点，固定 90 天半衰期，训练样本与特征只用 **strict** 口径（`backfill_replay` 不进前瞻）。
+     德甲 N=5），训练截点 = 当批原模型截点，固定 90 天半衰期。所有者采纳 PR #68 建议修 1：
+     **训练特征用 `backfill_replay`**（与 T33 一致，历史开球+3h 假设），训练样本特征截点仍是样本自身开球，
+     标签仍须 `kickoff < available_utc < 拟合截点`；**目标特征用 `strict_capture_time`**（特征构建器的 `strict` 模式），
+     回填行只要 `captured_utc < 特征截点` 即在真实捕获时刻已知，`effective_available_utc=captured_utc`；
+     相等或晚于截点仍拒绝，保留原 `availability_basis=backfilled`、`captured_utc` 与 available_utc，不改库中旧行。
+     captured 行仍须捕获/可知时间均早于截点；所有窗口的历史开球+3h 边界不变。
    - 每场输出 `model_name` / `model_version` / 三项概率 / 最可能比分及概率 / `p2_ready=false` / `validation_status=experimental_unadopted`；
      特征不足或拟合失败时该场记 `fallback_reason` 与缺失明细，**不**用原模型概率冒充实验模型的预测（与 T33 离线不同：前瞻不回退，只记空）。
-   - 冻结赛前输入快照：每队用到的历史场次 ID、n/N、各统计值与 `availability_basis` / `available_utc`、特征截点、模型系数哈希；
+   - 冻结赛前输入快照：每队用到的历史场次 ID、n/N、各统计值与 `availability_basis` / `available_utc` / `captured_utc` /
+     `effective_available_utc`、特征截点、模型系数哈希；训练证据与目标 features 分别记录
+     `training_availability_mode=backfill_replay`、`target_availability_mode=strict_capture_time`，不把训练回放说成严格历史实时验证；
      写入 `forecasts/<日>/<run>/experimental.json`，SHA256 进 `forecast_manifest.json`。
-   - 预期：上线初期 strict 特征几乎全缺（历史行都是 backfilled），实验模型大多为空；随着每日 captured 行累积，
-     约 5–10 轮后开始出预测。这正是要观察的过程，不得用回填行「补齐」。
+   - 理由：已经真实抓到的历史统计可用于之后的预测，不必再等数月积累 captured 标签。
+     窗口完整且训练足够时可出实验预测；缺数据仍记空，不保证首日所有联赛都有结果。
+     T33 原历史截点早于这些回填的真实捕获时间，仍拒绝；其冻结协议、产物与结论不改。
 3. **记分板 / 摘要**：`score.py` 已按 `model_version` 分组，扩展为按 `model_name × 联赛`；实验模型只配对自己有预测的场次，
    另给出「同场共同样本」上原模型 vs 实验模型的配对 LL / Brier 差与 UTC 周整块自助区间（复用 T33 `metrics.paired`）。
    摘要新增「实验模型」小节：当日实验预测数 / 空缺数及原因、累计共同样本 n、配对差、距采用规则的差距；
@@ -55,11 +63,13 @@ T37（基线无效矩阵）独立，不互相阻塞。
 - 不回填历史行的 `available_utc`；不重写数据分支历史。
 
 ### 测试（离线）
-daily 行按条件得到 captured / available_utc，backfill 行不变；strict 特征只用 captured 行；实验模型失败不影响原模型冻结；
+daily 行按条件得到 captured / available_utc，backfill 行不变；strict 按真实捕获时间判定，覆盖回填早于/等于/晚于截点；
+训练 replay 与目标 strict 分离，T33 原离线测试结果不变；单个实验文件格式异常记 experimental_audit 并整文件跳过，不影响正式记分板；
+实验模型失败不影响原模型冻结；
 `experimental.json` 字节固定、哈希进 manifest；记分板共同样本配对与区间可复现；采用规则满足 / 不满足两例；P2 实验不下注。
 
 ### 真实验收（审查者）
-合入后第一次晚班 `predict`：原模型输出与前一日格式一致，`experimental.json` 存在且多数场次为空缺并有原因；
+合入后第一次晚班 `predict`：原模型输出与前一日格式一致，`experimental.json` 存在；输入齐全的场次有独立实验预测，空缺仍有原因；
 一周后 `stats_coverage.json` 出现 captured 行，摘要「实验模型」小节有数。连续 ≥ 14 天两模型并行后出第一份比较报告。
 
 ---

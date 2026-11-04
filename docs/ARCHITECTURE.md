@@ -964,8 +964,11 @@ T34a 的前瞻入口独立于下述历史回放命令，不改第一轮产物、
 研究字段包括 xG/xGA、射门/射正/被射正、角球、主客子集、红牌比赛标记、T13休息天数；
 对手DC参数只在参数截点早于比赛特征截点时返回。本轮阵容不入模，标 not_used_in_first_round。
 
-时间口径分开保存：`strict` 拒绝所有 backfilled；captured 行要求自身 available_utc 与
-captured_utc 均早于截点，并且 available 不早于 captured。`backfill_replay` 显式以历史
+时间口径分开保存：T34a 按所有者决定扩展 `strict`，backfilled 行以真实 captured_utc 作为
+effective_available_utc，严格早于截点才可用，证据保留原 backfilled/available/captured；不改库中旧行。
+T33 原数据的回填 captured_utc 晚于其历史截点，仍以 backfilled_not_known 拒绝，冻结协议与结果不变。
+captured 行要求自身 available_utc 与 captured_utc 均早于截点，并且 available 不早于 captured。
+`backfill_replay` 的规则不改，显式以历史
 开球+3小时假设回填可用，携带真实后采时间，不称当时已知；最新回填可能含后来更正。
 captured 更正仅选择截点前可用版本。训练样本的 feature_cutoff 是样本自身开球，
 fit_cutoff 是该轮训练边界，两个时间分别保存，评价周不能倒灌进过去的训练特征。
@@ -1013,6 +1016,7 @@ partial_null_retained 复合行仍标 backfilled，不把继承值伪装成本�
 现有晚班 cloud_stats daily 原端点及预算不变。现有 apis job 的早班新增一次无体育网络请求的本地处理步骤：
 若本工作目录已有普通采集下载的 fd 原件，调用 daily --endpoints fd。`stats_captured_fd` 只读取本UTC日已抓取、
 不晚于运行时刻、在计划范围内的九主联赛CSV；URL/SHA/sidecar 仍经 load_raw 校验，按原件哈希记游标，requests=0。
+早班这一步只保留所需 GITHUB_TOKEN，不传 API_FOOTBALL_KEY。
 FD普通赛程抓取仍只有UTC周一early，不重复请求。回填 ingest_fd 仍只附着实体 fd 行；日常路径还允许不存在实体fd时，
 沿唯一既有 jc.counterpart_id 精确链接、同联赛且开球±3小时附着；provider_fixture_id 保留原fd ID，
 match_id/team_id来自既有jc比赛。store_rows/check_stats验证这个确切链接，多个候选拒绝；不创建/修改比赛球队、
@@ -1021,21 +1025,32 @@ match_id/team_id来自既有jc比赛。store_rows/check_stats验证这个确切�
 `cloud_predict` 完成原模型四件套与清单发布后，再调用 `experimental_archive.freeze_parallel`。
 另复制临时库、从既有 Release 恢复技术行，原训练库/参数/预测四件套不修改。恢复/计算/拟合/上传失败
 隔离记录空缺，实验附加发布失败回滚实验文件和清单，不回滚正式预测。run记录 experimental_protocol 激活截点。
-两个模型严格固定射正九联赛N10、xG英西意N10/德N5、半衰期90，训练标签在拟合截点前已知，训练样本
-特征在各自开球前取 strict；目标特征截点为当批原模型训练截点。沿用 StatsIntensity 原始未校准分布，
+两个模型严格固定射正九联赛N10、xG英西意N10/德N5、半衰期90。所有者采纳 PR #68 建议修 1 后：
+训练标签仍须 `kickoff < available_utc < 拟合截点`；训练特征在样本各自开球前用 backfill_replay，
+对历史统计作开球+3h 可用假设，与 T33 一致。目标特征截点仍是当批原模型训练截点，使用 strict：
+backfilled 行须真实 captured_utc 严格早于截点，有效可知时间取 captured_utc；原标记、捕获时间保留，
+captured 行既有校验不变。已捕获的回填可以用于之后的预测，避免把存储标签误当成永远不可知；
+不把训练回放冒称历史实时验证。T33 历史截点早于回填实际捕获时刻，原协议、测试与历史结果不改。
+fits、每条训练证据与目标 features 均写 training_availability_mode=backfill_replay 和
+target_availability_mode=strict_capture_time，实验文件头和预测行也保留两字段。availability_mode
+在目标文件仍为 strict（兼容旧冻结读取），训练快照为 backfill_replay。沿用 StatsIntensity 原始未校准分布，
 参数由拟合估计；特征/先验/选窗/拟合/校准不接收市场字段，不传正式模型作回退。
 
 `experiments.history` 只在内存中按已核验 counterpart（规范主客ID和联赛一致、开球±3h）或完全相同
 联赛/开球/主客ID合并历史出场；代表顺序 jc > fd > fdorg > apif，统计仍保留供应商、原 match_id/stat_id。
 历史可结束边界用组内最晚开球+3h，训练特征截点用组内最早开球，冲突标签跳过并计原因。
 这是实验窗口去重，不改变库内身份或正式训练数据选择。所有已知来源的同规范球队历史均进入窗口，
-不只保留有统计的场次；最近N场有null/非90分钟/回填/未来捕获即缺失，不往前补一场。
+不只保留有统计的场次；目标最近N场有null/非90分钟/截点之后或相等时才捕获的统计即缺失，不往前补一场。
 有效行冻结四项输入的n/N、历史ID、每项值、原件哈希、版本、captured/available、系数哈希和模型版本；
 无效行冻结null概率及明确原因，始终p2_ready=false、experimental_unadopted。
 
 每个两日目录的 experimental.json 由稳定排序JSON序列化，SHA256进入 forecast_manifest.files；
 原 forecast/report 内层清单不变，旧归档无实验字段照常校验。attach_experiments 先写文件/哈希，
 提交清单前记录 experimental_published_utc；记分板采用 generated/published 中较晚时间判断赛前。
+load_experiments 按文件先完整校验再接纳行；JSON、身份、时间、概率或必要字段格式异常时整文件跳过，
+同一比赛/模型重复、缺失原因缺漏、非法P2标签类型及夹带market对象也在该边界拒绝，避免进入下游后才失败。
+将相对路径、批次、invalid_experimental_file 与错误明细写入 summary.experimental_audit.invalid_files，
+不接纳该文件此前已解析的部分行。其他附件、正式评分和账本继续运行；归档 SHA256 校验不放宽。
 完整每日JSON副本及训练样本特征、系数、训练ID打包不可变ZIP到 Release experiments-YYYYMM，
 复用 stats_release.upload_verified/upload_checksums，不上传空校验清单。Release JSON与数据分支冻结副本
 同字节；实际交付裁决以 forecast_manifest 时间为准，晚于开球则摘要记空缺且不评分。

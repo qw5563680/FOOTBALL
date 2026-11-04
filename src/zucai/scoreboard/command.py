@@ -108,7 +108,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         raise ValueError("不能倒退已有记分板的截点，请用独立归档副本回放")
     forecast_manifest = verify_forecasts(archive)
     forecasts = load_forecasts(archive, at)
-    experimental = load_experiments(archive, forecast_manifest, at)
+    experimental, experiment_file_audit = load_experiments(archive, forecast_manifest, at)
     production_existing = [
         r for r in existing if r.get("validation_status") != "experimental_unadopted"
     ]
@@ -143,6 +143,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         experiment_scored, experiment_audit = score_forecasts(
             experiment_selected, results, experiment_existing, at, experimental=True
         )
+        experiment_audit["invalid_files"] = experiment_file_audit
         ledger = advance_ledger(selected, results, ledger, at)
         if digest(database) != before:
             raise ValueError("记分板计算改变了恢复库")

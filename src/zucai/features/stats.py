@@ -67,9 +67,13 @@ class StatsFeatures:
                 continue
             if row["availability_basis"] == "backfilled":
                 if mode == "strict":
-                    rejected.append("backfilled_not_known")
-                    continue
-                effective = game["kickoff_utc"] + np.timedelta64(3, "h")
+                    effective = row["captured_utc"]
+                    if effective >= cutoff:
+                        # Preserve T33's rejection/evidence when captured after its cutoff.
+                        rejected.append("backfilled_not_known")
+                        continue
+                else:
+                    effective = game["kickoff_utc"] + np.timedelta64(3, "h")
             else:
                 effective = row["available_utc"]
                 if effective is None:

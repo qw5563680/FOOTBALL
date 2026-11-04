@@ -532,7 +532,13 @@ T34a（2026-11-05，离线实现）：日常新增行在库内比赛 finished �
 改记 `captured / available_utc=captured_utc`；backfill、已有记录不改。预开球阵容不满足该条件仍不进入
 本轮技术强度模型。周一early只复用已下载的九主联赛fd CSV保存统计，不新增CSV/API请求；已被竞彩吸收的
 fd比赛只能沿唯一既有counterpart精确关联保存，不能用名字补绑定。新null不填0，旧历史继承值不算本次捕获。
-strict特征还要求捕获/可知时刻和历史开球+3h都早于本场特征截点。覆盖率captured为行版本数，非场数。
+所有者采纳 PR #68 建议修 1：目标 strict 以真实捕获时刻为可知时刻，backfilled 行在
+captured_utc 严格早于特征截点时可用，effective_available_utc=captured_utc；原 backfilled 标记与
+captured/available 保留，不改写库中历史行。captured 行仍要求捕获/可知时间都早于截点；历史开球+3h边界不变。
+训练特征单独用 backfill_replay（开球+3h 假设），标签仍须 kickoff < available_utc < 拟合截点；
+训练与目标证据分别标 training_availability_mode=backfill_replay、target_availability_mode=strict_capture_time。
+理由是回填已经被真实抓到，对之后的预测确实已知；T33 的历史截点早于回填捕获时间，仍拒绝，原回放协议与结果不变。
+覆盖率captured仍只数存储中的captured行版本，不把可用于目标预测的backfilled行改计为captured，非场数。
 本任务无新的真实HTTP/robots权限核验；请求端点、路径和频率沿本节已记录的T30/T32结论，
 开发环境没有读取正式key或触发Actions。真实captured覆盖与连续前瞻结果由审查者后续回填。
 

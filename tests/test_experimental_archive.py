@@ -45,6 +45,8 @@ def test_production_freezes_even_when_experiment_fails(
         raw = path.read_bytes()
         assert hashlib.sha256(raw).hexdigest() == manifest["files"][entry["experimental_path"]]
         doc = json.loads(raw)
+        assert doc["training_availability_mode"] == "backfill_replay"
+        assert doc["target_availability_mode"] == "strict_capture_time"
         assert all(
             r["p2_ready"] is False and r["model_probabilities"] is None for r in doc["predictions"]
         )

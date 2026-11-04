@@ -5,7 +5,7 @@ import math
 from collections import Counter
 
 from zucai.predict.experiments.metrics import paired, summarize
-from zucai.predict.experiments.parallel import specifications
+from zucai.predict.experiments.parallel import NAMES, specifications
 from zucai.scoreboard.score import instant, prematch_rows, record_key
 from zucai.sources.sporttery import BEIJING
 
@@ -30,76 +30,123 @@ RULES = dict(
 )
 
 
+def _invalid_json_constant(value):
+    raise ValueError(f"实验 JSON 含非法数值：{value}")
+
+
+def _load_experiment_file(archive, manifest, forecast, at):
+    """Validate the whole attachment before making any of its rows available."""
+    path = forecast["experimental_path"]
+    doc = json.loads((archive / path).read_bytes(), parse_constant=_invalid_json_constant)
+    if (
+        not isinstance(doc, dict)
+        or doc.get("schema_version") != 1
+        or doc.get("availability_mode") != "strict"
+        or doc["batch_id"] != forecast["batch_id"]
+        or doc.get("mode") != "prematch"
+        or not isinstance(doc.get("predictions"), list)
+    ):
+        raise ValueError("实验冻结格式或批次无效")
+    instant(doc["as_of_utc"])
+    stamp = max(
+        instant(doc["generated_utc"]),
+        instant(forecast.get("experimental_published_utc", doc["generated_utc"])),
+    )
+    if stamp > instant(at):
+        return []
+    original = json.loads((archive / forecast["path"] / "forecast.json").read_bytes())
+    identities = {r["match_id"]: r for r in original["predictions"]}
+    rows, seen = [], set()
+    for row in doc["predictions"]:
+        if (
+            not isinstance(row, dict)
+            or row.get("model_name") not in NAMES
+            or not isinstance(row.get("model_version"), str)
+            or not row["model_version"]
+            or row.get("status") not in ("predicted", "missing", "excluded")
+            or not isinstance(row.get("p2_label", "P2 实验"), str)
+            or row.get("market") is not None
+            or (
+                row.get("fallback_reason") is not None
+                and not isinstance(row["fallback_reason"], str)
+            )
+        ):
+            raise ValueError("实验预测行格式无效")
+        if row["status"] != "predicted" and not row.get("fallback_reason"):
+            raise ValueError("实验空缺必须有原因")
+        counterpart = identities.get(row["match_id"])
+        if (
+            counterpart is None
+            or any(row[k] != counterpart[k] for k in ("source", "league", "home", "away"))
+            or instant(row["kickoff_utc"]) != instant(counterpart["kickoff_utc"])
+        ):
+            raise ValueError("实验与同批正式目标身份不符")
+        key = row["match_id"], row["model_name"]
+        if key in seen:
+            raise ValueError("同一比赛/模型含重复实验预测")
+        seen.add(key)
+        if (
+            row.get("p2_ready") is not False
+            or row.get("validation_status") != "experimental_unadopted"
+            or row.get("availability_mode") != "strict"
+        ):
+            raise ValueError("实验预测必须 strict / P2 实验")
+        p = row.get("model_probabilities")
+        if row["status"] == "predicted":
+            if (
+                not isinstance(p, dict)
+                or set(p) != set("hda")
+                or any(
+                    type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in p.values()
+                )
+                or abs(sum(p.values()) - 1) > 1e-8
+            ):
+                raise ValueError("实验概率无效")
+        elif p is not None:
+            raise ValueError("实验空缺不得携带回退概率")
+        if stamp >= instant(row["kickoff_utc"]):
+            row = dict(
+                row,
+                status="missing",
+                model_probabilities=None,
+                top_score=None,
+                fallback_reason="published_after_kickoff",
+            )
+        rows.append(
+            dict(
+                row,
+                batch_id=doc["batch_id"],
+                generated_utc=stamp.isoformat(),
+                as_of_utc=doc["as_of_utc"],
+                mode=doc["mode"],
+                forecast_path=path,
+                forecast_sha256=manifest["files"][path],
+            )
+        )
+    return rows
+
+
 def load_experiments(archive, manifest, at):
-    rows = []
+    rows, audit = [], []
     for run in (manifest or {}).get("runs", {}).values():
         for forecast in run["forecasts"].values():
             path = forecast.get("experimental_path")
             if not path:
                 continue
-            doc = json.loads((archive / path).read_bytes())
-            if (
-                doc.get("schema_version") != 1
-                or doc.get("availability_mode") != "strict"
-                or doc["batch_id"] != forecast["batch_id"]
-            ):
-                raise ValueError("实验冻结格式或批次无效")
-            stamp = max(
-                instant(doc["generated_utc"]),
-                instant(forecast.get("experimental_published_utc", doc["generated_utc"])),
-            )
-            if stamp > instant(at):
-                continue
-            original = json.loads((archive / forecast["path"] / "forecast.json").read_bytes())
-            identities = {r["match_id"]: r for r in original["predictions"]}
-            for row in doc["predictions"]:
-                counterpart = identities.get(row["match_id"])
-                if (
-                    counterpart is None
-                    or any(row[k] != counterpart[k] for k in ("source", "league", "home", "away"))
-                    or instant(row["kickoff_utc"]) != instant(counterpart["kickoff_utc"])
-                ):
-                    raise ValueError("实验与同批正式目标身份不符")
-                if (
-                    row.get("p2_ready") is not False
-                    or row.get("validation_status") != "experimental_unadopted"
-                    or row.get("availability_mode") != "strict"
-                ):
-                    raise ValueError("实验预测必须 strict / P2 实验")
-                p = row.get("model_probabilities")
-                if row["status"] == "predicted":
-                    if (
-                        not isinstance(p, dict)
-                        or set(p) != set("hda")
-                        or any(
-                            type(v) not in (int, float) or not math.isfinite(v) or v < 0
-                            for v in p.values()
-                        )
-                        or abs(sum(p.values()) - 1) > 1e-8
-                    ):
-                        raise ValueError("实验概率无效")
-                elif p is not None:
-                    raise ValueError("实验空缺不得携带回退概率")
-                if stamp >= instant(row["kickoff_utc"]):
-                    row = dict(
-                        row,
-                        status="missing",
-                        model_probabilities=None,
-                        top_score=None,
-                        fallback_reason="published_after_kickoff",
-                    )
-                rows.append(
+            try:
+                loaded = _load_experiment_file(archive, manifest, forecast, at)
+            except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
+                audit.append(
                     dict(
-                        row,
-                        batch_id=doc["batch_id"],
-                        generated_utc=stamp.isoformat(),
-                        as_of_utc=doc["as_of_utc"],
-                        mode=doc["mode"],
                         forecast_path=path,
-                        forecast_sha256=manifest["files"][path],
+                        batch_id=forecast["batch_id"],
+                        reason="invalid_experimental_file",
+                        detail=f"{type(exc).__name__}: {str(exc)[:200]}",
                     )
                 )
-    return rows
+            else:
+                rows.extend(loaded)
+    return rows, audit
 
 
 def select_latest(rows, at):

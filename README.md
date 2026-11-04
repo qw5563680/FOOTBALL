@@ -50,7 +50,9 @@ T34a 起每天保留两套独立实验结果，规则见下方「每日并行实
 fd 九联赛射正与 apif 四联赛 xG 分表，完整与去掉对手被射正/xGA项的消融共用完整样本。
 候选系数从历史比分拟合，赔率只在模型和窗口选择全部结束后作为独立市场对照加入。
 
-`strict` 排除回填行；`backfill_replay` 把历史开球+3小时当作**假设**可用时间，
+T33 原快照的回填捕获时间晚于历史截点，`strict` 仍排除这些行，冻结协议与既有结果不改。
+T34a 起 strict 按真实捕获时刻判断，已在截点前抓到的回填可用于之后的预测，规则见下文。
+`backfill_replay` 把历史开球+3小时当作**假设**可用时间，
 只称历史回放，不能证明当时拿到了这些版本。窗口缺值保留 null，并逐场记录回退的原模型版本。
 结果目录保存六列模型、市场与均匀基准、缺失原因、原始证据、训练参数、分组与配对自助区间；
 完整压缩 JSONL/JSON 放数据分支 `experiments/t33/`，main 的 reports 仅放 README 和 SHA256SUMS。
@@ -419,25 +421,33 @@ Actions 摘要第一行为「非购买建议 · BET 禁用 · P2 标签含义见
 **实验 · 不下注**。训练截点与当批正式模型相同，半衰期固定90天；复用 T33 已拟合的函数形式、
 重新拟合系数，发布未经校准的原始概率，不用赔率训练、选窗或校准。
 
-只使用 `strict`：统计必须是实际捕获的 `captured` 行，捕获/可知时间早于特征截点，历史比赛开球+3小时
-也须早于截点。训练样本在各自开球前取特征，标签在当批拟合前已知。旧的 `backfilled` 行不改时间、
-不补缺值；缺少完整窗口或拟合失败时概率留空，写 `fallback_reason` 和明细，绝不用正式概率填实验栏。
+目标预测采用 `strict_capture_time`：captured 行的捕获/可知时间须早于截点；backfilled 行在
+`captured_utc < 特征截点` 时可用，有效可知时间取真实捕获时刻，原回填标记及时间仍保留。
+相等或晚于截点的回填仍拒绝，历史比赛开球+3小时也须早于截点，不补缺值、不改库内已有时间。
+训练特征单独使用 `backfill_replay`，在样本自身开球前取历史窗口；标签仍须满足
+`kickoff < available_utc < 当批拟合截点`。训练回放是已披露的假设，不能当成严格历史实时验证。
+这样已经拿到的历史统计可用于今后的预测，无须等数月重新积累 captured 标签；T33 历史回放结论不变。
+缺少完整窗口或拟合失败时概率留空，写 `fallback_reason` 和明细，绝不用正式概率填实验栏。
 同规范球队 ID 的已核验 counterpart 或同联赛/同开球/同主客 ID 仅在实验特征内合为一次出场，保留原统计行 ID；
 竞彩已绑定的历史也参与窗口，不要求它必须另有实体 fd 行。正式模型的训练选择不变。
 
 每个 `forecasts/<北京开球日>/<run-id>/` 新增 **`experimental.json`**；原有四件套不改字段/字节。
 实验文件记录胜平负、最高比分及概率、历史比赛 ID、n/N、统计值、可知依据、特征截点和系数哈希；
+训练证据与目标 features 都注明 `training_availability_mode=backfill_replay` 和
+`target_availability_mode=strict_capture_time`，保留 captured/available/effective_available_utc。
 它的 SHA256 进入 `forecast_manifest.json`，实验实际发布时刻另记在清单中。完整预测副本、训练样本特征与
 系数存入 Release **`experiments-YYYYMM`**，ZIP 和 `SHA256SUMS-<run>-<hash>` 都校验上传回执。
 Release 中每日实验 JSON 与冻结文件同字节；是否及时发布以 forecast manifest 的发布时间为准。
 不把全量实验训练文件写进数据分支 `experiments/`。上传或恢复失败只记实验空缺，已冻结正式结果仍可发布。
+单个 experimental.json 格式异常时整文件跳过，原因写入 `summary.json → experimental_audit.invalid_files`；
+其他实验文件与正式评分、虚拟账户照常处理。原归档哈希校验仍保留，损坏哈希不被忽略。
 现有 predict job 使用已有 `contents: write` 的 GITHUB_TOKEN，没有新 job / 权限 / 体育数据请求。
 
 日常 apif 技术行在比赛已完赛且实际捕获晚于开球+2小时后记录 `captured/available_utc`。
 周一早班额外**离线读取本班已经下载的 fd CSV**（不再请求文件），用同样条件保存射正等统计；
 只沿已经核验的 `jc.counterpart_id=fd:<id>` 附着，不创建比赛/球队、不按名字匹配。
 历史回填仍全部 `backfilled`，原有相同值/相同原件不重新标时间。fd 每周一次、apif 日常增量的可用节奏不同，
-完整窗口和至少11场严格训练样本都积累后才可能出预测；不保证上线5–10轮就一定有结果。
+目标完整窗口已在截点前捕获、且有至少11场合格的回放训练样本时才可能出预测；不保证首日所有联赛都有结果。
 覆盖率摘要的 `captured` 是存储行版本数量，不能当作已覆盖比赛数。
 
 采用规则现在固定在 `scoreboard/summary.json → experiments.rules`，逐**模型×联赛**判断：

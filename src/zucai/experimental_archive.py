@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 
 from zucai.db import get_engine
 from zucai.forecast_archive import attach_experiments
-from zucai.predict.experiments.parallel import compute, raw_json, sha, unavailable
+from zucai.predict.experiments.parallel import (
+    AVAILABILITY_MODES,
+    compute,
+    raw_json,
+    sha,
+    unavailable,
+)
 from zucai.scoreboard.score import instant
 from zucai.sources.sporttery import BEIJING
 from zucai.stats_release import ReleaseStore, upload_checksums, upload_verified
@@ -77,6 +83,7 @@ def freeze_parallel(
                 validation_status="experimental_unadopted",
                 p2_ready=False,
                 availability_mode="strict",
+                **AVAILABILITY_MODES,
                 predictions=[r for r in rows if r["match_id"] in ids],
             )
         try:

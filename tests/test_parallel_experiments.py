@@ -123,7 +123,7 @@ def test_strict_fit_inference_exact_ids_and_frozen_evidence(strict_database):
     assert "market" not in raw_json(fits).decode()
 
 
-def test_backfilled_and_future_observations_do_not_fill_missing(strict_database):
+def test_known_backfill_is_usable_but_future_observations_do_not_fill_missing(strict_database):
     engine, _, doc, target = strict_database
     with session_scope(engine) as session:
         last = doc["rows"][-1]["match_id"]
@@ -132,8 +132,12 @@ def test_backfilled_and_future_observations_do_not_fill_missing(strict_database)
             row.available_utc = None
         session.flush()
         rows, fits = compute(session, [target], cutoff=doc["cutoff"])
-        assert rows[0]["model_probabilities"] is None
-        assert any("backfilled" in reason for reason in rows[0]["missing_details"])
+        assert rows[0]["status"] == "predicted"
+        assert any(
+            e["availability_basis"] == "backfilled"
+            for cell in rows[0]["features"]["cells"].values()
+            for e in cell["evidence"]
+        )
         for row in session.scalars(select(MatchStat).where(MatchStat.match_id == last)):
             row.availability_basis = "captured"
             row.available_utc = row.captured_utc = target["kickoff_utc"]
