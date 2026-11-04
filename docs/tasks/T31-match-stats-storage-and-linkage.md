@@ -6,11 +6,20 @@
 ## 前置依赖
 T30 真实探测结果回填（apif 部分）；T29 合入（身份合并与别名传播）。fd 统计解析不依赖 T30。
 
+
+## 所有者决定与 T30 实测口径（2026-11-04 定稿）
+- 字段字典以 T30 三轮真实探测为准（`docs/DATA_SOURCES.md` 第 6 节「审查者回填」）：statistics 16 类 + `expected_goals` / `goals_prevented`（字符串→float）；**删除所有半场列**（`half` 参数被忽略）；xG 仅 2024 季起有值，之前季 `missing_reason=not_provided_before_2024`。
+- `period_basis`：按 fixture 状态 FT → `90`，AET/PEN → `incl_extra_time`（禁入 90 分钟特征）；统计本身不区分时段。
+- `unsupported` 初始名单（按 T30）：`fixtures/players` 对欧罗巴 / 欧协联资格赛、芬超 2022/2024、韩职 2024；`injuries` 对日职、韩职、中超、葡超、欧协联；欧战资格赛 statistics 多为空，入库时按 null 记录不重试。
+- **欧冠关联索引获批**：`apif_fixture_index` 的索引请求范围 = 7 个桥接联赛 + 欧冠（apif 联赛 2），每联赛季 1 次 `/fixtures?league&season`，只建索引不导入；`data/api_football/leagues.json` 为 2 增加 `index_only: true` 条目，`cloud_apis` 日常采集与 backfill 继续排除它。
+- 原件归档：T32 走 Release 附件；本任务只需保证 `raw_sha256` 与归档位置字段可填。
+- 接入顺序：statistics → events → lineups → players；本任务解析器四类都要实现，但入库命令按端点可选。
+
 ## 范围
 1. **数据模型**（`src/zucai/models.py`、`docs/ARCHITECTURE.md` 数据模型节）：新增 `match_stats`、`match_events`、`match_lineups`、`apif_fixture_index` 四张附属表，字段按研究文档第 7 节；不改既有表；迁移脚本只建新表；`export_feeds / restore_feeds / verify` 覆盖新表（JSONL 分文件进 manifest）。
 2. **fd 统计解析**（`sources/football_data.py`）：9 个主联赛季文件解析 HS/AS、HST/AST、HC/AC、HF/AF、HO/AO、HY/AY、HR/AR（`HFKC/AFKC` 替代犯规时单独标 `stat_key=free_kicks_conceded`）；缺列或空串写 null + `missing_reason=column_absent/empty`；写入 `match_stats`（provider=fd，附着到已有 fd `match_id`，`availability_basis=backfilled`，`available_utc=null`）。国别合并文件不含统计，不解析。
 3. **apif 解析器**（新 `sources/apif_stats.py`）：statistics（type → 规范 `stat_key` 映射表，`Ball Possession "55%"` → 55.0 单位 %，`Passes %` 同；`expected_goals` 字符串 → float，缺失 null；`period_basis` 由 fixture 状态 FT/AET/PEN 判定，AET/PEN 标 `extra_time_included=true` 且禁止进 90 分钟特征）、events（type/detail/time.elapsed+extra/team/player/assist）、lineups（startXI/substitutes/coach/formation，`captured_before_kickoff = captured_utc < kickoff_utc`）、players（minutes、rating 等原值）。全部保留 `raw_value` 原文与 `value` 规范值。
-4. **关联索引**：`apif_fixture_index` 建立规则——同联赛季、两队 apif ID 经正式别名解析为与库内一致的规范球队、开球 ±3 小时、一对一；否则写 `state/audit/stats_link_audit.csv`（reason：候选不全 / 多对一 / 主客反向 / 身份临时 / 同窗冲突），不新建比赛或球队。索引请求 `/fixtures?league&season` 仅限 7 个桥接联赛（欧冠待所有者批准范围变更后另开）。
+4. **关联索引**：`apif_fixture_index` 建立规则——同联赛季、两队 apif ID 经正式别名解析为与库内一致的规范球队、开球 ±3 小时、一对一；否则写 `state/audit/stats_link_audit.csv`（reason：候选不全 / 多对一 / 主客反向 / 身份临时 / 同窗冲突），不新建比赛或球队。索引请求 `/fixtures?league&season` 覆盖 7 个桥接联赛与欧冠（apif 联赛 2，所有者 2026-11-04 批准，只建索引不导入）。
 5. **幂等与版本**：同 (provider_fixture_id, endpoint, raw_sha256) 不重复入库；新响应空值不覆盖已有有效值；数值变化写新 `version` 并保留旧行；全部在同一事务，失败回滚且审计一并回滚。
 6. **文档**：ARCHITECTURE 数据模型与归档布局；DATA_SOURCES 字段字典（第 4 节定稿版）；README 新子命令（`zucai stats ingest-fd`、`zucai stats link`）。
 
