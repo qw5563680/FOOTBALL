@@ -38,8 +38,10 @@ def write_summary(report):
             f"fd 文件 {report.get('downloaded_files', 0)}；新增行 {report.get('inserted', 0)}；"
             f"剩余配额 {report.get('remaining_quota', '未知')}。\n\n"
         )
-        output.write("| 赛事 | 季 | 端点 | 范围 | 应取 | 已取 | 有效 | 空值 | 失败 | 未支持 |\n")
-        output.write("|---|---|---|---|---:|---:|---:|---:|---:|---:|\n")
+        output.write(
+            "| 赛事 | 季 | 端点 | 范围 | 应取 | 已取 | 有效 | 空值 | 失败 | 未支持 | 拒绝行 |\n"
+        )
+        output.write("|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|\n")
         for row in report.get("coverage", {}).get("rows", []):
             fields = (
                 "league",
@@ -53,8 +55,14 @@ def write_summary(report):
                 "failed",
                 "unsupported",
             )
-            output.write("| " + " | ".join(cell(row[key]) for key in fields) + " |\n")
-        output.write("\n索引按页、fd 按文件、逐场端点按已链接比赛计数；空字段保留 null。\n")
+            output.write(
+                "| "
+                + " | ".join(cell(row[key]) for key in fields)
+                + f" | {row.get('rejected_rows', 0)} |\n"
+            )
+        output.write(
+            "\n索引按页、fd 按文件、逐场端点按已链接比赛计数；拒绝行单列，空字段保留 null。\n"
+        )
         for error in report.get("errors", []):
             output.write("\n- " + cell(error) + "\n")
 

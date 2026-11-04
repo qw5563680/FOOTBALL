@@ -143,11 +143,14 @@ export/restore/verify 检查完整性、哈希、行数、外键和主客/索引
 数据库和 fixtures 原件，不新增普通 fixtures/status 请求。技术请求走独立 1.0 秒限速通道，分钟头
 remaining ≤ 20 时等到下一分钟，429 立即停止。原普通采集/status 的 6.1 秒规则不变。
 历史批次至多 7000 次，除 reserve=10 外预留日常 300 次；日常至多 300 次。失败请求同样扣配额。
+共用发布脚本仅对 push 的 5xx / 网络错误最多尝试 3 次、间隔 30 秒；fetch-first / non-fast-forward 先 rebase 再推，rebase 冲突立即失败，摘要记录每次失败 stderr 原文与次数，最终失败提示 artifact，绝不强推或创建空提交。
 索引按七桥接＋欧冠 2 的 2022 起赛季页；fd 按九主联赛季文件；四端点依次 statistics/events/lineups/players，
 injuries 仅 11 个有数据联赛。全部范围先验证，未知端点/联赛/季节参数在请求前拒绝。
 
 `state/stats_backfill_cursor.json` version 1 记录每个来源 / 联赛季 / 端点 / fixture / 阶段单元的
 attempts、结果和上次尝试时间，成功回执幂等跳过。空响应最多首抓＋2 次补抓，补抓间隔至少 7 天；
+成功解析的 index 页与 fd 文件记 ok，已审计拒绝行单列 `rejected_rows`，resume 不为这些行重新请求整页；
+拒绝行不把批次或 collection_status 标为 partial。响应 errors、解析失败、HTTP 错误仍记失败；正常空响应单列 null，预算/限流停批仍保持 partial。
 resume 在每个端点内优先已有未完成单元；no-resume 按所选范围顺序枚举，两者都不清空成功/重试/权限回执。
 unsupported 不再重试。HTTP 200 + errors、网络失败、权限不足分别记录 failed/unsupported，网络失败本批不补发；
 限流和配额触底保留已完成部分，下一批可 resume。赛前阵容仅在 60–30 分钟窗口尝试一次，记录实际捕获 UTC；
@@ -185,12 +188,18 @@ Actions 保留 raw/state/stats_assets 90 天，整个工作流共用 `write-foot
 沿用 contents:write；没有新增 cron 或权限。
 
 `state/stats_coverage.json` version 1 的 `observed_utc` 与 rows 按 league/season/endpoint/phase
-保存 expected/fetched/valid/null/failed/unsupported，以及 requests/null_fields/missed。
+保存 expected/fetched/valid/null/failed/unsupported，以及 requests/null_fields/missed/rejected_rows。
 逐场端点分母为已链接 fixture，index/fd 的单位分别为页/文件。null_fields 表示空字段，不能作为 0 值；
 不从请求数推算覆盖率。该文件 SHA256 进入 feeds files；daily_digest 仅在异常节照录六项冻结计数、来源链接、
 观测 UTC，旧归档没有该文件时摘要字节不变，不重写任何预测/报告/评分证据。
-Den Haag → 海牙 仅凭所有者对该精确名称的批准，经既有 reconcile 全部检查进行；
-不放宽任意 fd 别名、主客方向、球队身份或冻结历史规则。
+`stats_identity.reconcile_fd_aliases` 读取正式 fd 别名文件里 status=approved、approved_by=qw5563680 且审批字段完整的精确名称对；
+不使用 proposed / auto_verified 作为合并授权。除已批准目标本身持有同一英文别名外，任意第三方名称冲突仍拒绝；
+保留原身份 aliases 为空、仅被批准联赛 fd 比赛引用、同场/主客检查，以及三张技术行表和索引与比赛一致的检查。
+仅重定向球队外键，比赛 ID、原件、技术版本及其他字段不变；审计和数据库同事务，失败一起回滚。
+历史分片的 identity_redirects 记录来源联赛、英文名、规范名、前后球队 ID 和审批链接，并对照正式批准清单验证；
+兼容旧 Den Haag 三字段记录。旧分片不覆盖，重新发布时仅允许这些已批准身份对应的 team_id 差异。
+第三批 apif 规范名更正保留 approved_by / approved_utc 等原字段，approval_pr 由单链接扩展为按先后顺序的链接列表，
+每个链接仍必须是本仓库 PR / 审批评论，原审批链接不丢失；Metz 112 原正式文件无条目，按第四批新增一次。
 
 ### 既有赛程与赛果存储
 

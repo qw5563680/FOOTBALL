@@ -125,6 +125,8 @@ def load_cursor(path):
             record.get("unit", {}).get("key") != key
             or type(record.get("attempts")) is not int
             or record["attempts"] < 0
+            or type(record.get("rejected_rows", 0)) is not int
+            or record.get("rejected_rows", 0) < 0
         ):
             raise ValueError("技术数据游标记录无效")
         if record.get("last_attempt_utc"):
@@ -155,6 +157,7 @@ def record(cursor, row, outcome, now, *, requested=False, received=False, reason
         "reason": reason,
         "attempts": old.get("attempts", 0) + int(requested),
         "received": old.get("received", False) or received,
+        "rejected_rows": old.get("rejected_rows", 0),
         **extra,
     }
     if requested:
@@ -316,6 +319,7 @@ def coverage(cursor, now):
             requests=0,
             null_fields=0,
             missed=0,
+            rejected_rows=0,
         )
     )
     for entry in cursor["records"].values():
@@ -326,6 +330,7 @@ def coverage(cursor, now):
         group["fetched"] += int(entry.get("received", False))
         group["requests"] += entry["attempts"]
         group["null_fields"] += entry.get("null_fields", 0)
+        group["rejected_rows"] += entry.get("rejected_rows", 0)
         for status, field in (
             ("ok", "valid"),
             ("empty", "null"),

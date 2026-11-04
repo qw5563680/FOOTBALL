@@ -30,6 +30,12 @@ def test_approved_metadata_validates_and_remains_active_without_changing_proposa
         ("approved_by", ""),
         ("approved_utc", "2026-11-03"),
         ("approval_pr", "https://example.com/99"),
+        ("approval_pr", []),
+        (
+            "approval_pr",
+            ["https://github.com/qw5563680/FOOTBALL/pull/99", "https://example.com/99"],
+        ),
+        ("approval_pr", [None]),
         ("approved_utc", "tomorrow"),
     ],
 )

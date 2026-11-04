@@ -327,20 +327,22 @@ def test_changed_positive_version_is_rejected_by_snapshot_hash(tmp_path):
 
 
 @pytest.mark.parametrize("cached", [False, True])
-def test_only_approved_den_haag_identity_redirect_preserves_history(tmp_path, cached):
+@pytest.mark.parametrize("pair", ["legacy", "fourth_batch"])
+def test_only_owner_approved_identity_redirect_preserves_history(tmp_path, cached, pair):
     from zucai.stats_rows import restore_rows
 
     source = tmp_path / "feeds.db"
     seed(source, versions=3)
+    source_name, canonical = ("Den Haag", "海牙") if pair == "legacy" else ("West Ham", "西汉姆联")
     with sqlite3.connect(source) as db:
-        db.execute("UPDATE teams SET name='Den Haag' WHERE id=1")
+        db.execute("UPDATE teams SET name=? WHERE id=1", (source_name,))
     release = LocalRelease(tmp_path / "release")
     previous = publish(source, tmp_path / "out", release)
     options = {"shard_cache": tmp_path / "batch-cache"} if cached else {}
     if cached:
         restore_rows(source, release=release, **options)
     with sqlite3.connect(source) as db:
-        db.execute("INSERT INTO teams(id,name,aliases) VALUES(3,'海牙','[]')")
+        db.execute("INSERT INTO teams(id,name,aliases) VALUES(3,?,'[]')", (canonical,))
         db.execute("UPDATE matches SET home_team_id=3")
         db.execute("UPDATE match_stats SET team_id=3")
         db.execute("DELETE FROM teams WHERE id=1")
@@ -351,6 +353,13 @@ def test_only_approved_den_haag_identity_redirect_preserves_history(tmp_path, ca
             "approval_url": "https://github.com/qw5563680/FOOTBALL/pull/49#issuecomment-6627072639",
         }
     ]
+    if pair == "fourth_batch":
+        previous["identity_redirects"][0].update(
+            league="英超",
+            source_name=source_name,
+            canonical=canonical,
+            approval_url="https://github.com/qw5563680/FOOTBALL/pull/56#issuecomment-6633553662",
+        )
     with pytest.raises(ValueError, match="冲突|snapshot"):
         publish(source, tmp_path / "unapproved", release, run_id="unapproved", **options)
     current = publish(
