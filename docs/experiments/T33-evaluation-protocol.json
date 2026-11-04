@@ -1,0 +1,30 @@
+{
+  "protocol_version": "t33-round1-v1",
+  "source_task": "docs/tasks/T33-prematch-features-and-model-experiment.md",
+  "training_start": "2021-07-01T00:00:00Z",
+  "selection_start": "2024-07-01T00:00:00Z",
+  "selection_end": "2025-07-01T00:00:00Z",
+  "evaluation_start": "2025-07-01T00:00:00Z",
+  "evaluation_end": "2026-07-01T00:00:00Z",
+  "selection_fold": "monthly",
+  "evaluation_fold": "weekly",
+  "half_life_days": 90,
+  "windows": [5, 10],
+  "window_selection": "lowest_selection_raw_log_loss_then_smaller_window",
+  "providers": {
+    "fd": {"stat_key": "shots_on_target", "leagues": ["英超", "英冠", "西甲", "意甲", "德甲", "法甲", "法乙", "荷甲", "葡超"]},
+    "apif": {"stat_key": "expected_goals", "leagues": ["英超", "西甲", "意甲", "德甲"]}
+  },
+  "candidate": "dc-stats-intensity-v1",
+  "ablation": "remove_opponent_against",
+  "availability_modes": ["strict", "backfill_replay"],
+  "backfill_delay_hours": 3,
+  "primary_metric": "log_loss",
+  "secondary_metrics": ["brier", "top_accuracy", "calibration_10_bins", "coverage", "score_brier"],
+  "groups": ["league", "season", "cold_start", "statistics_missing", "cup"],
+  "bootstrap": {"unit": "utc_week", "replicates": 2000, "seed": 3301, "confidence": 0.95},
+  "score_grid": 10,
+  "market": "jc_last_complete_had_strictly_before_fixture_cutoff_comparison_only",
+  "bet_allowed": false,
+  "production_adoption": false
+}
