@@ -120,7 +120,9 @@ def _daily_domestic_leagues():
     apif, fdorg = read_json(APIF_LEAGUES), read_json(COMPETITIONS_PATH)
     return {
         "apif": {
-            entry["league"] for entry in apif.values() if not entry.get("identity_only", False)
+            entry["league"]
+            for entry in apif.values()
+            if not entry.get("identity_only", False) and not entry.get("index_only", False)
         }
         - CUP_LEAGUES["apif"],
         "fdorg": {fdorg[code]["league"] for code in COMPETITION_CODES.split(",")}

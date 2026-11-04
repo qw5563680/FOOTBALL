@@ -47,7 +47,11 @@ def api_backfill_scopes(provider, codes=None, first=None, last=None, *, today=No
     allowed_codes = (
         CUP_CODES[provider]
         if provider == "fdorg"
-        else {str(code) for code in APIF_LEAGUE_IDS if str(code) in config}
+        else {
+            str(code)
+            for code in APIF_LEAGUE_IDS
+            if str(code) in config and not config[str(code)].get("index_only", False)
+        }
     )
     selected = list(CUP_CODES[provider]) if codes is None else [c.strip() for c in codes.split(",")]
     if (

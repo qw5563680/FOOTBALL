@@ -150,6 +150,12 @@ class FootballDataCoUk(Source[FdGame]):
             return path
         raise ValueError("重定向超过允许次数")
 
+    def parse_statistics(self, raw):
+        from zucai.sources.fd_stats import parse_fd_statistics
+
+        games, self.rejected = parse_fd_statistics(raw, self.div_code, self.season, self.leagues)
+        return games
+
     def parse(self, raw):
         self.rejected = []
         entry = verified_league(self.leagues, self.div_code)

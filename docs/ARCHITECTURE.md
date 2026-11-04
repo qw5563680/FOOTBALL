@@ -76,6 +76,69 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 
 ## 数据模型
 
+### T31 技术数据附属表
+
+技术数据独立保存，不改 `matches`、`results`、`teams` 等既有表，不改赛果可知时间、冻结预测、
+模型或训练选择。`stats migrate` 只创建以下四张表；日常 `init_db` 在新库中也会创建它们。
+
+| 表 | 内容与逻辑身份 |
+| --- | --- |
+| `match_stats` | fd / apif 每场每侧每指标；`stat_key`、原始 JSON 标量 `raw_value`、数值 `value`、`unit` |
+| `match_events` | apif 事件；type/detail、elapsed/extra、player/assist ID；完整原事件与规范 `value`（含 total_minute） |
+| `match_lineups` | apif 阵容团队记录、首发、替补、逐场球员统计；用 endpoint 区分 lineups/players，role 区分 team/start/bench/player_stats；formation、minutes/rating/position、`captured_before_kickoff`，完整 raw/value JSON 保留教练和其余字段 |
+| `apif_fixture_index` | 数字 fixture ID → 一个既有 match_id；联赛/赛季、开球、两侧供应商 ID 与规范 team_id、正式别名来源及其规范化内容哈希；fixture ID 和 match_id 两侧唯一 |
+
+前三表共用 `provider/provider_fixture_id/endpoint/record_key/match_id/team_id/provider_team_id/side`，
+`period_basis/extra_time_included/eligible_90`，`captured_utc/available_utc/availability_basis`，
+`raw_sha256/raw_location/parser_version/missing_reason/version`。`raw_location` 可填本地原件路径或未来
+Release 归档位置，T31 不上传原件。`captured_utc` 必须取已校验 sidecar 的实际抓取时间；本阶段导入一律
+`availability_basis=backfilled, available_utc=null`，不借用比赛赛果的时钟。
+首发的 `captured_before_kickoff` 只表示抓取是否严格早于开球，不自行授予历史赛前可用资格。
+FT 标 `90/false/true`；AET/PEN 标 `incl_extra_time/true/false`；其余状态 `unknown/false/false`。
+没有半场统计列，含加时数据禁止作为 90 分钟特征；特征消费者留给 T33。
+
+`sources/apif_stats.py` 只解析已归档的四类端点，先核对 get、fixture、errors、results 和完整单页。
+`sources/fd_stats.py` 经 `FootballDataCoUk.parse_statistics` 解析九个主联赛季文件，不读赔率，不解析国别文件。
+`stats ingest-fd` 只挂到已有且联赛/开球一致的 fd 主键；不创建球队或比赛。
+解析异常按来源行拒绝并写 `state/audit/stats_ingest_audit.csv`，同批其他有效行可继续。
+空 statistics 对两支已知球队写缺失指标；空 events/lineups/players 只记审计，不虚构事件或球员。
+
+`stats link` 只以正式 auto_verified/approved 的同源 ID 解析规范球队，再核对同联赛季、主客 ID、
+开球 ±3 小时和两侧唯一性；可沿用其他联赛的正式 same_provider_id，但不能凭英文名或相似度猜测。
+未合并的临时身份、反向、多个候选、同窗球队冲突均隔离到 `state/audit/stats_link_audit.csv`，
+reason 为「候选不全 / 多对一 / 主客反向 / 身份临时 / 同窗冲突」。整页检查完才建立索引，
+既有索引不自动重指向，也不折叠多个来源行来猜唯一对象。待导入整页中的反向、重复和共享球队同窗冲突
+会隔离所有涉及的 fixture，而非只检查数据库里的候选；自然年联赛也核对原件声明的赛季，不能只比较两个开球时刻。
+离线可回放已有采集联赛的 fixtures 原件；新增索引请求只允许七桥接 ID 39/140/135/78/61/88/94 与欧冠 2，
+每联赛季一次 `/fixtures?league&season`，不跟分页。2 的 `index_only=true` 与普通导入、日常采集、backfill 隔离；
+`--fetch` 仅在手动 Actions 下可运行，沿用配额 reserve=10 与 6.1 秒间隔。T31 不安排任何定时采集。
+索引原件通过 `ApiFootball.fetch_index_raw` 公开入口请求一页，范围校验由客户端统一维护，
+复用其配额、间隔与安全归档逻辑，不扩展日常比赛导入范围。
+
+`stats_storage.py` 按 `(provider, provider_fixture_id, endpoint, record_key, version)` 追加，
+同原件哈希和逻辑键唯一；已处理的 `(provider_fixture_id, endpoint, raw_sha256)` 在导入审计中保留回执，
+包括空响应和全数值不变的响应。回执保存当次解析的 record_keys 和有值的 valid_keys；有值但不变的
+较新观察同样推进该行的观察时钟，防止较旧、未见哈希的响应反向更正。相同正文哈希的新抓取只记新的
+capture 时钟回执，不重复入表；再次回放同一抓取连审计字节也不变。
+新 null 不覆盖已有有效值；更正值写下一 version，旧行保留。复合事件/阵容的 null 字段保留前一版本的
+有效规范值，原始 JSON 仍保留本次原文，并以 `partial_null_retained` 明示；不冒充新原件实际提供了这些值。
+只对同一事件身份（主客/类型/时间/球员）保留空值；教练/球员/助攻等嵌套 ID 改变时也不混入旧实体字段。
+事件没有供应商事件 ID，`record_key=event:<响应中的序号>`；每次原件及旧版本均可重放，不能把序号当事件实体 ID。
+事件插入/删除后的完整集合必须按选定响应原件及其回执 record_keys 解释，不能把所有位置的最新版本简单拼成当前事件集合；
+本阶段不提供事件集合特征，消费时的快照选择由 T33 实现。
+数据库写入、拒绝审计和回执在一次事务边界内完成，异常或提交失败恢复审计原字节并回滚所有新行。
+
+归档仍为 feeds manifest v2，新增可选 `technical_data={version:1, columns, counts}`，配套四个文件：
+`state/match_stats.jsonl`、`state/match_events.jsonl`、`state/match_lineups.jsonl`、`state/apif_fixture_index.jsonl`。
+每行沿用按 columns 排序的 JSON 数组；文件 SHA256 进入原 manifest.files，stats 审计 CSV 一并归档。
+原有五表的 counts、sources 行哈希不改。四表扩展必须整体存在或整体缺失；旧 v1/v2 无扩展归档恢复为空附属表。
+export/restore/verify 检查完整性、哈希、行数、外键和主客/索引一致性，校验失败不替换目标库。
+恢复时 stats 两张审计 CSV 与所恢复的数据库同步；旧归档缺失的技术审计会从目标目录清除，防止残留较新回执误跳过数据。
+没有新建或改写 forecast/report/scoreboard 文件。unsupported 初始名单保存于
+`data/api_football/stats_coverage.json`，供 T32 使用；资格赛与联赛阶段分开，不将抽样空值推广为永久无权限。
+
+### 既有赛程与赛果存储
+
 T08 增加 `closing_odds`，不改变既有 timestamped `odds`。FD 导入每行独立 SAVEPOINT，
 文件内合格行在一个外层事务提交；错误行有行号、原件哈希和原因。缺 Time、无赛果、夏令时歧义不造值。
 同联赛、规范主客和三小时内的 jc 比赛优先；只补空 counterpart，不覆盖官方比分。

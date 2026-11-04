@@ -21,7 +21,11 @@ DOMESTIC = "98,292,188,113,103,244,119,253,169"
 
 def test_permissions_match_reviewed_actions_evidence():
     leagues = json.loads((ROOT / "data/api_football/leagues.json").read_bytes())
-    leagues = {code: config for code, config in leagues.items() if not config.get("identity_only")}
+    leagues = {
+        code: config
+        for code, config in leagues.items()
+        if not config.get("identity_only") and not config.get("index_only")
+    }
     rows = list(csv.DictReader((FIXTURES / "t22/paid_season_probes.csv").open()))
     assert len(rows) == 30
     for row in rows:

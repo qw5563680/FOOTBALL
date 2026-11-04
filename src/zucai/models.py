@@ -158,3 +158,114 @@ class Prediction(Base):
     p_away: Mapped[float]
     score_matrix: Mapped[list[list[float]]] = mapped_column(JSON)
     created_utc: Mapped[str] = mapped_column(UTCString, default=lambda: datetime.now(UTC))
+
+
+class TechnicalProvenance:
+    """Append-only source observations; no inferred historical availability clock."""
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str]
+    provider_fixture_id: Mapped[str]
+    endpoint: Mapped[str]
+    record_key: Mapped[str]
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"))
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    provider_team_id: Mapped[int | None]
+    side: Mapped[str]
+    period_basis: Mapped[str]
+    extra_time_included: Mapped[bool]
+    eligible_90: Mapped[bool]
+    captured_utc: Mapped[str] = mapped_column(UTCString)
+    available_utc: Mapped[str | None] = mapped_column(UTCString)
+    availability_basis: Mapped[str]
+    raw_sha256: Mapped[str]
+    raw_location: Mapped[str]
+    parser_version: Mapped[str]
+    missing_reason: Mapped[str | None]
+    version: Mapped[int]
+
+
+def _technical_constraints():
+    return (
+        UniqueConstraint("provider", "provider_fixture_id", "endpoint", "record_key", "version"),
+        UniqueConstraint("provider", "provider_fixture_id", "endpoint", "record_key", "raw_sha256"),
+        CheckConstraint("provider IN ('fd', 'apif')"),
+        CheckConstraint("side IN ('home', 'away')"),
+        CheckConstraint("version > 0 AND length(raw_sha256) = 64"),
+        CheckConstraint("period_basis IN ('90', 'incl_extra_time', 'unknown')"),
+        CheckConstraint("extra_time_included = (period_basis = 'incl_extra_time')"),
+        CheckConstraint("eligible_90 = (period_basis = '90')"),
+        CheckConstraint("availability_basis IN ('backfilled', 'captured')"),
+        CheckConstraint("availability_basis <> 'backfilled' OR available_utc IS NULL"),
+    )
+
+
+class MatchStat(TechnicalProvenance, Base):
+    __tablename__ = "match_stats"
+    __table_args__ = _technical_constraints()
+
+    stat_key: Mapped[str]
+    raw_value: Mapped[object | None] = mapped_column(JSON)
+    value: Mapped[float | None]
+    unit: Mapped[str]
+
+
+class MatchEvent(TechnicalProvenance, Base):
+    __tablename__ = "match_events"
+    __table_args__ = _technical_constraints()
+
+    event_type: Mapped[str | None]
+    detail: Mapped[str | None]
+    elapsed: Mapped[int | None]
+    extra: Mapped[int | None]
+    player_id: Mapped[int | None]
+    assist_id: Mapped[int | None]
+    raw_value: Mapped[dict] = mapped_column(JSON)
+    value: Mapped[dict] = mapped_column(JSON)
+
+
+class MatchLineup(TechnicalProvenance, Base):
+    __tablename__ = "match_lineups"
+    __table_args__ = _technical_constraints()
+
+    role: Mapped[str]
+    player_id: Mapped[int | None]
+    formation: Mapped[str | None]
+    minutes: Mapped[float | None]
+    rating: Mapped[float | None]
+    position: Mapped[str | None]
+    captured_before_kickoff: Mapped[bool]
+    raw_value: Mapped[dict] = mapped_column(JSON)
+    value: Mapped[dict] = mapped_column(JSON)
+
+
+class ApifFixtureIndex(Base):
+    __tablename__ = "apif_fixture_index"
+    __table_args__ = (
+        UniqueConstraint("match_id"),
+        CheckConstraint("home_team_id <> away_team_id"),
+        CheckConstraint("home_provider_id <> away_provider_id"),
+        CheckConstraint("provider = 'apif' AND endpoint = 'fixtures' AND version = 1"),
+        CheckConstraint("length(raw_sha256) = 64"),
+    )
+
+    provider_fixture_id: Mapped[str] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(default="apif")
+    endpoint: Mapped[str] = mapped_column(default="fixtures")
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"))
+    league: Mapped[str]
+    provider_league_id: Mapped[int]
+    season: Mapped[int]
+    kickoff_utc: Mapped[str] = mapped_column(UTCString)
+    home_provider_id: Mapped[int]
+    away_provider_id: Mapped[int]
+    home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    captured_utc: Mapped[str] = mapped_column(UTCString)
+    available_utc: Mapped[str | None] = mapped_column(UTCString)
+    availability_basis: Mapped[str] = mapped_column(default="backfilled")
+    raw_sha256: Mapped[str]
+    raw_location: Mapped[str]
+    parser_version: Mapped[str]
+    evidence: Mapped[dict] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(default=1)

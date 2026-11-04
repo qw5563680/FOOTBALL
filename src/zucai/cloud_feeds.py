@@ -21,6 +21,13 @@ from zucai.db import get_engine, init_db
 from zucai.sfc_state import export_sfc_state, restore_sfc_state
 from zucai.sources.results import ResultRowsRejected, fetch_results
 from zucai.sources.sporttery import BEIJING, fetch_schedule
+from zucai.stats_archive import (
+    STATS_FILES,
+    check_stats,
+    export_stats,
+    restore_stats,
+    validate_stats_manifest,
+)
 
 LOG = logging.getLogger(__name__)
 TABLES = {
@@ -54,7 +61,7 @@ MANIFEST = "feed_manifest.json"
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 STATE_FILE = (
     r"state/(?:api_football_quota\.json|"
-    r"audit/(?:jc|fd|fdorg|apif|sfc)_[a-z_]+\.csv|"
+    r"audit/(?:jc|fd|fdorg|apif|sfc|stats)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif)\.json)"
 )
 VIEW = """
@@ -129,6 +136,7 @@ def check_db(db: sqlite3.Connection) -> None:
     if db.execute("""SELECT 1 FROM matches m LEFT JOIN results r USING(match_id)
                   WHERE (m.status='finished') <> (r.match_id IS NOT NULL) LIMIT 1""").fetchone():
         raise ValueError("完赛状态与比分表不一致")
+    check_stats(db)
 
 
 def pending_results(source: Path) -> list[dict[str, str]]:
@@ -196,6 +204,8 @@ def export_feeds(
                 dump_rows(archive / key, db.execute(query + f" ORDER BY {','.join(cols)}"))
                 files.append(key)
         files.extend(export_sfc_state(db, archive))
+        technical_data = export_stats(db, archive)
+        files.extend(sorted(STATS_FILES))
         sources = source_inventory(db)
         data = db.execute(VIEW)
         for month, group in groupby(data, key=lambda r: r[3][:7]):
@@ -255,6 +265,7 @@ def export_feeds(
         "run": run_id,
         "created_utc": datetime.now(UTC).isoformat(),
         "counts": totals,
+        "technical_data": technical_data,
         "sources": sources,
         "collection": collection or {},
         "collection_status": "partial"
@@ -275,7 +286,7 @@ def archive_info(archive: Path) -> dict:
     if meta["version"] not in (1, 2):
         raise ValueError("不支持的云端归档版本")
     for key, want in meta["files"].items():
-        if not re.fullmatch(
+        if key not in STATS_FILES and not re.fullmatch(
             rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
             key,
         ):
@@ -293,6 +304,7 @@ def archive_info(archive: Path) -> dict:
             raise ValueError(f"云端数据校验失败：缺少 {key}")
     if meta["version"] == 2 and "state/closing_odds.jsonl" not in meta["files"]:
         raise ValueError("云端数据校验失败：缺少 closing_odds")
+    validate_stats_manifest(meta)
     return meta
 
 
@@ -331,11 +343,18 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                 if count != meta["counts"][table]:
                     raise ValueError(f"{table} 行数校验失败")
             restore_sfc_state(db, archive, meta["files"])
+            restore_stats(db, archive, meta)
             check_db(db)
             if meta["version"] == 2 and source_inventory(db) != meta.get("sources"):
                 raise ValueError("各来源行数或哈希校验失败")
         db.close()
         os.replace(dbfile, dest)
+        # Technical observations and their idempotence/freshness receipts are one snapshot.
+        # An older archive must not inherit later receipts from a reused destination directory.
+        for name in ("stats_ingest_audit.csv", "stats_link_audit.csv"):
+            key = f"state/audit/{name}"
+            if key not in meta["files"]:
+                (dest.parent / key).unlink(missing_ok=True)
         for name in ("unmatched_teams.csv", "rejected_results.csv"):
             if f"state/{name}" in meta["files"]:
                 (dest.parent / name).write_bytes((archive / f"state/{name}").read_bytes())
