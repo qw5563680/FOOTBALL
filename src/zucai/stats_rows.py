@@ -22,6 +22,7 @@ from zucai.stats_archive import (
     validate_stats_manifest,
     write_rows_manifest,
 )
+from zucai.stats_identity import approved_fd_merges
 from zucai.stats_release import (
     sha256,
     upload_checksums,
@@ -162,16 +163,15 @@ def _download_shards(block, directory, release, tag=None, *, shard_cache=None):
 
 
 def _identity_redirects(db, previous):
-    """Only the explicitly approved Den Haag -> 海牙 merge may redirect archived team IDs."""
+    """Validate every redirect against the formal owner-approved fd merge list."""
     redirects = previous.get("identity_redirects", [])
     if not isinstance(redirects, list):
         raise ValueError("球队身份 redirect 批准清单无效")
     result = {}
+    approved = approved_fd_merges() if redirects else {}
     for item in redirects:
         if (
             not isinstance(item, dict)
-            or item.get("approval_url")
-            != "https://github.com/qw5563680/FOOTBALL/pull/49#issuecomment-6627072639"
             or type(item.get("old_team_id")) is not int
             or type(item.get("new_team_id")) is not int
             or item["old_team_id"] < 1
@@ -179,11 +179,23 @@ def _identity_redirects(db, previous):
             or item["old_team_id"] == item["new_team_id"]
             or item["old_team_id"] in result
         ):
-            raise ValueError("球队身份 redirect 缺少有效的 Den Haag 批准记录")
+            raise ValueError("球队身份 redirect 缺少有效的批准记录")
+        # Existing T32 snapshots stored this one approved pair without name/scope fields.
+        legacy = set(item) == {"old_team_id", "new_team_id", "approval_url"}
+        league = "荷甲" if legacy else item.get("league")
+        source = "Den Haag" if legacy else item.get("source_name")
+        canonical = "海牙" if legacy else item.get("canonical")
+        entry = approved.get((league, source))
+        if (
+            entry is None
+            or canonical != entry["canonical"]
+            or item.get("approval_url") != entry["approval_pr"]
+        ):
+            raise ValueError("球队身份 redirect 不在正式 fd 名称批准清单")
         old = db.execute("SELECT name FROM teams WHERE id=?", (item["old_team_id"],)).fetchone()
         new = db.execute("SELECT name FROM teams WHERE id=?", (item["new_team_id"],)).fetchone()
-        if new != ("海牙",) or (old is not None and old != ("Den Haag",)):
-            raise ValueError("球队身份 redirect 仅允许已批准的 Den Haag -> 海牙")
+        if new != (canonical,) or (old is not None and old != (source,)):
+            raise ValueError("球队身份 redirect 与已批准的 fd 名称对不一致")
         result[item["old_team_id"]] = item["new_team_id"]
     return result
 

@@ -1,10 +1,12 @@
-"""Offline checks for the single approved Den Haag historical identity merge."""
+"""Offline checks for the owner-approved fd historical identity merge."""
 
-import copy
 import csv
+import hashlib
 import json
 import sqlite3
+from datetime import date
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import event
@@ -22,7 +24,7 @@ from zucai.models import (
     Team,
 )
 from zucai.sources.apif_reconcile import FIELDS
-from zucai.stats_identity import AUDIT_NAME, reconcile_den_haag
+from zucai.stats_identity import AUDIT_NAME, reconcile_fd_aliases
 
 ROOT = Path(__file__).parents[1]
 FIX = ROOT / "data/fixtures/t32/identity_den_haag.json"
@@ -126,7 +128,7 @@ def snapshot(database):
 
 def test_narrow_merge_preserves_evidence_counts_and_updates_all_team_refs(database):
     before = snapshot(database)
-    report = reconcile_den_haag(database, "first")
+    report = reconcile_fd_aliases(database, "first")
     assert report["status"] == "complete" and report["requests"] == 0
     assert report["merged_teams"] == report["deleted_teams"] == 1
     assert report["rekeyed_matches"] == 2
@@ -159,7 +161,7 @@ def test_narrow_merge_preserves_evidence_counts_and_updates_all_team_refs(databa
     assert len(rows) == 1 and rows[0]["reason"] == "merged"
     assert rows[0]["matches_rekeyed"] == "2"
     prior = audit.read_bytes(), database.read_bytes()
-    again = reconcile_den_haag(database, "second")
+    again = reconcile_fd_aliases(database, "second")
     assert again["merged_teams"] == again["deleted_teams"] == again["rekeyed_matches"] == 0
     assert again["rekeyed_stats"] == again["rekeyed_indices"] == 0
     assert (audit.read_bytes(), database.read_bytes()) == prior
@@ -214,33 +216,156 @@ def test_prechecks_reject_conflicts_before_any_identity_mutation(database, case)
         else:
             connection.execute("UPDATE match_stats SET match_id='jc:den-existing'")
     before = database.read_bytes()
-    report = reconcile_den_haag(database, case)
+    report = reconcile_fd_aliases(database, case)
     assert report["status"] == "partial" and report["skipped_conflicts"] == 1
     assert report["merged_teams"] == report["rekeyed_matches"] == 0
     assert database.read_bytes() == before
     audit = database.parent / "state/audit" / AUDIT_NAME
     prior = audit.read_bytes()
     assert list(csv.DictReader(audit.open()))[0]["reason"] != "merged"
-    reconcile_den_haag(database, "retry")
+    reconcile_fd_aliases(database, "retry")
     assert audit.read_bytes() == prior
 
 
-@pytest.mark.parametrize(
-    "field", ["canonical", "status", "approved_by", "approved_utc", "approval_pr"]
-)
+@pytest.mark.parametrize("field", ["canonical", "approved_by", "approved_utc", "approval_pr"])
 def test_exact_formal_approval_is_required(database, tmp_path, monkeypatch, field):
     from zucai import stats_identity
 
-    entry = copy.deepcopy(stats_identity.APPROVAL)
-    entry[field] = "unapproved"
+    entry = json.loads((ROOT / "data/team_aliases/football_data_co_uk.json").read_text())["荷甲"][
+        "Den Haag"
+    ]
+    entry[field] = "" if field == "canonical" else "unapproved"
     path = tmp_path / "aliases.json"
     path.write_text(json.dumps({"荷甲": {"Den Haag": entry}}))
     monkeypatch.setattr(stats_identity, "ALIASES_PATH", path)
     before = database.read_bytes()
-    with pytest.raises(ValueError, match="正式批准记录"):
-        reconcile_den_haag(database, "unauthorized")
+    with pytest.raises(ValueError, match="批准|审批"):
+        reconcile_fd_aliases(database, "unauthorized")
     assert database.read_bytes() == before
     assert not (database.parent / "state/audit" / AUDIT_NAME).exists()
+
+
+@pytest.mark.parametrize("status", ["proposed", "auto_verified"])
+def test_inferred_or_proposed_fd_alias_does_not_authorize_merge(
+    database, tmp_path, monkeypatch, status
+):
+    from zucai import stats_identity
+
+    aliases = json.loads((ROOT / "data/team_aliases/football_data_co_uk.json").read_text())
+    entry = aliases["荷甲"]["Den Haag"]
+    entry["status"] = status
+    path = tmp_path / "unapproved.json"
+    path.write_text(json.dumps({"荷甲": {"Den Haag": entry}}))
+    monkeypatch.setattr(stats_identity, "ALIASES_PATH", path)
+    before = database.read_bytes()
+    assert reconcile_fd_aliases(database, "unapproved")["merged_teams"] == 0
+    assert database.read_bytes() == before
+    assert not (database.parent / "state/audit" / AUDIT_NAME).exists()
+
+
+def test_all_ten_approved_pairs_merge_and_premier_league_index_has_no_identity_rejections(tmp_path):
+    from zucai.stats_link import link_fixtures
+
+    fixture = json.loads((ROOT / "data/fixtures/t32/followup_identity.json").read_text())
+    approval = json.loads((ROOT / "data/fixtures/t32/followup_approvals.json").read_text())
+    aliases = json.loads((ROOT / "data/team_aliases/api_football.json").read_text())
+    aliases["英超"].update(approval["synthetic_opponents"])
+    path = tmp_path / "feeds.db"
+    engine = get_engine(path)
+    init_db(engine)
+    with session_scope(engine) as session:
+        session.add_all(Team(**row) for row in fixture["teams"])
+        session.flush()
+        session.add_all(Match(**row) for row in fixture["matches"])
+    before = snapshot(path)
+    # Reproduce the old third-batch canonical-name collision from the review.
+    old_aliases = json.loads(json.dumps(aliases))
+    for pid in ("48", "39"):
+        old_aliases["英超"][pid]["canonical"] = old_aliases["英超"][pid]["name"]
+    raw = json.dumps(fixture["pages"][0]).encode()
+    metadata = dict(
+        captured_utc="2026-11-04T15:00:00Z", raw_sha256="a" * 64, raw_location="fixture://followup"
+    )
+    with session_scope(engine) as session:
+        old = link_fixtures(
+            session, raw, league_id=39, season=2025, aliases=old_aliases, metadata=metadata
+        )
+        assert sum("多个既有身份" in row["detail"] for row in old["audit"]) == 2
+    report = reconcile_fd_aliases(path, "ten-approved")
+    assert report["merged_teams"] == report["deleted_teams"] == report["rekeyed_matches"] == 10
+    assert report["skipped_conflicts"] == 0 and report["status"] == "complete"
+    assert len(report["identity_redirects"]) == 10
+    assert snapshot(path) == before
+    with session_scope(engine) as session:
+        result = link_fixtures(
+            session, raw, league_id=39, season=2025, aliases=aliases, metadata=metadata
+        )
+        assert result["linked"] == 3 and result["rejected"] == 0
+    prior = path.read_bytes(), (path.parent / "state/audit" / AUDIT_NAME).read_bytes()
+    assert reconcile_fd_aliases(path, "repeat")["merged_teams"] == 0
+    assert (path.read_bytes(), (path.parent / "state/audit" / AUDIT_NAME).read_bytes()) == prior
+    engine.dispose()
+
+
+def test_approved_fd_merge_republishes_old_technical_versions_without_overwriting_assets(
+    database, tmp_path
+):
+    from zucai.cloud_feeds import export_feeds, restore_feeds
+    from zucai.stats_rows import publish_rows, restore_rows
+
+    # Reuse the attached-stat/event/lineup fixture for a newly approved pair.
+    with sqlite3.connect(database) as db:
+        db.execute("UPDATE teams SET name='West Ham' WHERE id=10")
+        db.execute("UPDATE teams SET name='西汉姆联',aliases='[\"West Ham\"]' WHERE id=1")
+        db.execute("UPDATE matches SET league='英超'")
+        db.execute("UPDATE apif_fixture_index SET league='英超',provider_league_id=39")
+        db.execute("UPDATE apif_fixture_index SET home_provider_id=48 WHERE home_provider_id=198")
+        db.execute("UPDATE apif_fixture_index SET away_provider_id=48 WHERE away_provider_id=198")
+        db.execute("UPDATE match_events SET provider_team_id=48")
+        db.execute("UPDATE match_lineups SET provider_team_id=48")
+        db.execute(
+            "INSERT INTO results(match_id,home_goals,away_goals) "
+            "SELECT 'jc:den-existing',home_goals,away_goals "
+            "FROM results WHERE match_id='fd:den-home'"
+        )
+    stored = {}
+    release = Mock()
+
+    def upload(tag, path):
+        data = path.read_bytes()
+        key = tag, path.name
+        assert key not in stored or stored[key] == data
+        stored[key] = data
+        return dict(
+            tag=tag, name=path.name, sha256=hashlib.sha256(data).hexdigest(), size=len(data)
+        )
+
+    def download(tag, name, dest):
+        dest.write_bytes(stored[tag, name])
+        return dest
+
+    release.upload.side_effect = upload
+    release.download.side_effect = download
+    args = dict(release=release, tag="stats-raw-202611")
+    before = publish_rows(database, tmp_path / "old", run_id="before", **args)
+    frozen_assets = stored.copy()
+    frozen_rows = snapshot(database)
+    merged = reconcile_fd_aliases(database, "approved")
+    assert merged["merged_teams"] == 1 and merged["rekeyed_stats"] == 3
+    assert merged["rekeyed_indices"] == 2 and snapshot(database) == frozen_rows
+    before["identity_redirects"] = merged["identity_redirects"]
+    current = publish_rows(database, tmp_path / "new", previous=before, run_id="after", **args)
+    assert all(stored[key] == data for key, data in frozen_assets.items())
+    assert current["snapshot"]["counts"] == before["snapshot"]["counts"]
+    archive = tmp_path / "archive"
+    export_feeds(database, archive, date(2026, 11, 4), "after")
+    restored = tmp_path / "restored/feeds.db"
+    restore_feeds(archive, restored)
+    assert sum(restore_rows(restored, archive, release=release).values()) == 3
+    assert snapshot(restored) == frozen_rows
+    with sqlite3.connect(restored) as db:
+        for table in ("match_stats", "match_events", "match_lineups"):
+            assert db.execute(f"SELECT DISTINCT team_id FROM {table}").fetchall() == [(1,)]
 
 
 @pytest.mark.parametrize("existing_audit", [False, True])
@@ -271,7 +396,7 @@ def test_failure_rolls_back_database_and_restores_audit(
         event.listen(Session, "before_commit", fail_commit)
     try:
         with pytest.raises(OSError, match="synthetic"):
-            reconcile_den_haag(database, "failure")
+            reconcile_fd_aliases(database, "failure")
     finally:
         if failure == "commit":
             event.remove(Session, "before_commit", fail_commit)

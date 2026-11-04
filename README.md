@@ -143,7 +143,8 @@ pytest -q
 | `stats-backfill` | `ubuntu-latest`，300 分钟上限 | 只在手动 `operation=stats-backfill` 时运行；独立恢复数据库、按范围续跑技术数据，与其他 job 共用写锁 |
 
 定时五个 job 依赖顺序为 `apis → sporttery → predict → scoreboard → digest`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
-写回前执行 `git pull --rebase`；冲突则失败，不强推。fd 主联赛赛季按七月换季推导（如 2627），
+写回前执行 `git pull --rebase`；冲突则失败，不强推。push 遇远端 5xx 或网络错误时最多尝试 3 次，间隔 30 秒；远端有新提交则重新 rebase，摘要保留每次失败原文，最终失败提示 artifact 位置。
+fd 主联赛赛季按七月换季推导（如 2627），
 已配置 country 合并文件只导入当前自然年；`leagues.json` 可用 `current_season` 明确覆盖。
 未核验联赛不采集。API 解析、去重规则不变；分页必须完整，额外分页同样消耗配额。
 
@@ -181,6 +182,7 @@ T32 技术数据通过审查者手动 `operation=stats-backfill` 接入，未新
 unsupported 不重试，网络失败计配额且本轮不重试，HTTP 200 + errors 计失败。
 覆盖率按联赛 / 供应商赛季 / 端点 / 阶段保存应取、已取、有效、空值、失败、未支持；
 逐场分母是已链接比赛，index/fd 单位为页/文件；null 字段保留 null，不补 0。
+index 页和 fd 文件成功解析后记 ok，拒绝行写审计并单列 `rejected_rows`，不算整页失败、不因拒绝行在 resume 时重复请求；真正响应错误、解析失败或 HTTP 错误仍记失败。
 摘要只在异常节照录 `state/stats_coverage.json` 的冻结数字与观测 UTC。
 
 技术原件与 sidecar 打包为 `stats-raw-<run_id>.zip`，三个行表按联赛×供应商赛季写压缩 JSONL；
@@ -209,8 +211,8 @@ Release 发布与 v2 迁移验收，合入 T32 后再恢复普通任务；也可
 
 probe 缺省仍为 seasons / 1；JSON 非对象、未知键或非法选项在 API 请求前失败。
 手动 stats-backfill 只启动自己的 job，不连带普通采集、训练、评分或摘要。
-Den Haag → 海牙 仅按所有者在 PR #49 的明确批准通过既有 reconcile 前置检查合并；
-该专用辅助逻辑不推广为 fd 名称自动合并规则。真实覆盖率仍待 Claude 在 Actions 验收，离线合成样本不代表实测。
+fd 名称合并只读取正式别名文件中所有者批准的条目（原 PR #49 的 Den Haag 与 PR #56 的 10 组）；
+逐项通过名称、比赛、技术行和索引检查后才合并，不按相似名字推断。第四批别名及合并后的覆盖率仍待 Claude 在 Actions 验收，离线合成样本不代表实测。
 
 每次 API 采集后，仅对本次完整且可核验的响应离线执行 T09/T10 主客方向身份图，
 以恢复后的 jc 记录为证据。fdorg 复用 `fdorg_verify` 图与证据生成函数，apif 调用 `apif_verify.infer_aliases`；

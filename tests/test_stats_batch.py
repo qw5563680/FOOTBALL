@@ -433,3 +433,136 @@ def test_fd_entry_ingests_free_file_without_api_requests(batch, monkeypatch):
             client_factory=client,
         )
         assert result["downloaded_files"] == result["inserted"] == len(http.calls) == 0, result
+
+
+def test_index_with_audited_rejection_is_complete_and_resume_does_not_request_again(
+    batch, monkeypatch, tmp_path
+):
+    from zucai import stats_batch, stats_context
+    from zucai.stats_storage import read_audit
+
+    database, archive, release, client = batch
+    with sqlite3.connect(database) as db:
+        db.execute("DELETE FROM apif_fixture_index")
+        db.execute("DELETE FROM results WHERE match_id='jc:2'")
+        db.execute("DELETE FROM matches WHERE match_id='jc:2'")
+    export_feeds(database, archive, date(2026, 11, 4), "seed-unmatched")
+    config = tmp_path / "config/team_aliases"
+    config.mkdir(parents=True)
+    (config / "api_football.json").write_bytes((FIX / "t31/aliases.json").read_bytes())
+    monkeypatch.setattr(stats_batch, "CONFIG_ROOT", config.parent)
+    monkeypatch.setattr(stats_context, "CONFIG_ROOT", config.parent)
+    doc = dict(
+        get="fixtures",
+        parameters={"league": "2", "season": "2024"},
+        errors=[],
+        results=2,
+        paging={"current": 1, "total": 1},
+        response=DATA["fixtures"],
+    )
+
+    def collect(run_id):
+        return collect_batch(
+            database,
+            archive,
+            plan("2", "2024", "index", NOW),
+            release=release,
+            run_id=run_id,
+            now=NOW,
+            client_factory=client,
+            resume=True,
+        )
+
+    with responses.RequestsMock() as http:
+        http.get(api_football.API + "/fixtures?league=2&season=2024", json=doc)
+        first = collect("rejected-index")
+        assert len(http.calls) == 1
+    assert first["status"] == "complete" and first["linked_existing"] == first["rejected_rows"] == 1
+    assert archive_info(archive)["collection_status"] == "complete"
+    records = json.loads((database.parent / "state/stats_backfill_cursor.json").read_text())[
+        "records"
+    ]
+    row = next(iter(records.values()))
+    assert row["outcome"] == "ok" and row["rejected_rows"] == row["attempts"] == 1
+    coverage = first["coverage"]["rows"][0]
+    assert [coverage[k] for k in ("valid", "failed", "rejected_rows")] == [1, 0, 1]
+    audit = read_audit(database.parent / "state/audit/stats_link_audit.csv")
+    assert len(audit) == 1 and audit[0]["reason"] == "候选不全"
+    with responses.RequestsMock() as http:
+        second = collect("resume-rejected-index")
+        assert len(http.calls) == second["requests"] == 0
+    assert (
+        second["status"] == "complete" and second["coverage"]["rows"] == first["coverage"]["rows"]
+    )
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_fd_unmatched_rows_are_counted_separately_but_parse_failure_is_partial(
+    batch, monkeypatch, invalid
+):
+    from zucai.sources.football_data import FootballDataCoUk
+    from zucai.stats_storage import read_audit
+
+    database, archive, release, client = batch
+    monkeypatch.setattr(FootballDataCoUk.limiter, "wait", lambda: None)
+
+    def collect(run_id):
+        return collect_batch(
+            database,
+            archive,
+            plan("E0", "2024", "fd", NOW),
+            release=release,
+            run_id=run_id,
+            now=NOW,
+            client_factory=client,
+        )
+
+    with responses.RequestsMock() as http:
+        http.get(
+            "https://www.football-data.co.uk/mmz4281/2425/E0.csv",
+            body=RUNTIME["non_json_error"] if invalid else (FIX / "t31/fd.csv").read_bytes(),
+        )
+        first = collect("fd-rejected")
+    assert first["status"] == ("partial" if invalid else "complete")
+    assert archive_info(archive)["collection_status"] == first["status"]
+    coverage = first["coverage"]["rows"][0]
+    assert coverage["failed"] == int(invalid)
+    assert coverage["rejected_rows"] == int(not invalid)
+    if not invalid:
+        assert (
+            read_audit(database.parent / "state/audit/stats_ingest_audit.csv")[0]["reason"]
+            == "候选不全"
+        )
+        with responses.RequestsMock() as http:
+            second = collect("fd-resume")
+            assert len(http.calls) == second["downloaded_files"] == 0
+        assert second["status"] == "complete"
+
+
+@pytest.mark.parametrize("failure", ["response_errors", "invalid_json", "http_error"])
+def test_index_response_failures_remain_partial(batch, failure):
+    database, archive, release, client = batch
+    options = dict(body=RUNTIME["non_json_error"], status=503 if failure == "http_error" else 200)
+    if failure == "response_errors":
+        doc = dict(
+            get="fixtures",
+            parameters={"league": "2", "season": "2024"},
+            errors=json.loads((FIX / "t30/cases.json").read_text())["errors"]["parameter"],
+            results=0,
+            response=[],
+        )
+        options = dict(json=doc)
+    with responses.RequestsMock() as http:
+        http.get(api_football.API + "/fixtures?league=2&season=2024", **options)
+        result = collect_batch(
+            database,
+            archive,
+            plan("2", "2024", "index", NOW),
+            release=release,
+            run_id="failed-index",
+            now=NOW,
+            client_factory=client,
+        )
+        assert len(http.calls) == 1
+    assert result["status"] == archive_info(archive)["collection_status"] == "partial"
+    assert result["linked_existing"] == 0

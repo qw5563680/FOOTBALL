@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 import shutil
-import sqlite3
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,7 +16,7 @@ from zucai.sources.football_data import CONFIG_ROOT, FootballDataCoUk
 from zucai.sources.sporttery import BEIJING
 from zucai.stats_client import LineupWindowMissed, StatsClient, StatsStopped
 from zucai.stats_context import refresh_context
-from zucai.stats_identity import reconcile_den_haag
+from zucai.stats_identity import reconcile_fd_aliases
 from zucai.stats_probe import parse_response
 from zucai.stats_release import publish_raw
 from zucai.stats_rows import publish_rows, restore_rows
@@ -200,12 +199,13 @@ def collect_batch(
                     record(
                         cursor,
                         item,
-                        "error" if result.get("rejected") else "ok",
+                        "ok",
                         instant(metadata["fetched_at_utc"]),
                         requested=True,
                         received=True,
                         raw_sha256=metadata["sha256"],
                         raw_location=location(path),
+                        rejected_rows=result.get("rejected", 0),
                     )
                 else:
                     name = "fixtures" if endpoint == "index" else endpoint
@@ -247,8 +247,7 @@ def collect_batch(
                             aliases_path=CONFIG_ROOT / "team_aliases/api_football.json",
                             raw_location=location(path),
                         )
-                        if result.get("rejected"):
-                            parsed.update(outcome="error", reason="索引存在拒绝行，详见审计")
+                        parsed.update(outcome="ok", reason="")
                     elif endpoint == "injuries":
                         # T31 has no injury table: retain raw evidence and coverage only.
                         result = {}
@@ -271,6 +270,7 @@ def collect_batch(
                         null_fields=parsed["null_fields"],
                         raw_sha256=metadata["sha256"],
                         raw_location=location(path),
+                        rejected_rows=result.get("rejected", 0),
                     )
                 report["inserted"] += result.get("inserted", 0)
                 report["linked_existing"] += result.get("linked", 0)
@@ -328,11 +328,7 @@ def collect_batch(
         try:
             if original.get("technical_data", {}).get("version") == 2:
                 restore_rows(staged, archive, release=release, shard_cache=shard_cache)
-            with sqlite3.connect(staged) as db:
-                den_haag = dict(
-                    db.execute("SELECT name,id FROM teams WHERE name IN ('Den Haag','海牙')")
-                )
-            report["identity"] = reconcile_den_haag(staged, run_id)
+            report["identity"] = reconcile_fd_aliases(staged, run_id)
             if not daily:
                 for item, _ in resume_units(
                     ((row, None) for row in index_units(selection)), cursor, resume
@@ -363,10 +359,7 @@ def collect_batch(
             report["requests"] = source.request_count
             report["remaining_quota"] = source.quota.describe()["remaining_quota"]
             source.session.close()
-            if any(
-                row["outcome"] in {"error", "pending", "empty"}
-                for row in cursor["records"].values()
-            ):
+            if any(row["outcome"] == "error" for row in cursor["records"].values()):
                 report["status"] = "partial"
             summary = coverage(cursor, now)
             save_json(cursor_path, cursor)
@@ -376,11 +369,7 @@ def collect_batch(
             if previous and report["identity"]["merged_teams"]:
                 previous["identity_redirects"] = [
                     *previous.get("identity_redirects", []),
-                    dict(
-                        old_team_id=den_haag["Den Haag"],
-                        new_team_id=den_haag["海牙"],
-                        approval_url="https://github.com/qw5563680/FOOTBALL/pull/49#issuecomment-6627072639",
-                    ),
+                    *report["identity"]["identity_redirects"],
                 ]
             # Archive failure here leaves all database/audit/cursor edits in this temp dir.
             if (

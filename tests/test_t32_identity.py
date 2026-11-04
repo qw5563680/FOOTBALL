@@ -103,19 +103,27 @@ def database(tmp_path):
 
 def test_exact_45_owner_approved_aliases_and_narrow_fd_alias():
     expected = read(FIX / "identity_approved.json")
+    followup = read(FIX / "followup_approvals.json")
     aliases = read(ALIASES_PATH)
     assert sum(map(len, expected["approved"].values())) == 45
     for league, records in expected["approved"].items():
         for pid, entry in records.items():
-            assert aliases[league][pid] == dict(
+            original = dict(
                 entry,
                 status="approved",
                 approved_by="qw5563680",
                 approved_utc="2026-11-04T09:10:00Z",
                 approval_pr=APPROVAL,
             )
+            correction = followup["changed_apif"].get(league, {}).get(pid)
+            if correction:
+                original.update(
+                    canonical=correction, approval_pr=[APPROVAL, followup["approval_pr"]]
+                )
+            assert aliases[league][pid] == original
     for pid in expected["unapproved_missing_from_formal"]:
-        assert all(pid not in records for records in aliases.values())
+        if not any(pid in records for records in followup["new_apif"].values()):
+            assert all(pid not in records for records in aliases.values())
     assert read(ROOT / "data/team_aliases/football_data_co_uk.json")["荷甲"]["Den Haag"] == dict(
         canonical="海牙",
         status="approved",
@@ -124,6 +132,22 @@ def test_exact_45_owner_approved_aliases_and_narrow_fd_alias():
         approval_pr=APPROVAL,
     )
     validate_approvals(aliases, require_metadata=True)
+
+
+def test_fourth_batch_formal_aliases_match_only_the_owner_approved_table():
+    expected = read(FIX / "followup_approvals.json")
+    fd = read(ROOT / "data/team_aliases/football_data_co_uk.json")
+    apif = read(ALIASES_PATH)
+    for league, records in expected["fd_merges"].items():
+        for name, canonical in records.items():
+            assert fd[league][name] == dict(canonical=canonical, **expected["metadata"])
+    for league, records in expected["new_apif"].items():
+        for pid, entry in records.items():
+            assert apif[league][pid] == dict(entry, **expected["metadata"])
+    for league, ids in expected["unapproved"].items():
+        assert not set(ids) & apif[league].keys()
+    validate_approvals(fd, require_metadata=True)
+    validate_approvals(apif, require_metadata=True)
 
 
 @pytest.mark.parametrize("season", [2022, 2024])
