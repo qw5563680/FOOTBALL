@@ -112,6 +112,8 @@ reason 为「候选不全 / 多对一 / 主客反向 / 身份临时 / 同窗冲�
 离线可回放已有采集联赛的 fixtures 原件；新增索引请求只允许七桥接 ID 39/140/135/78/61/88/94 与欧冠 2，
 每联赛季一次 `/fixtures?league&season`，不跟分页。2 的 `index_only=true` 与普通导入、日常采集、backfill 隔离；
 `--fetch` 仅在手动 Actions 下可运行，沿用配额 reserve=10 与 6.1 秒间隔。T31 不安排任何定时采集。
+索引原件通过 `ApiFootball.fetch_index_raw` 公开入口请求一页，范围校验由客户端统一维护，
+复用其配额、间隔与安全归档逻辑，不扩展日常比赛导入范围。
 
 `stats_storage.py` 按 `(provider, provider_fixture_id, endpoint, record_key, version)` 追加，
 同原件哈希和逻辑键唯一；已处理的 `(provider_fixture_id, endpoint, raw_sha256)` 在导入审计中保留回执，

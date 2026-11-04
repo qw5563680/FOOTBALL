@@ -110,3 +110,15 @@ def test_wrong_side_is_rejected_on_verify(tmp_path):
         db.execute("UPDATE match_stats SET team_id=2")
     with pytest.raises(ValueError, match="身份"):
         export_feeds(source, tmp_path / "archive", date(2026, 11, 4), "t31")
+
+
+def test_invalid_json_text_still_rejected(tmp_path):
+    source = tmp_path / "feeds.db"
+    seed(source)
+    raw = json.loads((FIXTURE.parent / "statistics_archive.json").read_text())
+    percentage = raw["response"][0]["statistics"][1]["value"]
+    with sqlite3.connect(source) as db:
+        # This intentionally omits JSON string quoting: 56% is not valid JSON text.
+        db.execute("UPDATE match_stats SET raw_value=?", (percentage,))
+    with pytest.raises(ValueError, match="JSON 字段无效"):
+        export_feeds(source, tmp_path / "archive", date(2026, 11, 4), "t31")

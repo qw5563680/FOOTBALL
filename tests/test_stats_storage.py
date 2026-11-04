@@ -1,6 +1,7 @@
 """Offline ingestion is append-only, repeatable and atomic with its audits."""
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -106,15 +107,35 @@ def test_duplicate_null_correction_and_old_replay(database, tmp_path):
     assert all(row[4] is None for row in stats(database))
 
 
-@pytest.mark.parametrize("endpoint", ["events", "lineups", "players"])
+@pytest.mark.parametrize("endpoint", ["statistics", "events", "lineups", "players"])
 def test_all_endpoint_tables_export_restore(database, tmp_path, endpoint):
     fixture = setup_link(database, tmp_path)
-    raw = save(tmp_path, endpoint)
+    data = (
+        json.loads((FIX / "t31/statistics_archive.json").read_text())
+        if endpoint == "statistics"
+        else None
+    )
+    raw = save(tmp_path, endpoint, data)
     assert ingest_apif(database, raw, fixture_file=fixture, endpoint=endpoint)["inserted"] > 0
+    if endpoint == "statistics":
+        with sqlite3.connect(database) as db:
+            assert {row[0] for row in db.execute("SELECT typeof(raw_value) FROM match_stats")} == {
+                "integer",
+                "real",
+                "text",
+            }
+        values = {row[0]: row[1:3] for row in stats(database)}
+        assert values["home:shots_on_target"] == (3.0, 3)
+        assert values["home:possession"] == (56.0, "56%")
+        assert values["home:goals_prevented"] == (-0.25, -0.25)
+        assert values["away:shots_on_target"] == (0.0, 0)
+        assert values["home:saves"] == (None, None)
     archive = tmp_path / "archive"
     meta = export_feeds(database, archive, instant("2026-11-04T12:00:00Z").date(), "offline")
     restored = tmp_path / "restored.db"
     restore_feeds(archive, restored)
+    if endpoint == "statistics":
+        assert stats(restored) == stats(database)
     second = export_feeds(
         restored, tmp_path / "again", instant("2026-11-04T12:00:00Z").date(), "offline"
     )

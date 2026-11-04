@@ -23,6 +23,7 @@ API = "https://v3.football.api-sports.io"
 LEAGUES = CONFIG_ROOT / "api_football/leagues.json"
 APIF_LEAGUE_IDS = frozenset({3, 848, 98, 292, 188, 113, 103, 244, 119, 253, 169})
 APIF_IDENTITY_LEAGUE_IDS = frozenset({39, 140, 135, 78, 61, 88, 94})
+APIF_INDEX_LEAGUE_IDS = APIF_IDENTITY_LEAGUE_IDS | {2}
 STATES = {
     "FT",
     "AET",
@@ -127,6 +128,22 @@ class ApiFootball(Source[ApiGame]):
                 raise LocalValidationError("无效分页")
             params["page"] = str(page)
         return API + "/fixtures?" + urlencode(params)
+
+    @staticmethod
+    def index_scope(*, league_id, season):
+        if (
+            type(league_id) is not int
+            or league_id not in APIF_INDEX_LEAGUE_IDS
+            or type(season) is not int
+            or not 2022 <= season <= datetime.now(UTC).year
+        ):
+            raise LocalValidationError("索引请求仅限七个桥接联赛和欧冠，以及 2022 起的已开始赛季")
+        return {"league": str(league_id), "season": str(season)}
+
+    def fetch_index_raw(self, *, league_id, season) -> Path:
+        """Archive one index-only fixture page without widening the importer scope."""
+        scope = self.index_scope(league_id=league_id, season=season)
+        return self._request(API + "/fixtures?" + urlencode(scope))
 
     def _request(self, url, *, name="fixtures"):
         token = os.environ.get("API_FOOTBALL_KEY", "").strip()

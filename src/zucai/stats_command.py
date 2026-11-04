@@ -2,9 +2,7 @@
 
 import logging
 import os
-from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlencode
 
 LOG = logging.getLogger(__name__)
 
@@ -51,29 +49,19 @@ def add_stats_parser(sub):
 
 def fetch_index(database, *, league_id, season):
     from zucai.cloud_probe import require_probe_actions
-    from zucai.sources.api_football import API, ApiFootball
+    from zucai.sources.api_football import ApiFootball
     from zucai.sources.base import RawStore
-    from zucai.stats_link import INDEX_REQUEST_LEAGUES
 
     require_probe_actions()
-    if (
-        league_id not in INDEX_REQUEST_LEAGUES
-        or type(season) is not int
-        or not 2022 <= season <= datetime.now(UTC).year
-    ):
-        raise ValueError("索引请求仅限七个桥接联赛和欧冠，以及 2022 起的已开始赛季")
+    ApiFootball.index_scope(league_id=league_id, season=season)
     if not Path(database).is_file():
         raise ValueError("索引需要已有数据库")
     client = ApiFootball(
         store=RawStore(Path(database).parent / "raw"),
         quota_path=Path(database).parent / "state/api_football_quota.json",
-        reserve=10,
     )
     try:
-        # Do not widen ApiFootball's import scope. This URL is index-only, never parse/import.
-        return client._request(
-            API + "/fixtures?" + urlencode({"league": league_id, "season": season})
-        )
+        return client.fetch_index_raw(league_id=league_id, season=season)
     finally:
         client.session.close()
 

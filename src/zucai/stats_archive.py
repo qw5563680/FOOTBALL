@@ -40,7 +40,12 @@ def check_stats(db):
             for column in model.__table__.columns:
                 if isinstance(column.type, JSON):
                     try:
-                        json.loads(row[column.name])
+                        # SQLite gives JSON columns NUMERIC affinity: unquoted JSON
+                        # numbers can come back as int/float, unlike objects/strings.
+                        raw = row[column.name]
+                        value = raw if type(raw) in (int, float) else json.loads(raw)
+                        if isinstance(value, float) and not math.isfinite(value):
+                            raise ValueError("JSON 数值非有限值")
                     except (ValueError, TypeError) as exc:
                         raise ValueError("技术数据 JSON 字段无效") from exc
             if (

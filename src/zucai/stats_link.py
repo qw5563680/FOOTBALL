@@ -8,7 +8,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from zucai.models import ApifFixtureIndex, Match
-from zucai.sources.api_football import APIF_IDENTITY_LEAGUE_IDS, LEAGUES
+from zucai.sources.api_football import APIF_INDEX_LEAGUE_IDS, LEAGUES
 from zucai.sources.apif_aliases import validate_approvals
 from zucai.sources.apif_ingest import _Teams
 from zucai.sources.apif_reconcile import _formal_entry
@@ -16,7 +16,7 @@ from zucai.sources.apif_stats import PARSER_VERSION, envelope, fixture_identity,
 from zucai.sources.fd_ingest import normalize_team
 from zucai.sources.football_data import read_json
 
-INDEX_REQUEST_LEAGUES = APIF_IDENTITY_LEAGUE_IDS | {2}
+INDEX_REQUEST_LEAGUES = APIF_INDEX_LEAGUE_IDS
 CALENDAR_LEAGUES = {292, 113, 103, 244, 253, 169}
 
 
