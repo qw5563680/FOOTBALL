@@ -29,8 +29,13 @@
 
 T39（2026-11-05）：只用离线 fixtures，未重新请求站点或 robots；沿用已有 sporttery 路径与限速，
 不改变 Selling、销售状态及固定奖金玩法的保留规则。每次解析另外保存完整响应编号清单
-`state/audit/jc_catalog.csv`（营业日、竞彩号、体彩ID、主客、联赛、状态、是否保留、捕获UTC、开球UTC），
-跳过记录 `jc_skipped.csv` 另含原因。按营业日 / 编号 / 捕获时刻去重；保留标记只表示解析通过，
+`state/audit/jc_catalog/<YYYY-MM>.csv`（营业日、竞彩号、体彩ID、主客、联赛、状态、是否保留、捕获UTC、开球UTC），
+跳过记录 `state/audit/jc_skipped/<YYYY-MM>.csv` 另含原因。T42 按采集 `captured_utc` 的 UTC 月分片，
+不按比赛日期、营业日或北京时间分月；字段、原去重键与在售筛选不变。旧单文件 `jc_catalog.csv` / `jc_skipped.csv`
+作为 2026-11 的兼容部分保留，不迁移、不改写；同一捕获记录重放仍去重，矛盾值仍拒绝。
+分片随 feed manifest 哈希导出/恢复；日报仅解析本周涉及的月份，旧单文件只在涉及 2026-11 时读取。
+原全归档哈希校验保留；T42 只做离线实现，不新增请求，不更改既有赔率分片。
+按营业日 / 编号 / 捕获时刻去重；保留标记只表示解析通过，
 不冒充最终入库成功。旧归档没有完整清单不能凭连续编号判断缺号，缺跳过记录不能臆断未开售。
 `collection.jc` 分存 `schedule_updated_utc` / `results_updated_utc`，仅对应阶段完整成功时前进，
 失败阶段保留上次成功时刻，并记录当前状态、run与原因。sporttery 原件随 `sporttery-source-<run>` artifact 保留90天。

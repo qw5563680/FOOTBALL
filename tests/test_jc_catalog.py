@@ -118,9 +118,9 @@ def test_schedule_persists_complete_catalog_idempotently_without_creating_skippe
         assert fetch_schedule() == (10, 0)
     assert metadata["captured_utc"] == "2026-11-04T03:30:00.000000Z"
     audit = tmp_path / "data/state/audit"
-    fields, catalog = read_audit(audit / "jc_catalog.csv")
+    fields, catalog = read_audit(audit / "jc_catalog/2026-11.csv")
     assert fields == FIELDS and len(catalog) == 12
-    fields, skipped = read_audit(audit / "jc_skipped.csv")
+    fields, skipped = read_audit(audit / "jc_skipped/2026-11.csv")
     assert fields == FIELDS + ["reason"] and len(skipped) == 2
     with sqlite3.connect(tmp_path / "data/zucai.db") as db:
         assert db.execute("SELECT count(*) FROM matches").fetchone() == (10,)
@@ -145,7 +145,7 @@ def test_date_filter_does_not_hide_other_business_days_from_catalog(tmp_path, mo
     with responses.RequestsMock() as api:
         api.add(responses.GET, API + "getMatchCalculatorV1.qry", json=body)
         assert fetch_schedule(date(2026, 11, 5)) == (1, 3)
-    _, rows = read_audit(tmp_path / "data/state/audit/jc_catalog.csv")
+    _, rows = read_audit(tmp_path / "data/state/audit/jc_catalog/2026-11.csv")
     assert len(rows) == 13
     assert {row["business_date"] for row in rows} == {"2026-11-04", "2026-11-05"}
 
@@ -168,18 +168,18 @@ def test_a_later_capture_appends_changed_status_and_audit_survives_archive_resto
         body["value"]["matchInfoList"][0]["subMatchList"][-1].update(
             matchStatus="Selling", sellStatus=1
         )
-    _, catalog = read_audit(tmp_path / "data/state/audit/jc_catalog.csv")
-    _, skipped = read_audit(tmp_path / "data/state/audit/jc_skipped.csv")
+    _, catalog = read_audit(tmp_path / "data/state/audit/jc_catalog/2026-11.csv")
+    _, skipped = read_audit(tmp_path / "data/state/audit/jc_skipped/2026-11.csv")
     assert len(catalog) == 24 and len(skipped) == 3
     assert [row["retained"] for row in catalog if row["jc_num"] == "周三012"] == ["0", "1"]
     archive = tmp_path / "archive"
     export_feeds(database, archive, date(2026, 11, 4), "test-catalog")
-    assert {"state/audit/jc_catalog.csv", "state/audit/jc_skipped.csv"} <= set(
+    assert {"state/audit/jc_catalog/2026-11.csv", "state/audit/jc_skipped/2026-11.csv"} <= set(
         archive_info(archive)["files"]
     )
     restored = tmp_path / "restored/data/zucai.db"
     restore_feeds(archive, restored)
-    for name in ("jc_catalog.csv", "jc_skipped.csv"):
+    for name in ("jc_catalog/2026-11.csv", "jc_skipped/2026-11.csv"):
         assert (restored.parent / "state/audit" / name).read_bytes() == (
             database.parent / "state/audit" / name
         ).read_bytes()
@@ -196,7 +196,7 @@ def test_conflicting_replay_at_same_capture_does_not_overwrite_audit_or_insert_n
     with responses.RequestsMock() as api:
         api.add(responses.GET, API + "getMatchCalculatorV1.qry", body=FIXTURE.read_bytes())
         fetch_schedule()
-        before = {path: path.read_bytes() for path in audit.glob("*.csv")}
+        before = {path: path.read_bytes() for path in audit.rglob("*.csv")}
         conflicting = json.loads(FIXTURE.read_bytes())
         conflicting["value"]["matchInfoList"][0]["subMatchList"][2].update(
             matchStatus="Selling", sellStatus=1
@@ -204,7 +204,7 @@ def test_conflicting_replay_at_same_capture_does_not_overwrite_audit_or_insert_n
         api.replace(responses.GET, API + "getMatchCalculatorV1.qry", json=conflicting)
         with pytest.raises(ValueError, match="审计冲突"):
             fetch_schedule()
-    assert {path: path.read_bytes() for path in audit.glob("*.csv")} == before
+    assert {path: path.read_bytes() for path in audit.rglob("*.csv")} == before
     with sqlite3.connect(database) as db:
         assert db.execute("SELECT count(*) FROM matches").fetchone() == (10,)
 
@@ -224,6 +224,10 @@ def test_restoring_legacy_archive_clears_newer_local_catalog_evidence(tmp_path):
     audit.mkdir(parents=True)
     for name in ("jc_catalog.csv", "jc_skipped.csv"):
         (audit / name).write_text("newer evidence\n", encoding="utf-8")
+        monthly = audit / Path(name).stem / "2026-11.csv"
+        monthly.parent.mkdir()
+        monthly.write_text("newer monthly evidence\n", encoding="utf-8")
     restore_feeds(archive, target)
     assert not (audit / "jc_catalog.csv").exists()
     assert not (audit / "jc_skipped.csv").exists()
+    assert not list(audit.rglob("*.csv"))

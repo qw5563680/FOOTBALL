@@ -66,6 +66,7 @@ MANIFEST = "feed_manifest.json"
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 STATE_FILE = (
     r"state/(?:api_football_quota\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
+    rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif)\.json)"
 )
@@ -372,6 +373,15 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
         ):
             if key not in meta["files"]:
                 (dest.parent / key).unlink(missing_ok=True)
+        for name in ("jc_catalog", "jc_skipped"):
+            folder = dest.parent / "state/audit" / name
+            for path in folder.glob("*.csv"):
+                if not path.is_file() or not re.fullmatch(rf"{MONTH}\.csv", path.name):
+                    continue
+                if not path.resolve().is_relative_to(dest.parent.resolve()):
+                    raise ValueError("竞彩审计分片路径超出恢复目录")
+                if path.relative_to(dest.parent).as_posix() not in meta["files"]:
+                    path.unlink()
         for name in ("unmatched_teams.csv", "rejected_results.csv"):
             if f"state/{name}" in meta["files"]:
                 (dest.parent / name).write_bytes((archive / f"state/{name}").read_bytes())
