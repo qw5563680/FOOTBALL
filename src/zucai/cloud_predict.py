@@ -267,12 +267,30 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
         result["generated_utc"] = _now().isoformat()
         publish_forecasts(archive, stage, result, before_commit=check_snapshot_and_deadlines)
         # Production is frozen first; experimental restoration/fitting cannot roll it back.
+        parlay_injuries = {}
         try:
             from zucai.experimental_archive import freeze_parallel
+            from zucai.parlay.archive import capture_injuries
 
-            result = freeze_parallel(archive, database, feed, batches, result, clock=_now)
+            result = freeze_parallel(
+                archive,
+                database,
+                feed,
+                batches,
+                result,
+                clock=_now,
+                on_restored=lambda working: parlay_injuries.update(
+                    capture_injuries(working, batches)
+                ),
+            )
         except Exception:
             LOG.exception("实验归档失败，已冻结的正式预测不受影响")
+        try:
+            from zucai.parlay.archive import freeze
+
+            result = freeze(archive, database, run_id, injuries=parlay_injuries, clock=_now)
+        except Exception:
+            LOG.exception("纸面复式归档失败，已冻结的正式与实验预测不受影响")
     _summary(archive, result)
     LOG.info(
         "预测归档 %s：%s；%d/%d 个联赛训练成功",

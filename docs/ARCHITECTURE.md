@@ -47,6 +47,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
 | `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
 | `zucai/scoreboard/` | 冻结预测与赛果配对、三列概率评分、五种虚拟账户、稳健性统计与文本记分板；不训练或联网 |
+| `zucai/parlay/` / `digest_parlay.py` | T45 同批单选＋双选枚举、独立 F 账本与冻结视图；不训练、不读取后续价格 |
 | `zucai/daily_digest.py` / `digest_notify.py` | 只读冻结归档生成 daily Markdown；仅在 Actions 用 GITHUB_TOKEN 更新每月 Issue |
 | `zucai/cloud_aliases.py` | 复用 T09/T10 离线身份图，只追加带证据的待审候选 |
 | `zucai/sources/fd_verify.py` | 离线复核当前赛季与 jc 的身份图、候选时区和覆盖缺口 |
@@ -76,6 +77,9 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 原采集时刻，用作赔率的 `snapshot_utc`。测试环境统一阻止未登记的 HTTP 请求。
 
 ## 数据模型
+
+T45 不加数据库表：比赛与球队身份仍取 `matches` 的主外键。新 F 决策与结算独立保存在
+`scoreboard/parlay_sd_ledger.jsonl`，结构与冻结文件见「T45」节；原 A–E 账本和表结构不变。
 
 ### T31 技术数据附属表
 
@@ -819,6 +823,7 @@ SHA256 必须一致，不插入 Prediction、不迁移输入库、不改 schema�
 T25 摘要分别选今明开球日最新的冻结批次展示，不改变 T19 的逐场取批和评分规则。
 独立 `forecast_manifest.json` v1 的 `runs` 记录训练库/参数 SHA256、截点、联赛状态和 P2、两日批次及
 预测/排除数量；`files` 覆盖模型、训练 JSON、所有四件套与 latest 索引的 SHA256。
+T45 追加 `parlay_sd.json` 及不可覆盖的内容哈希版本，均纳入同一清单；原四件套与 experimental.json 不改字节。
 发布失败只回滚本次新目录与索引；已有冻结文件保持原字节。数据分支 Git 属性关闭新归档路径的换行转换。
 
 `export_feeds` / `archive_info` 和 feed manifest 保持原接口。`cloud_feeds verify` 额外调用独立
@@ -902,6 +907,57 @@ T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，
 失败时仍能结算旧批次，取消则停止。托管机 30 分钟，共用写回锁，artifact 90 天，Actions 贴前 60 行。
 漂移仅提示：四个连续完整且有样本的北京周平局偏差绝对值均>5个百分点，或最近100场LL高于等概率；不自动 tune。
 
+## T45 单选＋双选：独立纸面组合与账户 F
+
+`parlay/single_double.py` 只读同 batch 的原精度 TEAM 概率与同目录独立实验概率。
+`status=predicted`、纯模型 `market_weight=0`、版本、身份、未开球、普通胜平负冻结 SP 都须成立。
+`eligibility` 以规范 team_id 占用所有四队，并核对当前比赛主客、联赛和实际开球时刻；
+`single=0/allUp=1` 可以过关审核，Selling/固定奖 had 不符排除；未知资格仅进参考。
+市场倒数归一化单独构成 MARKET 参考榜，不填 model_probabilities。
+
+`Config` 默认 single_direction_gap=0.10、double_fragile_gap=0.05、max_groups=3（1–5）、
+rounding=ROUND_DOWN（或 ROUND_HALF_UP）。两项差小于阈值、最高项并列、独立模型方向不同、
+两队任一伤停数量未知或不在截点前，均不能当单选。三个双选搭配全列；
+放掉项 >= 较小入选项 − 0.05 则只作参考。双选无 1.20 限制，单选等于 1.20 仅价格通过。
+
+伤停从 `experimental_archive.freeze_parallel` 已恢复技术行的隔离库经只读回调获取，复用 T38 strict
+快照，不另下 Release、不写训练库。`confirmed_injured_out` 作为选择证据名映射 T38 `missing_n`，
+保留 captured_utc、availability_basis、原 evidence 与 missing_reason；其实际含义是供应商 Missing Fixture
+人数，不声称全为已确诊伤员。失败隔离且未知不填 0，绝不退用市场或主观概率。
+
+每一证据等级完整枚举 9×N×(N−1)，保存枚举/合格/参考/各拒绝原因计数。用 Decimal 从冻结值的
+十进制表示计算 q1+q2 后排序，同分按两个 match_id 及 h/d/a；贪心登记比赛与四队 ID。
+主展示依次消费前瞻已验证、历史门槛通过、P2 实验等级，跨等级共用占用、总数不超过 max_groups；
+不混级配腿，不宣称全局最优。独立实验与市场榜仅对照，不算新增组、不进 F。
+另存每榜覆盖最高与盈利概率最高组；不计算跨组联合或「至少中一组」。
+
+现金流固定两注各 2、总成本 4；跨场独立近似，逐分支金额为 `2×SP_A×SP_B` 按配置取分。
+概率乘积、排序值另保留十进制字符串；利润严格 >0 才计盈利概率，=0 回本，<0 亏损；EV 与 ROI 分列。
+默认取位及税费/奖金封顶未核实，只是纸面假设。所有组 BET=false、可执行性未核实、动作 PASS。
+
+| 文件或字段 | 内容 / 不变性 |
+| --- | --- |
+| `forecasts/<日>/<run>/parlay_sd.json` | 当前主组、分级榜、实验与市场参考榜、诊断、配置、证据和两注现金流 |
+| 同目录 `parlay_sd-<sha256>.json` | 每版不可覆盖副本；previous_version_sha256、replaced_groups 记录替换；原件不改 |
+| `forecast_manifest.runs.*.forecasts.*` | parlay_path、parlay_versions、parlay_published_utc；files 纳入各版本 SHA256 |
+| `scoreboard/parlay_sd_ledger.jsonl` | account=F、rule=single_plus_double_v1；两 ticket、一 group 与 batch 锁 |
+| `summary.parlay_sd` | F 独立统计、待结原因、赛果更正审计、ledger_sha256；原 summary.files 的 A–E 文件接口不变 |
+| `daily/<日>/<run>.json` | 另存 parlay_pending 与 parlay_versions，原 A–E pending 不动 |
+
+`cloud_predict` 在原预测与实验已冻结后追加组合，不改原五个文件。组合发布前再次检查最早腿未开球；
+parlay_published_utc 是归档写入时刻，不是官方停售凭据。源材料与配置哈希相同重跑不改字节，
+未记账时可追加新版，旧版保留、当前指针唯一；F 已有 batch 回执后锁定（包括零组），不重开票。
+组合失败只记录错误，不撤销正式预测。日报只读取各日最新预测对应冻件（缺失不借旧批补齐），
+去掉发报时已开球/状态变化组。今明批次按日期显示时共用四队/比赛占用与展示上限，
+只删去重复或超限的冻结组、不重新配组或重算；原各批次 F 账本不受展示过滤影响。
+
+`parlay/paper.py` 复用原身份和赛果可知时间校验，每张基础注仅追加 settlement；其余决定字段带哈希。
+F 允许原模型 P2 实验组；原 A–E 的 P2 门槛、账户 D 规则和历史完全不变。组级 covered 与 profit 分开，
+单选命中率、基础注结果、覆盖率、盈利率、已结投入/盈亏/ROI 按证据等级及 replayed 分列；
+取消、缺赛果或身份变化保持待结，比分更正只提示。历史首次补记标 replayed，不冒充当时已开票。
+F 账本与记分板在同一发布事务内写入，失败恢复旧字节；同批次重复运行账本字节不变。
+日报附 F「较上一版」补结数、覆盖/盈利/亏损数，沿用 T39 更新序号和成功推送回执。
+
 ## T25 每日摘要与 Issue 推送
 
 `python -m zucai.daily_digest --archive <data-branch> --out <data-branch>/daily` 先用
@@ -913,7 +969,8 @@ T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，
 同run但不同输入或时刻另加内容后缀，相同输入重复生成字节一致；禁止倒退当日已有版本。
 旧冻结文件与清单不改；daily目录仍由数据分支 Git 保存。
 
-T39 页面依次是头部、今日与明日未开球预测、14场、复盘、昨日评分、虚拟账户、异常。头部独立展示
+T39 页面依次是头部、今日与明日未开球预测、14场、复盘、昨日评分、虚拟账户、异常。
+T45 在14场后增加纸面二串一小节与独立 F 收支；其余分节顺序不变。头部独立展示
 `collection.jc.schedule_updated_utc/results_updated_utc` 最近成功时刻；失败保留旧成功时刻，未知不以
 through_beijing/归档生成时间替代。赛程阶段失败提示「赛程更新失败」，赛果阶段失败提示「赛果更新失败」，
 赛果 `partial` 提示「赛果部分未到，还有 N 场待核对」，不将部分结果未到称为失败；兼容旧 `failed_stages`。

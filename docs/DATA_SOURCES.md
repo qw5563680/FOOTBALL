@@ -40,6 +40,26 @@ T39（2026-11-05）：只用离线 fixtures，未重新请求站点或 robots；
 `collection.jc` 分存 `schedule_updated_utc` / `results_updated_utc`，仅对应阶段完整成功时前进，
 失败阶段保留上次成功时刻，并记录当前状态、run与原因。sporttery 原件随 `sporttery-source-<run>` artifact 保留90天。
 
+### T45 两注纸面现金流与停售字段
+
+2026-11-06 本轮仅复用离线样本，未发真实请求、未重新读取 robots；不新增采集端点、路径或请求次数。
+`data/fixtures/t39/jc_catalog_12.json` 和 T45 合成样本验证现有 poolList / 单关过关解析，不能当作线上新核验。
+清单新增保留原始 `poolList`（含 poolCode、poolOddsType、poolStatus、single/allUp）、`lastUpdateTime`
+与 `sale_end_fields`。后者仅保存响应实际出现的 sale/sell/bet 与 end/stop/close/deadline 命名字段
+（含各 poolList 项的位置和原值），缺失存空，不由开球、更新时间、赔率快照或电脑时间推算。
+现有离线原件没有可确认为官方停售时刻的字段；合成 sellEndTime/saleDeadline 用例只验证保留能力。
+字段含义、时区、共同销售窗口与实际可出票时间仍需审查者真实核验，第一版所有组可执行性「未核实」。
+
+已有旧清单表头仍可读；旧单文件保持原字节，月分片下一次写入扩列、旧行未知字段留空。
+同捕获键已有字段矛盾仍拒绝；不改变竞彩保留规则、赔率快照可知时间或市场输入边界。
+
+取位依据入口为所有者提供的[福建体彩网胜平负游戏规则](https://www.fjtc.com.cn/2024-04/01/content_31550872.htm)。
+本轮未取得并核验该页面正文，因此**官方逐注取位、倍数、封顶、税费均未核实**。
+`Config.rounding` 默认 ROUND_DOWN 到 0.01 元，可选 ROUND_HALF_UP；两者仅为显式纸面假设，
+不是已确认官方结算规则。正常两场各分支按 `2 × 单选 SP × 该双选项 SP` 取位后再减整组 4 元；
+不多返一次本金，不把中奖自动算盈利。取消/异常场次保持待结，不猜 SP=1 或退款。
+固定验收例按以上假设：3.60 / 8.00 元，整组 −0.40 / +4.00 元，覆盖 48%、盈利 18%、EV −1.48、ROI −37%。
+
 ## 2. 500.com
 
 - robots（2026-11-02 实际读取 `https://trade.500.com/robots.txt`）：`User-agent: *` 下明确

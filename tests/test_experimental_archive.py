@@ -57,6 +57,12 @@ def test_production_freezes_even_when_experiment_fails(
                 for r in doc["predictions"]
             )
         frozen[day] = raw
+        parlay_path = entry["parlay_path"]
+        parlay_raw = (archive / parlay_path).read_bytes()
+        assert hashlib.sha256(parlay_raw).hexdigest() == manifest["files"][parlay_path]
+        parlay = json.loads(parlay_raw)
+        assert parlay["groups"] == []  # Fixture has no usable injury snapshot; never invent it.
+        assert parlay["bet_allowed"] is False
     if failure is None:
         asset = result["experimental_release"]["asset"]
         assert asset["tag"] == "experiments-202611"
