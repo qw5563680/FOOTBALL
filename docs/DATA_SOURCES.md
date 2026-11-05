@@ -100,6 +100,9 @@ T39（2026-11-05）：只用离线 fixtures，未重新请求站点或 robots；
   T35 云端只在 ID 关联成立时采用库内时钟，不将页面占位时间视为真实开球。
   已核实联赛对照仅 `瑞典超 -> 瑞超`（fixture1362837/jc2042440）；原始标签与官方标签分别保留。
   实抓根页面广告含非GB字节，解码允许替换无关内容，但所消费的身份字段出现替换字符就拒绝。
+  2026-11-05 01:46（北京）实抓：已停售场次（`data-isend="1"`，周四002–007 欧战）仍留在当前页，但
+  `data-fixtureid/data-homeid/data-awayid` 全为空；这类行跳过并记 warning，不算整页失败。三个 ID 只缺一部分
+  仍拒绝；整页没有任何带 ID 的场次也拒绝。此前整页判失败导致 26160 期首次采集 `SFC collection failed: ValueError`。
 - 页面编码可能是 GBK，解析前按 `response.apparent_encoding` 处理。
 
 ## 3. 体彩官网 lottery.gov.cn

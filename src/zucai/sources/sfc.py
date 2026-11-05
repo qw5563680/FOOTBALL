@@ -587,8 +587,9 @@ def collect_current_sfc(db):
 
                 _atomic_write(audit, previous_audit)
         result.update(inserted=0, linked_existing=0, rejected_rows=0, mapped=0, unmatched=0)
-        result["errors"] = ["SFC collection failed: " + type(exc).__name__]
-        LOG.warning("SFC collection failed (%s)", type(exc).__name__)
+        detail = f"{type(exc).__name__}: {exc}"[:200] if str(exc) else type(exc).__name__
+        result["errors"] = ["SFC collection failed: " + detail]
+        LOG.warning("SFC collection failed (%s)", detail)
     finally:
         temporary.unlink(missing_ok=True)
         if source is not None:
