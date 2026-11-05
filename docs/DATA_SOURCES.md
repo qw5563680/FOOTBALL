@@ -773,6 +773,27 @@ proposed 不生效，未知身份用 `apif:team:<id>` 保存。当前自动核�
 用途以站方当前条款为准，标注来源 [API-Football](https://www.api-football.com/)；
 本任务不授予额外的数据再分发许可；T14 已将最近三天日期增量接入 cloud_feeds 定时采集。
 
+## T40 后到竞彩的精确补链（2026-11-05，离线实现）
+
+依据 [T40 任务单](tasks/T40-late-jc-counterpart-relink.md) 对晚班
+[run 42005610679](https://github.com/qw5563680/FOOTBALL/actions/runs/42005610679) 的记录，
+欧战训练被 `apif:1636324 / jc:2042508` 的未链接重叠拒绝。任务单统计当时共有 **25 对**同联赛、
+同主客球队 ID、开球相差 ≤3 小时且互无 counterpart 的 API/竞彩对：欧罗巴 **9 对 apif ↔ jc**、
+欧冠 **16 对 fdorg ↔ jc**；2026-07 以来 113 场竞彩杯赛中 85 场已有 counterpart，28 场没有。
+这些数字来自任务单的生产排查记录，本次未重新读取生产数据或执行真实补链验收。
+
+根因是 API 独立赛程先入库，竞彩开售后才出现官方行，后续 API 导入将“既有 API 行＋jc 候选”一律隔离。
+竞彩补回赛果后，两行共同进入训练范围，既有重复守卫按设计拒绝。T40 的 `linked_late_jc` 与手动
+`operation=relink-jc` 只接受规范主客球队 ID 完全相同、同联赛、三小时内、双方空闲未被声明且候选唯一的关联；
+临时身份、反向主客、多个候选和已有冲突链接均跳过，不按名称、拼音或相似度推断。
+离线命令仅设置 `jc.counterpart_id`，API Result 不覆盖竞彩赛果；技术数据、伤停仍按 provider fixture ID 存储，
+特征沿既有 counterpart 使用。联合训练只排除已核验链接的 API 行，未链接重复仍拒绝。
+逐对结果及跳过原因写入 `collection.jc`、Actions 摘要和 `state/audit/jc_relink.csv`，纳入归档哈希与恢复校验。
+
+本次只用 `data/fixtures/` 离线样本，未请求 API、赛程、赛果或 robots.txt，未注入正式 key；
+不新增端点，沿用各来源现有访问边界。真实补链数量、下一档欧战训练恢复及后一周的新场次仍由审查者在 Actions 验收，
+不将离线测试作为 25 对生产补链完成的证明。
+
 ## T04/T13特征提取的数据可知边界（t04-v2）
 
 本任务不新增联网采集；只读T03/T06已归档的公开赛程、赛果及had/hhad快照。

@@ -435,13 +435,19 @@ def main():
     parser.add_argument("--per-scope", type=int, help="仅 stats probe：每联赛季最多抽样场数")
     parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
     parser.add_argument("--to", dest="last", help="仅 backfill：终止年或赛季，如 2026 / 2627")
-    parser.add_argument(
+    relink = parser.add_mutually_exclusive_group()
+    relink.add_argument(
         "--relink-fdorg",
         action="store_true",
         help="仅 Actions 手动 backfill：只补存量 fd/fdorg 链接，不采集",
     )
+    relink.add_argument(
+        "--relink-jc",
+        action="store_true",
+        help="仅 Actions 手动 backfill：只补独立 API 与后到竞彩的链接，不采集",
+    )
     args = parser.parse_args()
-    if args.relink_fdorg:
+    if args.relink_fdorg or args.relink_jc:
         if args.command != "backfill" or any(
             v is not None
             for v in (
@@ -451,10 +457,15 @@ def main():
                 args.last,
                 args.seasons,
                 args.probe_kind,
+                args.per_scope,
             )
         ):
-            parser.error("--relink-fdorg 仅供无来源/范围参数的 backfill 使用")
-        from zucai.sources.fd_counterpart import require_relink_actions
+            flag = "--relink-jc" if args.relink_jc else "--relink-fdorg"
+            parser.error(f"{flag} 仅供无来源/范围参数的 backfill 使用")
+        if args.relink_jc:
+            from zucai.sources.jc_counterpart import require_relink_actions
+        else:
+            from zucai.sources.fd_counterpart import require_relink_actions
 
         require_relink_actions()
     if args.command not in {"backfill", "probe", "identity"} and any(
@@ -562,15 +573,19 @@ def main():
         collection = {"apif": collector(target, args.run_id, **options)}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "backfill":
-        from zucai.cloud_backfill import collect_backfill
-
-        provider = args.source or "fd"
+        provider = "jc" if args.relink_jc else args.source or "fd"
         options = dict(codes=args.leagues, first=args.first, last=args.last)
-        if args.relink_fdorg:
+        if args.relink_jc:
+            from zucai.sources.jc_counterpart import relink_jc
+
+            result = relink_jc(target)
+        elif args.relink_fdorg:
             from zucai.sources.fd_counterpart import relink_fdorg
 
             result = relink_fdorg(target)
         elif provider == "fd":
+            from zucai.cloud_backfill import collect_backfill
+
             result = collect_backfill(target, args.run_id, **options)
         else:
             from zucai.cloud_api_backfill import collect_api_backfill
@@ -614,7 +629,9 @@ def main():
     if args.command == "backfill":
         from zucai.forecast_archive import verify_forecasts
 
-        if args.relink_fdorg:
+        if args.relink_jc:
+            from zucai.sources.jc_counterpart import write_summary
+        elif args.relink_fdorg:
             from zucai.sources.fd_counterpart import write_summary
         elif provider == "fd":
             from zucai.cloud_backfill import write_summary
@@ -658,7 +675,8 @@ def main():
                         else result.get("requests")
                     )
                     linked = sum(
-                        result.get(k, 0) for k in ("linked_existing", "linked_fd", "linked_fdorg")
+                        result.get(k, 0)
+                        for k in ("linked_existing", "linked_late_jc", "linked_fd", "linked_fdorg")
                     )
                     summary.write(
                         f"| {provider} | {result['status']} | "

@@ -302,7 +302,7 @@ def collect_api_backfill(
                     provider,
                     item["scope"],
                     item["inserted"],
-                    item["linked_existing"],
+                    item["linked_existing"] + item.get("linked_late_jc", 0),
                     item["rejected_rows"],
                     item["suspected_duplicates"],
                 )
@@ -383,11 +383,11 @@ def write_summary(report):
                     "matches_after",
                     "results_after",
                     "inserted",
-                    "linked_existing",
-                    "rejected_rows",
-                    "suspected_duplicates",
                 )
             ),
+            str(item.get("linked_existing", 0) + item.get("linked_late_jc", 0)),
+            str(item.get("rejected_rows", "—")),
+            str(item.get("suspected_duplicates", "—")),
             rate_text,
             str(item.get("unmatched_teams", "—")),
         ]

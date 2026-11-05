@@ -20,6 +20,7 @@ OPERATIONS = (
     "identity",
     "reconcile",
     "relink-fdorg",
+    "relink-jc",
     "digest",
     "stats-backfill",
 )
@@ -93,7 +94,16 @@ def test_dispatch_has_exactly_ten_inputs_and_legacy_options_mapping():
 def test_all_dispatch_operation_job_conditions(operation):
     expected = {
         "apis": operation
-        in {"apis", "verify", "backfill", "probe", "identity", "reconcile", "relink-fdorg"},
+        in {
+            "apis",
+            "verify",
+            "backfill",
+            "probe",
+            "identity",
+            "reconcile",
+            "relink-fdorg",
+            "relink-jc",
+        },
         "sporttery": operation == "sync",
         "predict": operation == "predict",
         "scoreboard": operation in {"predict", "scoreboard"},
@@ -163,6 +173,7 @@ def test_stats_publish_preserves_charged_quota_after_collector_failure(outcome, 
         ("apis", "early", False),
         ("verify", "late", False),
         ("backfill", "late", False),
+        ("relink-jc", "late", False),
         ("apis", "", False),
     ],
 )

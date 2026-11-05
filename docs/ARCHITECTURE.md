@@ -36,6 +36,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/sources/football_data.py` | 历史 CSV 的下载、严格时区转换和解析 |
 | `zucai/sources/fd_ingest.py` | 显式别名、官方优先去重、结果可知时间与独立收盘价归档 |
 | `zucai/cloud_feeds.py` | `apis` / `sync` / `verify` / `export` / `probe` / `backfill --source fd\|fdorg\|apif`；四来源 v2 归档与 v1 恢复、SHA256、运行摘要 |
+| `zucai/sources/jc_counterpart.py` | API 先到、竞彩后到的精确关联检查与离线 `backfill --relink-jc`，只补 counterpart 并归档逐对审计 |
 | `zucai/cloud_backfill.py` | 仅手动的 fd 六季历史回填、范围筛选、逐跳请求与联赛增量审计；复用既有下载/导入器 |
 | `zucai/cloud_probe.py` | Actions 手动权限与计费探测，逐季第一页、CSV 审计、不入库 |
 | `zucai/apif_budget.py` | 跨平台配额格式校验，兼容旧数据分支状态 |
@@ -276,6 +277,21 @@ T10 新增 `ApiFootball`、`apif_quota`、`apif_ingest`、`apif_command`、`apif
 即使正文无法安全归档也不丢失该配额观察。分页全部读完后一次核对完整集合并提交，失败保留原始分页。
 为保持 T09 既有函数不改，CLI 通过新增 `apif_cli.extend_cli` 注册和路由，训练 guard 通过
 `apif_guard.extend_guard` 扩展；原来的函数体保持不变，直接 Model.fit 与 read_history 均获得四来源重叠保护。
+
+T40 补充 API 先到、竞彩后到的路径：后续 apif/fdorg 再入库时，仅当既有行仍为本源独立行、
+本身没有 counterpart 且未被其他比赛声明，并存在唯一同联赛、同向规范主客球队 ID 完全相同、开球相差 ≤3 小时的 jc 行，
+且 jc 同样没有 counterpart、未被其他比赛声明，才设置 `jc.counterpart_id=<API match_id>`，outcome 记为 `linked_late_jc`。
+多候选、主客相反、任一侧被占用或已有不同链接、`apif:team:<id>` / `fdorg:team:<id>` 临时身份继续隔离；不按名称猜测。
+此路径沿用 `linked_existing` 的官方优先语义，API 自己的 Result 不覆盖竞彩赛果。
+
+`workflow_dispatch operation=relink-jc` 调用 `cloud_feeds backfill --relink-jc`，拒绝本地、schedule、
+`--relink-fdorg` 及来源/范围参数组合。离线扫描 apif/fdorg 存量并应用同一精确规则，只更新 jc 的 counterpart_id；
+比赛行、两侧比分/可知时间及其他字段不变。技术数据和伤停继续按 provider fixture ID 保存，特征沿 T34a counterpart 取用。
+报告以 `collection.jc` 保存，`state/audit/jc_relink.csv` 逐对列 API/竞彩 ID、联赛、双方 UTC 开球、
+linked / already_linked / 跳过原因及候选；摘要列计数和原因分布。审计随 SHA256 清单导出、恢复和校验，
+沿用同一写锁、竞彩同步水位与冻结预测校验，不注入凭据、不采集、不训练、不运行记分板或日报。
+`predict/pooled.linked_representatives` 按既有优先级排除已链接的 API 行并写 `linked_rows_excluded`；
+未链接或冲突的重复对仍由 `reject_cross_source_overlaps` / `apif_guard` 拒绝，不放宽守卫。
 
 模型元数据改用 `sources: list[str]`，旧可信模型的 `source` 读取为单元素列表。
 `training_source_counts` 与范围分开；严格模式或截点过滤后某来源计数可为零，但不能推导模型对未选择来源的支持。

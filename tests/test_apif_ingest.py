@@ -259,13 +259,16 @@ def test_different_pairs_in_same_round_and_just_outside_window_are_independent(d
 
 
 @pytest.mark.parametrize("external", ["jc:late", "fd:late"])
-def test_new_external_duplicate_of_existing_apif_result_requires_reconciliation(db, external):
+def test_late_jc_links_but_late_fd_still_requires_reconciliation(db, external):
     with session_scope(db) as s:
         assert ingest(s, game())["inserted"] == 1
         seed(s, external)
         result = ingest(s, game(full=(6, 1)), seen=SEEN + DELAY)
-        assert result["suspected_duplicates"] == 1
-        assert s.get(Match, external).counterpart_id is None
+        assert result["suspected_duplicates"] == int(external.startswith("fd:"))
+        assert result["linked_late_jc"] == int(external.startswith("jc:"))
+        assert s.get(Match, external).counterpart_id == (
+            KEY if external.startswith("jc:") else None
+        )
         assert s.get(Result, external).home_goals == 9 and s.get(Result, KEY).home_goals == 2
 
 
