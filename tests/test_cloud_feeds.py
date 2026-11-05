@@ -123,6 +123,10 @@ def test_cloud_sync_publishes_good_results_and_quotes_despite_one_rejected_row(
     assert meta["collection"]["jc"]["status"] == "partial"
     assert meta["collection"]["jc"]["run_id"] == "trial"
     assert meta["collection"]["jc"]["rejected_rows"] == 1
+    assert meta["collection"]["jc"]["schedule_updated_utc"]
+    assert meta["collection"]["jc"]["results_updated_utc"] is None
+    assert meta["collection"]["jc"]["results_status"] == "partial"
+    assert meta["collection"]["jc"]["failed_stages"] == []
     assert meta["collection"]["sfc"]["requests"] == 2
     assert meta["pending_result_count"] == 1
     assert meta["pending_result_dates"] == ["2026-10-31"]
@@ -166,23 +170,27 @@ def test_old_rejection_is_retried_until_accepted_even_if_missing_from_next_page(
 
 
 @pytest.mark.parametrize("failure", ["pagination", "blocked"])
-def test_cloud_sync_does_not_publish_after_incomplete_page_or_policy_denial(
+def test_cloud_sync_publishes_successful_stages_after_incomplete_page_or_policy_denial(
     tmp_path, monkeypatch, failure
 ):
-    from requests import HTTPError
-
-    from zucai.cloud_feeds import export_feeds
+    from zucai.cloud_feeds import archive_info, export_feeds
 
     archive = seed_cloud_archive(tmp_path)
-    # First window has a recoverable rejection; a later fatal failure must still block publication.
+    # Complete prior days and the schedule survive; an incomplete page cannot add results.
     (tmp_path / "rejected_results.csv").write_text(
         "date,match_id,observed_utc,reason\n2026-10-01,jc:5,2026-11-01T00:00:00+00:00,bad\n",
         encoding="utf8",
     )
-    export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 1), "rejected")
-    before = {p.relative_to(archive): p.read_bytes() for p in archive.rglob("*") if p.is_file()}
+    previous = "2026-10-31T10:00:00+00:00"
+    export_feeds(
+        tmp_path / "seed.db",
+        archive,
+        date(2026, 11, 1),
+        "rejected",
+        collection={"jc": {"status": "complete", "results_updated_utc": previous}},
+    )
     with responses.RequestsMock() as api:
-        mock_calendar(api, sfc=False)
+        mock_calendar(api)
         mock_result_day(api, "2026-10-01", [{"matchId": 4}, {"matchId": 5, "sectionsNo1": "9:0"}])
         if failure == "blocked":
             api.add(
@@ -197,7 +205,8 @@ def test_cloud_sync_does_not_publish_after_incomplete_page_or_policy_denial(
             )
         else:
             body = feed_json("sporttery_results_20261031.json")
-            body["value"].update(matchResult=[], total=2)
+            body["value"]["matchResult"][0].update(matchDate="2026-10-30", matchId=99)
+            body["value"]["total"] = 2
             api.add(
                 responses.GET,
                 API + "getUniformMatchResultV1.qry",
@@ -208,11 +217,100 @@ def test_cloud_sync_does_not_publish_after_incomplete_page_or_policy_denial(
                     )
                 ],
             )
-        with pytest.raises((ValueError, HTTPError)):
-            run_cloud_sync(monkeypatch, tmp_path / "run", archive, "2026-11-01")
-    assert {
-        p.relative_to(archive): p.read_bytes() for p in archive.rglob("*") if p.is_file()
-    } == before
+        run_cloud_sync(monkeypatch, tmp_path / "run", archive, "2026-11-01")
+    meta = archive_info(archive)
+    assert meta["counts"]["results"] == 1
+    assert meta["counts"]["odds"] > 0
+    assert meta["collection_status"] == "partial"
+    assert meta["collection"]["jc"]["schedule_updated_utc"]
+    assert meta["collection"]["jc"]["results_updated_utc"] == previous
+    assert meta["collection"]["jc"]["failed_stages"] == ["results"]
+    assert meta["collection"]["jc"]["results_status"] == "failed"
+    assert meta["collection"]["jc"]["run_id"] == "trial"
+    assert meta["collection"]["jc"]["observed_utc"]
+    assert meta["through_beijing"] == "2026-11-01"
+    with sqlite3.connect(tmp_path / "run/data/zucai.db") as db:
+        assert not db.execute("SELECT 1 FROM matches WHERE match_id='jc:99'").fetchall()
+
+
+@pytest.mark.parametrize("failed_stage", [None, "schedule", "results"])
+def test_schedule_and_results_success_times_are_separate_and_failed_attempt_keeps_previous(
+    tmp_path, monkeypatch, failed_stage
+):
+    from requests import ConnectionError
+
+    from zucai import cloud_feeds
+
+    archive = seed_cloud_archive(tmp_path)
+    old_schedule = "2026-10-31T01:00:00+00:00"
+    old_results = "2026-10-31T01:20:00+00:00"
+    schedule_time = "2026-11-02T01:00:00.000000Z"
+    results_time = "2026-11-02T01:20:00+00:00"
+    observed_time = "2026-11-02T01:30:00+00:00"
+    cloud_feeds.export_feeds(
+        tmp_path / "seed.db",
+        archive,
+        date(2026, 11, 1),
+        "prior",
+        collection={
+            "jc": {
+                "status": "complete",
+                "schedule_updated_utc": old_schedule,
+                "results_updated_utc": old_results,
+                "run_id": "prior",
+                "observed_utc": old_results,
+            }
+        },
+    )
+    now = {"utc": schedule_time}
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromisoformat(now["utc"]).astimezone(tz)
+
+    def schedule(*, metadata):
+        if failed_stage == "schedule":
+            raise ConnectionError("fixture schedule unavailable")
+        metadata["captured_utc"] = schedule_time
+        return 0, 0
+
+    def results(start, end):
+        now["utc"] = results_time
+        if failed_stage == "results":
+            raise ConnectionError("fixture results unavailable")
+        return {"finished": 0, "cancelled": 0, "assumed": 0, "unchanged": 0}
+
+    def sfc(_):
+        now["utc"] = observed_time
+        return dict(
+            status="complete",
+            inserted=0,
+            linked_existing=0,
+            rejected_rows=0,
+            requests=0,
+            errors=[],
+        )
+
+    monkeypatch.setattr(cloud_feeds, "datetime", Clock)
+    monkeypatch.setattr(cloud_feeds, "fetch_schedule", schedule)
+    monkeypatch.setattr(cloud_feeds, "fetch_results", results)
+    monkeypatch.setattr("zucai.sources.sfc.collect_current_sfc", sfc)
+    run_cloud_sync(monkeypatch, tmp_path / "run", archive, "2026-11-02")
+    meta = cloud_feeds.archive_info(archive)
+    jc = meta["collection"]["jc"]
+    assert jc["schedule_updated_utc"] == (
+        old_schedule if failed_stage == "schedule" else schedule_time
+    )
+    assert jc["results_updated_utc"] == (old_results if failed_stage == "results" else results_time)
+    assert jc["schedule_status"] == ("failed" if failed_stage == "schedule" else "complete")
+    assert jc["results_status"] == ("failed" if failed_stage == "results" else "complete")
+    assert jc["status"] == ("partial" if failed_stage else "complete")
+    assert jc["failed_stages"] == ([failed_stage] if failed_stage else [])
+    assert jc["run_id"] == "trial" and jc["observed_utc"] == observed_time
+    assert meta["through_beijing"] == ("2026-11-01" if failed_stage == "results" else "2026-11-02")
+    if failed_stage:
+        assert any("ConnectionError" in error for error in jc["errors"])
 
 
 def test_conflict_at_same_observation_stays_pending_until_a_later_verified_result(tmp_path):

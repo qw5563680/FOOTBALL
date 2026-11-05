@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from sfc_publication_support import confirm_report
 from test_sfc_report import NOW  # noqa: F401
 from test_sfc_report import complete_issue as complete_issue
 from zucai.cloud_feeds import export_feeds
@@ -112,13 +113,13 @@ def test_report_two_batches_history_idempotency_and_latest(sfc_archive, tmp_path
     later = NOW + timedelta(minutes=15)
     freeze(archive, tmp_path / "later", batch, "late", later)
     publish_reports(archive, now=later)
-    assert len(read_reports(archive)) == 2
+    assert len(read_reports(archive, include_unconfirmed=True)) == 2
     assert json.loads((archive / f"sfc/{issue.issue_no}/sfc.json").read_bytes())["run_id"] == "late"
     assert all((archive / p).read_bytes() == b for p, b in first.items() if "/history/" in p)
     deadline = datetime.fromisoformat(issue.sale_end_utc)
     freeze(archive, tmp_path / "closed", batch, "closed", deadline)
     assert publish_reports(archive, now=deadline) == []
-    assert len(read_reports(archive)) == 2
+    assert len(read_reports(archive, include_unconfirmed=True)) == 2
 
 
 def install_results(database, count=14):
@@ -150,6 +151,7 @@ def test_all_results_required_settlement_idempotent_and_digest(sfc_archive, tmp_
 
     archive, database, _, _ = sfc_archive
     publish_reports(archive, now=NOW)
+    confirm_report(archive)
     originals = files(archive / "sfc")
     at = datetime(2026, 11, 3, 12, tzinfo=UTC)
     install_results(database, count=13)
@@ -191,7 +193,7 @@ def test_all_results_required_settlement_idempotent_and_digest(sfc_archive, tmp_
     manifest_path.write_text(json.dumps(manifest))
     text = generate(archive, tmp_path / "daily", now=at).read_text()
     assert "上一已结算期 26156：单选命中 10 / 14" in text
-    assert "无模型：" in text
+    assert "无冻结概率" in text
     (archive / "sfc/settled.jsonl").write_bytes(raw + b"{}\n")
     with pytest.raises(ValueError, match="SHA256"):
         generate(archive, tmp_path / "daily", now=at)
@@ -214,6 +216,7 @@ def test_unknown_mapping_generates_fourteen_missing_rows(sfc_archive, tmp_path):
     engine.dispose()
     export_feeds(database, archive, date(2026, 11, 1), "unmapped")
     publish_reports(archive, now=NOW)
+    confirm_report(archive)
     report = read_reports(archive)[0][1]
     assert report["missing_models"] == 14 and report["combo"] is None
     assert "超过 64 注上限" in (archive / "sfc/26156/report.md").read_text()
@@ -224,6 +227,7 @@ def test_settlement_failure_rolls_back_board_and_sfc_log(sfc_archive, monkeypatc
 
     archive, database, _, _ = sfc_archive
     publish_reports(archive, now=NOW)
+    confirm_report(archive)
     at = datetime(2026, 11, 3, 12, tzinfo=UTC)
     run(archive, as_of=at)
     install_results(database)

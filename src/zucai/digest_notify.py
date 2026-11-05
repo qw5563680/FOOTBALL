@@ -1,6 +1,8 @@
 """Publish the exact daily Markdown to a monthly Issue, only from Actions."""
 
 import argparse
+import hashlib
+import json
 import logging
 import os
 import re
@@ -10,6 +12,9 @@ from pathlib import Path
 import requests
 
 from zucai.daily_digest import DISCLAIMER, _day
+from zucai.digest_history import notification_path, read_notification, rendered_versions
+from zucai.scoreboard.score import instant
+from zucai.sources.base import _atomic_write
 
 LOG = logging.getLogger(__name__)
 API = "https://api.github.com"
@@ -77,7 +82,53 @@ class _GitHub:
             )
 
 
-def publish(body, repository, *, now=None):
+def _notification_version(root, body, today, repository):
+    root = Path(root).absolute()
+    if any(path.is_symlink() for path in (root, *root.parents)):
+        raise ValueError("日报通知回执路径不允许符号链接")
+    sha = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    matches = [v for v in rendered_versions(root, today) if v["markdown_sha256"] == sha]
+    if len(matches) != 1:
+        raise ValueError("发布正文必须对应唯一已冻结日报版本")
+    version = matches[0]
+    if version["inputs"].get("repository") not in (None, repository):
+        raise ValueError("日报冻结版本与通知仓库不符")
+    read_notification(root, version)  # Reject corrupt existing evidence before any request.
+    return root, version
+
+
+def _record_notification(root, version, repository, issue, comment, body):
+    if comment.get("body") != body:
+        raise ValueError("GitHub 评论响应正文与冻结日报不符，无法确认通知")
+    if any(type(value) is not int or value <= 0 for value in (issue["number"], comment["id"])):
+        raise ValueError("GitHub 评论或 Issue 身份无效")
+    try:
+        notified = instant(comment.get("updated_at") or comment["created_at"])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("GitHub 评论响应缺少有效发布时间，无法确认通知") from None
+    receipt = {
+        "schema_version": 1,
+        "status": "published",
+        "repository": repository,
+        "issue_number": issue["number"],
+        "comment_id": comment["id"],
+        **{key: version[key] for key in ("date", "run_id", "version_id", "markdown_sha256")},
+        "notified_utc": notified.isoformat(),
+    }
+    existing = read_notification(root, version)
+    if existing:
+        if any(
+            existing[key] != receipt[key] for key in ("repository", "issue_number", "comment_id")
+        ):
+            raise ValueError("已有日报通知回执的目标冲突")
+        return
+    _atomic_write(
+        notification_path(root, version),
+        (json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8"),
+    )
+
+
+def publish(body, repository, *, now=None, history_root=None):
     """Workflow concurrency serializes the find/create/update operation across both shifts."""
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_EVENT_NAME") not in {
         "schedule",
@@ -99,6 +150,7 @@ def publish(body, repository, *, now=None):
         raise ValueError("只能发布含固定免责行与唯一当日标记的摘要")
     if len(body) > 65536:
         raise ValueError("摘要超过单条 GitHub 评论长度限制；保留数据分支全文，未截断发布")
+    version = _notification_version(history_root, body, today, repository) if history_root else None
     title = f"每日报告 {today:%Y-%m}"
     previous_title = f"每日报告 {today.replace(day=1) - timedelta(days=1):%Y-%m}"
     with requests.Session() as session:
@@ -148,6 +200,10 @@ def publish(body, repository, *, now=None):
             )
         else:
             comment = api.request("POST", comment_path, json={"body": body})
+        # Persist success immediately: a later rollover cleanup failure must not
+        # erase proof that this exact version became the visible Issue comment.
+        if version:
+            _record_notification(*version, repository, issue, comment, body)
         # Close only after the new month's report is successfully visible; safe to retry.
         if previous and previous["state"] != "closed":
             api.request(
@@ -160,11 +216,16 @@ def publish(body, repository, *, now=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", type=Path, required=True)
+    parser.add_argument("--history-root", type=Path, help="保存成功评论回执的 daily 根目录")
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"), required=False)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
-        publish(args.file.read_text(encoding="utf-8"), args.repository or "")
+        publish(
+            args.file.read_text(encoding="utf-8"),
+            args.repository or "",
+            history_root=args.history_root,
+        )
     except (ValueError, OSError, KeyError, TypeError) as exc:
         LOG.error("摘要未推送：%s", exc)
         return 1

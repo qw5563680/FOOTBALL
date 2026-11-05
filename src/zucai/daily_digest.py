@@ -1,16 +1,34 @@
 """Read frozen archives and publish a digest, without inference or scoring."""
 
 import argparse
-import html
+import hashlib
 import json
 import logging
 import os
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from statistics import fmean
-from urllib.parse import quote
 
 from zucai.cloud_feeds import archive_info
+from zucai.digest_context import archived_matches, audit_rows, frozen_rows, pending_tickets
+from zucai.digest_display import (
+    _day,
+    _instant,
+    _link,
+    _match,
+    _number,
+    _probabilities,
+    _text,
+)
+from zucai.digest_history import source_hashes, version_context
+from zucai.digest_views import (
+    forecast_sections as _forecast_sections,
+)
+from zucai.digest_views import (
+    header_lines,
+    pending_sections,
+    review_sections,
+)
 from zucai.forecast_archive import _path, verify_forecasts
 from zucai.report.render import load_batch
 from zucai.scoreboard.command import read_state
@@ -18,7 +36,6 @@ from zucai.sfc_digest import section as sfc_section
 from zucai.sources.base import _atomic_write
 
 LOG = logging.getLogger(__name__)
-BEIJING = timezone(timedelta(hours=8))
 DISCLAIMER = "非购买建议 · BET 禁用"
 ACCOUNTS = {
     "A": "单场固定额",
@@ -27,115 +44,6 @@ ACCOUNTS = {
     "D": "二串一",
     "E": "三串一",
 }
-
-
-def _instant(value):
-    result = value if isinstance(value, datetime) else datetime.fromisoformat(value)
-    if result.tzinfo is None:
-        raise ValueError("摘要来源时间必须含时区")
-    return result.astimezone(UTC)
-
-
-def _day(value):
-    return _instant(value).astimezone(BEIJING).date()
-
-
-def _text(value):
-    if value is None:
-        return "未记录"
-    text = html.escape(str(value)).replace("\n", " ").replace("\r", " ")
-    for symbol in ("\\", "|", "[", "]", "`", "*", "_"):
-        text = text.replace(symbol, "\\" + symbol)
-    return text.replace("@", "&#64;")
-
-
-def _number(value, places=4, *, percent=False):
-    if value is None:
-        return "未提供"
-    return f"{value * 100 if percent else value:.{places}f}" + ("%" if percent else "")
-
-
-def _probabilities(row):
-    values = row.get("model_probabilities") or {}
-    return " / ".join(_number(values.get(key), 2, percent=True) for key in "hda")
-
-
-def _match(row):
-    if row.get("home") and row.get("away"):
-        return f"{_text(row['home'])} VS {_text(row['away'])}"
-    return _text(row["match_id"])
-
-
-def _link(path, repository):
-    target = (
-        f"https://github.com/{repository}/blob/data/football-feeds/{quote(path)}"
-        if repository
-        else "../" + quote(path)
-    )
-    return f"[{_text(path)}]({target})"
-
-
-def _forecast_sections(batches, today, repository):
-    lines = ["## 今日与明日预测", ""]
-    for offset, label in ((0, "今日"), (1, "明日")):
-        day = (today + timedelta(days=offset)).isoformat()
-        choices = [entry for entry in batches if entry[0] == day]
-        lines.extend([f"### {label} {day}", ""])
-        if not choices:
-            lines.extend(["尚无冻结预测。", ""])
-            continue
-        _, path, batch = max(
-            choices, key=lambda entry: (_instant(entry[2]["generated_utc"]), entry[2]["batch_id"])
-        )
-        lines.extend(
-            [
-                f"来源：{_link(path, repository)}；批次 {_text(batch['batch_id'])}；"
-                f"生成 UTC：{_text(batch['generated_utc'])}。",
-                "",
-            ]
-        )
-        rows = batch["predictions"]
-        if not rows:
-            lines.extend(["该批次无比赛。", ""])
-        for league in sorted({row.get("league") or "未知联赛" for row in rows}):
-            lines.extend(
-                [
-                    f"#### {_text(league)}",
-                    "",
-                    "| 北京开球 | 对阵 | 胜 / 平 / 负 | 模型版本 | P2 | 比分前五 |",
-                    "| --- | --- | --- | --- | --- | --- |",
-                ]
-            )
-            for row in rows:
-                if (row.get("league") or "未知联赛") != league:
-                    continue
-                kickoff = row.get("kickoff_utc")
-                kickoff = (
-                    _instant(kickoff).astimezone(BEIJING).strftime("%m-%d %H:%M")
-                    if kickoff
-                    else "未记录"
-                )
-                if row["status"] != "predicted":
-                    lines.append(
-                        f"| {kickoff} | {_match(row)} | 未预测：{_text(row.get('reason'))} "
-                        "| — | — | — |"
-                    )
-                    continue
-                scores = (
-                    "；".join(
-                        f"{_text(score['score'])} {_number(score['probability'], 2, percent=True)}"
-                        for score in row.get("top_scores", [])[:5]
-                    )
-                    or "未提供"
-                )
-                label = "ready" if row.get("p2_ready") is True else "experimental"
-                lines.append(
-                    f"| {kickoff} | {_match(row)} | {_probabilities(row)} "
-                    f"| {_text(row['model_name'])} / {_text(row['model_version'])} "
-                    f"| {label} | {scores} |"
-                )
-            lines.append("")
-    return lines
 
 
 def _settlement_sections(scored, summary, batches, yesterday, repository):
@@ -219,10 +127,11 @@ def _account_sections(ledger, summary, yesterday, repository):
         "",
         f"来源：{_link('scoreboard/summary.json', repository)} accounts.1.05；"
         f"{_link('scoreboard/ledger.jsonl', repository)}。",
-        "资金为虚拟资金；昨日注单指昨日生成或昨日结算，注额与 SP 均照录冻结值。",
+        "资金为虚拟资金；投入仅指已结注单，盈亏为记分板原返还减原已结投入；回报率照录原值。"
+        "昨日注单指昨日生成或昨日结算，注额与 SP 均照录冻结值。",
         "",
-        "| 账户 | 当前资金 | 可用现金 | 累计 ROI | 昨日注单与结果 |",
-        "| --- | --- | --- | --- | --- |",
+        "| 账户 | 已结 / 投入 / 盈亏 / 回报率 | 当前资金 / 可用现金 | 昨日注单与结果 |",
+        "| --- | --- | --- | --- |",
     ]
     accounts = (summary or {}).get("accounts", {}).get("1.05", {})
     for key, name in ACCOUNTS.items():
@@ -255,11 +164,15 @@ def _account_sections(ledger, summary, yesterday, repository):
                 f"盈亏 {_number(settlement.get('profit'), 2)}"
             )
         detail = "；".join(tickets) or ("无已归档的昨日注单" if summary else "尚无记分板")
+        invested, returns = values.get("settled_stakes"), values.get("returns")
+        profit = None if invested is None or returns is None else returns - invested
         lines.append(
             f"| {key} {_text(values.get('name', name))} | "
-            f"{_number(values.get('current_funds'), 2)} | "
-            f"{_number(values.get('available_cash'), 2)} "
-            f"| {_number(values.get('roi'), 2, percent=True)} | {detail} |"
+            f"已结 {values.get('settled', '未提供')} 注，投入 {_number(invested, 2)}，"
+            f"盈亏 {format(profit, '+.2f') if profit is not None else '未提供'}，"
+            f"回报率 {_number(values.get('roi'), 2, percent=True)} | "
+            f"{_number(values.get('current_funds'), 2)} / "
+            f"{_number(values.get('available_cash'), 2)} | {detail} |"
         )
     return lines + [""]
 
@@ -345,7 +258,17 @@ def _anomaly_sections(feed, summary, quota, repository, coverage=None):
     return lines
 
 
-def generate(archive, out, *, now=None, run_id="local", repository=None):
+def generate(
+    archive,
+    out,
+    *,
+    now=None,
+    run_id="local",
+    repository=None,
+    jc_sync_status=None,
+    jc_sync_run_id=None,
+    require_notified_history=False,
+):
     """Return dated Markdown path; the only permitted in-archive output is daily/."""
     archive, out = Path(archive).absolute(), Path(out).absolute()
     for path in (archive, out):
@@ -374,6 +297,35 @@ def generate(archive, out, *, now=None, run_id="local", repository=None):
             if _instant(entry["generated_utc"]) <= at:
                 path = entry["path"] + "/forecast.json"
                 batches.append((day, path, load_batch(archive / path)))
+    matches = archived_matches(archive, feed)
+    catalog = audit_rows(archive, feed, "jc_catalog", at)
+    skipped = audit_rows(archive, feed, "jc_skipped", at)
+    if catalog is not None:
+        from zucai.digest_context import week_start
+
+        catalog = [
+            row
+            for row in catalog
+            if week_start(at).date().isoformat()
+            <= row["business_date"]
+            <= (today + timedelta(days=1)).isoformat()
+        ]
+        # Enrichment by exact archived ID only; never name matching.
+        for row in catalog:
+            if row["match_id"] in matches:
+                matches[row["match_id"]].setdefault("business_date", row["business_date"])
+    latest, observations = frozen_rows(batches, matches, at)
+    inputs = {
+        **source_hashes(archive),
+        "jc_sync_status": jc_sync_status,
+        "jc_sync_run_id": jc_sync_run_id,
+        "repository": repository,
+        "require_notified_history": require_notified_history,
+    }
+    previous, update, version_id = version_context(
+        archive, out, today, at, run_id, inputs, require_notified=require_notified_history
+    )
+    pending = pending_tickets(ledger, at)
     quota_path = "state/api_football_quota.json"
     quota = (
         json.loads(_path(archive, quota_path).read_bytes()) if quota_path in feed["files"] else {}
@@ -395,22 +347,40 @@ def generate(archive, out, *, now=None, run_id="local", repository=None):
         f"{source}={_text(feed.get('collection', {}).get(source, {}).get('status'))}"
         for source in ("jc", "fd", "fdorg", "apif")
     )
+    displayed_ids = set()
     lines = [
         DISCLAIMER,
         f"<!-- zucai-daily:{today} -->",
         "",
         f"# 每日摘要 {today}（北京时间）",
         "",
-        f"本次 run ID：{_text(run_id)}；摘要生成 UTC：{at.isoformat()}。",
-        f"竞彩同步至：{_text(feed.get('through_beijing'))}；采集状态：{states}。",
+        f"本日第 {update} 次更新；本次 run ID：{_text(run_id)}；摘要生成 UTC：{at.isoformat()}。",
+        *header_lines(
+            feed, latest, matches, at, jc_sync_status=jc_sync_status, jc_sync_run_id=jc_sync_run_id
+        ),
+        f"采集状态：{states}。",
         f"采集归档 UTC：{_text(feed.get('created_utc'))}；"
         f"记分板截点 UTC：{_text((summary or {}).get('as_of_utc'))}。",
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
-        *_forecast_sections(batches, today, repository),
+        *_forecast_sections(
+            batches, today, repository, now=at, matches=matches, displayed_ids=displayed_ids
+        ),
         *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
+        *review_sections(
+            latest,
+            observations,
+            matches,
+            scored,
+            summary,
+            catalog,
+            skipped,
+            at,
+            displayed_ids=displayed_ids,
+        ),
         *_settlement_sections(scored, summary, batches, today - timedelta(days=1), repository),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
+        *pending_sections(pending, ledger, previous, at),
         *render_experiments((summary or {}).get("experiments")).splitlines(),
         *_anomaly_sections(feed, summary, quota, repository, coverage),
     ]
@@ -418,17 +388,48 @@ def generate(archive, out, *, now=None, run_id="local", repository=None):
     if "建议购买" in text or "推荐" in text:
         raise ValueError("来源文本含禁止的购买措辞，请检查原归档；未发布摘要")
     out.mkdir(parents=True, exist_ok=True)
-    paths = [_path(out, today.isoformat() + ".md"), _path(out, "latest.md")]
+    dated = _path(out, today.isoformat() + ".md")
+    version_path = _path(out, f"{today}/{version_id}")
+    version_markdown = version_path.with_suffix(version_path.suffix + ".md")
+    version_json = version_path.with_suffix(version_path.suffix + ".json")
+    receipt = {
+        "schema_version": 1,
+        "date": today.isoformat(),
+        "run_id": run_id,
+        "version_id": version_id,
+        "generated_utc": at.isoformat(),
+        "update_number": update,
+        "inputs": inputs,
+        "pending": pending,
+        "previous_version": previous["version_id"] if previous else None,
+        "markdown_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+    content = {
+        dated: text.encode("utf-8"),
+        _path(out, "latest.md"): text.encode("utf-8"),
+        version_markdown: text.encode("utf-8"),
+        version_json: (
+            json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        ).encode("utf-8"),
+    }
+    for path in (version_markdown, version_json):
+        if path.exists() and path.read_bytes() != content[path]:
+            raise ValueError("不可覆盖已有日报版本")
+    paths = list(content)
     backups = {path: path.read_bytes() if path.exists() else None for path in paths}
+    directory_existed = version_path.parent.exists()
     try:
         for path in paths:
-            _atomic_write(path, text.encode("utf-8"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(path, content[path])
     except BaseException:
         for path, raw in backups.items():
             if raw is None:
                 path.unlink(missing_ok=True)
             else:
                 _atomic_write(path, raw)
+        if not directory_existed and version_path.parent.exists():
+            version_path.parent.rmdir()
         raise
     LOG.info("摘要已生成：%s", paths[0])
     return paths[0]
@@ -440,10 +441,21 @@ def main(argv=None):
     parser.add_argument("--out", required=True, type=Path, help="daily 输出目录")
     parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
+    parser.add_argument("--jc-sync-status", choices=("success", "failure", "cancelled", "skipped"))
+    parser.add_argument("--jc-sync-run-id")
+    parser.add_argument("--require-notified-history", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
-        generate(args.archive, args.out, run_id=args.run_id, repository=args.repository)
+        generate(
+            args.archive,
+            args.out,
+            run_id=args.run_id,
+            repository=args.repository,
+            jc_sync_status=args.jc_sync_status,
+            jc_sync_run_id=args.jc_sync_run_id,
+            require_notified_history=args.require_notified_history,
+        )
     except (OSError, ValueError, KeyError, TypeError) as exc:
         LOG.error("摘要未生成：%s", exc)
         return 1

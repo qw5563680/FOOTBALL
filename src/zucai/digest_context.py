@@ -1,0 +1,155 @@
+"""Read-only facts for the daily presentation; no predictions, scoring or ticket decisions."""
+
+import csv
+import json
+from datetime import timedelta
+from decimal import Decimal
+
+from zucai.forecast_archive import _path
+from zucai.scoreboard.score import instant, prematch_rows
+from zucai.sources.sporttery import BEIJING
+
+
+def _table(archive, feed, name):
+    path = f"state/{name}.jsonl"
+    if path not in feed["files"]:
+        return
+    with _path(archive, path).open(encoding="utf-8") as stream:
+        for line in stream:
+            yield dict(zip(feed["columns"][name], json.loads(line), strict=True))
+
+
+def archived_matches(archive, feed):
+    teams = {row["id"]: row["name"] for row in _table(archive, feed, "teams")}
+    matches = {
+        row["match_id"]: {
+            **row,
+            "home": teams.get(row["home_team_id"]),
+            "away": teams.get(row["away_team_id"]),
+        }
+        for row in _table(archive, feed, "matches")
+        if row["source"] == "jc"
+    }
+    for row in _table(archive, feed, "results"):
+        if row["match_id"] in matches:
+            matches[row["match_id"]]["result"] = row
+    return matches
+
+
+def audit_rows(archive, feed, name, now):
+    path = f"state/audit/{name}.csv"
+    if path not in feed["files"]:
+        return None
+    with _path(archive, path).open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream, strict=True))
+    return [row for row in rows if row.get("captured_utc") and instant(row["captured_utc"]) <= now]
+
+
+def frozen_rows(batches, matches, now):
+    rows = []
+    for _, path, batch in batches:
+        for prediction in batch["predictions"]:
+            row = {**matches.get(prediction["match_id"], {}), **prediction}
+            row.update({k: batch[k] for k in ("batch_id", "generated_utc", "as_of_utc", "mode")})
+            row["forecast_path"] = path
+            rows.append(row)
+    latest = {row["match_id"]: row for row in prematch_rows(rows, now)}
+    observations = {
+        row["match_id"]: row
+        for row in sorted(rows, key=lambda r: (instant(r["generated_utc"]), r["batch_id"]))
+    }
+    return latest, observations
+
+
+def catalog_gaps(catalog, skipped, predicted_ids, observations):
+    """Only a preserved catalog proves absence, never a hole in a numeric sequence."""
+    if catalog is None:
+        return None
+    by_number = {}
+    for row in sorted(catalog, key=lambda r: r["captured_utc"]):
+        by_number[row["business_date"], row["jc_num"]] = row
+    explanations = {}
+    for row in sorted(skipped or [], key=lambda r: r["captured_utc"]):
+        explanations[row["business_date"], row["jc_num"], row["match_id"]] = row
+    gaps = []
+    for key, row in sorted(by_number.items()):
+        if row["match_id"] in predicted_ids:
+            continue
+        skipped_row = explanations.get((*key, row["match_id"]))
+        observed = observations.get(row["match_id"])
+        reason = skipped_row["reason"] if skipped_row else "no_prematch" if observed else "unknown"
+        gaps.append({**row, "confirmed": True, "reason": reason, "skip_evidence": skipped_row})
+    return gaps
+
+
+def pending_tickets(ledger, now):
+    result = {account: [] for account in "ABCDE"}
+    for ticket in ledger:
+        if (
+            ticket.get("record_type") != "ticket"
+            or ticket["threshold"] != "1.05"
+            or instant(ticket["decision_utc"]) > now
+        ):
+            continue
+        settled = ticket.get("settlement") or {}
+        if settled.get("settled_utc") and instant(settled["settled_utc"]) <= now:
+            continue
+        kickoffs = [leg.get("kickoff_utc") for leg in ticket["legs"]]
+        first = min(map(instant, kickoffs)) if kickoffs and all(kickoffs) else None
+        phase = "unknown" if first is None else "upcoming" if first > now else "started"
+        result[ticket["account"]].append(
+            {
+                "record_id": ticket["record_id"],
+                "phase": phase,
+                "earliest_kickoff_utc": first.isoformat() if first else None,
+            }
+        )
+    return result
+
+
+def settled_since(previous, ledger, now):
+    current = {
+        row["record_id"]: row
+        for row in ledger
+        if row.get("record_type") == "ticket" and row["threshold"] == "1.05"
+    }
+    result = {}
+    for account, pending in previous["pending"].items():
+        outcomes = []
+        for row in pending:
+            ticket = current.get(row["record_id"], {})
+            settlement = ticket.get("settlement") or {}
+            if settlement.get("settled_utc") and instant(settlement["settled_utc"]) <= now:
+                outcomes.append(settlement)
+        result[account] = dict(
+            previous=len(pending),
+            upcoming=sum(r["phase"] == "upcoming" for r in pending),
+            started=sum(r["phase"] == "started" for r in pending),
+            unknown=sum(r["phase"] == "unknown" for r in pending),
+            settled=len(outcomes),
+            won=sum(r["status"] == "won" for r in outcomes),
+            lost=sum(r["status"] == "lost" for r in outcomes),
+            profit=float(sum((Decimal(str(r["profit"])) for r in outcomes), Decimal(0))),
+        )
+    return result
+
+
+def week_start(now):
+    local = now.astimezone(BEIJING)
+    return (local - timedelta(days=local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+
+def observed_result(row, now):
+    result = row.get("result") or {}
+    return (
+        result
+        if (
+            result.get("available_utc")
+            and instant(result["available_utc"]) <= now
+            and result.get("home_goals") is not None
+            and result.get("away_goals") is not None
+        )
+        else None
+    )

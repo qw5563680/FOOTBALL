@@ -2,6 +2,7 @@ name: Football cloud feeds
 on:
   schedule:
     - cron: '40 2 * * *'
+    - cron: '40 7 * * *'
     - cron: '40 9 * * *'
   workflow_dispatch:
     inputs:
@@ -66,8 +67,37 @@ env:
   FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-jc') && 'relink-jc' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-fdorg') && 'relink-fdorg' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'reconcile') && 'reconcile' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'identity') && 'identity' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'probe') && 'probe' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
 
 jobs:
+  schedule-gate:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '40 7 * * *' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_early: ${{ steps.decide.outputs.run_early }}
+      scope: ${{ steps.decide.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        id: archive
+        continue-on-error: true
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          persist-credentials: false
+          sparse-checkout: /state/sfc/
+          sparse-checkout-cone-mode: false
+      - name: Check archived SFC deadlines before sports requests
+        id: decide
+        if: ${{ !cancelled() }}
+        env:
+          ARCHIVE_STATUS: ${{ steps.archive.outcome }}
+        run: |
+          python3 app/src/zucai/schedule_gate.py --archive cloud-data --archive-status "$ARCHIVE_STATUS"
+
   apis:
-    if: ${{ github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-')) }}
+    if: ${{ (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -318,8 +348,8 @@ jobs:
           if-no-files-found: ignore
 
   predict:
-    needs: [apis, sporttery]
-    if: ${{ !cancelled() && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'predict')) }}
+    needs: [schedule-gate, apis, sporttery]
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *' || needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'predict')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -350,8 +380,17 @@ jobs:
           python -m zucai.cloud_predict run --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --sporttery-status "$SPORTTERY_STATUS"
       - name: Freeze SFC14 diagnostics from today's model reports
         continue-on-error: true
-        run: python -m zucai.sfc_reports --archive cloud-data
+        run: python -m zucai.sfc_reports --archive cloud-data --summary "$GITHUB_STEP_SUMMARY"
       - name: Publish frozen models and forecasts
+        id: publish_forecasts
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Confirm SFC publication from the published data branch
+        if: ${{ success() && steps.publish_forecasts.outcome == 'success' }}
+        run: |
+          git -C cloud-data fetch origin refs/heads/data/football-feeds:refs/remotes/origin/data/football-feeds
+          python -m zucai.sfc_reports --archive cloud-data --confirm-publication --published-ref refs/remotes/origin/data/football-feeds --summary "$GITHUB_STEP_SUMMARY"
+      - name: Publish confirmed SFC publication evidence
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
       - name: Keep frozen evidence even on publish conflict
@@ -369,9 +408,9 @@ jobs:
           if-no-files-found: ignore
 
   scoreboard:
-    needs: [predict]
+    needs: [schedule-gate, predict]
     # A skipped/failed prediction must not prevent settlement of earlier frozen batches.
-    if: ${{ !cancelled() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'predict' || inputs.operation == 'scoreboard'))) }}
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *' || needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'predict' || inputs.operation == 'scoreboard'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -409,9 +448,9 @@ jobs:
     permissions:
       contents: write
       issues: write
-    needs: [scoreboard]
+    needs: [schedule-gate, scoreboard, sporttery]
     # Report the available frozen state even if upstream work failed; never rescore here.
-    if: ${{ !cancelled() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *' || needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -430,14 +469,24 @@ jobs:
       - name: Install project for read-only digest
         run: python -m pip install -e ./app
       - name: Render daily digest from frozen archives
-        run: python -m zucai.daily_digest --archive cloud-data --out cloud-data/daily --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+        env:
+          SPORTTERY_STATUS: ${{ needs.sporttery.result }}
+        run: python -m zucai.daily_digest --archive cloud-data --out cloud-data/daily --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --jc-sync-status "$SPORTTERY_STATUS" --jc-sync-run-id "$GITHUB_RUN_ID" --require-notified-history
       - name: Publish daily Markdown
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
       - name: Update monthly report Issue with today's exact Markdown
+        id: notify_digest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python -m zucai.digest_notify --file cloud-data/daily/latest.md
+        run: python -m zucai.digest_notify --file cloud-data/daily/latest.md --history-root cloud-data/daily
+      - name: Publish successful notification receipts even after later cleanup failure
+        if: ${{ !cancelled() && (steps.notify_digest.outcome == 'success' || steps.notify_digest.outcome == 'failure') }}
+        working-directory: cloud-data
+        run: |
+          if [[ -n "$(git status --porcelain -- ':(glob)daily/*/*.notification.json')" ]]; then
+            bash ../app/scripts/publish-football-feeds.sh
+          fi
       - name: Keep digest evidence even on publish or notification failure
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -448,8 +497,8 @@ jobs:
           if-no-files-found: ignore
 
   sporttery:
-    needs: apis
-    if: ${{ !cancelled() && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    needs: [schedule-gate, apis]
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *' || needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
     timeout-minutes: 60
     env:

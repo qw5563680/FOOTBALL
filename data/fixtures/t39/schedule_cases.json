@@ -1,0 +1,22 @@
+{
+  "provenance": "Synthetic schedule headers for offline gate tests; not production evidence.",
+  "cases": [
+    {"id": "today", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": {"schema_version": 1, "issue": {"issue_no": "26158", "sale_end_utc": "2026-11-05T09:30:00Z"}}}, "scope": "present", "run_early": true},
+    {"id": "tomorrow_beijing_boundary", "now": "2026-11-05T07:40:00Z", "states": {"26159.json": {"schema_version": 1, "issue": {"issue_no": "26159", "sale_end_utc": "2026-11-05T16:00:00Z"}}}, "scope": "present", "run_early": true},
+    {"id": "already_closed_today", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": {"schema_version": 1, "issue": {"issue_no": "26158", "sale_end_utc": "2026-11-04T16:00:00Z"}}}, "scope": "present", "run_early": true},
+    {"id": "no_matching_period", "now": "2026-11-05T07:40:00Z", "states": {"26157.json": {"schema_version": 1, "issue": {"issue_no": "26157", "sale_end_utc": "2026-11-04T15:59:59Z"}}, "26160.json": {"schema_version": 1, "issue": {"issue_no": "26160", "sale_end_utc": "2026-11-06T16:00:00Z"}}}, "scope": "absent", "run_early": false},
+    {"id": "delayed_start_after_beijing_midnight", "now": "2026-11-05T16:00:00Z", "states": {"26158.json": {"schema_version": 1, "issue": {"issue_no": "26158", "sale_end_utc": "2026-11-05T09:30:00Z"}}}, "scope": "absent", "run_early": false},
+    {"id": "offset_timestamp", "now": "2026-11-05T07:40:00Z", "states": {"26159.json": {"schema_version": 1, "issue": {"issue_no": "26159", "sale_end_utc": "2026-11-06T17:30:00+08:00"}}}, "scope": "present", "run_early": true},
+    {"id": "missing_scope", "now": "2026-11-05T07:40:00Z", "states": null, "scope": "unknown", "run_early": true},
+    {"id": "empty_scope", "now": "2026-11-05T07:40:00Z", "states": {}, "scope": "unknown", "run_early": true},
+    {"id": "failed_checkout_with_partial_files", "now": "2026-11-05T07:40:00Z", "archive_available": false, "states": {"26157.json": {"schema_version": 1, "issue": {"issue_no": "26157", "sale_end_utc": "2026-11-04T09:30:00Z"}}}, "scope": "unknown", "run_early": true},
+    {"id": "missing_deadline", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": {"schema_version": 1, "issue": {"issue_no": "26158", "sale_end_utc": null}}}, "scope": "unknown", "run_early": true},
+    {"id": "invalid_deadline", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": {"schema_version": 1, "issue": {"issue_no": "26158", "sale_end_utc": "unavailable"}}}, "scope": "unknown", "run_early": true},
+    {"id": "naive_deadline", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": {"schema_version": 1, "issue": {"issue_no": "26158", "sale_end_utc": "2026-11-04T09:30:00"}}}, "scope": "unknown", "run_early": true},
+    {"id": "malformed_json", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": "{broken"}, "scope": "unknown", "run_early": true},
+    {"id": "invalid_payload", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": []}, "scope": "unknown", "run_early": true},
+    {"id": "wrong_issue", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": {"schema_version": 1, "issue": {"issue_no": "26157", "sale_end_utc": "2026-11-04T09:30:00Z"}}}, "scope": "unknown", "run_early": true},
+    {"id": "unknown_schema", "now": "2026-11-05T07:40:00Z", "states": {"26158.json": {"schema_version": 2, "issue": {"issue_no": "26158", "sale_end_utc": "2026-11-04T09:30:00Z"}}}, "scope": "unknown", "run_early": true},
+    {"id": "mixed_expired_and_unknown", "now": "2026-11-05T07:40:00Z", "states": {"26157.json": {"schema_version": 1, "issue": {"issue_no": "26157", "sale_end_utc": "2026-11-04T09:30:00Z"}}, "26158.json": {"schema_version": 1, "issue": {"issue_no": "26158"}}}, "scope": "unknown", "run_early": true}
+  ]
+}

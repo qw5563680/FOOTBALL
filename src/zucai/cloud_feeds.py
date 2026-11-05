@@ -17,6 +17,8 @@ from itertools import groupby
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from requests import RequestException
+
 from zucai.db import get_engine, init_db
 from zucai.sfc_state import export_sfc_state, restore_sfc_state
 from zucai.sources.results import ResultRowsRejected, fetch_results
@@ -357,9 +359,11 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
             write_rows_manifest(dest, block)
         else:
             (dest.parent / ROWS_MANIFEST).unlink(missing_ok=True)
-        # Technical rows, receipts, cursor and coverage belong to the selected snapshot.
-        # A reused destination must not retain state from a later backfill run.
+        # Catalog evidence, technical receipts, cursor and coverage belong to this snapshot.
+        # A reused destination must not retain evidence from a later run.
         for key in (
+            "state/audit/jc_catalog.csv",
+            "state/audit/jc_skipped.csv",
             "state/audit/stats_ingest_audit.csv",
             "state/audit/injuries_ingest_audit.csv",
             "state/audit/stats_link_audit.csv",
@@ -398,6 +402,74 @@ def date_windows(database: Path, previous: date, today: date, days: int) -> list
         }
     extra.update(day for day in pending_dates if day < start)
     return [(d, d) for d in sorted(extra)] + [(start, today)]
+
+
+def collect_jc(database: Path, previous: dict, today: date, days: int) -> tuple[dict, bool]:
+    """Publish independent stages without turning a failed attempt into a success time."""
+    prior = previous.get("collection", {}).get("jc", {})
+    result = dict(
+        status="complete",
+        schedule_status="complete",
+        results_status="complete",
+        schedule_updated_utc=prior.get("schedule_updated_utc"),
+        results_updated_utc=prior.get("results_updated_utc"),
+        schedule_matches=0,
+        odds_snapshots=0,
+        result_windows=0,
+        result_windows_completed=0,
+        inserted=None,
+        linked_existing=0,
+        rejected_rows=0,
+        requests=None,
+        errors=[],
+        failed_stages=[],
+    )
+    metadata = {}
+    try:
+        result["schedule_matches"], result["odds_snapshots"] = fetch_schedule(metadata=metadata)
+        result["schedule_updated_utc"] = metadata["captured_utc"]
+    except (RequestException, ValueError, KeyError, TypeError) as exc:
+        result["schedule_status"] = "failed"
+        result["failed_stages"].append("schedule")
+        result["errors"].append(f"赛程更新失败：{type(exc).__name__}")
+        LOG.warning("JC schedule collection failed (%s)", type(exc).__name__)
+
+    windows_complete = True
+    rows_rejected = False
+    try:
+        windows = date_windows(
+            database, date.fromisoformat(previous["through_beijing"]), today, days
+        )
+        result["result_windows"] = len(windows)
+        for i, (start, end) in enumerate(windows):
+            if i:
+                time.sleep(1)
+            try:
+                fetch_results(start, end)
+            except ResultRowsRejected as exc:
+                # All pages were read; per-row rejects keep their existing retry audit.
+                rows_rejected = True
+                LOG.warning("单场拒绝，继续处理其他窗口：%s", exc)
+            result["result_windows_completed"] += 1
+    except (RequestException, ValueError, KeyError, TypeError) as exc:
+        windows_complete = False
+        result["results_status"] = "failed"
+        result["failed_stages"].append("results")
+        result["errors"].append(f"赛果更新失败：{type(exc).__name__}")
+        LOG.warning("JC results collection failed (%s)", type(exc).__name__)
+    pending = pending_results(database)
+    result["rejected_rows"] = len(pending)
+    if pending or rows_rejected:
+        if result["results_status"] != "failed":
+            result["results_status"] = "partial"
+        result["errors"].append(f"仍有 {len(pending)} 场竞彩赛果待补抓")
+    if result["results_status"] == "complete":
+        result["results_updated_utc"] = datetime.now(UTC).isoformat()
+    if result["schedule_status"] != "complete" or result["results_status"] != "complete":
+        result["status"] = "partial"
+    # A failed date page is absent from the row-rejection audit. Keep the previous
+    # date watermark so next sync retries every missing day, including unseen IDs.
+    return result, windows_complete
 
 
 def write_apif_quota(summary, result):
@@ -596,30 +668,13 @@ def main():
     if args.command == "sync":
         from zucai.sources.sfc import collect_current_sfc
 
-        schedule_matches, quotes = fetch_schedule()
-        windows = date_windows(target, date.fromisoformat(meta["through_beijing"]), day, args.days)
-        for i, (start, end) in enumerate(windows):
-            if i:
-                time.sleep(1)
-            try:
-                fetch_results(start, end)
-            except ResultRowsRejected as exc:
-                LOG.warning("单场拒绝，继续处理其他窗口：%s", exc)
-        pending = pending_results(target)
+        jc, windows_complete = collect_jc(target, meta, day, args.days)
         collection = {
-            "jc": dict(
-                status="partial" if pending else "complete",
-                schedule_matches=schedule_matches,
-                odds_snapshots=quotes,
-                result_windows=len(windows),
-                inserted=None,
-                linked_existing=0,
-                rejected_rows=len(pending),
-                requests=None,
-                errors=[f"仍有 {len(pending)} 场竞彩赛果待补抓"] if pending else [],
-            ),
+            "jc": jc,
             "sfc": collect_current_sfc(target),
         }
+        if not windows_complete:
+            day = date.fromisoformat(meta["through_beijing"])
     published_collection = collection
     if args.command in {"sync", "apis"}:
         for result in collection.values():

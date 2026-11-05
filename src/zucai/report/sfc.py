@@ -27,6 +27,7 @@ from zucai.report.render import (
     _validate_batch,
     load_batch,
 )
+from zucai.sfc_publication import PUBLICATION_FIELDS, deadline_message
 from zucai.sources.sfc import refresh_snapshot
 
 LOG = logging.getLogger(__name__)
@@ -227,6 +228,8 @@ def build_sfc_report(
 
 
 def _markdown(report):
+    if report.get("publication_schema") and report["sale_state"] != "published_before_deadline":
+        return _unconfirmed_markdown(report)
     source, batch = report["source"], report["forecast_batch"]
     title = "诊断" if report.get("diagnostic") else "实验参考"
     lines = [
@@ -235,6 +238,15 @@ def _markdown(report):
         "**P2 未验证模型，BET 禁用；不构成购买建议。**",
         "",
         f"报告生成：{_beijing(report['generated_utc'])}（北京时间）。",
+        *(
+            [
+                deadline_message(report) + "。",
+                f"存好时间：{_beijing(report['published_utc'])}（北京时间）；"
+                f"发布提交：`{report['publication_commit']}`。",
+            ]
+            if report.get("publication_schema")
+            else []
+        ),
         f"原预测生成：{_beijing(batch['generated_utc'])}；数据截点：{_beijing(batch['as_of_utc'])}。",
         f"模式：{_md(report['mode'])}；historical_replay 为事后重建，不能当作未见验证。",
         "",
@@ -305,7 +317,44 @@ def _markdown(report):
     return "\n".join(lines).encode("utf-8")
 
 
+def _unconfirmed_markdown(report):
+    """Keep evidence in JSON while exposing only fixtures for an ineligible issue."""
+    source = report["source"]
+    published = _beijing(report["published_utc"]) if report["published_utc"] else "未知"
+    deadline = _beijing(report["sale_end_utc"]) if report["sale_end_utc"] else "未知"
+    lines = [
+        f"# 第{report['issue_no']}期 · 14场胜负彩诊断",
+        "",
+        "**P2 未验证模型，BET 禁用；不构成购买建议。**",
+        "",
+        deadline_message(report) + "。",
+        f"算完时间：{_beijing(report['generated_utc'])}；存好时间：{published}；"
+        f"停售时间：{deadline}（北京时间）。",
+        f"发布提交：{report['publication_commit'] or '未知'}；状态：{report['sale_state']}。",
+        f"期次来源：{_md(source['url'])}（第三方）；读取：{_beijing(source['observed_utc'])}。",
+        "",
+        "|序号|赛事/对阵|北京时间|状态|",
+        "|---|---|---|---|",
+    ]
+    for row in report["rows"]:
+        kickoff = _beijing(row["kickoff_utc"])
+        if row.get("kickoff_basis") == "placeholder":
+            kickoff += "（占位开球时间，待核实）"
+        values = [row["seq"], f"{row['league']} {row['home']}—{row['away']}", kickoff, "无冻结概率"]
+        lines.append("|" + "|".join(_md(value) for value in values) + "|")
+    lines += [
+        "",
+        "原始计算与引用预测证据保存在 sfc.json；未确认停售前存好，不作冻结概率展示。",
+        f"原预测 SHA256：`{report['forecast_sha256']}`；"
+        f"期次原件 SHA256：`{source['raw_sha256']}`。",
+        "",
+    ]
+    return "\n".join(lines).encode("utf-8")
+
+
 def _csv(report):
+    if report.get("publication_schema") and report["sale_state"] != "published_before_deadline":
+        return _unconfirmed_csv(report)
     stream = io.StringIO(newline="")
     writer = csv.writer(stream)
     writer.writerow(
@@ -337,6 +386,7 @@ def _csv(report):
             "sale_end_utc",
             "source_observed_utc",
             "date_basis",
+            *(["published_utc", "publication_commit"] if report.get("publication_schema") else []),
         ]
     )
     for r in report["rows"]:
@@ -371,6 +421,53 @@ def _csv(report):
                     report["source"]["sale_end_utc"],
                     report["source"]["observed_utc"],
                     report["source"]["date_basis"],
+                    *(
+                        [report["published_utc"], report["publication_commit"]]
+                        if report.get("publication_schema")
+                        else []
+                    ),
+                ]
+            ]
+        )
+    return stream.getvalue().encode("utf-8-sig")
+
+
+def _unconfirmed_csv(report):
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream)
+    writer.writerow(
+        [
+            "issue",
+            "seq",
+            "league",
+            "home",
+            "away",
+            "kickoff_beijing",
+            "status",
+            "generated_utc",
+            "published_utc",
+            "sale_end_utc",
+            "sale_state",
+            "publication_commit",
+        ]
+    )
+    for row in report["rows"]:
+        writer.writerow(
+            [
+                _csv_cell(value)
+                for value in [
+                    report["issue_no"],
+                    row["seq"],
+                    row["league"],
+                    row["home"],
+                    row["away"],
+                    _beijing(row["kickoff_utc"]),
+                    "无冻结概率",
+                    report["generated_utc"],
+                    report["published_utc"],
+                    report["sale_end_utc"],
+                    report["sale_state"],
+                    report["publication_commit"],
                 ]
             ]
         )
@@ -391,6 +488,11 @@ def write_sfc_report(report, output: Path):
             schema_version=1,
             algorithm="sha256",
             files={name: hashlib.sha256(data).hexdigest() for name, data in contents.items()},
+            **(
+                {key: frozen_report[key] for key in PUBLICATION_FIELDS}
+                if frozen_report.get("publication_schema")
+                else {}
+            ),
         )
     )
     output.mkdir(parents=True, exist_ok=False)
