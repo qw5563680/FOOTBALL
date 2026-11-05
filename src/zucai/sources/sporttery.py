@@ -41,6 +41,7 @@ CATALOG_FIELDS = (
     "captured_utc",
     "kickoff_utc",
 )
+LEGACY_AUDIT_MONTH = "2026-11"
 
 
 def utc_stamp(instant: datetime) -> str:
@@ -131,6 +132,7 @@ class SportteryCalculator(Source[JcMatch]):
         self.limiter = RateLimiter(1)
         self.catalog: list[dict[str, str]] = []
         self.skipped: list[dict[str, str]] = []
+        self.captured_utc = ""
 
     def fetch_raw(self) -> Path:
         self.limiter.wait()
@@ -148,6 +150,7 @@ class SportteryCalculator(Source[JcMatch]):
         self.catalog = []
         self.skipped = []
         captured_utc = utc_stamp(captured) if captured is not None else ""
+        self.captured_utc = captured_utc
         value = official_value(raw)
         if "matchInfoList" not in value:
             if value == {}:
@@ -227,7 +230,7 @@ class SportteryCalculator(Source[JcMatch]):
         return matches
 
 
-def _audit_content(path: Path, rows: list[dict[str, str]], fields, keys) -> bytes:
+def _existing_audit(path: Path, fields) -> list[dict[str, str]]:
     existing = []
     if path.exists():
         with path.open(encoding="utf-8", newline="") as stream:
@@ -237,7 +240,18 @@ def _audit_content(path: Path, rows: list[dict[str, str]], fields, keys) -> byte
             existing = list(reader)
         if any(None in row or any(value is None for value in row.values()) for row in existing):
             raise ValueError(f"竞彩审计行无效：{path.name}")
-    seen = {tuple(row[field] for field in keys): row for row in existing}
+    return existing
+
+
+def _audit_content(path: Path, rows: list[dict[str, str]], fields, keys, *, legacy=None) -> bytes:
+    existing = _existing_audit(path, fields)
+    historical = _existing_audit(legacy, fields) if legacy is not None else []
+    seen = {}
+    for row in [*historical, *existing]:
+        key = tuple(row[field] for field in keys)
+        if key in seen and seen[key] != row:
+            raise ValueError(f"竞彩同一编号与采集时刻的审计冲突：{path.name}")
+        seen[key] = row
     for row in rows:
         key = tuple(row[field] for field in keys)
         if key in seen:
@@ -255,24 +269,31 @@ def _audit_content(path: Path, rows: list[dict[str, str]], fields, keys) -> byte
 
 def save_schedule_audit(directory: Path, feed: SportteryCalculator) -> None:
     """Keep complete raw-page evidence, including rows outside a requested number date."""
-    catalog = directory / "jc_catalog.csv"
-    skipped = directory / "jc_skipped.csv"
+    month = utc_stamp(datetime.fromisoformat(feed.captured_utc))[:7]
+    catalog = directory / "jc_catalog" / f"{month}.csv"
+    skipped = directory / "jc_skipped" / f"{month}.csv"
     contents = {
         catalog: _audit_content(
-            catalog, feed.catalog, CATALOG_FIELDS, ("business_date", "jc_num", "captured_utc")
+            catalog,
+            feed.catalog,
+            CATALOG_FIELDS,
+            ("business_date", "jc_num", "captured_utc"),
+            legacy=directory / "jc_catalog.csv" if month == LEGACY_AUDIT_MONTH else None,
         ),
         skipped: _audit_content(
             skipped,
             feed.skipped,
             (*CATALOG_FIELDS, "reason"),
             ("business_date", "jc_num", "matchId", "captured_utc", "reason"),
+            legacy=directory / "jc_skipped.csv" if month == LEGACY_AUDIT_MONTH else None,
         ),
     }
     previous = {path: path.read_bytes() if path.exists() else None for path in contents}
-    directory.mkdir(parents=True, exist_ok=True)
     try:
         for path, content in contents.items():
-            _atomic_write(path, content)
+            if content != previous[path]:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _atomic_write(path, content)
     except Exception:
         for path, content in previous.items():
             if content is None:

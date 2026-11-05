@@ -2,12 +2,12 @@
 
 import csv
 import json
-from datetime import timedelta
+from datetime import UTC, timedelta
 from decimal import Decimal
 
 from zucai.forecast_archive import _path
 from zucai.scoreboard.score import instant, prematch_rows
-from zucai.sources.sporttery import BEIJING
+from zucai.sources.sporttery import BEIJING, LEGACY_AUDIT_MONTH
 
 
 def _table(archive, feed, name):
@@ -37,11 +37,22 @@ def archived_matches(archive, feed):
 
 
 def audit_rows(archive, feed, name, now):
-    path = f"state/audit/{name}.csv"
-    if path not in feed["files"]:
+    now = instant(now)
+    start = week_start(now).astimezone(UTC).date()
+    months = {
+        (start + timedelta(days=offset)).strftime("%Y-%m")
+        for offset in range((now.date() - start).days + 1)
+    }
+    paths = [f"state/audit/{name}/{month}.csv" for month in sorted(months)]
+    if LEGACY_AUDIT_MONTH in months:
+        paths.insert(0, f"state/audit/{name}.csv")
+    paths = [path for path in paths if path in feed["files"]]
+    if not paths:
         return None
-    with _path(archive, path).open(encoding="utf-8", newline="") as stream:
-        rows = list(csv.DictReader(stream, strict=True))
+    rows = []
+    for path in paths:
+        with _path(archive, path).open(encoding="utf-8", newline="") as stream:
+            rows.extend(csv.DictReader(stream, strict=True))
     return [row for row in rows if row.get("captured_utc") and instant(row["captured_utc"]) <= now]
 
 
