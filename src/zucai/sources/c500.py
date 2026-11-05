@@ -292,6 +292,7 @@ class C500FixtureBridge(Source[dict]):
         if not doc.xpath('//*[@id="betTbThead"]'):
             raise ValueError("500比赛ID对照页不完整")
         out = []
+        unbridged = []
         for row in doc.xpath("//tr[@data-fixtureid and @data-id]"):
             values = {
                 key: row.get(attr, "")
@@ -308,10 +309,14 @@ class C500FixtureBridge(Source[dict]):
             }
             if not values["jc_id"].isdigit() or int(values["jc_id"]) <= 0:
                 continue
-            if any(
-                not values[k].isdigit() or int(values[k]) <= 0
-                for k in ("fixture_id", "home_id", "away_id")
-            ):
+            provider_ids = [values[k] for k in ("fixture_id", "home_id", "away_id")]
+            if not any(provider_ids):
+                # Observed 2026-11-05: rows whose sale has closed (data-isend="1") stay
+                # on the page with every provider ID blank. They cannot bridge anything,
+                # so skip them instead of failing the whole issue collection.
+                unbridged.append(values["jc_num"] or values["jc_id"])
+                continue
+            if any(not v.isdigit() or int(v) <= 0 for v in provider_ids):
                 raise ValueError("比赛ID对照缺少球队ID")
             if any(not values[k] or "\ufffd" in values[k] for k in ("home", "away", "league")):
                 raise ValueError("比赛ID对照身份缺失或解码失败")
@@ -324,4 +329,10 @@ class C500FixtureBridge(Source[dict]):
             out
         ):
             raise ValueError("比赛ID对照重复，不能自动匹配")
+        if unbridged and not out:
+            raise ValueError("比赛ID对照页没有任何带球队ID的场次")
+        if unbridged:
+            LOGGER.warning(
+                "比赛ID对照跳过%d场无球队ID的场次：%s", len(unbridged), "、".join(unbridged)
+            )
         return out
