@@ -782,6 +782,8 @@ T39 保留 UTC 02:40 / 09:40，新增 UTC 07:40（北京15:40）。`schedule-gat
 `predict` job，依赖 `apis` 和 `sporttery`；手动 apis 不触发预测。定时采集传 `--slot auto`，
 以实际 UTC 09:00 为界判定 early/late，apis job 输出 slot；fd 仍仅 UTC 周一 early 采集。沿用工作流级 `write-football-feed-data` 锁，
 `apis` 失败或整体取消时不运行，竞彩 job 跳过仍运行并提示「竞彩数据非今日」。手动 predict 不采集。
+`sporttery_stale` 同时检查竞彩 job 结果、`through_beijing` 与 `collection.jc.schedule_status`；
+赛程阶段非 `complete` 时即使 job 成功、赛果水位已到当日，也提示旧赛程与赔率未确认更新。旧归档缺该字段时默认 `complete`，兼容原判断。
 安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。单次上限 45 分钟。
 
 `cloud_predict.run` 在临时目录调用 `restore_feeds` 并记录工作库 SHA256。每个联赛调用现有 `train`，
@@ -900,7 +902,10 @@ T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，
 
 T39 页面依次是头部、今日与明日未开球预测、14场、复盘、昨日评分、虚拟账户、异常。头部独立展示
 `collection.jc.schedule_updated_utc/results_updated_utc` 最近成功时刻；失败保留旧成功时刻，未知不以
-through_beijing/归档生成时间替代。实际 sporttery job 失败也传入日报；提示run和本周冻结预测中已开球无已知赛果的场数。
+through_beijing/归档生成时间替代。赛程阶段失败提示「赛程更新失败」，赛果阶段失败提示「赛果更新失败」，
+赛果 `partial` 提示「赛果部分未到，还有 N 场待核对」，不将部分结果未到称为失败；兼容旧 `failed_stages`。
+实际 sporttery job 失败也传入日报；若没有同次运行的失败阶段记录，提示「竞彩同步失败，失败阶段未记录」，不猜失败阶段。
+各提示引用对应run，待核对数仅为本周冻结预测中已开球无已知赛果的场数；两阶段同时失败则分别显示。
 每个开球日按生成 UTC、batch_id 取最新冻结批次（空批次不借旧场次补齐），
 只显示 kickoff > digest.generated_utc 的比赛，按竞彩编号展示原胜平负、完整模型版本、P2 ready/experimental 与原 top_scores
 前五，不排序或重算概率；excluded 行统一显示「未预测：原因」，不把已开赛等原因说成缺模型。数据来源链接指向对应数据分支文件。

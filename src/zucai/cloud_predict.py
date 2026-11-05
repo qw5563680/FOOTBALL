@@ -49,7 +49,11 @@ def _json(path, value):
 def _summary(archive, run):
     lines = [DISCLAIMER, "", f"### 定时预测：{run['run_id']} · {run['status']}", ""]
     if run["sporttery_stale"]:
-        lines += ["竞彩数据非今日：本次竞彩 job 未成功或归档水位不是今日；按现有快照预测。", ""]
+        lines += [
+            "竞彩数据非今日：本次竞彩 job 未成功、赛程阶段未完整成功或归档水位不是今日；"
+            "按现有快照预测。",
+            "",
+        ]
     lines += [
         "56 天回测仅作冒烟检查，不是 P2 证据；P2 标签由已发布策略和模型共同判定。",
         "",
@@ -184,7 +188,9 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
             "params_sha256": params_sha,
             "feed_manifest_sha256": digest(archive / "feed_manifest.json"),
             "sporttery_stale": sporttery_status != "success"
-            or feed["through_beijing"] != day.isoformat(),
+            or feed["through_beijing"] != day.isoformat()
+            or feed.get("collection", {}).get("jc", {}).get("schedule_status", "complete")
+            != "complete",
             "status": "complete" if len(fitted) == len(outcomes) else "partial",
             "leagues": outcomes,
             "forecasts": {},

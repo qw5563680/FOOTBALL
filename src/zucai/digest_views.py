@@ -209,24 +209,40 @@ def header_lines(feed, latest, matches, now, *, jc_sync_status=None, jc_sync_run
         f"竞彩赛程更新至：{_local(jc.get('schedule_updated_utc'))}（北京时间）。",
         f"赛果更新至：{_local(jc.get('results_updated_utc'))}（北京时间）。",
     ]
-    failed = (
-        jc_sync_status in {"failure", "cancelled"}
-        or jc.get("failed_stages")
-        or any(
-            jc.get(f"{stage}_status") in {"failed", "partial"} for stage in ("schedule", "results")
-        )
+    failed_stages = jc.get("failed_stages") or []
+    schedule_failed = jc.get("schedule_status") == "failed" or "schedule" in failed_stages
+    results_failed = jc.get("results_status") == "failed" or "results" in failed_stages
+    run = jc.get("run_id")
+    pending = sum(
+        week_start(now) <= _instant(row["kickoff_utc"]) <= now
+        and not observed_result(matches.get(key, {}), now)
+        for key, row in latest.items()
     )
-    if failed:
-        pending = sum(
-            week_start(now) <= _instant(row["kickoff_utc"]) <= now
-            and not observed_result(matches.get(key, {}), now)
-            for key, row in latest.items()
-        )
-        run = jc_sync_run_id if jc_sync_status in {"failure", "cancelled"} else jc.get("run_id")
+    if schedule_failed:
         lines.append(
-            f"赛果更新失败（run {_text(run)}），还有 {pending} 场已开球未核对。"
-            "成功时刻保留上次值，本次未取得的结果不猜测。"
+            f"赛程更新失败（run {_text(run)}）。成功时刻保留上次值，现有赛程与赔率未确认更新。"
         )
+    if results_failed or jc.get("results_status") == "partial":
+        if results_failed:
+            lines.append(
+                f"赛果更新失败（run {_text(run)}），还有 {pending} 场已开球未核对。"
+                "成功时刻保留上次值，本次未取得的结果不猜测。"
+            )
+        else:
+            lines.append(
+                f"赛果部分未到，还有 {pending} 场待核对（run {_text(run)}）。"
+                "成功时刻保留上次值，本次未取得的结果不猜测。"
+            )
+    if jc_sync_status in {"failure", "cancelled"}:
+        same_run = jc_sync_run_id is not None and (
+            run == jc_sync_run_id or str(run).startswith(f"{jc_sync_run_id}-")
+        )
+        if not same_run or not (schedule_failed or results_failed):
+            lines.append(
+                f"竞彩同步失败（run {_text(jc_sync_run_id)}），还有 {pending} 场已开球未核对；"
+                "失败阶段未记录。"
+                "成功时刻保留上次值，不推断为赛程或赛果失败。"
+            )
     return lines
 
 

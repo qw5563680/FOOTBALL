@@ -101,13 +101,20 @@ def test_latest_valid_prematch_survives_post_kickoff_exclusion_and_review_counts
     assert "last-valid" in review and "after-start" not in review
 
 
-def test_header_keeps_separate_success_watermarks_and_actual_sync_failure():
+@pytest.mark.parametrize(
+    "case",
+    json.loads((FIX.parent / "review_status.json").read_bytes())["cases"],
+    ids=lambda case: case["name"],
+)
+def test_header_stage_wording_and_separate_success_watermarks(case):
     feed = {
         "collection": {
             "jc": {
                 "status": "complete",
                 "schedule_updated_utc": SAMPLE["earlier_utc"],
                 "results_updated_utc": "2026-11-03T08:00:00Z",
+                "run_id": "stage-run",
+                **case["jc"],
             }
         }
     }
@@ -128,16 +135,43 @@ def test_header_keeps_separate_success_watermarks_and_actual_sync_failure():
             rows,
             matches,
             _instant(SAMPLE["later_utc"]),
-            jc_sync_status="failure",
-            jc_sync_run_id="failed-1",
+            jc_sync_status=case.get("job_status", "success"),
+            jc_sync_run_id=case.get("job_run_id", "failed-1"),
         )
     )
     assert "竞彩赛程更新至：2026-11-05 01:39:22" in text
     assert "赛果更新至：2026-11-03 16:00:00" in text
-    assert "赛果更新失败（run failed-1），还有 1 场已开球未核对" in text
-    assert "失败" not in "\n".join(
-        header_lines(feed, rows, matches, _instant(SAMPLE["later_utc"]), jc_sync_status="skipped")
+    for expected in case["expected"]:
+        assert expected in text
+    for absent in case["absent"]:
+        assert absent not in text
+
+
+def test_header_unknown_job_failure_does_not_invent_failed_stage():
+    feed = {"collection": {"jc": {"status": "complete"}}}
+    text = "\n".join(
+        header_lines(
+            feed,
+            {},
+            {},
+            _instant(SAMPLE["later_utc"]),
+            jc_sync_status="failure",
+            jc_sync_run_id="failed-1",
+        )
     )
+    assert "竞彩同步失败（run failed-1）" in text
+    assert "失败阶段未记录" in text
+    assert "赛程更新失败" not in text and "赛果更新失败" not in text
+    skipped = "\n".join(
+        header_lines(
+            feed,
+            {},
+            {},
+            _instant(SAMPLE["later_utc"]),
+            jc_sync_status="skipped",
+        )
+    )
+    assert "失败" not in skipped
 
 
 def test_gap_wording_keeps_evidence_separate_and_never_infers_final_number():

@@ -154,6 +154,61 @@ def test_all_models_fail_and_next_day_empty_still_archives_exclusions(
     assert json.loads((archive / "models/latest.json").read_bytes())["models"] == {}
 
 
+@pytest.mark.parametrize("schedule_state", ["failed", "complete", "legacy"])
+def test_schedule_stage_controls_stale_even_when_sync_succeeds_today(
+    scheduled_archive, tmp_path, monkeypatch, schedule_state
+):
+    from requests import ConnectionError
+
+    from zucai import cloud_feeds, cloud_predict
+    from zucai.forecast_archive import verify_forecasts
+    from zucai.sources.sporttery import BEIJING
+
+    archive, params = scheduled_archive
+    database = tmp_path / "seed.db"
+    today = NOW.astimezone(BEIJING).date()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz)
+
+    def schedule(*, metadata):
+        if schedule_state == "failed":
+            raise ConnectionError("offline schedule failure")
+        metadata["captured_utc"] = NOW.isoformat()
+        return 0, 0
+
+    monkeypatch.setattr(cloud_feeds, "datetime", Clock)
+    monkeypatch.setattr(cloud_feeds, "fetch_schedule", schedule)
+    monkeypatch.setattr(cloud_feeds, "fetch_results", lambda *_: {})
+    monkeypatch.setattr(cloud_feeds.time, "sleep", lambda _: None)
+    jc, windows_complete = cloud_feeds.collect_jc(
+        database, cloud_feeds.archive_info(archive), today, 3
+    )
+    assert windows_complete and jc["results_status"] == "complete"
+    assert jc["schedule_status"] == ("failed" if schedule_state == "failed" else "complete")
+    if schedule_state == "legacy":
+        jc.pop("schedule_status")  # Older archives remain compatible.
+    feed = export_feeds(database, archive, today, "sync-finished", collection={"jc": jc})
+    assert feed["through_beijing"] == today.isoformat()
+    assert feed["collection"]["jc"]["status"] == (
+        "partial" if schedule_state == "failed" else "complete"
+    )
+    before = (archive / "feed_manifest.json").read_bytes()
+    summary = tmp_path / "predict-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.setattr(cloud_predict, "_now", lambda: NOW)
+    result = cloud_predict.run(archive, params, "review-stale", sporttery_status="success")
+    expected = schedule_state == "failed"
+    assert result["sporttery_stale"] is expected
+    assert verify_forecasts(archive)["runs"]["review-stale"]["sporttery_stale"] is expected
+    assert ("竞彩数据非今日" in summary.read_text()) is expected
+    if expected:
+        assert "赛程阶段未完整成功" in summary.read_text()
+    assert (archive / "feed_manifest.json").read_bytes() == before
+
+
 def test_kickoff_during_export_rolls_back_run(scheduled_archive, monkeypatch):
     from zucai import cloud_predict
 

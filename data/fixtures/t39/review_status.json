@@ -1,0 +1,64 @@
+{
+  "description": "Synthetic stage outcomes for the T39 review regression; no live requests.",
+  "cases": [
+    {
+      "name": "schedule_failed",
+      "jc": {"schedule_status": "failed", "results_status": "complete", "failed_stages": ["schedule"]},
+      "expected": ["赛程更新失败（run stage-run）"],
+      "absent": ["赛果更新失败", "赛果部分未到"]
+    },
+    {
+      "name": "results_failed",
+      "jc": {"schedule_status": "complete", "results_status": "failed", "failed_stages": ["results"]},
+      "expected": ["赛果更新失败（run stage-run），还有 1 场已开球未核对"],
+      "absent": ["赛程更新失败", "赛果部分未到"]
+    },
+    {
+      "name": "results_partial",
+      "jc": {"schedule_status": "complete", "results_status": "partial", "failed_stages": []},
+      "expected": ["赛果部分未到，还有 1 场待核对（run stage-run）"],
+      "absent": ["更新失败", "同步失败"]
+    },
+    {
+      "name": "both_failed",
+      "jc": {"schedule_status": "failed", "results_status": "failed", "failed_stages": ["schedule", "results"]},
+      "expected": ["赛程更新失败（run stage-run）", "赛果更新失败（run stage-run）"],
+      "absent": ["赛果部分未到"]
+    },
+    {
+      "name": "legacy_failed_stage",
+      "jc": {"failed_stages": ["schedule"]},
+      "expected": ["赛程更新失败（run stage-run）"],
+      "absent": ["赛果更新失败", "赛果部分未到"]
+    },
+    {
+      "name": "complete",
+      "jc": {"schedule_status": "complete", "results_status": "complete", "failed_stages": []},
+      "expected": [],
+      "absent": ["更新失败", "部分未到", "同步失败"]
+    },
+    {
+      "name": "partial_with_new_job_failure",
+      "jc": {"schedule_status": "complete", "results_status": "partial", "failed_stages": []},
+      "job_status": "failure",
+      "expected": ["赛果部分未到，还有 1 场待核对（run stage-run）", "竞彩同步失败（run failed-1）"],
+      "absent": ["赛程更新失败", "赛果更新失败"]
+    },
+    {
+      "name": "failed_job_with_same_run_stage",
+      "jc": {"schedule_status": "failed", "results_status": "complete", "failed_stages": ["schedule"]},
+      "job_status": "failure",
+      "job_run_id": "stage-run",
+      "expected": ["赛程更新失败（run stage-run）"],
+      "absent": ["赛果更新失败", "失败阶段未记录"]
+    },
+    {
+      "name": "failed_job_with_same_run_attempt_stage",
+      "jc": {"run_id": "12345-2", "schedule_status": "failed", "results_status": "complete", "failed_stages": ["schedule"]},
+      "job_status": "cancelled",
+      "job_run_id": "12345",
+      "expected": ["赛程更新失败（run 12345-2）"],
+      "absent": ["赛果更新失败", "失败阶段未记录"]
+    }
+  ]
+}
