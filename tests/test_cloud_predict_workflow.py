@@ -41,12 +41,14 @@ def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
         "inputs.operation": operation,
         "github.event.schedule": cron,
         "needs.apis.result": apis,
+        "needs.schedule-gate.outputs.run_early": "",
+        "needs.schedule-gate.result": "skipped",
     }.items():
         expression = expression.replace(key, repr(value))
     expression = expression.replace("!cancelled()", repr(not cancelled))
     expression = expression.replace("&&", " and ").replace("||", " or ")
     assert eval(expression, {"__builtins__": {}}, {}) is expected
-    assert "needs: [apis, sporttery]" in job
+    assert "needs: [schedule-gate, apis, sporttery]" in job
     assert "runs-on: ubuntu-latest" in job and "timeout-minutes: 45" in job
     assert "retention-days: 90" in job
     assert "${{ github.workspace }}/app/data/model/params.json" in job
@@ -106,6 +108,8 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
         "github.ref_name": ref_name,
         "vars.FOOTBALL_FEEDS_RUNNER": "football-local",
         "needs.apis.result": "success",
+        "needs.schedule-gate.outputs.run_early": "",
+        "needs.schedule-gate.result": "skipped",
     }
 
     def evaluate(expression):
@@ -157,7 +161,7 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
     assert "timeout-minutes: 60" in jobs["apis"]
     assert "retention-days: 90" in jobs["apis"]
     assert "env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill'" in jobs["apis"]
-    assert text.count("- cron:") == 2
+    assert text.count("- cron:") == 3
 
 
 def test_probe_publishes_quota_audit_without_other_operations():
@@ -179,6 +183,10 @@ def test_probe_publishes_quota_audit_without_other_operations():
     expression = re.search(r"if: \$\{\{ (.*?) \}\}", job).group(1)
     expression = expression.replace("github.event_name", repr("workflow_dispatch")).replace(
         "inputs.operation", repr("probe")
+    )
+    expression = expression.replace("needs.schedule-gate.result", repr("skipped"))
+    expression = expression.replace("github.event.schedule", repr("")).replace(
+        "needs.schedule-gate.outputs.run_early", repr("")
     )
     expression = (
         expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")

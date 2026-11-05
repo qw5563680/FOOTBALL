@@ -47,10 +47,13 @@ def script(value):
 def evaluate(expression, **overrides):
     context = {
         "github.event_name": "workflow_dispatch",
+        "github.event.schedule": "",
         "inputs.operation": "stats-backfill",
         "github.ref_name": "main",
         "vars.FOOTBALL_FEEDS_RUNNER": "configured",
         "needs.apis.result": "success",
+        "needs.schedule-gate.outputs.run_early": "",
+        "needs.schedule-gate.result": "skipped",
         "env.FEED_MODE": "apis",
         "steps.collect.outputs.slot": "late",
     } | overrides
@@ -87,12 +90,13 @@ def test_dispatch_has_exactly_ten_inputs_and_legacy_options_mapping():
         assert f"{env}: ${{{{ fromJSON(inputs.options || '{{}}').{key} }}}}" in text
     assert "PROBE_KIND: ${{ fromJSON(inputs.options || '{}').probe_kind || 'seasons' }}" in text
     assert "PROBE_PER_SCOPE: ${{ fromJSON(inputs.options || '{}').per_scope || 1 }}" in text
-    assert text.count("- cron:") == 2
+    assert re.findall(r"- cron: '(.*?)'", text) == ["40 2 * * *", "40 7 * * *", "40 9 * * *"]
 
 
 @pytest.mark.parametrize("operation", OPERATIONS)
 def test_all_dispatch_operation_job_conditions(operation):
     expected = {
+        "schedule-gate": False,
         "apis": operation
         in {
             "apis",

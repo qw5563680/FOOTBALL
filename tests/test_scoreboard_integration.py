@@ -114,8 +114,11 @@ def test_scoreboard_runs_both_schedules_and_manual_score_or_predict(
     expr = re.search(r"if: \$\{\{ (.*?) \}\}", job).group(1)
     for key, value in {
         "github.event_name": event,
+        "github.event.schedule": "40 2 * * *",
         "inputs.operation": operation,
         "needs.predict.result": predict,
+        "needs.schedule-gate.outputs.run_early": "",
+        "needs.schedule-gate.result": "skipped",
     }.items():
         expr = expr.replace(key, repr(value))
     expr = (
@@ -124,5 +127,5 @@ def test_scoreboard_runs_both_schedules_and_manual_score_or_predict(
         .replace("||", " or ")
     )
     assert eval(expr, {"__builtins__": {}}, {}) is expected
-    assert "needs: [predict]" in job and "runs-on: ubuntu-latest" in job
+    assert "needs: [schedule-gate, predict]" in job and "runs-on: ubuntu-latest" in job
     assert "zucai.scoreboard run" in job and "publish-football-feeds.sh" in job

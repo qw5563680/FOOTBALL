@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import delete, select
 
+from sfc_publication_support import confirm_report
 from test_sfc_cloud_state import BRIDGE_RAW, RAW, database
 from test_sfc_daily import files, freeze
 from test_sfc_report import NOW
@@ -104,6 +105,7 @@ def test_unmapped_past_clock_does_not_block_freeze(complete_issue, tmp_path, clo
     batch["predictions"].pop(1)  # Mapped but no model: distinct from the first row's mapping gap.
     freeze(archive, tmp_path / "forecast", batch, "early", NOW)
     assert publish_reports(archive, now=NOW) == ["26156"]
+    confirm_report(archive, NOW.isoformat())
     report = read_reports(archive)[0][1]
     row = report["rows"][0]
     assert row["kickoff_basis"] == basis
@@ -242,14 +244,14 @@ def test_same_forecast_can_freeze_new_mapping_without_rewriting_history(complete
     export_feeds(Path(engine.url.database), archive, date(2026, 11, 1), "before")
     freeze(archive, tmp_path / "forecast", batch, "early", NOW)
     assert publish_reports(archive, now=NOW) == ["26156"]
-    first_path, first = read_reports(archive)[0]
+    first_path, first = read_reports(archive, include_unconfirmed=True)[0]
     assert first["rows"][0]["match_id"] is None
     history, forecasts = files(archive / first_path), files(archive / "forecasts")
     with session_scope(engine) as session:
         add_target(session, bridge)
     export_feeds(Path(engine.url.database), archive, date(2026, 11, 1), "after")
     assert publish_reports(archive, now=NOW + timedelta(minutes=1)) == ["26156"]
-    assert len(read_reports(archive)) == 2
+    assert len(read_reports(archive, include_unconfirmed=True)) == 2
     current = json.loads((archive / "sfc/26156/sfc.json").read_bytes())
     assert current["rows"][0]["match_id"] == bridge["jc_id"]
     assert current["rows"][0]["probabilities"] == batch["predictions"][0]["model_probabilities"]
@@ -288,7 +290,7 @@ def test_rechecks_mapped_kickoff_immediately_before_writing(complete_issue, tmp_
     before = files(archive)
 
     class Clock(datetime):
-        instants = iter([NOW, kickoff])
+        instants = iter([NOW, NOW, kickoff])
 
         @classmethod
         def now(cls, tz):

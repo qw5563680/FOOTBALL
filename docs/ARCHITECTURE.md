@@ -411,7 +411,9 @@ T14 将 `closing_odds` 加入 `cloud_feeds.TABLES`，v2 逐行导出/恢复全�
 旧库按缺列逐项迁移，有日期但没有标记的旧记录按 captured 处理。既缺日期又缺标记的旧行仍为未知。
 取消状态没有比分行。官方日期分页必须完整；单场比分或身份冲突记入 `data/rejected_results.csv`，
 其余合格场次继续处理。独立回填命令在有拒绝记录时仍返回非零；仅当请求页全部读完时抛出专门的
-`ResultRowsRejected`。云端只捕获这个异常，继续后续日期窗口并归档有效数据，不捕获网络、分页或结构错误。
+`ResultRowsRejected`。T39 云端对各阶段预期的网络、分页和解析错误记录失败，保留已完成的独立窗口，
+只发布已完整采集的赛程/赛果；未完成分页仍不部分入库。失败结果窗口不推进 through_beijing。
+数据库、I/O 和未预期程序错误仍抛出，不绕过归档校验；独立回填 CLI 的错误语义不变。
 拒绝清单随规范化表按哈希保存和恢复。按 `(日期, 比赛ID)` 取观察时刻最新的拒绝，只有同来源的完赛或取消
 状态有严格更晚的接受时刻才解除；等时刻冲突和后续页面缺行均保留待补抓。`date_windows` 将未解除的旧日期
 加入回看，不依赖该场是否已存在或仍为 scheduled。清单保留历史，manifest 的 `collection_status`、
@@ -772,6 +774,10 @@ T07 读取同一冻结目标映射；T19 仍按预测行赛事名计分和统计
 
 ## T17 定时训练与冻结预测
 
+T39 保留 UTC 02:40 / 09:40，新增 UTC 07:40（北京15:40）。`schedule-gate` 只在新班次读取
+数据分支 `state/sfc/` 的停售日期：当日/次日有期次运行，明确没有则结束，缺失、损坏、未知截止或
+读取失败则保守运行。该班次跳过 apis，仅 sporttery → predict → scoreboard → digest，普通/手动门控不变。
+
 每次 schedule 采集后（早晚班及迟到班次）或 `workflow_dispatch operation=predict` 运行 hosted
 `predict` job，依赖 `apis` 和 `sporttery`；手动 apis 不触发预测。定时采集传 `--slot auto`，
 以实际 UTC 09:00 为界判定 early/late，apis job 输出 slot；fd 仍仅 UTC 周一 early 采集。沿用工作流级 `write-football-feed-data` 锁，
@@ -887,10 +893,16 @@ T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，
 `archive_info`、`verify_forecasts` 和 `read_state` 校验 feed / forecast / scoreboard 的路径与字节哈希，
 只读 JSON/JSONL，不恢复数据库、不反序列化模型、不调用预测或评分。输出 `daily/<北京日>.md` 与
 完全相同的 `daily/latest.md`，首行固定「非购买建议 · BET 禁用」；只允许归档内 daily/ 或归档外目录，
-拒绝符号链接。两文件写入失败恢复旧字节。旧冻结文件与清单不改，摘要历史由数据分支 Git 保存。
+拒绝符号链接。T39 同时写 `daily/<北京日>/<run>.md|json` 不可覆盖版本，含生成UTC、输入哈希、
+本日更新序号、上一版引用与每账户待结 record_id / 最早腿开球 / 发报时分类；写失败一起恢复旧字节。
+同run但不同输入或时刻另加内容后缀，相同输入重复生成字节一致；禁止倒退当日已有版本。
+旧冻结文件与清单不改；daily目录仍由数据分支 Git 保存。
 
-页面依次是头部、今日与明日预测、昨日结算、虚拟账户、异常。每个开球日按生成 UTC、batch_id 取最新
-冻结批次（空批次不借旧场次补齐），按联赛展示原胜平负、完整模型版本、P2 ready/experimental 与原 top_scores
+T39 页面依次是头部、今日与明日未开球预测、14场、复盘、昨日评分、虚拟账户、异常。头部独立展示
+`collection.jc.schedule_updated_utc/results_updated_utc` 最近成功时刻；失败保留旧成功时刻，未知不以
+through_beijing/归档生成时间替代。实际 sporttery job 失败也传入日报；提示run和本周冻结预测中已开球无已知赛果的场数。
+每个开球日按生成 UTC、batch_id 取最新冻结批次（空批次不借旧场次补齐），
+只显示 kickoff > digest.generated_utc 的比赛，按竞彩编号展示原胜平负、完整模型版本、P2 ready/experimental 与原 top_scores
 前五，不排序或重算概率；excluded 行统一显示「未预测：原因」，不把已开赛等原因说成缺模型。数据来源链接指向对应数据分支文件。
 
 昨日评分只过滤 summary.audit.active_keys，按 available_utc 的北京日归类；匹配原批次球队名称，缺失时
@@ -900,15 +912,24 @@ T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，
 这只是摘要汇总，不从概率和赛果重新评分，不写回 scoreboard 的任何文件、不改变其公式或输出。
 累计、联赛、月度数字凡展示均直接取原 summary，不通过摘要的逐场子集重建。
 两道门槛展示原联赛样本 n/200、A/1.05 已结数/500 与原布尔标记，样本数量不代替其余条件，BET 仍禁用。
-五账户只读 accounts.1.05 的资金、现金、ROI；账本只展示该档昨日生成或昨日结算的 ticket，保留原注额、
-SP、返还、盈亏与 replayed 标记。聚合账户值不从裁剪后的账本重建。
+复盘只读本周已开球记录，复用 `prematch_rows` 取每场最后有效赛前批次，与 active_keys 原评分核对；
+赛后 excluded 不替换旧有效概率。首行统计已结/首项命中/未中/待核对（并列沿 h/d/a 次序），不重算损失。
+`jc_catalog.csv` 按营业日/编号逐项核对实际展示的预测集合，包括末尾编号；旧批有预测但未列入当前表也明确提示。
+缺号存在的依据与 `jc_skipped.csv` 的原因分开；已入库但无有效赛前预测单列。
+无当期清单（含过滤后为空）显示“无法判定是否漏号”，部分营业日清单不为其他日期作完整性保证。
+两表由原竞彩响应解析生成，保留条件不变；按营业日/编号/真实捕获时刻去重，不用名称绑定球队。
+
+五账户并列 accounts.1.05 的 settled、settled_stakes、returns−settled_stakes、roi 和资金/现金；
+聚合值不从裁剪账本重建。另照录昨日注单与冻结 SP/注额/返还/盈亏/replayed。
+待结以本版 generated_utc 与最早一腿开球比较，等于开球算已开球；缺时间单列未知，不猜未开球。
+“较上一版”仅用上版冻结待结ID集合，照录本版新增可见结算的中/错/原盈亏之和，账户分别展示，不与模型命中混算。
 
 四来源状态、疑似重复与 partial 原因照录 feed_manifest.collection；T26 的 sync / apis 保留各来源最近状态，
 旧归档缺记录时明确「未记录」，不从全局 complete 推断来源成功。APIF 配额缺少 collection 字段时可读 feed 清单中
 已验哈希的 state/api_football_quota.json，注明快照 UTC 日期；不查询实时配额。页面标示采集归档时间与
 记分板截点，旧快照不冒充本次采集结果。源文本含禁止购买措辞时失败，不发布被改写的摘要。
 
-`digest` job 依赖 scoreboard，定时、手动 predict/scoreboard/digest 时运行，取消时停止；上游失败时仍可
+`digest` job 依赖 schedule-gate、scoreboard、sporttery，定时、手动 predict/scoreboard/digest 时运行，取消时停止；上游失败时仍可
 展示最后归档的状态。手动 digest 时其他四个 job 均跳过（包括从旧采集标签发起），不采集、不训练、不结算。
 沿用工作流全局写锁和发布脚本；显式暂存 daily/，设置 `daily/** -text`，发布成功才通知，artifact 保存 90 天。
 工作流顶层仅保留 `contents: write`；`issues: write` 仅在 digest job 声明（连同该 job 发布数据需要的 contents）。
@@ -918,7 +939,10 @@ SP、返还、盈亏与 replayed 标记。聚合账户值不从裁剪后的账�
 校验首行、唯一北京当日标记与单评论长度，正文与发布文件完全相同。REST 分页精确查找「每日报告 YYYY-MM」，
 不存在则创建，GraphQL pinIssue 置顶；按 `<!-- zucai-daily:YYYY-MM-DD -->` 查找 github-actions[bot]
 当天评论，找到则 PATCH，否则 POST。同名 Issue/同日机器人评论重复则报错，不任意挑选；整体由写锁串行化。
-每月 1 日首次运行轮换（漏跑后补做），取消上月置顶，新报告成功后关闭上月；重试不重复建 Issue/评论，
+每月 1 日首次运行轮换（漏跑后补做），取消上月置顶，新报告成功后关闭上月；重试不重复建 Issue/评论。
+T39 云端带 `--require-notified-history`，仅从已成功更新同日评论的版本选“上一版”。通知步骤在正文确认成功后
+写独立 `<version>.notification.json`（issue/comment ID、正文SHA），再推送回执；通知失败不标成功。
+回执缺失时不推断该版已发出；本地默认按归档版本离线对比，只表示重放，不证明实际通知。
 不改无关 Issue 或人工评论。HTTP/GraphQL 失败显式报错，日志不输出 token 或响应正文。通知是否到手机、
 编辑是否再次提醒、GITHUB_TOKEN 实际置顶权限由 Claude 的 Actions 运行验收，不以离线测试冒充实测。
 
@@ -956,7 +980,7 @@ sync 另写 collection.jc（赛程处理数、赔率快照数、结果窗口数�
 不是新增模型推断。复用 T07 build_sfc_report 的身份/时间/模型核验和 optimize_cover 动态规划。
 云端缺概率行显示「无模型」，概率/单选首项保持 null、复式强制三选；先扣除 3^missing 所需注数再优化已知场。
 最少注数超64时 combo=null，显示最低注数和不可行原因，不伪造覆盖率。完整三选覆盖的缺模型行无需补造概率，
-其余覆盖仍明确跨场独立近似。T35 冻结条件为「截止前且所有已映射比赛未开球」，写入前再次检查
+其余覆盖仍明确跨场独立近似。T35 候选生成条件为「截止前且所有已映射比赛未开球」，写入前再次检查
 截止和这些库内开球时间；未映射行不参与已开球判断，显示「未映射：原因」。
 快照/报告新增 `source_kickoff_utc` 保留页面时钟，`kickoff_basis` 为 database / provider / placeholder；
 已映射行的 kickoff_utc 和 matched_identity.kickoff_utc 一律来自库内 Match。
@@ -969,6 +993,17 @@ sync 另写 collection.jc（赛程处理数、赔率快照数、结果窗口数�
 `<run-id>-mapping-<rows/source哈希前16位>`，相同行内容/来源重复运行不新增，旧历史永不覆盖。
 换批保留旧历史，写失败恢复当前视图。每份清单验证JSON/MD/CSV原字节，
 引用的 T06 原件也核验；`sfc/** -text whitespace=cr-at-eol` 保留发布与恢复字节。
+
+T39 新候选报告和manifest均记录 publication_schema=1、generated_utc（真正算完时刻）、sale_end_utc、
+published_utc=null、sale_state=deadline_unconfirmed、publication_commit/evidence=null。
+首次push后 `sfc_reports --confirm-publication` 从远程 data/football-feeds 可达的完整历史读取首次新增
+candidate sfc.json 的提交 `%cI`，核对该提交原始blob SHA256；仅本地未推送提交、浅克隆、缺提交或哈希不符都不确认。
+追加 `<candidate>-published-<commit12>` 四文件版本并刷新当前视图，再发布；原候选、forecast.json与哈希不变。
+存好严格早于停售才标 published_before_deadline，等于或晚于标 missed_deadline；缺证据标 deadline_unconfirmed。
+Git提交时刻只有整秒，计算时刻保留微秒；同秒截断仅用于检查发布时间是否早于计算，不改变停售的严格比较。
+初次生成与确认都写Actions摘要，首轮push失败仍显示存好未知。Git提交时刻按任务单使用，不声称能查到服务器接收日志。
+digest对旧报告可只读查Git补证据，无法取得则未知；这两种不合格状态只显示对阵及“无冻结概率”，无概率/复式列。
+`read_reports` 默认过滤新格式未确认/迟到候选，旧诊断记录和手工T07兼容；不修改 scoreboard.sfc 的计分/结算公式。
 
 `scoreboard.sfc` 选择截止且所有比赛开球前最后一份报告，不把事后重建作为诊断。只在14场全部有 finished、
 完整90分钟比分、身份一致、captured/published 且报告之后/结算截点之前可知时追加 `sfc/settled.jsonl`。
