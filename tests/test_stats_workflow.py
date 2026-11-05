@@ -49,6 +49,7 @@ def evaluate(expression, **overrides):
         "github.event_name": "workflow_dispatch",
         "github.event.schedule": "",
         "inputs.operation": "stats-backfill",
+        "inputs.gate": False,
         "github.ref_name": "main",
         "vars.FOOTBALL_FEEDS_RUNNER": "configured",
         "needs.apis.result": "success",
@@ -82,7 +83,7 @@ def test_dispatch_has_exactly_ten_inputs_and_legacy_options_mapping():
         "max_requests",
         "resume",
         "days",
-        "slot",
+        "gate",
     }
     assert "default: '{}'" in inputs
     assert "default: 7000" in inputs and "type: boolean\n        default: true" in inputs
@@ -258,6 +259,12 @@ def test_stats_backfill_shell_preserves_arguments_without_interpolation(
     "options,valid",
     [
         ("{}", True),
+        ('{"slot":"early"}', True),
+        ('{"slot":"late"}', True),
+        ('{"slot":"auto"}', True),
+        ('{"slot":"invalid"}', False),
+        ('{"slot":false}', False),
+        ('{"slot":[]}', False),
         ('{"from_season":"2022","to_season":"2026","probe_kind":"stats","per_scope":2}', True),
         ('{"typo":1}', False),
         ("[]", False),

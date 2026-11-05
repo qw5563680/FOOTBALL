@@ -789,9 +789,34 @@ T07 读取同一冻结目标映射；T19 仍按预测行赛事名计分和统计
 
 T39 保留 UTC 02:40 / 09:40，新增 UTC 07:40（北京15:40）。`schedule-gate` 只在新班次读取
 数据分支 `state/sfc/` 的停售日期：当日/次日有期次运行，明确没有则结束，缺失、损坏、未知截止或
-读取失败则保守运行。该班次跳过 apis，仅 sporttery → predict → scoreboard → digest，普通/手动门控不变。
+读取失败则保守运行。该班次跳过 apis，仅 sporttery → predict → scoreboard → digest。
 
-每次 schedule 采集后（早晚班及迟到班次）或 `workflow_dispatch operation=predict` 运行 hosted
+T43 的 `workflow_dispatch operation=daily` 用于补跑 GitHub cron 排队迟到的整条链，三条 cron 与全局写锁不变。
+工作流入口如下；旧操作的采集范围、失败处理和业务计算均保持原义：
+
+| 入口 | 期次检查 | 后续 job |
+| --- | --- | --- |
+| schedule 02:40 / 09:40 UTC | 不运行 gate | apis → sporttery → predict → scoreboard → digest |
+| schedule 07:40 UTC | schedule-gate | 允许时 sporttery → predict → scoreboard → digest；仍跳过 apis |
+| daily，gate=false（默认） | 不运行 gate | apis → sporttery → predict → scoreboard → digest |
+| daily，gate=true | schedule-gate | 允许时运行五个 job；明确无期次时五个均跳过 |
+| apis / sync / predict / scoreboard / digest 等原手动操作 | 不受 gate 影响 | 保留各自原来的范围与后续 job |
+
+gate 成功且 `run_early=false` 才拦住下游；无法读取或 gate 失败时沿用保守执行。apis 新增对 gate 的依赖，
+使用 `!cancelled()` 避免正常跳过 gate 时被 Actions 隐含 `success()` 拦截；四个后续 job 沿用相同守卫。
+daily 强制 `--slot auto` 和默认 days=3；按实际 UTC 09:00 分早晚，fd 仍仅 UTC 周一 early。
+predict 保留 `needs.apis.result != 'failure'`，预测失败不妨碍记分板结算旧批次；digest 继续显式依赖 sporttery，
+把其真实状态与本次 run ID 传给 daily_digest，更新次数沿用 T39 已送达版本计数，不改报告内容规则。
+daily 各 job 摘要先写「手动整条链（gate=…）」；Windows sporttery 在设置好 Git Bash 后写入，gate 单独跳过时也有该标记。
+dispatch 保持10项输入：新增 boolean gate 默认 false，将原 slot 放入已有 options JSON，仍为 auto/early/late、默认 auto，
+采集前验证枚举；daily 不读取其他操作的 options。没有外部调度实现，不修改 docs/RUNNER.md。
+
+运行来源只作归档元数据：`feed_manifest.json` 的 `run` 字符串不变，增加并列 `event_name` / `operation`；
+`forecast_manifest.json.runs[run_id]` 增加同名字段。事件名取 `GITHUB_EVENT_NAME`，操作由 workflow 的
+`ZUCAI_OPERATION=${{ inputs.operation }}` 传入；schedule 的 operation 为 null，daily 为 `workflow_dispatch` / `daily`，
+非 Actions 默认 local / null。旧清单缺这两个字段仍可校验和恢复，表行、已冻结文件与 manifest 版本不变。
+
+每次 schedule / daily 采集后（早晚班及迟到班次）或 `workflow_dispatch operation=predict` 运行 hosted
 `predict` job，依赖 `apis` 和 `sporttery`；手动 apis 不触发预测。定时采集传 `--slot auto`，
 以实际 UTC 09:00 为界判定 early/late，apis job 输出 slot；fd 仍仅 UTC 周一 early 采集。沿用工作流级 `write-football-feed-data` 锁，
 `apis` 失败或整体取消时不运行，竞彩 job 跳过仍运行并提示「竞彩数据非今日」。手动 predict 不采集。

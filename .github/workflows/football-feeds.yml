@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，digest 每日摘要推送，probe 权限探测，identity 身份核验，reconcile 合并已核验存量身份，relink-fdorg 补 fd/fdorg 链接，relink-jc 补后到竞彩链接，stats-backfill 技术数据回填'
+        description: 'daily 整条每日链，apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，digest 每日摘要推送，probe 权限探测，identity 身份核验，reconcile 合并已核验存量身份，relink-fdorg 补 fd/fdorg 链接，relink-jc 补后到竞彩链接，stats-backfill 技术数据回填'
         type: choice
-        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill]
+        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, daily]
         default: verify
       source:
         description: 'backfill 来源；probe / identity 固定使用 apif'
@@ -25,7 +25,7 @@ on:
         type: string
         default: ''
       options:
-        description: 'JSON 选项：from_season、to_season、probe_kind（默认 seasons）、per_scope（默认 1）'
+        description: 'JSON 选项：from_season、to_season、probe_kind（默认 seasons）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）'
         type: string
         default: '{}'
       endpoints:
@@ -44,11 +44,10 @@ on:
         description: 'fdorg 前后各 N 个 UTC 日；sync 回看 N 个北京时间自然日'
         type: number
         default: 3
-      slot:
-        description: 'fd 仅 UTC 周一 early 运行；auto 按 UTC 09:00 分早晚'
-        type: choice
-        options: [auto, early, late]
-        default: auto
+      gate:
+        description: '仅 daily：先检查今明胜负彩停售期次；明确无期次时跳过整条链'
+        type: boolean
+        default: false
   push:
     tags: ['football-ingest-run-*', 'football-ingest-verify-*']
 
@@ -64,17 +63,24 @@ defaults:
     shell: bash
 
 env:
-  FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-jc') && 'relink-jc' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-fdorg') && 'relink-fdorg' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'reconcile') && 'reconcile' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'identity') && 'identity' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'probe') && 'probe' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
+  ZUCAI_OPERATION: ${{ inputs.operation }}
+  ZUCAI_DAILY_GATE: ${{ inputs.gate && 'true' || 'false' }}
+  FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') && 'apis' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-jc') && 'relink-jc' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-fdorg') && 'relink-fdorg' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'reconcile') && 'reconcile' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'identity') && 'identity' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'probe') && 'probe' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
 
 jobs:
   schedule-gate:
-    if: ${{ github.event_name == 'schedule' && github.event.schedule == '40 7 * * *' }}
+    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '40 7 * * *') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' && inputs.gate) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       run_early: ${{ steps.decide.outputs.run_early }}
       scope: ${{ steps.decide.outputs.scope }}
     steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
         with:
           path: app
@@ -97,7 +103,8 @@ jobs:
           python3 app/src/zucai/schedule_gate.py --archive cloud-data --archive-status "$ARCHIVE_STATUS"
 
   apis:
-    if: ${{ (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
+    needs: [schedule-gate]
+    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -106,6 +113,11 @@ jobs:
       WORK_DIR: work-apis-${{ github.run_id }}-${{ github.run_attempt }}
       ZUCAI_APIF_DAILY_CAP: ${{ vars.ZUCAI_APIF_DAILY_CAP }}
     steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
         with:
           path: app
@@ -120,7 +132,7 @@ jobs:
           path: cloud-data
           fetch-depth: 0
       - name: Validate dispatch options before collection
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation != 'daily' }}
         env:
           DISPATCH_OPTIONS: ${{ inputs.options }}
         run: |
@@ -128,11 +140,13 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot"}
           if not isinstance(options, dict) or set(options) - allowed:
-              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope")
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot")
           if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats"}:
               raise SystemExit("invalid probe_kind")
+          if options.get("slot", "auto") not in ("auto", "early", "late"):
+              raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
           if type(count) is not int or count < 1:
               raise SystemExit("per_scope must be a positive integer")
@@ -149,8 +163,8 @@ jobs:
         env:
           FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-          LOOKBACK: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.days) || '3' }}
-          FEED_SLOT: ${{ github.event_name == 'schedule' && 'auto' || inputs.slot || 'auto' }}
+          LOOKBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.operation != 'daily' && format('{0}', inputs.days) || '3' }}
+          FEED_SLOT: ${{ (github.event_name == 'schedule' || inputs.operation == 'daily') && 'auto' || fromJSON(inputs.options || '{}').slot || 'auto' }}
         run: |
           slot="$FEED_SLOT"
           if [[ "$slot" == auto ]]; then
@@ -299,11 +313,13 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot"}
           if not isinstance(options, dict) or set(options) - allowed:
-              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope")
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot")
           if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats"}:
               raise SystemExit("invalid probe_kind")
+          if options.get("slot", "auto") not in ("auto", "early", "late"):
+              raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
           if type(count) is not int or count < 1:
               raise SystemExit("per_scope must be a positive integer")
@@ -349,13 +365,18 @@ jobs:
 
   predict:
     needs: [schedule-gate, apis, sporttery]
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *' || needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'predict')) }}
+    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       WORK_DIR: work-predict-${{ github.run_id }}-${{ github.run_attempt }}
       ZUCAI_PARAMS: ${{ github.workspace }}/app/data/model/params.json
     steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
         with:
           path: app
@@ -410,10 +431,15 @@ jobs:
   scoreboard:
     needs: [schedule-gate, predict]
     # A skipped/failed prediction must not prevent settlement of earlier frozen batches.
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *' || needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'predict' || inputs.operation == 'scoreboard'))) }}
+    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict' || inputs.operation == 'scoreboard'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
         with:
           path: app
@@ -450,10 +476,15 @@ jobs:
       issues: write
     needs: [schedule-gate, scoreboard, sporttery]
     # Report the available frozen state even if upstream work failed; never rescore here.
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *' || needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}
+    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v4
         with:
           path: app
@@ -498,7 +529,7 @@ jobs:
 
   sporttery:
     needs: [schedule-gate, apis]
-    if: ${{ !cancelled() && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *' || needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
     timeout-minutes: 60
     env:
@@ -524,12 +555,17 @@ jobs:
           $bin = Join-Path (Split-Path (Split-Path $git -Parent) -Parent) 'bin'
           if (-not (Test-Path (Join-Path $bin 'bash.exe'))) { throw "Git Bash not found under $bin" }
           Add-Content -Path $env:GITHUB_PATH -Value $bin
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
       - name: Install project
         shell: bash
         run: python -m pip install -e ./app
       - name: Restore data, collect fixtures and reconcile official results
         env:
-          LOOKBACK: ${{ inputs.days || 3 }}
+          LOOKBACK: ${{ (github.event_name == 'schedule' || inputs.operation == 'daily') && 3 || inputs.days || 3 }}
         shell: bash
         run: |
           mkdir "$WORK_DIR"

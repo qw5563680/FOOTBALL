@@ -182,6 +182,8 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
         day = prediction_time.astimezone(BEIJING).date()
         result = {
             "run_id": run_id,
+            "event_name": os.environ.get("GITHUB_EVENT_NAME") or "local",
+            "operation": os.environ.get("ZUCAI_OPERATION") or None,
             "experimental_protocol": "t34a-strict-v1",
             "training_cutoff_utc": cutoff.isoformat(),
             "database_sha256": database_sha,

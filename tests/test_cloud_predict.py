@@ -74,8 +74,9 @@ def scheduled_archive(tmp_path):
     return archive, params
 
 
+@pytest.mark.parametrize("event,operation", [("schedule", ""), ("workflow_dispatch", "daily")])
 def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
-    scheduled_archive, tmp_path, monkeypatch
+    scheduled_archive, tmp_path, monkeypatch, event, operation
 ):
     from zucai import cloud_predict
     from zucai.forecast_archive import verify_forecasts
@@ -85,8 +86,12 @@ def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
     params_before = params.read_bytes()
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+    monkeypatch.setenv("ZUCAI_OPERATION", operation)
     monkeypatch.setattr(cloud_predict, "_now", lambda: NOW)
     result = cloud_predict.run(archive, params, "offline-1", sporttery_status="skipped")
+    assert result["event_name"] == event
+    assert result["operation"] == (operation or None)
     assert result["status"] == "partial"
     assert result["leagues"]["芬超"]["status"] == "failed"
     good = result["leagues"]["英超"]

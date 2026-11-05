@@ -174,9 +174,17 @@ pytest -q
 T39 另加 UTC **07:40**（北京 **15:40**）：只读已归档胜负彩期次，当日或次日有停售期次才运行
 竞彩同步 → 预测 → 记分板 → 日报；没有期次则结束，缺失或无法判断则保守运行。提前班不运行 apis，不增加 fdorg/apif 请求。
 
+GitHub 的 cron 可能排队迟到，设定 10:40 不代表当天一定在 10:40 启动；T43 任务单记录过早班迟到约15小时。
+需要补跑时，在 Actions 选择 **`operation=daily`**，一次完成采集 → 竞彩同步 → 预测 → 记分板 → 日报，
+不用再分三次等待。默认 **`gate=false`**，不检查期次；勾选 **`gate=true`** 则先只读已有胜负彩期次，
+明确今明没有停售期次就跳过整条链，摘要写「跳过提前班次」；有期次或无法判断时运行五个 job。
+例如 dispatch 输入 `{"operation":"daily"}` 或 `{"operation":"daily","gate":true}`。
+daily 使用定时采集的默认范围（days=3、slot=auto），不使用针对其他单独操作的覆盖选项；
+gate 对其他操作不生效。原来的三条 cron 均保留，不保证准点，也不在仓库引入外部调度器。
+
 | job | 运行器 | 时间 / 范围 |
 | --- | --- | --- |
-| `schedule-gate` | `ubuntu-latest` | 仅 15:40 班读取 `state/sfc/` 判定；不请求体育数据 |
+| `schedule-gate` | `ubuntu-latest` | 15:40 班或手动 daily 勾选 gate 时读取 `state/sfc/` 判定；不请求体育数据 |
 | `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
 | `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 官方在售赛程与赛果 `sync` 后，分别单次请求 `/sfc/` 与 `/jczq/` 根页，归档并关联当期14场；未配置时整个 job 显示 skipped |
 | `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告；随后生成未截止期次的14场诊断 |
@@ -185,6 +193,10 @@ T39 另加 UTC **07:40**（北京 **15:40**）：只读已归档胜负彩期次�
 | `stats-backfill` | `ubuntu-latest`，300 分钟上限 | 只在手动 `operation=stats-backfill` 时运行；独立恢复数据库、按范围续跑技术数据，与其他 job 共用写锁 |
 
 定时五个 job 依赖顺序为 `apis → sporttery → predict → scoreboard → digest`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
+daily 沿用相同顺序与失败处理：apis 失败则不预测，预测失败仍可结算旧批次并发日报；竞彩 job 的真实状态传给预测与日报。
+daily 各 job 的 Actions 摘要首行是「手动整条链（gate=true/false）」。feed 清单保留原字符串 `run`，
+另记 `event_name` / `operation`；forecast 清单每条 `runs` 也记录这两个字段。定时为 `schedule` / null，
+补跑为 `workflow_dispatch` / `daily`，旧清单仍可恢复。同一天补跑时日报的更新次数沿用原有计数。
 写回前执行 `git pull --rebase`；冲突则失败，不强推。push 遇远端 5xx 或网络错误时最多尝试 3 次，间隔 30 秒；远端有新提交则重新 rebase，摘要保留每次失败原文，最终失败提示 artifact 位置。
 fd 主联赛赛季按七月换季推导（如 2627），
 已配置 country 合并文件只导入当前自然年；`leagues.json` 可用 `current_season` 明确覆盖。
@@ -242,14 +254,16 @@ v1 行表。先暂停普通定时作业并处理已排队的旧代码运行，�
 Release 发布与 v2 迁移验收，合入 T32 后再恢复普通任务；也可先合入，再在普通任务恢复前立即迁移。
 共享写锁只防同时写入，不能代替这一步版本切换。实现者不执行此生产切换。
 
-工作流 dispatch 总计 10 项输入。原 `from_season`、`to_season`、`probe_kind`、`per_scope` 合并到
-一个 JSON 字符串 `options`（默认 `{}`）；旧调用的其他输入保持原义：
+工作流 dispatch 总计仍为 10 项输入。原 `from_season`、`to_season`、`probe_kind`、`per_scope` 合并到
+一个 JSON 字符串 `options`（默认 `{}`）；T43 为新增 boolean `gate` 腾出位置，把 `slot` 也放入 options。
+调用者原来的顶层 `slot` 要改写为 `options.slot`，auto / early / late 的含义与缺省 auto 不变；其余输入保持原义：
 
 | 原 dispatch 输入 | 新 dispatch 输入 |
 | --- | --- |
 | `from_season=2023 to_season=2026` | `options={"from_season":"2023","to_season":"2026"}` |
 | `probe_kind=stats per_scope=2` | `options={"probe_kind":"stats","per_scope":2}` |
 | `probe_kind=leagues` | `options={"probe_kind":"leagues"}` |
+| `slot=early` | `options={"slot":"early"}` |
 
 probe 缺省仍为 seasons / 1；JSON 非对象、未知键或非法选项在 API 请求前失败。
 手动 stats-backfill 只启动自己的 job，不连带普通采集、训练、评分或摘要。
@@ -345,7 +359,8 @@ T30 的 `probe_kind=stats` 只在手动 Actions 中探测逐场技术统计、�
 配额触底立即停止并保留部分证据。原件及每日/分钟配额 sidecar 在本次 artifact；不自动改权限配置，
 不导入比赛、不训练，也不触发预测、记分板或摘要推送。抽样有效率不代表全赛季覆盖率。
 
-- `operation=apis`：只采 API；`slot=early` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
+- `operation=daily`：一次补跑完整每日链，默认不检查期次；`gate=true` 先检查今明停售期次。不会改变模型、账户或日报计算规则。
+- `operation=apis`：只采 API；`options={"slot":"early"}` 仍须在 UTC 周一才采 fd，late 始终跳过 fd。
   计划事件一律传 auto，按实际启动时刻以 UTC 09:00 为界判定早晚班，并输出 apis.slot；手动 auto 同样处理。
   每次定时运行均预测，手动 apis 仍不触发预测；fd 仍只在 UTC 周一 early 采集。
 - `operation=relink-fdorg`：仅手动 Actions 补存量 fd/fdorg 链接，对应 `backfill --relink-fdorg`；
