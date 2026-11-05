@@ -31,7 +31,7 @@ def seed(path):
     engine.dispose()
 
 
-def test_migration_only_creates_four_new_tables(tmp_path):
+def test_migration_only_creates_attached_tables(tmp_path):
     path = tmp_path / "feeds.db"
     seed(path)
     with sqlite3.connect(path) as db:
@@ -142,8 +142,9 @@ def test_legacy_v1_technical_rows_remain_readable(tmp_path):
     seed(source)
     meta = published_export(source, archive, date(2026, 11, 4), "legacy")
     counts = {}
+    legacy_columns = {k: v for k, v in STATS_COLUMNS.items() if k != "match_injuries"}
     with sqlite3.connect(source) as db:
-        for table, columns in STATS_COLUMNS.items():
+        for table, columns in legacy_columns.items():
             rows = db.execute(f"SELECT {','.join(columns)} FROM {table} ORDER BY 1").fetchall()
             content = "".join(json.dumps(list(row)) + "\n" for row in rows).encode()
             key = f"state/{table}.jsonl"
@@ -152,7 +153,7 @@ def test_legacy_v1_technical_rows_remain_readable(tmp_path):
             counts[table] = len(rows)
     meta["technical_data"] = {
         "version": 1,
-        "columns": {k: list(v) for k, v in STATS_COLUMNS.items()},
+        "columns": {k: list(v) for k, v in legacy_columns.items()},
         "counts": counts,
     }
     meta["files"].pop("state/stats_rows_manifest.json", None)

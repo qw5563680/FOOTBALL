@@ -1,0 +1,89 @@
+{
+  "protocol_version": "t38-injuries-v2",
+  "source_task": "docs/tasks/T38-injuries-capture-table-and-features.md",
+  "base_commit": "f7fa6c5",
+  "host": "dc-sot-v1",
+  "host_reason": "T34b not merged at protocol freeze; T38 permitted T33 host",
+  "training_start": "2021-07-01T00:00:00Z",
+  "selection_start": "2024-07-01T00:00:00Z",
+  "selection_end": "2025-07-01T00:00:00Z",
+  "evaluation_start": "2025-07-01T00:00:00Z",
+  "evaluation_end": "2026-07-01T00:00:00Z",
+  "selection_fold": "monthly",
+  "evaluation_fold": "weekly",
+  "half_life_days": 90,
+  "windows": [
+    5,
+    10
+  ],
+  "window_selection": "common_candidate_rows_raw_log_loss_then_smaller_window",
+  "providers": {
+    "fd": {
+      "stat_key": "shots_on_target",
+      "leagues": [
+        "英超",
+        "英冠",
+        "西甲",
+        "意甲",
+        "德甲",
+        "法甲",
+        "法乙",
+        "荷甲",
+        "葡超"
+      ]
+    }
+  },
+  "candidate": "dc-sot-injuries-v2",
+  "injury_inputs": [
+    "missing_diff"
+  ],
+  "ablation": "remove_missing_diff_same_host_same_complete_mask",
+  "ablation_common_full_input_mask": true,
+  "training_availability_mode": "backfill_replay",
+  "target_availability_mode": "strict_capture_time",
+  "injury_replay_assumption": "latest_archived_fixture_list_assumed_known_immediately_before_kickoff",
+  "backfill_delay_hours": 3,
+  "primary_metric": "log_loss",
+  "secondary_metrics": [
+    "brier",
+    "top_accuracy",
+    "calibration_10_bins",
+    "coverage",
+    "score_brier"
+  ],
+  "groups": [
+    "league",
+    "season",
+    "cold_start",
+    "statistics_missing",
+    "injuries_missing"
+  ],
+  "paired_comparisons": [
+    "candidate_raw-baseline_raw",
+    "ablation_raw-baseline_raw",
+    "candidate_raw-ablation_raw",
+    "candidate_calibrated-baseline_calibrated",
+    "ablation_calibrated-baseline_calibrated",
+    "candidate_calibrated-ablation_calibrated"
+  ],
+  "bootstrap": {
+    "unit": "utc_week",
+    "replicates": 2000,
+    "seed": 3301,
+    "confidence": 0.95
+  },
+  "score_grid": 10,
+  "market": "jc_last_complete_had_strictly_before_fixture_cutoff_comparison_only",
+  "bet_allowed": false,
+  "production_adoption": false,
+  "target_availability_modes": [
+    "strict_capture_time",
+    "backfill_replay"
+  ],
+  "lineup_subset": {
+    "input": "missing_last_starters_diff",
+    "eligibility": "both_teams_lineups_complete",
+    "analysis": "paired_main_models_on_lineup_complete_targets",
+    "fill_missing": false
+  }
+}

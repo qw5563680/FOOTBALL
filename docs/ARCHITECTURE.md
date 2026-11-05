@@ -79,7 +79,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 ### T31 技术数据附属表
 
 技术数据独立保存，不改 `matches`、`results`、`teams` 等既有表，不改赛果可知时间、冻结预测、
-模型或训练选择。`stats migrate` 只创建以下四张表；日常 `init_db` 在新库中也会创建它们。
+模型或训练选择。`stats migrate` 只创建附属表（T38 增加第五张）；日常 `init_db` 在新库中也会创建它们。
 
 | 表 | 内容与逻辑身份 |
 | --- | --- |
@@ -87,6 +87,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `match_events` | apif 事件；type/detail、elapsed/extra、player/assist ID；完整原事件与规范 `value`（含 total_minute） |
 | `match_lineups` | apif 阵容团队记录、首发、替补、逐场球员统计；用 endpoint 区分 lineups/players，role 区分 team/start/bench/player_stats；formation、minutes/rating/position、`captured_before_kickoff`，完整 raw/value JSON 保留教练和其余字段 |
 | `apif_fixture_index` | 数字 fixture ID → 一个既有 match_id；联赛/赛季、开球、两侧供应商 ID 与规范 team_id、正式别名来源及其规范化内容哈希；fixture ID 和 match_id 两侧唯一 |
+| `match_injuries`（T38） | 供应商伤停观察；league/provider_season、fixture 与球员 ID、原类型与原因、真实捕获时刻；经索引关联，未关联的 match_id/team_id/side 全为 NULL，原件保留并审计 |
 
 前三表共用 `provider/provider_fixture_id/endpoint/record_key/match_id/team_id/provider_team_id/side`，
 `period_basis/extra_time_included/eligible_90`，`captured_utc/available_utc/availability_basis`，
@@ -137,6 +138,39 @@ export/restore/verify 检查完整性、哈希、行数、外键和主客/索引
 没有新建或改写 forecast/report/scoreboard 文件。unsupported 初始名单保存于
 `data/api_football/stats_coverage.json`，供 T32 调度使用；资格赛与联赛阶段分开，不将抽样空值推广为永久无权限。
 
+### T38 伤停附属表、快照与外部归档
+
+`match_injuries` 除整数主键 id 外，字段为 provider/endpoint、league/provider_season、provider_fixture_id、
+match_id/team_id/provider_team_id/side、player_id/player_name、injury_type/reason、fixture_kickoff_utc、
+captured_utc/captured_day/last_captured_utc/available_utc/availability_basis/captured_before_kickoff、
+record_key/content_sha256/raw_sha256/raw_location/parser_version/version、完整 raw_value JSON。
+captured_utc 是该内容版本首次捕获，last_captured_utc 是末次观察；内容未变只单调延长后者，不新增行。
+该区间只说明首末实际观察，不假设中间未抓取时名单一直未变；逐次名单仍以压缩回执为准。
+唯一键为 (provider, provider_fixture_id, record_key, version)；内容改变（含 A→B→A）保留新版本，首次来源不覆盖。
+缺球员 ID 仍保留 NULL 并审计，不按名字绑定；关联仍核验索引联赛季、主客 ID 与开球±3h。
+
+`injuries_storage` 与审计在同一事务写入。完整页快照（成员、空页、删除、冲突与拒绝明细）保存为
+`state/injuries_captures/<sha256>.json.gz`，这是本地外部行表缓存，不进入 git 数据分支。
+`state/audit/injuries_ingest_audit.csv` 每页只追加一条计数与压缩回执路径/哈希/字节数；无索引联赛同样仅每页计数。
+压缩回执作为不可变资产发布到 stats-raw-YYYYMM Release，technical_data.injury_receipts 记录描述。
+restore-rows 先校验所有回执大小/哈希再装回，缺失/损坏不能伪造完整名单。
+特征按截点前最新单次完整捕获读取；即使条目复用同一版本，也不把不同抓取的球员记录拼成未出现过的名单。
+缺本场、空页、身份失败仍为 null。每日入口 capture<kickoff 才标 captured/available=capture；
+历史入口永远 backfilled/NULL；strict 另按真实捕获时刻判断，不改原存储来源。
+PR #72 尚未部署的旧日版本表结构不作为已发布数据兼容格式；生产既有 v1/v2 技术归档保持兼容。
+
+T38 的 technical_data.version=3 在原三张行表之外增加 match_injuries，四表仍按联赛×供应商赛季压缩上传
+`stats-raw-YYYYMM` Release；未关联伤停按自身 league/provider_season 分片，不丢弃。数据分支仅增加伤停审计，
+覆盖率和清单记录数量/哈希；绝不放伤停整表 JSONL。旧 technical_data v1/v2 原清单仍能校验与恢复，伤停表为空；
+旧清单只读导出不改版本，首次重新发布才升级 v3。restore-rows 校验历史分片、ID、来源、外键、时间、哈希后原子替换，
+历史发布校验只允许伤停版本的 last_captured_utc 单调延长，其余内容/来源字段不得改写；
+已有正式 fd 身份合并清单重定向技术引用时也包含新表，合并前置规则不变。未发布的新伤停行和更正无法被普通导出悄悄丢弃。
+新旧代码交替发布前需由审查者协调排队作业，旧代码不接受 v3；不通过降低校验来兼容旧写入者。
+
+`stats_coverage.injuries` 给全部存储版本的 captured/backfilled/已关联/总行数及关联率（空集 NULL），
+另列联赛×供应商季明细；不是球员去重数、比赛覆盖率或预测能力指标。日摘要与 Actions 摘要只转述这些数，
+预测 report/forecast 不增加伤停信息。任务单列出的空接口联赛保留来源说明，不把空响应解释为健康名单。
+
 ### T32 批次、游标与外部行表归档
 
 `cloud_stats backfill` 在全新隔离工作目录恢复 feeds；`cloud_stats daily` 使用普通 apis 晚班已恢复的
@@ -159,7 +193,7 @@ unsupported 不再重试。HTTP 200 + errors、网络失败、权限不足分别
 401/403 也将该联赛季全部端点记 unsupported。日常 injuries 按各联赛当前供应商季取一页；
 默认历史范围单独包含日职已开始的 2027 季，不扩展其他联赛的未来季。
 
-数据分支的新 `technical_data.version=2` 仅保留 `state/apif_fixture_index.jsonl` 与
+T32 引入的 `technical_data.version=2`（T38 扩展为 v3，见上节）仅保留 `state/apif_fixture_index.jsonl` 与
 `state/stats_rows_manifest.json` 描述副本、游标、覆盖率和 `state/audit/stats_*.csv`。
 `match_stats` / `match_events` / `match_lineups` 按联赛×供应商赛季导出 JSONL.zst，文件名由
 `stats-rows-<league>-<season>` 基名、内容哈希后缀组成；同月新内容用新名字，不覆盖不可变资产。
@@ -1074,3 +1108,29 @@ summary.experiments.rules 固定：每联赛前瞻共同n≥200；实验−正�
 “达到采用门槛，待所有者决策”，不替换模型、不改params/P2/BET/T28。日摘要照录 experiments 小节，
 首行“实验 · 不下注”；原昨日结算均值先过滤实验评分，原累计和账户统计不混入实验。
 真实验证包括首次晚班、captured积累一周及至少14天并行，由Claude执行，本地离线测试不冒充这些结果。
+
+## T38 伤停特征与独立离线比较
+
+`features/injuries.py` 是只读构建器，目标截点 min(as_of,kickoff)。strict 继承 T34a 的真实捕获时间规则：
+backfilled 行的 effective_available_utc=captured_utc，严格小于截点才可用；保留 basis 与原 available=NULL。
+captured 行要求 capture/available 均在截点前，不能用后来补抓的名单预测过去。选择最新合格页的完整快照；
+本场名单缺失、最新页为空、身份不明或同次捕获内容冲突均返回 null 与原因，不沿用一份已被后续观察否定的旧名单。
+人数按供应商 player ID 去重，不按名字相似合并。missing_n/questionable_n 为本场该队已知名单中两种原类型人数；
+missing_last_starters_n 为缺阵 ID 与该队上一场首发 ID 的交集。上一场须真实已结束且开球+3h<截点，
+不往更早比赛补首发；无完整阵容则该项 null。每项保留 n、captured、basis、effective time、原件、版本、缺失原因。
+同场多来源先按规范 ID / 精确开球或已核验 counterpart 合组；上一场的结束边界与阵容回放时间使用组内最晚开球+3h，
+目标截点及伤停名单回放假设使用组内最早开球，避免来源间时差令资料过早进入或错误排除。
+
+训练单独用 backfill_replay：明确假设历史伤停名单在该场开球前已知（不证明当时版本），历史技术统计仍为 T33 开球+3h假设；
+标签须 kickoff < available < 拟合截点。协议 v2 目标分 strict_capture_time 与 backfill_replay 两张独立表；
+后者假设最近归档伤停名单开球前已知、统计在开球+3h已知，属于历史回放，不能充作前瞻证据。
+两表独立选窗、拟合、指标/配对区间、阵容子集分析，不混算、不互相填空，口径进入路径、证据及参数文件。
+T34b 在协议冻结时尚未合入，因此使用 dc-sot-v1；主候选只加 missing_n 主客差，客队取反，系数折内拟合。
+missing_last_starters_n 原值作为双方阵容完整子集的附加分析列；缺失不填0，不阻断主候选。消融去掉人数差，与主候选共用完整训练掩码。
+不改 T33 模块、生产注册或每日并行模型，原模型不作为候选的填空来源。
+
+协议先提交于 docs/experiments/T38-*，时间切分、六列与六组配对、自助和分组见协议。无共同候选样本时报告证据不足，
+不能把合成测试指标当精度结论，也不把回放训练当新增前瞻验证。选窗按共同候选场次，市场对照仅在全部拟合与选窗之后附加。
+`python -m zucai.predict.experiments.injury_command` 只读库，输出禁止覆盖，输入前后 SHA256 一致才归档；
+全量逐场证据/参数/指标/协议 ZIP 使用 stats_release.upload_verified/upload_checksums 上传 experiments-YYYYMM，
+不写数据分支；main reports 仅 README/SHA256SUMS≤200 KB。上传失败不得声称已发布，保持本地证据供审查者接续。

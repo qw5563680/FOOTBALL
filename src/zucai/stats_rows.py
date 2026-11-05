@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 
 import zstandard
 
+from zucai.injuries_archive import install_receipts, prepare_receipts, publish_receipts
 from zucai.stats_archive import (
     INDEX_FILE,
     ROW_TABLES,
@@ -44,8 +45,8 @@ def _manifest(database, archive):
         block = document.get("technical_data", document)
     if block is None:
         raise ValueError("缺少技术数据分片清单；请先恢复 feeds 归档")
-    if block.get("version") != 2:
-        raise ValueError("restore-rows 需要 technical_data version 2 外部分片清单")
+    if block.get("version") not in (2, 3):
+        raise ValueError("restore-rows 需要 technical_data version 2/3 外部分片清单")
     validate_stats_manifest({"technical_data": block, "files": {INDEX_FILE: ""}})
     return block
 
@@ -65,6 +66,9 @@ def _fd_seasons(database):
 
 def _scope(db, table, row, fd_seasons, cache):
     values = dict(zip(STATS_COLUMNS[table], row, strict=True))
+    if table == "match_injuries":
+        # Unlinked injury rows still belong to their explicit provider scope.
+        return values["league"], str(values["provider_season"])
     key = (
         values["match_id"],
         values["provider"],
@@ -116,7 +120,7 @@ def _download_shards(block, directory, release, tag=None, *, shard_cache=None):
         if compressed.stat().st_size != shard["size"] or sha256(compressed) != shard["sha256"]:
             raise ValueError("技术数据分片 SHA256 或大小校验失败")
         plain = directory / f"{number}.jsonl"
-        counts = dict.fromkeys(ROW_TABLES, 0)
+        counts = dict.fromkeys(shard["counts"], 0)
         try:
             with (
                 compressed.open("rb") as source,
@@ -128,7 +132,7 @@ def _download_shards(block, directory, release, tag=None, *, shard_cache=None):
                     entry = json.loads(line)
                     table = entry.get("table")
                     if (
-                        table not in ROW_TABLES
+                        table not in counts
                         or entry.get("columns") != list(STATS_COLUMNS[table])
                         or not isinstance(entry.get("row"), list)
                         or len(entry["row"]) != len(STATS_COLUMNS[table])
@@ -229,6 +233,10 @@ def _apply(db, prepared, database, *, verify_only=False, redirects=None):
                         expected[team_column] = redirects.get(
                             expected[team_column], expected[team_column]
                         )
+                    if verify_only and table == "match_injuries":
+                        last = columns.index("last_captured_utc")
+                        if existing[last] >= expected[last]:
+                            expected[last] = existing[last]
                     if list(existing) != expected:
                         raise ValueError(
                             "技术数据行 ID 冲突；先在仅恢复索引的数据库恢复全部历史 snapshot"
@@ -256,9 +264,19 @@ def restore_rows(database, archive=None, *, release, tag=None, shard_cache=None)
     with TemporaryDirectory(prefix="stats-restore-", dir=database.parent) as temporary:
         directory = Path(temporary)
         prepared = _download_shards(block, directory, release, tag, shard_cache=shard_cache)
+        receipts = prepare_receipts(database.parent, block, directory, release)
         staged = directory / "rows.db"
         with sqlite3.connect(database) as source, sqlite3.connect(staged) as db:
             source.backup(db)
+        from zucai.db import get_engine
+        from zucai.stats_schema import migrate_stats
+
+        engine = get_engine(staged)
+        try:
+            migrate_stats(engine)
+        finally:
+            engine.dispose()
+        with sqlite3.connect(staged) as db:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("BEGIN IMMEDIATE")
             result = _apply(db, prepared, database)
@@ -266,15 +284,24 @@ def restore_rows(database, archive=None, *, release, tag=None, shard_cache=None)
             if db.execute("PRAGMA foreign_key_check").fetchone():
                 raise ValueError("技术数据分片外键校验失败")
             if tag is None and any(
-                db.execute(f"SELECT count(*) FROM {t}").fetchone()[0] != block["counts"][t]
+                db.execute(f"SELECT count(*) FROM {t}").fetchone()[0] != block["counts"].get(t, 0)
                 for t in ROW_TABLES
             ):
                 raise ValueError("技术数据恢复后总行数不符；请使用只含索引的 feeds 数据库")
-            if tag is None and "snapshot" in block and row_snapshot(db) != block["snapshot"]:
+            if (
+                tag is None
+                and "snapshot" in block
+                and row_snapshot(db, block["snapshot"]["counts"]) != block["snapshot"]
+            ):
                 raise ValueError("技术数据恢复 snapshot 哈希或版本校验失败")
             db.commit()
+        install_receipts(receipts)
         write_rows_manifest(database, block)
-        if any(result.values()):
+        with sqlite3.connect(database) as source:
+            migrated = not source.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='match_injuries'"
+            ).fetchone()
+        if any(result.values()) or migrated:
             os.replace(staged, database)
     return result
 
@@ -340,9 +367,10 @@ def publish_rows(
                 league=league, provider_season=season, rows=sum(counts.values()), counts=counts
             )
             shards.append(asset)
+        receipts = publish_receipts(database.parent, previous, release, tag)
         snapshot = row_snapshot(db)
         block = {
-            "version": 2,
+            "version": 3,
             "columns": {k: list(v) for k, v in STATS_COLUMNS.items()},
             "counts": {
                 "apif_fixture_index": db.execute(
@@ -352,11 +380,12 @@ def publish_rows(
             },
             "snapshot": snapshot,
             "row_shards": shards,
+            "injury_receipts": receipts,
             "raw_archives": [*(previous or {}).get("raw_archives", []), *raw_archives],
         }
         if previous and previous.get("identity_redirects"):
             block["identity_redirects"] = previous["identity_redirects"]
-        checksum = upload_checksums(release, tag, out, run_id, shards)
+        checksum = upload_checksums(release, tag, out, run_id, [*shards, *receipts])
         if checksum is not None:
             block["checksum_asset"] = checksum
         validate_stats_manifest({"technical_data": block, "files": {INDEX_FILE: ""}})

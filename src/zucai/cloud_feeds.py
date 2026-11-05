@@ -64,7 +64,7 @@ MANIFEST = "feed_manifest.json"
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 STATE_FILE = (
     r"state/(?:api_football_quota\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
-    r"audit/(?:jc|fd|fdorg|apif|sfc|stats)_[a-z_]+\.csv|"
+    r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif)\.json)"
 )
 VIEW = """
@@ -353,7 +353,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
         db.close()
         os.replace(dbfile, dest)
         block = meta.get("technical_data")
-        if block and block.get("version") == 2:
+        if block and block.get("version") in (2, 3):
             write_rows_manifest(dest, block)
         else:
             (dest.parent / ROWS_MANIFEST).unlink(missing_ok=True)
@@ -361,6 +361,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
         # A reused destination must not retain state from a later backfill run.
         for key in (
             "state/audit/stats_ingest_audit.csv",
+            "state/audit/injuries_ingest_audit.csv",
             "state/audit/stats_link_audit.csv",
             "state/stats_backfill_cursor.json",
             "state/stats_coverage.json",

@@ -17,7 +17,7 @@ def add_stats_parser(sub):
     restore.add_argument("--archive", type=Path, help="feeds 归档目录；默认读取数据库旁持久清单")
     restore.add_argument("--release", help="仅恢复指定 stats-raw-YYYYMM 月份；默认恢复全部")
     restore.add_argument("--repository", help="GitHub owner/repo；默认 GITHUB_REPOSITORY")
-    for command in ("migrate", "ingest-fd", "link", "ingest-apif"):
+    for command in ("migrate", "ingest-fd", "link", "ingest-apif", "ingest-injuries"):
         item = commands.add_parser(command)
         item.add_argument(
             "--db", type=Path, default=Path(os.environ.get("ZUCAI_DB", "data/zucai.db"))
@@ -40,6 +40,12 @@ def add_stats_parser(sub):
                 item.add_argument("--div", required=True)
                 item.add_argument("--season", required=True)
                 item.add_argument("--leagues-file", type=Path)
+            elif command == "ingest-injuries":
+                item.add_argument("--league", type=int, required=True)
+                item.add_argument("--season", type=int, required=True)
+                item.add_argument(
+                    "--daily", action="store_true", help="已归档的日常原件；历史季页不能使用"
+                )
             else:
                 item.add_argument(
                     "--endpoint",
@@ -94,7 +100,18 @@ def run_stats(args):
             migrate_stats(engine)
         finally:
             engine.dispose()
-        result = {"tables": 4}
+        result = {"tables": 5}
+    elif args.stats_command == "ingest-injuries":
+        from zucai.injuries_storage import ingest_injuries
+
+        result = ingest_injuries(
+            args.db,
+            args.raw_file,
+            league_id=args.league,
+            season=args.season,
+            raw_location=args.raw_location,
+            daily=args.daily,
+        )
     elif args.stats_command == "ingest-fd":
         result = ingest_fd(
             args.db,

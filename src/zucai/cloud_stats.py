@@ -63,6 +63,21 @@ def write_summary(report):
         output.write(
             "\n索引按页、fd 按文件、逐场端点按已链接比赛计数；拒绝行单列，空字段保留 null。\n"
         )
+        injuries = report.get("coverage", {}).get("injuries")
+        if injuries is not None:
+            output.write(
+                "\n伤停存储：captured "
+                + cell(injuries["captured_rows"])
+                + "；backfilled "
+                + cell(injuries["backfilled_rows"])
+                + "；已关联 / 总行数 "
+                + cell(injuries["linked_rows"])
+                + " / "
+                + cell(injuries["total_rows"])
+                + "；关联率 "
+                + cell(injuries["linkage_rate"])
+                + "（空集为缺失；不进入正式预测）。\n"
+            )
         for error in report.get("errors", []):
             output.write("\n- " + cell(error) + "\n")
 

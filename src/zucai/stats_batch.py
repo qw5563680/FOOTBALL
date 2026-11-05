@@ -249,8 +249,18 @@ def collect_batch(
                         )
                         parsed.update(outcome="ok", reason="")
                     elif endpoint == "injuries":
-                        # T31 has no injury table: retain raw evidence and coverage only.
-                        result = {}
+                        from zucai.injuries_storage import ingest_injuries
+
+                        result = ingest_injuries(
+                            staged,
+                            path,
+                            league_id=item["league_id"],
+                            season=item["season"],
+                            raw_location=location(path),
+                            daily=daily,
+                        )
+                        if result.get("invalid"):
+                            parsed.update(outcome="error", reason="伤停页解析失败，详见审计")
                     else:
                         result = ingest_apif(
                             staged,
@@ -330,7 +340,7 @@ def collect_batch(
                 report["errors"].append(f"{item['key']}: {failure_reason(exc)}")
 
         try:
-            if original.get("technical_data", {}).get("version") == 2:
+            if original.get("technical_data", {}).get("version") in (2, 3):
                 restore_rows(staged, archive, release=release, shard_cache=shard_cache)
             report["identity"] = reconcile_fd_aliases(staged, run_id)
             if daily:

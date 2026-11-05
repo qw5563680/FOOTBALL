@@ -549,6 +549,36 @@ T32 使用 `data/api_football/stats_coverage.json` 的初始 unsupported 规则�
 `stats link --fetch` 仅允许审查者在 Actions 手动对七桥接＋2 请求一页 fixtures，不导入比赛；
 原件回放 `--raw-file` 不发请求。以上为 T31 边界；T32 技术通道的间隔、任务时长与增量如下，普通采集请求不变。
 
+### T38 伤停字段、捕获时间与空接口边界
+
+复用 `injuries?league&season` 已有单页请求，不新增采集源、路径、频率或配额。正式 key 只在 Actions；
+本次实现不请求体育 API 或 robots，沿用本节已归档的 T30/T32 权限与 robots 结论。开发时只回放已经归档的原件，
+不是一次新的线上权限实测。历史 11 联赛×2022–2025 约44次请求已由所有者批准，合入后由 Claude 执行。
+
+| 原字段 | 存储与解释 |
+| --- | --- |
+| league.id / season | 对照请求范围与现有赛事配置，league / provider_season |
+| fixture.id / date | provider_fixture_id / fixture_kickoff_utc；无有效日期拒绝并审计，不猜开球 |
+| team.id | provider_team_id；仅沿 apif_fixture_index 找 match_id / team_id / side，未关联留 NULL |
+| player.id / name | player_id / player_name；没有 ID 不按名字补绑定，名字或原因缺失保留 NULL |
+| player.type | injury_type 原文，Missing Fixture / Questionable 分别计缺阵/存疑；未知类型保留并审计，不塞进已知类别 |
+| player.reason | 原文 reason，未知不推断伤势严重程度或影响权重 |
+| sidecar fetched_at_utc / sha256 | 真实 captured_utc、UTC captured_day、raw_sha256，另保留 raw_location/parser_version/version 与完整 raw_value |
+
+日常原件中只有 fixture.date 严格晚于 capture 的行标 captured，available=capture，captured_before_kickoff=true；
+相等或已开球条目为 backfilled/NULL。历史入口一律 backfilled，即使条目日期在未来。
+存储标记不等于永远不能使用：目标 strict 与 T34a 一致，以真实 capture 作为回填行的有效可知时间，
+capture<截点才用，并保留原标记。训练 backfill_replay 另列“历史名单赛前已知”的假设，不改库中 available 或 T33 历史结论。
+同一条目按内容变化版本化；未变只延长 last_captured_utc，首次捕获及原件来源保留。
+每页完整捕获回执压缩上 Release；git CSV 只存每页计数、定位哈希和大小，无索引联赛不追加逐条未关联审计。
+空页、没有本场名单、缺上一场首发均为 null，不能当作0名伤员或0名主力缺阵。
+
+任务单限定的有数据范围为英超、西甲、意甲、德甲、法甲、荷甲、丹超、瑞超、挪超、美职、澳超；
+日职、韩职、中超、葡超、欧冠/欧罗巴/欧协联的空接口事实按既有探测/任务单记录，不把它推广为永久权限保证。
+覆盖率单列 captured/backfilled 存储版本数、已关联数和关联率；原件行数、去重后行数与有效特征场数是不同数字。
+新增只读解析与实验不代表伤停已经用于正式预测。连续7天捕获覆盖和44次历史回填实测由 Claude 后续回填。
+实验协议 v2 同时报告 strict 与 backfill_replay 目标表，后者显式假设最近归档名单赛前已知，不能混为严格赛前证据；主候选仅用缺阵人数差，首发交集作为有阵容子集附加分析。
+
 ### T32 技术数据调度、配额与覆盖率（离线实现；2026-11-04 首批真实验收见下表）
 
 本轮只使用离线 fixtures 和合成 Release transport，没有真实 API/CSV/status/robots 请求、
