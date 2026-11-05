@@ -128,6 +128,7 @@ python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-cl-1 
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ecl-1 --source apif --leagues 3,848 --from 2025 --to 2026
 python -m zucai.cloud_feeds probe --probe-kind stats --archive ../cloud-data --run-id stats-1 --source apif --leagues 3,848 --seasons 2024 --per-scope 2  # 仅审查者在 Actions 探测技术数据，不入库
 python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --run-id fd-links-1  # 仅审查者在 Actions 手动补链，不联网
+python -m zucai.cloud_feeds backfill --relink-jc --archive ../cloud-data --run-id jc-links-1  # 仅审查者在 Actions 手动补 API 先到、竞彩后到的链接，不联网
 python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF/FDORG 存量身份，不联网
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases proposals --scope cups-history --archive ../cloud-data --out docs/aliases/2026-11-04-apif-cups-history.md  # 第二批历史清单，只读、不覆盖
@@ -344,6 +345,12 @@ T30 的 `probe_kind=stats` 只在手动 Actions 中探测逐场技术统计、�
   每次定时运行均预测，手动 apis 仍不触发预测；fd 仍只在 UTC 周一 early 采集。
 - `operation=relink-fdorg`：仅手动 Actions 补存量 fd/fdorg 链接，对应 `backfill --relink-fdorg`；
   不采集、不注入 key、不训练、不运行记分板。摘要列补链/跳过数、原因和逐对清单；只改 counterpart，保留赛果和预测原件。
+- `operation=relink-jc`：仅手动 Actions 补独立 apif/fdorg 与后到竞彩的链接，对应 `backfill --relink-jc`；
+  同联赛、规范主客球队 ID 完全相同、开球相差 ≤3 小时，且双方都没有 counterpart、未被其他比赛声明、候选唯一时，
+  只设置 `jc.counterpart_id`；歧义和临时球队身份跳过。与 `--relink-fdorg` 及来源/范围参数互斥。
+  不采集、不注入 key、不训练、不运行记分板或日报；沿用写锁、竞彩水位、归档恢复和冻结预测校验。
+  `collection.jc`、步骤摘要及 `state/audit/jc_relink.csv` 保存补链数、已链接数、跳过原因和逐对清单。
+  后续 API 入库对同样的唯一后到竞彩记 `linked_late_jc`，竞彩赛果优先；联合训练仅排除已核验链接的 API 行，未链接重叠仍拒绝。
 - `operation=reconcile`：仅手动运行 APIF/FDORG 存量身份合并，不触发采集、预测或记分板；
   复用写回锁，保持竞彩水位，归档恢复及冻结预测哈希校验后发布。
 - `operation=backfill`：**一次性历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），

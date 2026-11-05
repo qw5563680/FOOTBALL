@@ -11,6 +11,7 @@ from zucai.db import upsert_match
 from zucai.models import Match, Result, Team
 from zucai.sources.fd_counterpart import CounterpartConflict, fdorg_candidate
 from zucai.sources.fd_ingest import WINDOW, _canonical
+from zucai.sources.jc_counterpart import check_late_observation
 from zucai.sources.results import GameResult, apply_result
 from zucai.sources.teams import normalize_team
 
@@ -24,6 +25,7 @@ COUNT_KEYS = (
     "cancelled",
     "skipped",
     "linked_existing",
+    "linked_late_jc",
     "linked_fd",
     "rejected_rows",
     "suspected_duplicates",
@@ -259,11 +261,16 @@ def _link_target(session, key, game, sides, existing, per_team):
     for source in ("jc", "fd"):
         matches = exact[source]
         candidates = conflicts[source] + [m.match_id for m in matches]
-        if conflicts[source] or len(matches) > 1 or (existing and matches and source == "jc"):
+        if conflicts[source] or len(matches) > 1:
             raise _Suspected(f"{source} 候选身份不全、主客冲突或存在重复比赛", candidates)
         if matches:
             target = matches[0]
             _check_claims(game, per_team, target)
+            if source == "jc" and existing:
+                try:
+                    check_late_observation(session, existing, game, pair, target)
+                except CounterpartConflict as exc:
+                    raise _Suspected(str(exc), exc.candidates) from exc
             if source == "fd" and existing:
                 if (
                     existing.source != "fdorg"
@@ -487,6 +494,8 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
                         match_id = target.match_id
                         outcome = "linked_existing" if target.source == "jc" else "linked_fd"
                         if target.source == "jc" and target.counterpart_id is None:
+                            if existing:
+                                outcome = "linked_late_jc"
                             target.counterpart_id = key
                     else:
                         outcome, assumed, teams = _persist(
@@ -519,8 +528,8 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
                 dict(audit, reason="已知该时仍未结算，缺可靠的更晚终场采集时刻，已隔离比分可知时间")
             )
         outcomes.append(record)
-        if outcome in {"linked_existing", "linked_fd"}:
-            field = "jc_id" if outcome == "linked_existing" else "fd_id"
+        if outcome in {"linked_existing", "linked_late_jc", "linked_fd"}:
+            field = "jc_id" if target.source == "jc" else "fd_id"
             links.append({**record, field: match_id})
     return dict(
         counts,
