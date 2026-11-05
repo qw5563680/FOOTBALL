@@ -10,6 +10,7 @@ from pathlib import Path
 
 from sqlalchemy import JSON
 
+from zucai.injuries_archive import check_published
 from zucai.sources.base import _atomic_write
 from zucai.stats_release import validate_name, validate_tag
 from zucai.stats_schema import STATS_COLUMNS, STATS_MODELS
@@ -76,7 +77,13 @@ def check_stats(db, *, rows=True):
         columns = STATS_COLUMNS[table]
         for values in db.execute(f"SELECT {','.join(columns)} FROM {table}"):
             row = dict(zip(columns, values, strict=True))
-            for key in ("captured_utc", "available_utc", "kickoff_utc", "fixture_kickoff_utc"):
+            for key in (
+                "captured_utc",
+                "available_utc",
+                "kickoff_utc",
+                "fixture_kickoff_utc",
+                "last_captured_utc",
+            ):
                 value = row.get(key)
                 if value is not None:
                     try:
@@ -143,6 +150,8 @@ def check_injuries(db):
         LEFT JOIN matches m ON m.match_id=r.match_id
         WHERE r.version < 1 OR r.provider <> 'apif'
         OR r.captured_day <> substr(r.captured_utc,1,10)
+        OR r.last_captured_utc < r.captured_utc
+        OR length(r.content_sha256)<>64 OR r.record_key=''
         OR (r.match_id IS NULL) <> (r.team_id IS NULL)
         OR (r.match_id IS NOT NULL AND (i.provider_fixture_id IS NULL OR m.match_id IS NULL
             OR r.provider_team_id IS NULL OR r.side IS NULL
@@ -196,6 +205,8 @@ def export_stats(db, archive, source=None):
         block = copy.deepcopy(block)
         validate_stats_manifest({"technical_data": block, "files": {INDEX_FILE: ""}})
         block["counts"]["apif_fixture_index"] = counts["apif_fixture_index"]
+    if source is not None:
+        check_published(Path(source).parent, block)
     target = archive / INDEX_FILE
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("w", encoding="utf-8", newline="\n") as stream:
@@ -271,6 +282,16 @@ def validate_stats_manifest(meta):
             totals[table] += shard["counts"][table]
     if any(totals[t] != block["counts"][t] for t in row_tables):
         raise ValueError("技术数据分片行数清单不符")
+    receipts = block.get("injury_receipts", [])
+    if not isinstance(receipts, list) or (block["version"] != 3 and receipts):
+        raise ValueError("伤停回执资产清单无效")
+    paths = set()
+    for asset in receipts:
+        validate_asset(asset)
+        expected = f"state/injuries_captures/{asset['sha256']}.json.gz"
+        if asset.get("relative_path") != expected or expected in paths or asset["size"] == 0:
+            raise ValueError("伤停回执路径、大小或重复描述无效")
+        paths.add(expected)
     for asset in block["raw_archives"]:
         validate_asset(asset)
         if "checksum_asset" in asset:

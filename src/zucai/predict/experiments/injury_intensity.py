@@ -20,17 +20,24 @@ from zucai.predict.calibration import fit_draw_offset
 from zucai.predict.dixon_coles import InsufficientHistory
 
 TECHNICAL_INPUTS = ("home_for", "away_for", "home_against", "away_against")
-INJURY_INPUTS = ("missing_diff", "missing_last_starters_diff")
+INJURY_INPUTS = ("missing_diff",)
 INPUTS = (*TECHNICAL_INPUTS, *INJURY_INPUTS)
+TARGET_AVAILABILITY_MODES = ("strict_capture_time", "backfill_replay")
 AVAILABILITY_MODES = {
     "training_availability_mode": "backfill_replay",
     "target_availability_mode": "strict_capture_time",
 }
 
 
+def availability_modes(target_availability_mode="strict_capture_time"):
+    if target_availability_mode not in TARGET_AVAILABILITY_MODES:
+        raise ValueError("T38 目标可知口径须为 strict_capture_time 或 backfill_replay")
+    return {**AVAILABILITY_MODES, "target_availability_mode": target_availability_mode}
+
+
 def complete(inputs):
     if set(inputs) != set(INPUTS):
-        raise ValueError("T38 强度输入须严格使用六项白名单，不允许赔率或额外特征")
+        raise ValueError("T38 强度输入须严格使用五项白名单，不允许赔率或额外特征")
     return all(
         value is not None and np.isfinite(value) and (key in INJURY_INPUTS or value >= 0)
         for key, value in inputs.items()
@@ -38,12 +45,20 @@ def complete(inputs):
 
 
 class InjuryIntensity:
-    def __init__(self, *, window, ablation=False, half_life_days=90):
+    def __init__(
+        self,
+        *,
+        window,
+        ablation=False,
+        half_life_days=90,
+        target_availability_mode="strict_capture_time",
+    ):
         if window not in (5, 10) or half_life_days != 90:
             raise ValueError("T38 冻结协议须使用近5/10场与90天半衰期")
         self.window, self.ablation = window, ablation
         self.stat_key = "shots_on_target"
-        self.name = "dc-sot-injuries-v1" + ("-no-injuries" if ablation else "")
+        self.name = "dc-sot-injuries-v2" + ("-no-injuries" if ablation else "")
+        self.availability_modes = availability_modes(target_availability_mode)
 
     def _design(self, inputs):
         home = [1, 1, np.log1p(inputs["home_for"]), np.log1p(inputs["away_against"])]
@@ -157,6 +172,7 @@ class InjuryIntensity:
             coefficients=self.coefficients,
             draw_offset=self.draw_offset,
             training_ids=self.training_ids,
+            **self.availability_modes,
         )
         self.version = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         self.diagnostics = dict(
@@ -210,5 +226,5 @@ class InjuryIntensity:
             fit_cutoff=self.as_of.isoformat(),
             coefficients=self.coefficients,
             input_whitelist=list(INPUTS),
-            **AVAILABILITY_MODES,
+            **self.availability_modes,
         )

@@ -133,15 +133,17 @@ def test_type_change_uses_latest_list_only(injury_database):
     assert row["home"]["missing_last_starters_n"]["value"] == 2
 
 
-def test_latest_conflicted_capture_is_null_and_earlier_cutoff_is_still_valid(injury_database):
+def test_same_day_revision_selects_exact_content_before_each_cutoff(injury_database):
     setup_complete(injury_database)
     data = document()
-    data["response"][0]["player"]["reason"] = "Correction"
+    data["response"][0]["player"]["type"] = "Questionable"
     ingest(injury_database, data=data, captured="2024-09-09T11:00:00Z")
-    assert (
-        build(injury_database)["home"]["missing_n"]["missing_reason"] == "same_day_content_conflict"
-    )
-    assert build(injury_database, as_of="2024-09-09T10:30:00Z")["home"]["missing_n"]["value"] == 2
+    assert build(injury_database)["home"]["missing_n"]["value"] == 1
+    for cutoff in ("2024-09-09T10:30:00Z", "2024-09-09T11:00:00Z"):
+        assert build(injury_database, as_of=cutoff)["home"]["missing_n"]["value"] == 2
+    ingest(injury_database, captured="2024-09-09T12:00:00Z")
+    assert build(injury_database)["home"]["missing_n"]["value"] == 2
+    assert build(injury_database, as_of="2024-09-09T11:30:00Z")["home"]["missing_n"]["value"] == 1
 
 
 @pytest.mark.parametrize(
@@ -168,7 +170,6 @@ def test_latest_incomplete_capture_never_means_healthy_zero(injury_database, var
         data["response"][0]["player"]["type"] = "Unknown Provider Status"
     else:
         data["response"][0]["fixture"]["date"] = "not-a-time"
-    # A new UTC day isolates incomplete-page behavior from the separate day-key conflict rule.
     ingest(injury_database, data=data, captured="2024-09-10T10:00:00Z")
     row = build(injury_database)
     assert row["home"]["missing_n"]["value"] is None
@@ -452,3 +453,47 @@ def test_two_different_pages_with_same_capture_time_are_ambiguous(injury_databas
     data["results"] = 3
     ingest(injury_database, data=data)
     assert build(injury_database)["home"]["missing_n"]["missing_reason"] == "ambiguous_capture_time"
+
+
+def test_unchanged_new_day_uses_capture_clock_without_leaking_later_interval(injury_database):
+    setup_complete(injury_database)
+    before = build(injury_database, as_of="2024-09-09T10:30:00Z")
+    ingest(injury_database, captured="2024-09-10T10:00:00Z")
+    after = build(injury_database, as_of="2024-09-09T10:30:00Z")
+    assert before == after
+    latest = build(injury_database)["home"]["missing_n"]
+    assert latest["value"] == 2
+    assert instant(latest["captured_utc"]) == instant("2024-09-10T10:00:00Z")
+    assert instant(latest["evidence"][0]["captured_utc"]) == instant(CAPTURE)
+
+
+def test_invalid_latest_page_cannot_reuse_older_complete_capture(injury_database):
+    setup_complete(injury_database)
+    data = document()
+    data["results"] += 1
+    assert ingest(injury_database, data=data, captured="2024-09-09T11:00:00Z")["invalid"]
+    assert build(injury_database)["home"]["missing_n"]["missing_reason"] == "incomplete_capture"
+    assert build(injury_database, as_of="2024-09-09T10:30:00Z")["home"]["missing_n"]["value"] == 2
+
+
+def test_missing_latest_gzip_does_not_reuse_old_capture(injury_database):
+    from zucai.injuries_storage import read_audit
+
+    setup_complete(injury_database)
+    ingest(injury_database, captured="2024-09-09T11:00:00Z")
+    page = read_audit(injury_database.parent / "state/audit" / AUDIT_NAME)[-1]
+    (injury_database.parent / json.loads(page["detail"])["receipt_path"]).unlink()
+    assert build(injury_database)["home"]["missing_n"]["missing_reason"] == "incomplete_capture"
+    assert build(injury_database, as_of="2024-09-09T10:30:00Z")["home"]["missing_n"]["value"] == 2
+
+
+def test_out_of_order_old_capture_keeps_latest_content_and_earlier_cutoff(injury_database):
+    data = document()
+    data["response"][0]["player"]["type"] = "Questionable"
+    ingest(injury_database, data=data, captured="2024-09-09T11:00:00Z")
+    ingest(injury_database)
+    assert build(injury_database)["home"]["missing_n"]["value"] == 1
+    assert build(injury_database, as_of="2024-09-09T10:30:00Z")["home"]["missing_n"]["value"] == 2
+    ingest(injury_database, captured="2024-09-09T12:00:00Z")
+    assert build(injury_database)["home"]["missing_n"]["value"] == 2
+    assert build(injury_database, as_of="2024-09-09T11:30:00Z")["home"]["missing_n"]["value"] == 1

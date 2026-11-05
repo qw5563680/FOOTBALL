@@ -1,4 +1,4 @@
-"""Frozen T38 replay-training / capture-time-target injury experiment only."""
+"""Frozen T38 independent capture-time and historical replay target experiments."""
 
 import hashlib
 import json
@@ -13,7 +13,12 @@ from zucai.features.stats import intensity_inputs
 from zucai.predict.base import utc
 from zucai.predict.dixon_coles import InsufficientHistory
 from zucai.predict.experiments.evaluate import _variant, fold_cutoff
-from zucai.predict.experiments.injury_intensity import AVAILABILITY_MODES, InjuryIntensity
+from zucai.predict.experiments.injury_intensity import (
+    AVAILABILITY_MODES,
+    TARGET_AVAILABILITY_MODES,
+    InjuryIntensity,
+    availability_modes,
+)
 from zucai.predict.experiments.intensity import INPUTS as HOST_INPUTS
 from zucai.predict.experiments.intensity import StatsIntensity
 from zucai.predict.experiments.metrics import is_common_experiment, paired, summarize
@@ -33,7 +38,7 @@ COLUMNS = (
 )
 # Independent of the mutable path on disk: reject accidental protocol changes.
 FROZEN_PROTOCOL = {
-    "protocol_version": "t38-injuries-v1",
+    "protocol_version": "t38-injuries-v2",
     "source_task": "docs/tasks/T38-injuries-capture-table-and-features.md",
     "base_commit": "f7fa6c5",
     "host": "dc-sot-v1",
@@ -54,11 +59,18 @@ FROZEN_PROTOCOL = {
             "leagues": ["英超", "英冠", "西甲", "意甲", "德甲", "法甲", "法乙", "荷甲", "葡超"],
         }
     },
-    "candidate": "dc-sot-injuries-v1",
-    "injury_inputs": ["missing_diff", "missing_last_starters_diff"],
-    "ablation": "remove_both_injury_inputs_same_host_same_complete_mask",
+    "candidate": "dc-sot-injuries-v2",
+    "injury_inputs": ["missing_diff"],
+    "ablation": "remove_missing_diff_same_host_same_complete_mask",
     "ablation_common_full_input_mask": True,
     **AVAILABILITY_MODES,
+    "target_availability_modes": list(TARGET_AVAILABILITY_MODES),
+    "lineup_subset": {
+        "input": "missing_last_starters_diff",
+        "eligibility": "both_teams_lineups_complete",
+        "analysis": "paired_main_models_on_lineup_complete_targets",
+        "fill_missing": False,
+    },
     "injury_replay_assumption": (
         "latest_archived_fixture_list_assumed_known_immediately_before_kickoff"
     ),
@@ -122,7 +134,13 @@ def _comparison_summary(rows, protocol):
     )
 
 
-def group_summary(rows, protocol):
+def group_summary(rows, protocol, *, target_availability_mode="strict_capture_time"):
+    modes = availability_modes(target_availability_mode)
+    if any(
+        row.get("target_availability_mode", target_availability_mode) != target_availability_mode
+        for row in rows
+    ):
+        raise ValueError("T38 不同目标可知口径不得混合汇总")
     summary = _comparison_summary(rows, protocol)
     groups = {}
     for field in protocol["groups"]:
@@ -141,6 +159,11 @@ def group_summary(rows, protocol):
         groups=groups,
         comparisons={name: summarize(rows, name) for name in ("uniform", "market")},
         missing_reasons=dict(Counter(reason for row in rows for reason in row["missing_reasons"])),
+        lineup_subset={
+            **protocol["lineup_subset"],
+            **_comparison_summary([row for row in rows if row.get("lineup_complete")], protocol),
+            "all_targets": len(rows),
+        },
         status="available_historical_comparison"
         if summary["common_targets"]
         else "insufficient_evidence",
@@ -149,17 +172,32 @@ def group_summary(rows, protocol):
             if summary["common_targets"]
             else "证据不足，尚不能判断是否改善"
         ),
-        **AVAILABILITY_MODES,
+        injury_replay_assumption=protocol["injury_replay_assumption"],
+        **modes,
     )
     return summary
 
 
 class InjuryWalkForwardExperiment:
-    def __init__(self, history, statistics, injuries, *, protocol):
+    def __init__(
+        self,
+        history,
+        statistics,
+        injuries,
+        *,
+        protocol,
+        target_availability_mode="strict_capture_time",
+    ):
         self.history = history
         self.statistics = statistics
         self.injuries = injuries
         self.protocol = load_protocol(protocol)
+        self.availability_modes = availability_modes(target_availability_mode)
+        self.target_mode = (
+            "strict"
+            if target_availability_mode == "strict_capture_time"
+            else target_availability_mode
+        )
         self.feature_cache = {}
         self.injury_cache = {}
         self.sample_cache = {}
@@ -187,6 +225,9 @@ class InjuryWalkForwardExperiment:
             injuries = self.injury_cache[injury_key]
             technical, stat_reasons = intensity_inputs(stats, "shots_on_target", window)
             injury, injury_reasons = injury_inputs(injuries)
+            main_injury = {key: injury[key] for key in self.protocol["injury_inputs"]}
+            optional_name = self.protocol["lineup_subset"]["input"]
+            optional_reasons = [r for r in injury_reasons if "missing_last_starters_n:" in r]
             self.feature_cache[key] = dict(
                 feature_cutoff=min(
                     utc(stats["feature_cutoff"]), utc(injuries["feature_cutoff"])
@@ -194,12 +235,15 @@ class InjuryWalkForwardExperiment:
                 availability_mode="strict_capture_time" if mode == "strict" else mode,
                 statistics=stats,
                 injuries=injuries,
-                inputs={**technical, **injury},
+                inputs={**technical, **main_injury},
+                optional_inputs={optional_name: injury[optional_name]},
+                lineup_complete=injury[optional_name] is not None,
+                optional_missing_reasons=optional_reasons,
                 statistics_missing=any(value is None for value in technical.values()),
-                injuries_missing=any(value is None for value in injury.values()),
+                injuries_missing=any(value is None for value in main_injury.values()),
                 missing_reasons=[
                     *(f"statistics:{r}" for r in stat_reasons),
-                    *(f"injuries:{r}" for r in injury_reasons),
+                    *(f"injuries:{r}" for r in injury_reasons if r not in optional_reasons),
                 ],
             )
         return self.feature_cache[key]
@@ -220,13 +264,12 @@ class InjuryWalkForwardExperiment:
                     inputs=features["inputs"],
                     window=window,
                     features=features,
-                    **AVAILABILITY_MODES,
+                    **self.availability_modes,
                 )
             samples.append(self.sample_cache[key])
         return samples
 
-    @staticmethod
-    def _fit(samples, cutoff, window, *, arms=("baseline", "candidate", "ablation")):
+    def _fit(self, samples, cutoff, window, *, arms=("baseline", "candidate", "ablation")):
         models, errors = {}, {}
         for name in ("baseline", "candidate", "ablation"):
             if name not in arms:
@@ -241,7 +284,13 @@ class InjuryWalkForwardExperiment:
                     model = StatsIntensity(stat_key="shots_on_target", window=window)
                 else:
                     observations = samples
-                    model = InjuryIntensity(window=window, ablation=name == "ablation")
+                    model = InjuryIntensity(
+                        window=window,
+                        ablation=name == "ablation",
+                        target_availability_mode=self.availability_modes[
+                            "target_availability_mode"
+                        ],
+                    )
                 models[name] = model.fit(observations, as_of=cutoff)
             except (InsufficientHistory, ValueError) as exc:
                 errors[name] = f"{type(exc).__name__}:{exc}"
@@ -266,7 +315,7 @@ class InjuryWalkForwardExperiment:
         rows, folds = [], []
         for cutoff, fixtures in period.groupby("fold_cutoff", sort=True):
             targets = fixtures.to_dict("records")
-            snapshots = [self.feature(row, window, "strict") for row in targets]
+            snapshots = [self.feature(row, window, self.target_mode) for row in targets]
             target_counts = {
                 name: sum(
                     not feature["statistics_missing"]
@@ -276,7 +325,7 @@ class InjuryWalkForwardExperiment:
                 for name in ("baseline", "candidate", "ablation")
             }
             arms = [name for name, count in target_counts.items() if count]
-            # A fit whose arm has no eligible strict target cannot contribute to
+            # A fit whose arm has no eligible target cannot contribute to
             # any comparison or selection. Preserve the nulls and record the
             # skipped work, without constructing historical replay inputs.
             if arms and samples is None:
@@ -310,13 +359,14 @@ class InjuryWalkForwardExperiment:
                             training_ids=model.training_ids,
                             training_rows=model.training_rows,
                             diagnostics=model.diagnostics,
+                            **self.availability_modes,
                         )
                         for name, model in models.items()
                     },
                     feature_cutoff_basis="each_fixture_earliest_aligned_kickoff",
                     training_evidence="training-features.jsonl.zst, keyed by match_id and window",
                     protocol_fingerprint=protocol_fingerprint(self.protocol),
-                    **AVAILABILITY_MODES,
+                    **self.availability_modes,
                 )
             )
             for row, features in zip(targets, snapshots, strict=True):
@@ -337,13 +387,16 @@ class InjuryWalkForwardExperiment:
                     label_available_utc=None if pd.isna(known) else known.isoformat(),
                     fit_cutoff=cutoff.isoformat(),
                     feature_cutoff=features["feature_cutoff"],
-                    availability_mode="strict_capture_time",
+                    availability_mode=self.availability_modes["target_availability_mode"],
                     window=window,
                     provider="fd",
                     injury_provider="apif",
                     features=features,
                     statistics_missing=features["statistics_missing"],
                     injuries_missing=features["injuries_missing"],
+                    lineup_complete=features["lineup_complete"],
+                    optional_inputs=features["optional_inputs"],
+                    optional_missing_reasons=features["optional_missing_reasons"],
                     missing_reasons=list(features["missing_reasons"]),
                     prediction_errors=dict(errors),
                     cold_start=bool(row["home"] not in seen or row["away"] not in seen),
@@ -356,7 +409,8 @@ class InjuryWalkForwardExperiment:
                     production_adoption=False,
                     protocol_fingerprint=protocol_fingerprint(self.protocol),
                     variants={name: None for name in (*COLUMNS, "uniform", "market")},
-                    **AVAILABILITY_MODES,
+                    injury_replay_assumption=self.protocol["injury_replay_assumption"],
+                    **self.availability_modes,
                 )
                 if not available:
                     record["missing_reasons"].append(
@@ -377,7 +431,7 @@ class InjuryWalkForwardExperiment:
                     try:
                         for calibrated in (False, True):
                             matrix, metadata = model.predict(inputs, calibrated=calibrated)
-                            metadata.update(AVAILABILITY_MODES)
+                            metadata.update(self.availability_modes)
                             suffix = "calibrated" if calibrated else "raw"
                             predicted[f"{name}_{suffix}"] = _variant(matrix, metadata, row)
                     except ValueError as exc:
@@ -439,12 +493,20 @@ class InjuryWalkForwardExperiment:
             frozen_at=self.protocol["selection_end"],
             reason=None if common else "no_common_candidate_selection_observations",
             trials=trials,
-            **AVAILABILITY_MODES,
+            **self.availability_modes,
         )
 
 
-def evaluate_group(history, statistics, injuries, *, protocol):
-    experiment = InjuryWalkForwardExperiment(history, statistics, injuries, protocol=protocol)
+def evaluate_group(
+    history, statistics, injuries, *, protocol, target_availability_mode="strict_capture_time"
+):
+    experiment = InjuryWalkForwardExperiment(
+        history,
+        statistics,
+        injuries,
+        protocol=protocol,
+        target_availability_mode=target_availability_mode,
+    )
     selection = experiment.select()
     rows, folds = experiment.run(
         window=selection["window"],

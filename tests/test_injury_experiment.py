@@ -33,8 +33,8 @@ def observations():
                         for k in ("home_for", "away_for", "home_against", "away_against")
                     },
                     "missing_diff": differences[0],
-                    "missing_last_starters_diff": differences[1],
                 },
+                optional_inputs={"missing_last_starters_diff": differences[1]},
                 home_goals=sample["home_goals"],
                 away_goals=sample["away_goals"],
             )
@@ -47,17 +47,19 @@ def test_fitted_injury_coefficients_and_signed_design():
 
     rows = observations()
     fitted = InjuryIntensity(window=5).fit(rows, as_of="2024-09-01T00:00:00Z")
-    assert {"missing_diff", "missing_last_starters_diff"} <= set(fitted.coefficients)
+    assert "missing_diff" in fitted.coefficients
+    assert "missing_last_starters_diff" not in fitted.coefficients
     home, away = fitted._design(rows[0]["inputs"])
-    assert home[-2:] == [2, 1] and away[-2:] == [-2, -1]
+    assert len(home) == len(away) == 5
+    assert home[-1] == 2 and away[-1] == -2
     matrix, metadata = fitted.predict(rows[0]["inputs"], calibrated=True)
     assert np.isfinite(matrix).all() and matrix.min() >= 0
     assert matrix.sum() == pytest.approx(1)
-    assert metadata["model_name"] == "dc-sot-injuries-v1"
+    assert metadata["model_name"] == "dc-sot-injuries-v2"
     assert metadata["model_type"] == "TEAM" and not metadata["bet_allowed"]
     assert metadata["training_availability_mode"] == "backfill_replay"
     assert metadata["target_availability_mode"] == "strict_capture_time"
-    changed = {**rows[0]["inputs"], "missing_diff": 8, "missing_last_starters_diff": 4}
+    changed = {**rows[0]["inputs"], "missing_diff": 8}
     assert not np.allclose(matrix, fitted.predict(changed, calibrated=True)[0])
 
 
@@ -77,7 +79,7 @@ def test_ablation_uses_identical_full_mask_and_exact_unchanged_host_math():
     )
     assert host.coefficients == ablated.coefficients
     left = rows[1]["inputs"]
-    right = {**left, "missing_diff": 20, "missing_last_starters_diff": -10}
+    right = {**left, "missing_diff": 20}
     assert np.array_equal(ablated.predict(left)[0], ablated.predict(right)[0])
     assert np.array_equal(ablated.predict(left)[0], host.predict({k: left[k] for k in INPUTS})[0])
     with pytest.raises(ValueError, match="missing"):
@@ -103,6 +105,11 @@ def test_training_label_boundaries_and_market_whitelist():
         InjuryIntensity(window=5).fit(
             [{**rows[0], "inputs": {**rows[0]["inputs"], "market_h": 0.9}}], as_of=cutoff
         )
+    with pytest.raises(ValueError, match="白名单"):
+        InjuryIntensity(window=5).fit(
+            [{**rows[0], "inputs": {**rows[0]["inputs"], **rows[0]["optional_inputs"]}}],
+            as_of=cutoff,
+        )
     with pytest.raises(ValueError, match="截点"):
         InjuryIntensity(window=5).fit(
             [{**rows[0], "feature_cutoff": cutoff}, *rows[1:]], as_of=cutoff
@@ -118,7 +125,9 @@ def test_protocol_is_frozen_and_splits_disjoint():
         ("training_availability_mode", "strict"),
         ("target_availability_mode", "backfill_replay"),
         ("selection_end", "2025-08-01T00:00:00Z"),
-        ("injury_inputs", ["missing_diff"]),
+        ("injury_inputs", ["missing_diff", "missing_last_starters_diff"]),
+        ("target_availability_modes", ["strict_capture_time"]),
+        ("lineup_subset", {**protocol["lineup_subset"], "fill_missing": True}),
         ("host", "dixon-coles"),
     ):
         with pytest.raises(ValueError, match="冻结"):
@@ -138,6 +147,8 @@ def metric_row(key, p=0.6, *, complete=True):
         statistics_missing=False,
         injuries_missing=not complete,
         experimental=complete,
+        lineup_complete=complete,
+        target_availability_mode="strict_capture_time",
         missing_reasons=[] if complete else ["injuries_missing"],
         variants={
             name: dict(probabilities=[p, (1 - p) / 2, (1 - p) / 2], score_brier=0.5)
@@ -257,14 +268,16 @@ class FixtureStatistics:
 
 
 class FixtureInjuries:
-    def __init__(self, rows, *, strict_missing=False):
+    def __init__(self, rows, *, strict_missing=False, lineup_missing=False):
         self.rows = {row["match_id"]: row for row in rows}
         self.calls = []
         self.strict_missing = strict_missing
+        self.lineup_missing = lineup_missing
 
     def build(self, row, *, as_of, mode):
         self.calls.append((row["match_id"], mode, utc(as_of)))
-        values = self.rows[row["match_id"]]["inputs"]
+        sample = self.rows[row["match_id"]]
+        values = {**sample["inputs"], **sample["optional_inputs"]}
         result = dict(feature_cutoff=utc(as_of).isoformat(), availability_mode=mode)
         for side, sign in (("home", 1), ("away", -1)):
             result[side] = {}
@@ -272,7 +285,9 @@ class FixtureInjuries:
                 ("missing_n", "missing_diff"),
                 ("missing_last_starters_n", "missing_last_starters_diff"),
             ):
-                missing = mode == "strict" and self.strict_missing
+                missing = (mode == "strict" and self.strict_missing) or (
+                    self.lineup_missing and key == "missing_last_starters_diff"
+                )
                 result[side][metric] = dict(
                     value=None if missing else max(0, values[key] * sign),
                     n=0 if missing else 1,
@@ -329,6 +344,105 @@ def test_walk_forward_trains_replay_and_predicts_strict_without_fallback():
     assert all(row["variants"]["candidate_raw"] is None for row in predictions)
     assert all(row["variants"]["ablation_raw"] is None for row in predictions)
     assert all(not row["experimental"] and row["injuries_missing"] for row in predictions)
+
+
+def test_target_tables_select_independently_and_keep_strict_empty():
+    from zucai.predict.experiments.injury_evaluate import (
+        COLUMNS,
+        evaluate_group,
+        group_summary,
+        load_protocol,
+    )
+
+    rows = timeline()
+    protocol = load_protocol(PROTOCOL)
+    statistics = FixtureStatistics(rows)
+    injuries = FixtureInjuries(rows, strict_missing=True)
+    tables = {
+        mode: evaluate_group(
+            pd.DataFrame(rows),
+            statistics,
+            injuries,
+            protocol=protocol,
+            target_availability_mode=mode,
+        )
+        for mode in DESIGN["target_availability_modes"]
+    }
+    strict, replay = (tables[mode] for mode in DESIGN["target_availability_modes"])
+    assert not strict["selection"]["evidence_sufficient"]
+    assert strict["selection"]["common_candidate_n"] == 0
+    assert replay["selection"]["evidence_sufficient"]
+    assert replay["selection"]["common_candidate_n"] == DESIGN["selection_rows"]
+    assert all(row["variants"]["candidate_raw"] is None for row in strict["predictions"])
+    assert all(row["variants"]["candidate_raw"] for row in replay["predictions"])
+    for mode, table in tables.items():
+        assert table["selection"]["target_availability_mode"] == mode
+        assert table["training_features"]
+        for sample in table["training_features"]:
+            assert sample["target_availability_mode"] == mode
+            assert sample["features"]["availability_mode"] == "backfill_replay"
+        for row in table["predictions"]:
+            assert row["target_availability_mode"] == row["availability_mode"] == mode
+            assert row["features"]["availability_mode"] == mode
+            assert row["injury_replay_assumption"] == protocol["injury_replay_assumption"]
+            for name in COLUMNS:
+                if row["variants"][name]:
+                    assert row["variants"][name]["target_availability_mode"] == mode
+        for fold in table["folds"]:
+            assert fold["target_availability_mode"] == mode
+            for model in fold["models"].values():
+                assert model["target_availability_mode"] == mode
+        summary = group_summary(table["predictions"], protocol, target_availability_mode=mode)
+        assert summary["targets"] == DESIGN["evaluation_rows"]
+        expected = 0 if mode == "strict_capture_time" else DESIGN["evaluation_rows"]
+        assert summary["common_targets"] == expected
+    with pytest.raises(ValueError, match="混合"):
+        group_summary(strict["predictions"] + replay["predictions"], protocol)
+
+
+@pytest.mark.parametrize("target_mode", DESIGN["target_availability_modes"])
+def test_missing_lineups_do_not_gate_main_candidate_or_change_fits(target_mode):
+    from zucai.predict.experiments.injury_evaluate import (
+        InjuryWalkForwardExperiment,
+        group_summary,
+        load_protocol,
+    )
+
+    rows = timeline()
+    protocol = load_protocol(PROTOCOL)
+    results = []
+    for lineup_missing in (False, True):
+        experiment = InjuryWalkForwardExperiment(
+            pd.DataFrame(rows),
+            FixtureStatistics(rows),
+            FixtureInjuries(rows, lineup_missing=lineup_missing),
+            protocol=protocol,
+            target_availability_mode=target_mode,
+        )
+        predictions, folds = experiment.run(
+            window=5,
+            start=protocol["evaluation_start"],
+            end=protocol["evaluation_end"],
+            fold="weekly",
+        )
+        for row in predictions:
+            assert row["variants"]["candidate_raw"] is not None
+            assert not row["injuries_missing"]
+            assert row["lineup_complete"] is not lineup_missing
+            assert (row["optional_inputs"]["missing_last_starters_diff"] is None) is lineup_missing
+            assert "missing_last_starters_diff" not in row["features"]["inputs"]
+        summary = group_summary(predictions, protocol, target_availability_mode=target_mode)
+        assert summary["common_targets"] == DESIGN["evaluation_rows"]
+        subset = summary["lineup_subset"]
+        assert subset["all_targets"] == DESIGN["evaluation_rows"]
+        assert subset["targets"] == (0 if lineup_missing else DESIGN["evaluation_rows"])
+        assert subset["fill_missing"] is False
+        if lineup_missing:
+            assert subset["models"]["candidate_raw"]["log_loss"] is None
+            assert subset["paired"]["candidate_raw-ablation_raw"]["all"]["n"] == 0
+        results.append((predictions, folds))
+    assert results[0][1] == results[1][1]
+    assert [row["variants"] for row in results[0][0]] == [row["variants"] for row in results[1][0]]
 
 
 def test_selection_fits_cannot_see_evaluation_labels():
@@ -469,6 +583,7 @@ def test_read_only_command_archives_null_evidence_and_all_fits_precede_market(
 ):
     import zipfile
 
+    from zucai.features import injuries as features_module
     from zucai.predict.experiments import injury_command as command
 
     database, _ = injury_database
@@ -482,11 +597,16 @@ def test_read_only_command_archives_null_evidence_and_all_fits_precede_market(
 
     def market(*args, **kwargs):
         phases.append("market")
-        assert phases.count("fit") == 2
+        assert phases.count("fit") == 4
         return original_attach(*args, **kwargs)
 
     monkeypatch.setattr(command, "evaluate_group", evaluate)
     monkeypatch.setattr(command, "attach_market", market)
+    monkeypatch.setattr(
+        features_module,
+        "InjuryFeatures",
+        lambda session: FixtureInjuries(timeline(), strict_missing=True, lineup_missing=True),
+    )
     output = tmp_path / "output"
     result = command.run(
         database,
@@ -497,22 +617,38 @@ def test_read_only_command_archives_null_evidence_and_all_fits_precede_market(
         run_id="fixture",
     )
     assert command.sha256(database) == before
-    assert phases == ["fit", "fit", "market", "market"]
+    assert phases == ["fit"] * 4 + ["market"] * 4
     assert result["status"] == "insufficient_evidence" and result["common_targets"] == 0
     summary = json.loads((output / "evidence/summary.json").read_bytes())
     assert summary["pooled"]["targets"] == DESIGN["evaluation_rows"]
     assert summary["pooled"]["models"]["baseline_raw"]["n"] == DESIGN["evaluation_rows"]
     assert summary["pooled"]["models"]["candidate_raw"]["n"] == 0
     assert summary["scopes"]["fd-德甲"]["targets"] == 0
+    assert summary["default_target_availability_mode"] == "strict_capture_time"
+    assert summary["pooled"] == summary["target_tables"]["strict_capture_time"]["pooled"]
+    replay = summary["target_tables"]["backfill_replay"]
+    assert replay["pooled"]["targets"] == DESIGN["evaluation_rows"]
+    assert replay["pooled"]["common_targets"] == DESIGN["evaluation_rows"]
+    assert replay["pooled"]["lineup_subset"]["targets"] == 0
+    assert replay["scopes"]["fd-英超"]["selection_evidence_sufficient"]
+    assert not summary["scopes"]["fd-英超"]["selection_evidence_sufficient"]
+    assert result["target_tables"]["backfill_replay"]["common_targets"] == DESIGN["evaluation_rows"]
     manifest = json.loads((output / "evidence/input_manifest.json").read_bytes())
     assert manifest["database_sha256"] == before and manifest["read_only"] is True
     assert manifest["protocol_sha256"] == command.sha256(PROTOCOL)
     assert manifest["training_availability_mode"] == "backfill_replay"
     assert manifest["target_availability_mode"] == "strict_capture_time"
+    assert manifest["target_availability_modes"] == DESIGN["target_availability_modes"]
+    assert manifest["candidate"] == "dc-sot-injuries-v2"
+    assert manifest["injury_inputs"] == ["missing_diff"]
     with zipfile.ZipFile(result["archive"]) as archive:
         assert "summary.json" in archive.namelist()
-        assert "fd-英超/training-features.jsonl.zst" in archive.namelist()
+        for mode in ("strict_capture_time", "backfill_replay"):
+            assert f"{mode}/fd-英超/training-features.jsonl.zst" in archive.namelist()
         assert archive.testzip() is None
+    readme = (output / "README.md").read_text()
+    assert "## strict_capture_time" in readme and "## backfill_replay" in readme
+    assert "假设最新归档名单在开球前已知" in readme
     for line in (output / "evidence/SHA256SUMS").read_text().splitlines():
         digest, name = line.split("  ")
         assert command.sha256(output / "evidence" / name) == digest
@@ -673,11 +809,20 @@ def test_readonly_url_preserves_real_fixture_receipts_and_blocks_writes(tmp_path
     assert "state/audit/stats_ingest_audit.csv" in before
 
 
-def test_changed_audit_input_rejects_output_before_publish(injury_database, tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "state/audit/injuries_ingest_audit.csv",
+        "state/injuries_captures/fixture.json.gz",
+    ],
+)
+def test_changed_audit_input_rejects_output_before_publish(
+    injury_database, tmp_path, monkeypatch, relative_path
+):
     from zucai.predict.experiments import injury_command as command
 
     database, _ = injury_database
-    audit = database.parent / "state/audit/injuries_ingest_audit.csv"
+    audit = database.parent / relative_path
 
     def changed(*args, **kwargs):
         audit.parent.mkdir(parents=True, exist_ok=True)

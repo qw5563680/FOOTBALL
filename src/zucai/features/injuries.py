@@ -7,7 +7,12 @@ from pathlib import Path
 
 from sqlalchemy import inspect, select
 
-from zucai.injuries_storage import AUDIT_NAME, RECEIPT_VERSION, SNAPSHOT_VERSION
+from zucai.injuries_storage import (
+    AUDIT_NAME,
+    RECEIPT_VERSION,
+    read_capture_receipt,
+    verify_capture_row,
+)
 from zucai.models import ApifFixtureIndex, Match, MatchInjury, MatchLineup
 from zucai.sources.apif_injuries import INJURY_TYPES
 from zucai.sources.apif_stats import instant
@@ -36,44 +41,21 @@ def _receipt_rows(directory, name, outcomes=("ingested",)):
 
 
 def _injury_pages(directory):
-    records = _receipt_rows(directory, AUDIT_NAME, outcomes=("ingested", "snapshot"))
-    snapshots = defaultdict(list)
-    for row in records:
-        if row["outcome"] == "snapshot":
-            snapshots[row["detail"].get("capture_record_key"), row["raw_sha256"]].append(row)
     pages = []
-    for row in records:
+    for row in _receipt_rows(directory, AUDIT_NAME, outcomes=("ingested", "rejected")):
+        detail = row["detail"]
         if (
             row["endpoint"] != "injuries"
-            or row["outcome"] != "ingested"
-            or row["detail"].get("receipt_version") != RECEIPT_VERSION
+            or not isinstance(detail, dict)
+            or detail.get("receipt_version") != RECEIPT_VERSION
         ):
             continue
-        detail = row["detail"]
-        children = snapshots.get((row["record_key"], row["raw_sha256"]), [])
-        groups = defaultdict(list)
-        for child in children:
-            groups[child["provider_fixture_id"]].append(child["detail"])
-        incomplete = (
-            len(children) != detail["snapshot_chunks"] or len(groups) != detail["fixture_count"]
-        )
-        fixtures = {}
-        for fixture_id, chunks in groups.items():
-            expected = len(chunks)
-            if any(
-                chunk["receipt_version"] != SNAPSHOT_VERSION or chunk["chunks"] != expected
-                for chunk in chunks
-            ) or {chunk["chunk"] for chunk in chunks} != set(range(expected)):
-                incomplete = True
-                continue
-            snapshot = dict(entries=[], rejected=[], conflicts=[], unresolved=[])
-            for chunk in sorted(chunks, key=lambda value: value["chunk"]):
-                for item in chunk["items"]:
-                    if item["kind"] not in snapshot:
-                        incomplete = True
-                    else:
-                        snapshot[item["kind"]].append(item["value"])
-            fixtures[fixture_id] = snapshot
+        try:
+            payload = read_capture_receipt(directory.parent.parent, detail)
+            verify_capture_row(row, payload)
+            fixtures, incomplete = payload["fixtures"], False
+        except (OSError, ValueError, KeyError, TypeError, EOFError):
+            fixtures, incomplete = {}, True
         row["detail"] = dict(
             detail, fixtures=fixtures, page_errors=detail["page_errors"] + int(incomplete)
         )
@@ -262,6 +244,12 @@ class InjuryFeatures:
                 not row
                 or row["raw_sha256"] != entry["raw_sha256"]
                 or row["version"] != entry["version"]
+                or row["record_key"] != entry["record_key"]
+                or not (
+                    instant(row["captured_utc"])
+                    <= instant(page["captured_utc"])
+                    <= instant(row["last_captured_utc"])
+                )
             ):
                 return [], provenance, "capture_rows_missing"
             if row["id"] in seen:

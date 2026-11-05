@@ -142,24 +142,28 @@ export/restore/verify 检查完整性、哈希、行数、外键和主客/索引
 
 `match_injuries` 除整数主键 id 外，字段为 provider/endpoint、league/provider_season、provider_fixture_id、
 match_id/team_id/provider_team_id/side、player_id/player_name、injury_type/reason、fixture_kickoff_utc、
-captured_utc/captured_day/available_utc/availability_basis/captured_before_kickoff、raw_sha256/raw_location/parser_version/version、
-完整 raw_value JSON。唯一键为 (provider, provider_fixture_id, player_id, injury_type, captured_day UTC 日)。
-缺球员 ID 仍保留 NULL 并审计，不能按名字识别；有身份的行须同时通过索引联赛季、主客队 ID 与开球±3h核验。
-同日同键首次行不覆盖；内容冲突保留后续原件与拒绝原因，该次快照不供特征使用。次日或类型变化追加版本；
-版本按 fixture/球员序列递增。NULL 原值不填 0，原件与所有旧行保留。
+captured_utc/captured_day/last_captured_utc/available_utc/availability_basis/captured_before_kickoff、
+record_key/content_sha256/raw_sha256/raw_location/parser_version/version、完整 raw_value JSON。
+captured_utc 是该内容版本首次捕获，last_captured_utc 是末次观察；内容未变只单调延长后者，不新增行。
+该区间只说明首末实际观察，不假设中间未抓取时名单一直未变；逐次名单仍以压缩回执为准。
+唯一键为 (provider, provider_fixture_id, record_key, version)；内容改变（含 A→B→A）保留新版本，首次来源不覆盖。
+缺球员 ID 仍保留 NULL 并审计，不按名字绑定；关联仍核验索引联赛季、主客 ID 与开球±3h。
 
-`sources/apif_injuries.py` 的 Source 适配器复用既有 StatsClient，纯解析检查 get/parameters/errors/results/分页。
-`injuries_storage.ingest_injuries` 校验 sidecar 后与 `injuries_ingest_audit.csv` 在同一事务内写入，异常一起回滚。
-审计回执保存完整页范围、捕获时刻、fixture→本次行 ID/冲突/缺失清单；不能把每个球员的最新行拼成一份从未出现的名单。
-页头与逐 fixture 分块回执分开，每个快照 JSON 字段不超过100,000字节；读取时校验分块序号与数量，缺块则记空缺，
-避免真实整季数千条名单超出 CSV 默认字段上限。没有放宽共享 CSV 读取限制。
-重复原件与同次捕获幂等。每日原件只有 fixture_kickoff > captured 才写 captured、available=captured；
-历史入口永远 backfilled/NULL，哪怕原件内有未来日期。cloud_stats 的日常和历史 injuries 分支复用原请求，未增加端点或次数。
+`injuries_storage` 与审计在同一事务写入。完整页快照（成员、空页、删除、冲突与拒绝明细）保存为
+`state/injuries_captures/<sha256>.json.gz`，这是本地外部行表缓存，不进入 git 数据分支。
+`state/audit/injuries_ingest_audit.csv` 每页只追加一条计数与压缩回执路径/哈希/字节数；无索引联赛同样仅每页计数。
+压缩回执作为不可变资产发布到 stats-raw-YYYYMM Release，technical_data.injury_receipts 记录描述。
+restore-rows 先校验所有回执大小/哈希再装回，缺失/损坏不能伪造完整名单。
+特征按截点前最新单次完整捕获读取；即使条目复用同一版本，也不把不同抓取的球员记录拼成未出现过的名单。
+缺本场、空页、身份失败仍为 null。每日入口 capture<kickoff 才标 captured/available=capture；
+历史入口永远 backfilled/NULL；strict 另按真实捕获时刻判断，不改原存储来源。
+PR #72 尚未部署的旧日版本表结构不作为已发布数据兼容格式；生产既有 v1/v2 技术归档保持兼容。
 
 T38 的 technical_data.version=3 在原三张行表之外增加 match_injuries，四表仍按联赛×供应商赛季压缩上传
 `stats-raw-YYYYMM` Release；未关联伤停按自身 league/provider_season 分片，不丢弃。数据分支仅增加伤停审计，
 覆盖率和清单记录数量/哈希；绝不放伤停整表 JSONL。旧 technical_data v1/v2 原清单仍能校验与恢复，伤停表为空；
 旧清单只读导出不改版本，首次重新发布才升级 v3。restore-rows 校验历史分片、ID、来源、外键、时间、哈希后原子替换，
+历史发布校验只允许伤停版本的 last_captured_utc 单调延长，其余内容/来源字段不得改写；
 已有正式 fd 身份合并清单重定向技术引用时也包含新表，合并前置规则不变。未发布的新伤停行和更正无法被普通导出悄悄丢弃。
 新旧代码交替发布前需由审查者协调排队作业，旧代码不接受 v3；不通过降低校验来兼容旧写入者。
 
@@ -1110,7 +1114,7 @@ summary.experiments.rules 固定：每联赛前瞻共同n≥200；实验−正�
 `features/injuries.py` 是只读构建器，目标截点 min(as_of,kickoff)。strict 继承 T34a 的真实捕获时间规则：
 backfilled 行的 effective_available_utc=captured_utc，严格小于截点才可用；保留 basis 与原 available=NULL。
 captured 行要求 capture/available 均在截点前，不能用后来补抓的名单预测过去。选择最新合格页的完整快照；
-本场名单缺失、最新页为空、身份不明、同日内容冲突均返回 null 与原因，不沿用一份已被后续观察否定的旧名单。
+本场名单缺失、最新页为空、身份不明或同次捕获内容冲突均返回 null 与原因，不沿用一份已被后续观察否定的旧名单。
 人数按供应商 player ID 去重，不按名字相似合并。missing_n/questionable_n 为本场该队已知名单中两种原类型人数；
 missing_last_starters_n 为缺阵 ID 与该队上一场首发 ID 的交集。上一场须真实已结束且开球+3h<截点，
 不往更早比赛补首发；无完整阵容则该项 null。每项保留 n、captured、basis、effective time、原件、版本、缺失原因。
@@ -1118,9 +1122,11 @@ missing_last_starters_n 为缺阵 ID 与该队上一场首发 ID 的交集。上
 目标截点及伤停名单回放假设使用组内最早开球，避免来源间时差令资料过早进入或错误排除。
 
 训练单独用 backfill_replay：明确假设历史伤停名单在该场开球前已知（不证明当时版本），历史技术统计仍为 T33 开球+3h假设；
-标签须 kickoff < available < 拟合截点。目标用 strict_capture_time，训练/目标口径各自进入证据与参数文件。
-T34b 尚未合入，因此按 T38 备用方案使用 dc-sot-v1；独立 injury_intensity 增加 missing_n 主客差和
-missing_last_starters_n 主客差，客队取反。系数全部折内拟合。消融去掉伤停项，但与候选共用完整训练掩码。
+标签须 kickoff < available < 拟合截点。协议 v2 目标分 strict_capture_time 与 backfill_replay 两张独立表；
+后者假设最近归档伤停名单开球前已知、统计在开球+3h已知，属于历史回放，不能充作前瞻证据。
+两表独立选窗、拟合、指标/配对区间、阵容子集分析，不混算、不互相填空，口径进入路径、证据及参数文件。
+T34b 在协议冻结时尚未合入，因此使用 dc-sot-v1；主候选只加 missing_n 主客差，客队取反，系数折内拟合。
+missing_last_starters_n 原值作为双方阵容完整子集的附加分析列；缺失不填0，不阻断主候选。消融去掉人数差，与主候选共用完整训练掩码。
 不改 T33 模块、生产注册或每日并行模型，原模型不作为候选的填空来源。
 
 协议先提交于 docs/experiments/T38-*，时间切分、六列与六组配对、自助和分组见协议。无共同候选样本时报告证据不足，

@@ -10,11 +10,13 @@ import pytest
 
 from test_daily_digest import NOW, snapshot
 from test_daily_digest import digest_archive as digest_archive
+from test_injuries_storage import ingest
+from test_injuries_storage import injury_database as injury_database
 from test_stats_rows import LocalRelease, seed
 from zucai.cloud_feeds import archive_info, export_feeds, restore_feeds
 from zucai.daily_digest import generate
 from zucai.db import get_engine, init_db, session_scope
-from zucai.models import ApifFixtureIndex, Match, MatchInjury, Team
+from zucai.models import ApifFixtureIndex, Match, MatchInjury, Result, Team
 from zucai.stats_archive import check_stats, write_rows_manifest
 from zucai.stats_availability import annotate_coverage
 from zucai.stats_rows import publish_rows, restore_rows
@@ -34,6 +36,19 @@ def injury_db(path):
         session.add(ApifFixtureIndex(**data["index"]))
         session.add_all(MatchInjury(**row) for row in data["injuries"])
     engine.dispose()
+
+
+@pytest.fixture
+def archived_injury_database(injury_database):
+    engine = get_engine(injury_database)
+    from sqlalchemy import select
+
+    with session_scope(engine) as session:
+        template = json.loads(FIXTURE.read_bytes())["prior_result"]
+        for game in session.scalars(select(Match).where(Match.status == "finished")):
+            session.add(Result(match_id=game.match_id, **template))
+    engine.dispose()
+    return injury_database
 
 
 def publish(database, out, release, run="test"):
@@ -187,3 +202,95 @@ def test_injury_cli_ingests_only_verified_local_raw(tmp_path):
     assert not args.daily
     assert run_stats(args)["inserted"] == 4
     assert run_stats(args)["inserted"] == 0
+
+
+def test_capture_receipts_live_in_release_and_restore_with_rows(archived_injury_database, tmp_path):
+    from zucai.features.injuries import InjuryFeatures
+    from zucai.injuries_archive import references
+
+    ingest(archived_injury_database)
+    release = LocalRelease(tmp_path / "release")
+    block = publish(archived_injury_database, tmp_path / "assets", release)
+    assert len(block["injury_receipts"]) == 1
+    archive = tmp_path / "archive"
+    export_feeds(archived_injury_database, archive, date(2024, 9, 9), "receipt")
+    assert not (archive / "state/injuries_captures").exists()
+    restored = tmp_path / "restored/feeds.db"
+    restore_feeds(archive, restored)
+    restore_rows(restored, archive, release=release)
+    assert references(restored.parent) == references(archived_injury_database.parent)
+    for path in references(restored.parent):
+        assert (restored.parent / path).read_bytes() == (
+            archived_injury_database.parent / path
+        ).read_bytes()
+    engine = get_engine(restored)
+    with session_scope(engine) as session:
+        builder = InjuryFeatures(session)
+        features = builder.build(builder.matches["fd:target"], as_of="2024-09-10T11:00:00Z")
+        assert features["home"]["missing_n"]["value"] == 2
+    engine.dispose()
+
+
+def test_unchanged_capture_interval_can_publish_without_changing_history(
+    archived_injury_database, tmp_path
+):
+    ingest(archived_injury_database, captured="2024-09-08T10:00:00Z")
+    release = LocalRelease(tmp_path / "release")
+    first = publish(archived_injury_database, tmp_path / "one", release, "one")
+    ingest(archived_injury_database, captured="2024-09-09T10:00:00Z")
+    second = publish(archived_injury_database, tmp_path / "two", release, "two")
+    assert first["counts"] == second["counts"]
+    assert len(second["injury_receipts"]) == 2
+    with sqlite3.connect(archived_injury_database) as db:
+        db.execute("UPDATE match_injuries SET reason='tampered'")
+    with pytest.raises(ValueError, match="ID 冲突"):
+        publish(archived_injury_database, tmp_path / "three", release, "three")
+
+
+def test_capture_asset_corruption_aborts_restore_before_database_change(
+    archived_injury_database, tmp_path
+):
+    ingest(archived_injury_database)
+    release = LocalRelease(tmp_path / "release")
+    block = publish(archived_injury_database, tmp_path / "assets", release)
+    archive = tmp_path / "archive"
+    export_feeds(archived_injury_database, archive, date(2024, 9, 9), "receipt")
+    restored = tmp_path / "restored/feeds.db"
+    restore_feeds(archive, restored)
+    before = restored.read_bytes()
+    asset = block["injury_receipts"][0]
+    (release.root / asset["tag"] / asset["name"]).write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="伤停压缩回执"):
+        restore_rows(restored, archive, release=release)
+    assert restored.read_bytes() == before
+    assert not (restored.parent / "state/injuries_captures").exists()
+
+
+def test_new_empty_capture_requires_published_receipt(archived_injury_database, tmp_path):
+    from test_injuries_storage import document
+
+    release = LocalRelease(tmp_path / "release")
+    publish(archived_injury_database, tmp_path / "one", release)
+    data = document()
+    data.update(response=[], results=0)
+    ingest(archived_injury_database, data=data)
+    with pytest.raises(ValueError, match="回执尚未发布"):
+        export_feeds(archived_injury_database, tmp_path / "archive", date(2024, 9, 9), "empty")
+
+
+def test_capture_csv_clock_must_agree_with_immutable_payload(archived_injury_database, tmp_path):
+    import csv
+
+    ingest(archived_injury_database)
+    path = archived_injury_database.parent / "state/audit/injuries_ingest_audit.csv"
+    with path.open(newline="") as stream:
+        reader = csv.DictReader(stream)
+        fields, rows = reader.fieldnames, list(reader)
+    rows[0]["captured_utc"] = "2024-09-01T10:00:00Z"
+    with path.open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    release = LocalRelease(tmp_path / "release")
+    with pytest.raises(ValueError, match="伤停"):
+        publish(archived_injury_database, tmp_path / "out", release)

@@ -10,7 +10,6 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
-    text,
 )
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -249,22 +248,13 @@ class MatchLineup(TechnicalProvenance, Base):
 
 
 class MatchInjury(Base):
-    """Immutable daily player observations; unresolved source identities remain nullable."""
+    """Content versions with immutable first provenance and advancing last observation."""
 
     __tablename__ = "match_injuries"
     __table_args__ = (
-        UniqueConstraint(
-            "provider", "provider_fixture_id", "player_id", "injury_type", "captured_day"
-        ),
-        Index(
-            "uq_match_injuries_nullable_player",
-            "provider",
-            "provider_fixture_id",
-            text("coalesce(player_id, -1)"),
-            "injury_type",
-            "captured_day",
-            unique=True,
-        ),
+        UniqueConstraint("provider", "provider_fixture_id", "record_key", "version"),
+        CheckConstraint("length(content_sha256) = 64"),
+        CheckConstraint("last_captured_utc >= captured_utc"),
         CheckConstraint("provider = 'apif' AND endpoint = 'injuries'"),
         CheckConstraint("version > 0 AND length(raw_sha256) = 64"),
         CheckConstraint("captured_day = substr(captured_utc, 1, 10)"),
@@ -301,6 +291,9 @@ class MatchInjury(Base):
     fixture_kickoff_utc: Mapped[str] = mapped_column(UTCString)
     captured_utc: Mapped[str] = mapped_column(UTCString)
     captured_day: Mapped[str]
+    last_captured_utc: Mapped[str] = mapped_column(UTCString)
+    record_key: Mapped[str]
+    content_sha256: Mapped[str]
     available_utc: Mapped[str | None] = mapped_column(UTCString)
     availability_basis: Mapped[str]
     captured_before_kickoff: Mapped[bool]

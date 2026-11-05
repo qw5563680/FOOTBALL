@@ -191,6 +191,8 @@ def _lightweight(rows):
                     "cold_start",
                     "statistics_missing",
                     "injuries_missing",
+                    "lineup_complete",
+                    "target_availability_mode",
                     "experimental",
                     "missing_reasons",
                 )
@@ -210,31 +212,46 @@ def _lightweight(rows):
 
 
 def _readme(summary, manifest, *, archive_name, release_tag, repository, archive_sha=None):
-    pooled = summary["pooled"]
     lines = [
         "# T38 injury experiment",
         "",
-        pooled["conclusion"],
-        "",
-        f"训练：backfill_replay；目标：strict_capture_time。目标 {pooled['targets']} 场，"
-        f"真实共同样本 {pooled['common_targets']} 场。",
-        "训练伤停为历史名单假设，统计为开球+3h假设；不证明当时版本已知。",
+        "训练均为 backfill_replay；两种目标口径独立选窗、拟合和汇总，不混合或补齐。",
+        "strict_capture_time 目标只用实际捕获时刻；"
+        "backfill_replay 目标明确假设最新归档名单在开球前已知。",
+        "回放伤停为历史名单假设，统计为开球+3h假设；不证明当时版本已知。",
+        "主候选只加入 missing_diff；上一场首发缺阵差保留原始空值，仅在阵容完整子集追加主模型比较。",
         "周初拟合、逐场开球取特征，并非当时在线冻结预测；合成测试不构成精度证据。",
         "没有概率回退；缺失保持 null。未自动采用，BET=false，P2=false。",
-        "",
-        "| column | full n / targets | full LL | common n | common LL | common Brier |",
-        "| --- | --- | --- | --- | --- | --- |",
     ]
 
     def number(value):
         return "null" if value is None else f"{value:.8g}"
 
-    for name in COLUMNS:
-        full, common = pooled["models"][name], pooled["common_experiment"][name]
-        lines.append(
-            f"| {name} | {full['n']} / {full['total']} | {number(full['log_loss'])} | "
-            f"{common['n']} | {number(common['log_loss'])} | {number(common['brier'])} |"
-        )
+    for mode, table in summary["target_tables"].items():
+        pooled = table["pooled"]
+        lines += [
+            "",
+            f"## {mode}",
+            "",
+            pooled["conclusion"],
+            "",
+            f"目标 {pooled['targets']} 场；真实共同样本 {pooled['common_targets']} 场。",
+            "",
+            "| column | full n / targets | full LL | common n | common LL | common Brier |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for name in COLUMNS:
+            full, common = pooled["models"][name], pooled["common_experiment"][name]
+            lines.append(
+                f"| {name} | {full['n']} / {full['total']} | {number(full['log_loss'])} | "
+                f"{common['n']} | {number(common['log_loss'])} | {number(common['brier'])} |"
+            )
+        subset = pooled["lineup_subset"]
+        lines += [
+            "",
+            f"阵容完整附加子集：{subset['targets']} / {subset['all_targets']} 场，"
+            f"共同样本 {subset['common_targets']} 场；指标与配对区间见该表 lineup_subset。",
+        ]
     lines += [
         "",
         "六项配对差与 UTC 周块 bootstrap（2000次、seed 3301、95% CI），",
@@ -278,6 +295,7 @@ def _input_hashes(database):
         Path(str(database) + "-wal"),
         database.parent / "state/audit" / AUDIT_NAME,
         database.parent / "state/audit/stats_ingest_audit.csv",
+        *sorted((database.parent / "state/injuries_captures").glob("*.json.gz")),
     ]
     return {
         path.relative_to(database.parent).as_posix(): sha256(path)
@@ -334,7 +352,8 @@ def run(
             stage = Path(temporary)
             evidence = stage / "evidence"
             evidence.mkdir()
-            scopes, report_paths = {}, {}
+            target_tables = {mode: {"scopes": {}} for mode in protocol["target_availability_modes"]}
+            report_paths = {}
             with Session(engine) as session:
                 session.connection().exec_driver_sql("PRAGMA query_only=ON")
                 from zucai.features.injuries import InjuryFeatures
@@ -344,64 +363,77 @@ def run(
                 for league in selected:
                     LOG.info("T38 starting fd/%s", league)
                     history, label_rejections = read_aligned_history(session, games, league)
-                    result = evaluate_group(history, statistics, injuries, protocol=protocol)
-                    scope = f"fd-{league}"
-                    directory = evidence / scope
-                    directory.mkdir()
-                    write_rows(directory / "predictions.jsonl.zst", result["predictions"])
-                    write_rows(directory / "folds.jsonl.zst", result["folds"])
-                    write_rows(
-                        directory / "training-features.jsonl.zst", result["training_features"]
-                    )
-                    selection = result["selection"]
-                    for window, trial in selection["trials"].items():
-                        write_rows(
-                            directory / f"selection-{window}.jsonl.zst", trial["predictions"]
+                    for mode in protocol["target_availability_modes"]:
+                        result = evaluate_group(
+                            history,
+                            statistics,
+                            injuries,
+                            protocol=protocol,
+                            target_availability_mode=mode,
                         )
+                        scope = f"fd-{league}"
+                        directory = evidence / mode / scope
+                        directory.mkdir(parents=True)
+                        write_rows(directory / "predictions.jsonl.zst", result["predictions"])
+                        write_rows(directory / "folds.jsonl.zst", result["folds"])
                         write_rows(
-                            directory / f"selection-{window}-folds.jsonl.zst", trial["folds"]
+                            directory / "training-features.jsonl.zst", result["training_features"]
                         )
-                    scopes[scope] = dict(
-                        selected_window=selection["window"],
-                        selection_evidence_sufficient=selection["evidence_sufficient"],
-                        selection_reason=selection["reason"],
-                        selection_common_candidate_n=selection["common_candidate_n"],
-                        selection_common_candidate_ids=selection["common_candidate_ids"],
-                        selection_metrics={
-                            key: trial["metrics"] for key, trial in selection["trials"].items()
-                        },
-                        selection_full_target_metrics={
-                            key: trial["full_target_metrics"]
-                            for key, trial in selection["trials"].items()
-                        },
-                        label_rejections=label_rejections,
-                        fit_status_counts=dict(
-                            Counter(
-                                f"{name}:{info['status']}"
-                                for fold in result["folds"]
-                                for name, info in fold["model_status"].items()
+                        selection = result["selection"]
+                        for window, trial in selection["trials"].items():
+                            write_rows(
+                                directory / f"selection-{window}.jsonl.zst", trial["predictions"]
                             )
-                        ),
-                        selection_fit_status_counts=dict(
-                            Counter(
-                                f"{name}:{info['status']}"
-                                for trial in selection["trials"].values()
-                                for fold in trial["folds"]
-                                for name, info in fold["model_status"].items()
+                            write_rows(
+                                directory / f"selection-{window}-folds.jsonl.zst", trial["folds"]
                             )
-                        ),
-                    )
-                    report_paths[scope] = directory / "predictions.jsonl.zst"
-                    del result
+                        target_tables[mode]["scopes"][scope] = dict(
+                            selected_window=selection["window"],
+                            selection_evidence_sufficient=selection["evidence_sufficient"],
+                            selection_reason=selection["reason"],
+                            selection_common_candidate_n=selection["common_candidate_n"],
+                            selection_common_candidate_ids=selection["common_candidate_ids"],
+                            selection_metrics={
+                                key: trial["metrics"] for key, trial in selection["trials"].items()
+                            },
+                            selection_full_target_metrics={
+                                key: trial["full_target_metrics"]
+                                for key, trial in selection["trials"].items()
+                            },
+                            label_rejections=label_rejections,
+                            fit_status_counts=dict(
+                                Counter(
+                                    f"{name}:{info['status']}"
+                                    for fold in result["folds"]
+                                    for name, info in fold["model_status"].items()
+                                )
+                            ),
+                            selection_fit_status_counts=dict(
+                                Counter(
+                                    f"{name}:{info['status']}"
+                                    for trial in selection["trials"].values()
+                                    for fold in trial["folds"]
+                                    for name, info in fold["model_status"].items()
+                                )
+                            ),
+                        )
+                        report_paths[mode, scope] = directory / "predictions.jsonl.zst"
+                        del result
                 # This is the first possible odds read: every league and both
                 # selection windows have already finished every model fit.
-                pooled = []
-                for scope, path in report_paths.items():
+                pooled_by_mode = {mode: [] for mode in target_tables}
+                for (mode, scope), path in report_paths.items():
                     rows = _read_rows(path)
                     attach_market(session, rows, statistics)
                     write_rows(path, rows)
-                    scopes[scope].update(group_summary(rows, protocol))
-                    pooled.extend(_lightweight(rows))
+                    target_tables[mode]["scopes"][scope].update(
+                        group_summary(rows, protocol, target_availability_mode=mode)
+                    )
+                    pooled_by_mode[mode].extend(_lightweight(rows))
+                for mode, rows in pooled_by_mode.items():
+                    target_tables[mode]["pooled"] = group_summary(
+                        rows, protocol, target_availability_mode=mode
+                    )
                 manifest = dict(
                     created_utc=datetime.now(UTC).isoformat(),
                     source_commit=source_commit,
@@ -421,7 +453,11 @@ def run(
                     provider="fd",
                     leagues=selected,
                     host="dc-sot-v1",
-                    candidate="dc-sot-injuries-v1",
+                    candidate=protocol["candidate"],
+                    injury_inputs=protocol["injury_inputs"],
+                    lineup_subset=protocol["lineup_subset"],
+                    target_availability_modes=protocol["target_availability_modes"],
+                    default_target_availability_mode=protocol["target_availability_mode"],
                     read_only=True,
                     bet_allowed=False,
                     p2_ready=False,
@@ -431,17 +467,27 @@ def run(
                     feature_cutoff_basis="earliest_aligned_fixture_kickoff",
                     fit_cutoff_basis="monthly_selection_weekly_evaluation_before_fold_start",
                     injury_replay_assumption=protocol["injury_replay_assumption"],
-                    availability_warning="训练历史名单/开球+3h为假设；目标只用实际捕获时刻，不声称在线冻结",
+                    availability_warning=(
+                        "strict 目标用真实捕获；replay 目标假设最新归档名单赛前已知；"
+                        "两表不混合，不声称在线冻结"
+                    ),
                     market_read_phase="after_all_league_fits_and_window_selection",
                     release_tag=release,
                     archive_name=archive_name,
                     **AVAILABILITY_MODES,
                 )
-                summary = dict(scopes=scopes, pooled=group_summary(pooled, protocol))
+                # Legacy top-level fields explicitly alias strict, never pool modes.
+                summary = dict(
+                    target_tables=target_tables,
+                    default_target_availability_mode=protocol["target_availability_mode"],
+                    **target_tables[protocol["target_availability_mode"]],
+                )
                 session.rollback()
             engine.dispose()
             if _input_hashes(database) != before:
-                raise RuntimeError("只读实验输入数据库或 WAL 哈希变化，拒绝归档与发布")
+                raise RuntimeError(
+                    "只读实验输入数据库、WAL、审计或名单凭据哈希变化，拒绝归档与发布"
+                )
             write_json(evidence / "input_manifest.json", manifest)
             write_json(evidence / "protocol.json", protocol)
             write_json(evidence / "summary.json", summary)
@@ -487,6 +533,13 @@ def run(
                 source_commit=source_commit,
                 status=summary["pooled"]["status"],
                 common_targets=summary["pooled"]["common_targets"],
+                default_target_availability_mode=protocol["target_availability_mode"],
+                target_tables={
+                    mode: {
+                        key: table["pooled"][key] for key in ("status", "targets", "common_targets")
+                    }
+                    for mode, table in target_tables.items()
+                },
                 publication=publication,
             )
     finally:

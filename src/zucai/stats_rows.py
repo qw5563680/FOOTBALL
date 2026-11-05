@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 
 import zstandard
 
+from zucai.injuries_archive import install_receipts, prepare_receipts, publish_receipts
 from zucai.stats_archive import (
     INDEX_FILE,
     ROW_TABLES,
@@ -232,6 +233,10 @@ def _apply(db, prepared, database, *, verify_only=False, redirects=None):
                         expected[team_column] = redirects.get(
                             expected[team_column], expected[team_column]
                         )
+                    if verify_only and table == "match_injuries":
+                        last = columns.index("last_captured_utc")
+                        if existing[last] >= expected[last]:
+                            expected[last] = existing[last]
                     if list(existing) != expected:
                         raise ValueError(
                             "技术数据行 ID 冲突；先在仅恢复索引的数据库恢复全部历史 snapshot"
@@ -259,6 +264,7 @@ def restore_rows(database, archive=None, *, release, tag=None, shard_cache=None)
     with TemporaryDirectory(prefix="stats-restore-", dir=database.parent) as temporary:
         directory = Path(temporary)
         prepared = _download_shards(block, directory, release, tag, shard_cache=shard_cache)
+        receipts = prepare_receipts(database.parent, block, directory, release)
         staged = directory / "rows.db"
         with sqlite3.connect(database) as source, sqlite3.connect(staged) as db:
             source.backup(db)
@@ -289,6 +295,7 @@ def restore_rows(database, archive=None, *, release, tag=None, shard_cache=None)
             ):
                 raise ValueError("技术数据恢复 snapshot 哈希或版本校验失败")
             db.commit()
+        install_receipts(receipts)
         write_rows_manifest(database, block)
         with sqlite3.connect(database) as source:
             migrated = not source.execute(
@@ -360,6 +367,7 @@ def publish_rows(
                 league=league, provider_season=season, rows=sum(counts.values()), counts=counts
             )
             shards.append(asset)
+        receipts = publish_receipts(database.parent, previous, release, tag)
         snapshot = row_snapshot(db)
         block = {
             "version": 3,
@@ -372,11 +380,12 @@ def publish_rows(
             },
             "snapshot": snapshot,
             "row_shards": shards,
+            "injury_receipts": receipts,
             "raw_archives": [*(previous or {}).get("raw_archives", []), *raw_archives],
         }
         if previous and previous.get("identity_redirects"):
             block["identity_redirects"] = previous["identity_redirects"]
-        checksum = upload_checksums(release, tag, out, run_id, shards)
+        checksum = upload_checksums(release, tag, out, run_id, [*shards, *receipts])
         if checksum is not None:
             block["checksum_asset"] = checksum
         validate_stats_manifest({"technical_data": block, "files": {INDEX_FILE: ""}})
