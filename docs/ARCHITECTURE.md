@@ -646,10 +646,16 @@ PR #45 评论 6616192600 的 15 个 approved ID 另外按有历史的欧战联�
 逐联赛前置检查：同源 ID 的各正式来源联赛规范名一致、来源/目标联赛无反向别名冲突；
 目标唯一存在且不是临时行、临时 aliases 为空、目标无不同的本联赛同源 ID，当前 ID 未被其他球队占用；
 同联赛目标的任何比赛与待移动比赛相差 ≤3h 均算冲突，临时行若被其他来源的比赛引用也跳过。
-冲突只跳过该联赛/ID，写明原因；通过后仅更新 matches 的 home_team_id/away_team_id，追加来源绑定。
+T41 仅允许一种同场例外：用已批准的规范球队 ID 替换待移动身份后，复用
+`jc_counterpart.late_jc_candidate(..., team_ids=规范主客ID)` 的只读判定，冲突恰为唯一同向同联赛的 jc 行，
+开球相差 ≤3h、双方 counterpart 均为空且未被其他比赛声明。反向、多个候选、非 jc 冲突及任何占用仍保留原拒绝原因。
+同一联赛/ID 的全部待移动比赛须先检查完，再更新 matches 的 home_team_id/away_team_id、追加来源绑定；
+符合例外时在同一事务设置 `jc.counterpart_id=<API match_id>`，API counterpart 保持空，竞彩赛果与 API 原赛果均不改。
+身份审计 reason=`merged_and_linked`，同时复用 T40 写入 `state/audit/jc_relink.csv` 的
+`outcome=linked, reason=reconcile` 回执；无同场链接的原路径仍为 `merged`。APIF/FDORG 共享此路径，不新增名字判断或放宽训练守卫。
 所有联赛不再引用临时行才删除它；无别名/未批准行保留。SQLite 事务内处理，审计写入失败时回滚数据库；
-数据库最终提交失败时恢复两源原审计（原本不存在则移除），第二张审计写失败亦回退第一张，避免失败产物误报成功；本轮不发布。
-match_id、开球、状态及其他字段、results/odds/closing_odds/predictions/sfc_issue_matches 均不改，无 schema 迁移。
+数据库最终提交失败时恢复两源身份审计及 jc 补链审计（原本不存在则移除），任一审计写失败亦回退已写文件，避免失败产物误报成功；本轮不发布。
+除上述球队外键与 jc counterpart 外，match_id、开球、状态及其他字段、results/odds/closing_odds/predictions/sfc_issue_matches 均不改，无 schema 迁移。
 
 `state/audit/apif_identity_merges.csv` 与新增 `fdorg_identity_merges.csv` 分开保存任务单九列，
 防止相同数字 ID 的两个来源发生审计键冲突。alias_source 包含 kind=`same_provider_id`、provider、
