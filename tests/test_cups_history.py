@@ -257,9 +257,10 @@ def test_reconcile_skips_unsafe_identity(history, provider, target, temporary, l
         elif problem == "aliases":
             con.execute("UPDATE teams SET aliases='[\"unexpected\"]' WHERE id=?", (temporary,))
         elif problem == "window":
+            # T41 allows the exact unclaimed JC counterpart; other sources still veto.
             con.execute(
                 "INSERT INTO matches(match_id,source,league,home_team_id,away_team_id,"
-                "kickoff_utc,status) VALUES('jc:conflict','jc',?,?,2,"
+                "kickoff_utc,status) VALUES('fd:conflict','fd',?,?,2,"
                 "'2024-08-01T21:00:00+00:00','scheduled')",
                 (league, target),
             )

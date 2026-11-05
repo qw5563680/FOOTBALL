@@ -13,6 +13,7 @@ from sqlalchemy import or_, select, text
 from zucai.cup_history import PROVISIONAL, coverage_lines, history_metrics
 from zucai.db import get_engine, session_scope
 from zucai.models import Match, Team
+from zucai.sources import jc_counterpart
 from zucai.sources.api_football import LEAGUES as APIF_LEAGUES
 from zucai.sources.apif_aliases import validate_approvals
 from zucai.sources.apif_command import ALIASES
@@ -130,6 +131,38 @@ def _daily_domestic_leagues():
     }
 
 
+def _jc_links(session, games, existing, temporary_id, target_id):
+    """Preflight every move; only a unique, unclaimed exact JC conflict can be linked."""
+    links = []
+    reason = "同联赛三小时内规范身份已有比赛"
+    for game in games:
+        conflicts = [
+            match
+            for match in existing
+            if abs(_utc(game.kickoff_utc) - _utc(match.kickoff_utc)) <= WINDOW
+        ]
+        if not conflicts:
+            continue
+        if len(conflicts) != 1 or conflicts[0].source != "jc":
+            raise ValueError(reason)
+        pair = tuple(
+            target_id if team == temporary_id else team
+            for team in (game.home_team_id, game.away_team_id)
+        )
+        try:
+            candidate = jc_counterpart.late_jc_candidate(session, game, team_ids=pair)
+        except jc_counterpart.CounterpartConflict as exc:
+            raise ValueError(reason) from exc
+        if (
+            candidate is None
+            or candidate.match_id != conflicts[0].match_id
+            or candidate.counterpart_id is not None
+        ):
+            raise ValueError(reason)
+        links.append((game, candidate))
+    return links
+
+
 def reconcile(database, run_id):
     """Apply existing T23 checks in every league, independently for APIF and FDORG."""
     database = Path(database)
@@ -156,6 +189,7 @@ def reconcile(database, run_id):
     )
     merged, rekeyed = set(), set()
     audits = {provider: [] for provider in paths}
+    relinks = []
     previous_audits = {}
     try:
         with session_scope(engine) as session:
@@ -239,12 +273,7 @@ def reconcile(database, run_id):
                         if any(m.source != provider for m in games):
                             raise ValueError(f"临时身份被非 {provider.upper()} 比赛引用")
                         existing = _references(session, target.id, league)
-                        if any(
-                            abs(_utc(g.kickoff_utc) - _utc(m.kickoff_utc)) <= WINDOW
-                            for g in games
-                            for m in existing
-                        ):
-                            raise ValueError("同联赛三小时内规范身份已有比赛")
+                        links = _jc_links(session, games, existing, temporary.id, target.id)
                         # All checks precede the first mutation for this league/ID.
                         for game in games:
                             if game.home_team_id == temporary.id:
@@ -252,11 +281,28 @@ def reconcile(database, run_id):
                             if game.away_team_id == temporary.id:
                                 game.away_team_id = target.id
                             rekeyed.add(game.match_id)
+                        for game, jc in links:
+                            jc.counterpart_id = game.match_id
+                            relinks.append(
+                                dict(
+                                    api_id=game.match_id,
+                                    jc_id=jc.match_id,
+                                    league=game.league,
+                                    api_kickoff_utc=game.kickoff_utc,
+                                    jc_kickoff_utc=jc.kickoff_utc,
+                                    outcome="linked",
+                                    reason="reconcile",
+                                    candidates=[jc.match_id],
+                                )
+                            )
                         if binding not in target.aliases:
                             target.aliases.append(binding)
                         session.flush()
                         merged.add(temporary.id)
-                        row.update(matches_rekeyed=len(games), reason="merged")
+                        row.update(
+                            matches_rekeyed=len(games),
+                            reason="merged_and_linked" if links else "merged",
+                        )
                     except ValueError as exc:
                         row["reason"] = str(exc)
                         report["skipped_conflicts"] += 1
@@ -275,6 +321,12 @@ def reconcile(database, run_id):
                     audit_path.read_bytes() if audit_path.exists() else None
                 )
                 write_audit(audit_path, rows)
+            if relinks:
+                audit_path = database.parent / "state/audit/jc_relink.csv"
+                previous_audits[audit_path] = (
+                    audit_path.read_bytes() if audit_path.exists() else None
+                )
+                jc_counterpart._write_audit(audit_path, relinks)
     except Exception:
         # session_scope has rolled back; don't leave a successful audit of a failed commit.
         for audit_path, previous_audit in previous_audits.items():

@@ -34,10 +34,10 @@ def _utc(value):
     return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
-def _neighbors(session, match, sources):
+def _neighbors(session, match, sources, *, team_ids=None):
     """A shared team can veto a link; only the exact oriented pair can create one."""
     when = _utc(match.kickoff_utc)
-    teams = (match.home_team_id, match.away_team_id)
+    teams = team_ids if team_ids is not None else (match.home_team_id, match.away_team_id)
     return list(
         session.scalars(
             select(Match)
@@ -53,13 +53,15 @@ def _neighbors(session, match, sources):
     )
 
 
-def late_jc_candidate(session, existing):
+def late_jc_candidate(session, existing, *, team_ids=None):
     """Return a unique JC target (including an already verified link), without writing.
 
     Both endpoints must be free of any other claims, even outside this league/window.
     Reverse lookup prevents iteration order choosing between competing API rows.
+    Reconcile may supply its approved projected pair without mutating the stored row.
     """
-    candidates = _neighbors(session, existing, ("jc",))
+    pair = team_ids if team_ids is not None else (existing.home_team_id, existing.away_team_id)
+    candidates = _neighbors(session, existing, ("jc",), team_ids=pair)
     ids = [m.match_id for m in candidates]
     claims = list(
         session.scalars(
@@ -76,7 +78,6 @@ def late_jc_candidate(session, existing):
         return None
     if existing.source not in PROVIDERS:
         raise CounterpartConflict("既有行不是 API 来源自己的比赛", ids)
-    pair = existing.home_team_id, existing.away_team_id
     if any(session.get(Team, t).name.startswith(("apif:team:", "fdorg:team:")) for t in pair):
         raise CounterpartConflict("API 球队仍为临时身份", ids)
     if any((m.home_team_id, m.away_team_id) != pair for m in candidates):

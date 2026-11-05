@@ -761,6 +761,16 @@ approved_by=qw5563680，approved_utc=2026-11-03T11:11:00+00:00，approval_pr 为
 已售球队绑定率 ≥90%（基线 16/29、6/8）。isolated_2026 继续报告；它含竞彩未售场次，
 不再作为 ≤10 的门槛。当前 73 不能与此前在身份检查即拒绝的 39 直接比较。
 
+**第五批批准与同场关联（2026-11-05，T41 离线实现）。** [PR #82](https://github.com/qw5563680/FOOTBALL/pull/82)
+批准的 651 费伦茨、628 布斯巴达、998 特拉布宗，在任务单记录的 reconcile run 42044312338 中仍有当前同场冲突：
+`apif:1636208 ↔ jc:2042523`、`apif:1636337 ↔ jc:2042520`、`apif:1636476 ↔ jc:2042530`。
+T41 只在已有正式批准和其他身份检查全部通过后，用规范球队 ID 投影复用 T40 的唯一同向 jc 判定；
+双方未链接、未被声明且 ±3 小时内唯一时，重定向球队外键并在同一事务设置 jc counterpart。
+身份审计记 `merged_and_linked`，`jc_relink.csv` 另记 `outcome=linked, reason=reconcile`；写入失败两份审计与数据库一起回退。
+fdorg 临时身份复用同一逻辑；反向、多候选、占用及非 jc 冲突保持原拒绝，不改正式别名、赛果、可知时间或训练守卫。
+本地只使用带这三对 ID 的合成 fixtures 验证，合并及关联后的训练视图仍由原规则排除 API 侧。
+真实三对补链与下一档欧战训练验收仍由 Claude 在 Actions 执行，不将离线样本当作已完成真实合并。
+
 时间仅取 `fixture.timestamp`（Unix UTC），不从可能改格式的显示字符串推断。
 常规时间比分只取 `score.fulltime`，半场取 `score.halftime`。真实韩职 `apif:1317866`
 （2024 季）`fulltime=2:1`、`extratime=1:0`、`goals=3:1`；芬超 `apif:1313003`
