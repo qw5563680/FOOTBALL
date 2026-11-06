@@ -51,7 +51,7 @@ def _triplet(value: object, field: str, *, probabilities: bool = False) -> None:
         raise ValueError(f"{field} 概率必须在 [0,1] 且合计为 1")
 
 
-def _validate_batch(batch: object) -> None:
+def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> None:
     """Check the interchange contract without loading a model or consulting a DB."""
     if not isinstance(batch, dict) or type(batch.get("schema_version")) is not int:
         raise ValueError("schema_version 必须为 1 或 2")
@@ -159,7 +159,9 @@ def _validate_batch(batch: object) -> None:
             if any(price <= 1 for price in market["prices"].values()):
                 raise ValueError("市场 SP 必须大于 1")
             _triplet(market.get("probabilities"), "market.probabilities", probabilities=True)
-            _timestamp(market.get("snapshot_utc"))
+            # Read-only digest compatibility; scoring/publishing retain strict validation.
+            if not allow_unknown_odds_time:
+                _timestamp(market.get("snapshot_utc"))
         ev = prediction.get("ev")
         if ev is not None:
             if market is None:
@@ -490,7 +492,7 @@ def write_report(batch: dict, output: Path) -> Path:
     return output / "forecast.json"
 
 
-def load_batch(path: Path) -> dict:
+def load_batch(path: Path, *, allow_unknown_odds_time: bool = False) -> dict:
     """Read a frozen batch only after verifying its sibling manifest hashes."""
     path = Path(path)
     if path.name != "forecast.json":
@@ -522,5 +524,5 @@ def load_batch(path: Path) -> dict:
             raise ValueError(f"SHA256 校验失败：{name}")
         contents[name] = content
     batch = json.loads(contents["forecast.json"])
-    _validate_batch(batch)
+    _validate_batch(batch, allow_unknown_odds_time=allow_unknown_odds_time)
     return batch

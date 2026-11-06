@@ -11,6 +11,7 @@ from zucai.digest_context import (
     week_start,
 )
 from zucai.digest_display import BEIJING, _instant, _link, _match, _number, _probabilities, _text
+from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time
 
 SKIP_REASONS = {
     "match_status_not_selling": "比赛状态非 Selling",
@@ -61,7 +62,7 @@ def prediction_source_lines(run):
             f"归档时间 {_local(snapshot.get('created_utc'))}（北京时间，不代表竞彩采集时间）。"
         )
         lines.append(
-            f"该预测快照的竞彩赛程更新至：{_local(snapshot.get('schedule_updated_utc'))}；"
+            f"该预测快照的竞彩接口最近成功检查：{_local(snapshot.get('schedule_updated_utc'))}；"
             f"赛果更新至：{_local(snapshot.get('results_updated_utc'))}（北京时间）。"
         )
     elif run.get("sporttery_stale"):
@@ -106,6 +107,8 @@ def forecast_sections(
             {},
         )
         lines.extend(prediction_source_lines(source_run))
+        lines.extend(batch_odds_lines(batch, source_run))
+        checked_at = (source_run.get("feed_snapshot") or {}).get("schedule_updated_utc")
         rows = [
             {**matches.get(row["match_id"], {}), **row}
             for row in batch["predictions"]
@@ -116,8 +119,9 @@ def forecast_sections(
             continue
         lines.extend(
             [
-                "| 竞彩编号 | 北京开球 | 联赛 / 对阵 | 胜 / 平 / 负 | 模型版本 | P2 | 比分前五 |",
-                "| --- | --- | --- | --- | --- | --- | --- |",
+                "| 竞彩编号 | 北京开球 | 联赛 / 对阵 | 胜 / 平 / 负 | 模型版本 | P2 | 比分前五 | "
+                "冻结赔率采集时间（北京时间） |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for row in sorted(rows, key=_order):
@@ -128,7 +132,9 @@ def forecast_sections(
             if displayed_ids is not None:
                 displayed_ids.add(row["match_id"])
             if row["status"] != "predicted":
-                lines.append(f"{head} | 未预测：{_text(row.get('reason'))} | — | — | — |")
+                lines.append(
+                    f"{head} | 未预测：{_text(row.get('reason'))} | — | — | — | 未冻结赔率 |"
+                )
                 continue
             scores = (
                 "；".join(
@@ -140,7 +146,8 @@ def forecast_sections(
             status = "ready" if row.get("p2_ready") is True else "experimental"
             lines.append(
                 f"{head} | {_probabilities(row)} | {_text(row['model_name'])} / "
-                f"{_text(row['model_version'])} | {status} | {scores} |"
+                f"{_text(row['model_version'])} | {status} | {scores} | "
+                f"{odds_time(row, checked_at=checked_at)} |"
             )
         lines.append("")
     return lines
@@ -200,8 +207,8 @@ def review_sections(
         "并列首项沿用 h/d/a 顺序。",
         "",
         "| 竞彩编号 | 北京开球 / 对阵 | 最后有效赛前胜 / 平 / 负 | "
-        "实际比分 | 首项命中 | 冻结批次 |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "实际比分 | 首项命中 | 冻结批次 | 冻结赔率采集时间（北京时间） |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for key, row in sorted(rows.items(), key=lambda pair: _order(pair[1])):
         frozen = latest.get(key)
@@ -220,10 +227,11 @@ def review_sections(
         probability = _probabilities(frozen) if frozen else "无可查的赛前预测"
         lines.append(
             f"| {_text(row.get('jc_num'))} | {_local(row['kickoff_utc'])} / {_match(row)} | "
-            f"{probability} | {actual} | {hit} | {_text(frozen['batch_id']) if frozen else '—'} |"
+            f"{probability} | {actual} | {hit} | {_text(frozen['batch_id']) if frozen else '—'} | "
+            f"{odds_time(frozen) if frozen else '未冻结赔率'} |"
         )
     if not rows:
-        lines.append("| 尚无本周已开球记录 | — | — | — | — | — |")
+        lines.append("| 尚无本周已开球记录 | — | — | — | — | — | — |")
     lines.extend(["", "### 竞彩完整清单逐号核对", ""])
     displayed = set(latest) if displayed_ids is None else displayed_ids | (set(rows) & set(latest))
     window = window or prediction_window([], now)
@@ -311,9 +319,14 @@ def header_lines(
 ):
     jc = feed.get("collection", {}).get("jc", {})
     lines = [
-        f"竞彩赛程更新至：{_local(jc.get('schedule_updated_utc'))}（北京时间）。",
+        f"竞彩接口最近成功检查：{_local(jc.get('schedule_updated_utc'))}（北京时间）。",
         f"赛果更新至：{_local(jc.get('results_updated_utc'))}（北京时间）。",
     ]
+    lines.extend(
+        collection_lines(
+            feed, now, jc_sync_run_id=jc_sync_run_id, jc_publish_status=jc_publish_status
+        )
+    )
     failed_stages = jc.get("failed_stages") or []
     schedule_failed = jc.get("schedule_status") == "failed" or "schedule" in failed_stages
     results_failed = jc.get("results_status") == "failed" or "results" in failed_stages

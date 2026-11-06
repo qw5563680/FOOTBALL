@@ -40,6 +40,24 @@ T39（2026-11-05）：只用离线 fixtures，未重新请求站点或 robots；
 `collection.jc` 分存 `schedule_updated_utc` / `results_updated_utc`，仅对应阶段完整成功时前进，
 失败阶段保留上次成功时刻，并记录当前状态、run与原因。sporttery 原件随 `sporttery-source-<run>` artifact 保留90天。
 
+### 2026-11-06 晚间旧赔率核对（run 42242081711）
+
+本轮只读取既有 `sporttery-source-42242081711-1` artifact 与数据分支离线重放，没有新请求、未重读 robots，
+不改变端点、频率或在售过滤。原件捕获 UTC `2026-11-06T15:26:05.030882Z`（北京 23:26:05），HTTP 200、
+`success=true/errorCode=0`。48 行全为 `matchStatus=Selling`、`sellStatus=2`，`bettingSingle/bettingAllUp=0`；
+239 个玩法的 `single/allUp` 均为 0，`vtoolsConfig` 同时给出“抱歉，本彩种已停止销售”。
+47 行仍带 had 数字，但报价存在不等于可售；解析按既有 `sellStatus==1` / 在售固定奖玩法规则跳过 48 行，
+原因全部 `sell_status_not_1`，并非把源站正常在售状态误读。停销原因、恢复时刻没有证据，不作推断。
+原件 SHA256：`d9e14edf6ffc1b18753a221bf69598de9d06061b611ae1bf9803dc8780a70b68`。
+裁剪两行回归样本及说明见 `data/fixtures/t36_odds/`；完整 48 行复核不作为联网测试。
+
+对应 `collection.jc.schedule_matches=0/odds_snapshots=0`，接口成功检查时间虽前进，赔率没有新增入库。
+11-07 冻结批次 25 场 predicted：24 场的市场快照时间为 UTC `2026-11-06T03:35:23.875726Z`
+（北京 11:35:23），1 场 market=null；另外 5 场 excluded 未生成预测。11-06 批次 13 场全部 excluded。
+日报只按逐场 `market.snapshot_utc` 展示此证据，不把 `schedule_updated_utc`、run 或归档时间当报价时间。
+`odds_snapshots` 是新增入库的玩法选项条数；零值还可能由原价去重造成，必须结合原件/跳过审计判断原因。
+这批可确认源站响应不满足在售条件；不据此扩大为所有历史/未来时刻的停售结论。
+
 ### T45 两注纸面现金流与停售字段
 
 2026-11-06 本轮仅复用离线样本，未发真实请求、未重新读取 robots；不新增采集端点、路径或请求次数。

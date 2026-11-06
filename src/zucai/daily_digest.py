@@ -285,7 +285,7 @@ def generate(
     at = _instant(now or datetime.now(UTC))
     today = _day(at)
     feed = archive_info(archive)
-    manifest = verify_forecasts(archive)
+    manifest = verify_forecasts(archive, allow_unknown_odds_time=True)
     scored, ledger, summary, _ = read_state(archive)
     # Experimental scores share the append-only score file but never the original
     # yesterday totals, paper ledger or production evidence gates.
@@ -297,7 +297,9 @@ def generate(
         for day, entry in run["forecasts"].items():
             if _instant(entry["generated_utc"]) <= at:
                 path = entry["path"] + "/forecast.json"
-                batches.append((day, path, load_batch(archive / path)))
+                batches.append(
+                    (day, path, load_batch(archive / path, allow_unknown_odds_time=True))
+                )
     matches = archived_matches(archive, feed)
     # No rows known at the cutoff means no evidence, not a checked empty scope.
     # Only scoped_catalog below may produce [] after usable evidence was found.

@@ -95,7 +95,7 @@ def _run_files(run_id: str, run: dict) -> set[str]:
     return files
 
 
-def verify_forecasts(archive: Path) -> dict | None:
+def verify_forecasts(archive: Path, *, allow_unknown_odds_time: bool = False) -> dict | None:
     """Verify bytes and frozen report evidence without loading executable model pickles."""
     manifest_path = _path(archive, MANIFEST)
     if not manifest_path.exists():
@@ -125,7 +125,10 @@ def verify_forecasts(archive: Path) -> dict | None:
                     known_models[result["model_path"]] = (league, result)
                     successes[league] = result["sha256"]
             for forecast in run["forecasts"].values():
-                batch = load_batch(archive / forecast["path"] / "forecast.json")
+                batch = load_batch(
+                    archive / forecast["path"] / "forecast.json",
+                    allow_unknown_odds_time=allow_unknown_odds_time,
+                )
                 if (batch["batch_id"], batch["generated_utc"]) != (
                     forecast["batch_id"],
                     forecast["generated_utc"],

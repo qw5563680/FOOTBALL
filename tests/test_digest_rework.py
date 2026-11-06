@@ -139,7 +139,7 @@ def test_header_stage_wording_and_separate_success_watermarks(case):
             jc_sync_run_id=case.get("job_run_id", "failed-1"),
         )
     )
-    assert "竞彩赛程更新至：2026-11-05 01:39:22" in text
+    assert "竞彩接口最近成功检查：2026-11-05 01:39:22" in text
     assert "赛果更新至：2026-11-03 16:00:00" in text
     for expected in case["expected"]:
         assert expected in text
