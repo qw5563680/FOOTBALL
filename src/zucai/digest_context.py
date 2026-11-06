@@ -2,6 +2,7 @@
 
 import csv
 import json
+import re
 from datetime import UTC, date, timedelta
 from decimal import Decimal
 
@@ -36,7 +37,7 @@ def archived_matches(archive, feed):
     return matches
 
 
-def audit_rows(archive, feed, name, now):
+def audit_rows(archive, feed, name, now, *, all_shards=False):
     now = instant(now)
     start = week_start(now).astimezone(UTC).date()
     months = {
@@ -46,6 +47,13 @@ def audit_rows(archive, feed, name, now):
     paths = [f"state/audit/{name}/{month}.csv" for month in sorted(months)]
     if LEGACY_AUDIT_MONTH in months:
         paths.insert(0, f"state/audit/{name}.csv")
+    if all_shards:
+        paths = sorted(
+            path
+            for path in feed["files"]
+            if path == f"state/audit/{name}.csv"
+            or re.fullmatch(rf"state/audit/{re.escape(name)}/[0-9]{{4}}-[0-9]{{2}}\.csv", path)
+        )
     paths = [path for path in paths if path in feed["files"]]
     if not paths:
         return None
@@ -97,6 +105,44 @@ def kickoff_day(row):
         return None
 
 
+def scoped_catalog(catalog, now):
+    """Latest catalog facts: this week's kickoffs and future fixtures, not business days.
+
+    Unknown times retain only captures since the preceding Beijing Sunday, so
+    missing timestamps never pull unrelated old audit history into the report.
+    """
+    if catalog is None:
+        return None
+    start = week_start(now)
+    latest = {}
+    for row in sorted(catalog, key=lambda r: instant(r["captured_utc"])):
+        latest[row["business_date"], row["jc_num"]] = row
+    return [
+        row
+        for row in latest.values()
+        if (
+            kickoff_day(row) >= start.astimezone(BEIJING).date()
+            if kickoff_day(row) is not None
+            else instant(row["captured_utc"]) >= start - timedelta(days=1)
+        )
+    ]
+
+
+def skip_is_evidence(skipped, catalog):
+    if not skipped or skipped.get("reason") not in {
+        "sell_status_not_1",
+        "match_status_not_selling",
+        "no_fixed_odds",
+        "no_selling_fixed_pool",
+        "no_valid_fixed_quotes",
+    }:
+        return False
+    try:
+        return instant(skipped["captured_utc"]) == instant(catalog["captured_utc"])
+    except (TypeError, ValueError, KeyError):
+        return False
+
+
 def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, known_ids=()):
     """Only a preserved catalog proves absence, never a hole in a numeric sequence."""
     if catalog is None:
@@ -112,6 +158,8 @@ def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, 
         if row["match_id"] in predicted_ids:
             continue
         skipped_row = explanations.get((*key, row["match_id"]))
+        skipped_row = skipped_row if skip_is_evidence(skipped_row, row) else None
+        reason_known = skipped_row is not None
         observed = observations.get(row["match_id"])
         reason = (
             skipped_row["reason"]
@@ -121,7 +169,7 @@ def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, 
             else "unknown"
         )
         day = kickoff_day(row)
-        category = "unexplained" if reason == "unknown" else "missing"
+        category = "missing" if reason_known else "unexplained"
         expected = None
         missing_batch = False
         if window is not None:
@@ -137,6 +185,7 @@ def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, 
                 **row,
                 "confirmed": category in {"missing", "unexplained"},
                 "reason": reason,
+                "reason_known": reason_known,
                 "skip_evidence": skipped_row,
                 "category": category,
                 "kickoff_date_beijing": day.isoformat() if day else None,

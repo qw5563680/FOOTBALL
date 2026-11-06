@@ -298,18 +298,12 @@ def generate(
                 path = entry["path"] + "/forecast.json"
                 batches.append((day, path, load_batch(archive / path)))
     matches = archived_matches(archive, feed)
-    catalog = audit_rows(archive, feed, "jc_catalog", at)
-    skipped = audit_rows(archive, feed, "jc_skipped", at)
+    catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True)
+    skipped = audit_rows(archive, feed, "jc_skipped", at, all_shards=True)
     if catalog is not None:
-        from zucai.digest_context import week_start
+        from zucai.digest_context import scoped_catalog
 
-        catalog = [
-            row
-            for row in catalog
-            if week_start(at).date().isoformat()
-            <= row["business_date"]
-            <= (today + timedelta(days=1)).isoformat()
-        ]
+        catalog = scoped_catalog(catalog, at)
         # Enrichment by exact archived ID only; never name matching.
         for row in catalog:
             if row["match_id"] in matches:

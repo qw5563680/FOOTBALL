@@ -27,14 +27,14 @@ def test_november_eighth_is_outside_november_sixth_report_but_real_gaps_survive(
     window = prediction_window([], now)
     gaps = catalog_gaps(rows, [], set(), {}, window=window, known_ids={rows[-3]["match_id"]})
     assert Counter(r["category"] for r in gaps) == dict(
-        outside_window=7, missing=1, unexplained=1, unknown_window=1
+        outside_window=7, unexplained=2, unknown_window=1
     )
     assert all(r["kickoff_date_beijing"] == "2026-11-08" for r in gaps[:7])
     assert all(r["expected_window_date"] == "2026-11-07" for r in gaps[:7])
     assert all(r["confirmed"] is False for r in gaps[:7])
     matches = {rows[-3]["match_id"]: rows[-3]}
     text = "\n".join(review_sections({}, {}, matches, [], None, rows, [], now, window=window))
-    assert "确定漏了（原因已知）1 场；原因未查明 1 场；尚未进入预测窗口 7 场" in text
+    assert "确定漏了（原因已知）0 场；原因未查明 2 场；尚未进入预测窗口 7 场" in text
     assert "漏预测合计 2 场" in text
     assert "开球时间缺失，无法判断窗口 1 场" in text
     assert "下一班预测" not in text
@@ -127,7 +127,7 @@ def test_past_kickoff_missing_prediction_is_still_missing_and_future_batch_is_no
     assert window["successful_dates"] == []
     row = {**catalog()[0], "kickoff_utc": "2026-11-05T12:00:00Z"}
     gaps = catalog_gaps([row], [], set(), {}, window=window, known_ids={row["match_id"]})
-    assert gaps[0]["category"] == "missing" and gaps[0]["confirmed"]
+    assert gaps[0]["category"] == "unexplained" and gaps[0]["confirmed"]
 
 
 def test_zero_counts_and_missing_kickoff_are_visible_in_render():

@@ -183,8 +183,12 @@ def test_gap_wording_keeps_evidence_separate_and_never_infers_final_number():
     assert text.index("缺 周三003") < text.index("缺 周三012")
     for catalog in (None, []):
         unknown = "\n".join(review_sections({}, {}, matches, [], None, catalog, [], now))
-        assert "无法判定是否漏号（无当期完整清单）" in unknown
-        assert "确定漏了" not in unknown
+        if catalog is None:
+            assert "无法判定是否漏号（无当期完整清单）" in unknown
+            assert "确定漏了" not in unknown
+        else:
+            assert "已有归档清单" in unknown
+            assert "漏预测合计 0 场" in unknown
 
 
 def test_future_omitted_from_latest_batch_is_checked_against_rendered_table():

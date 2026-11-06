@@ -189,9 +189,7 @@ def review_sections(
     lines.extend(["", "### 竞彩完整清单逐号核对", ""])
     displayed = set(latest) if displayed_ids is None else displayed_ids | (set(rows) & set(latest))
     window = window or prediction_window([], now)
-    gaps = catalog_gaps(
-        catalog or None, skipped, displayed, observations, window=window, known_ids=matches
-    )
+    gaps = catalog_gaps(catalog, skipped, displayed, observations, window=window, known_ids=matches)
     lines.append(
         "计划覆盖北京开球日："
         + "、".join(window["planned_dates"])
@@ -212,6 +210,8 @@ def review_sections(
         )
     if gaps is None:
         lines.append("无法判定是否漏号（无当期完整清单）。旧归档不凭编号连续性猜缺号或原因。")
+    elif not catalog:
+        lines.append("已有归档清单，本周开球范围内及近期未知时间的条目为空。")
     elif not gaps:
         lines.append("归档完整清单逐号核对：编号均已在相应表内说明（含未预测原因）。")
     if gaps is not None:
@@ -250,11 +250,17 @@ def review_sections(
                 detail = "入库但无赛前预测（晚班或后续同步已入库，但无可查的赛前预测）"
             else:
                 detail = "原因未查明（无可核验的同期跳过记录；旧早班原始页面未归档时不能推断原因）"
+            if not row["reason_known"] and "原因未查明" not in detail:
+                detail += "；原因未查明（无可追踪的同期原因证据）"
             lines.append(
                 f"- 缺 {_text(row['jc_num'])}（{_text(row['business_date'])}，{_match(row)}）："
                 f"确定漏了；{detail}。"
                 + (
-                    "该北京开球日属于计划范围，但尚无成功冻结批次；整批缺失原因待查。"
+                    (
+                        "该北京开球日尚无成功冻结批次；以上仅为该场同期跳过原因，不推断整批原因。"
+                        if row["reason_known"]
+                        else "该北京开球日属于计划范围，但尚无成功冻结批次；整批缺失原因待查。"
+                    )
                     if row["batch_missing"]
                     else ""
                 )
