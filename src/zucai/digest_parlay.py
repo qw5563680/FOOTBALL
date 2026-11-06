@@ -16,6 +16,8 @@ LEVEL = {
     "market_reference": "市场参考",
 }
 REASONS = {
+    "single_top_tied": "无法确定唯一最高项",
+    "research_invalidated": "有截点前具体证据使原研究前提失效，等待重新评估",
     "single_direction_fragile": "单选方向差距不足",
     "double_direction_fragile": "双选放掉项接近入选项，只作参考",
     "independent_direction_disagrees": "独立模型方向不同",
@@ -36,7 +38,7 @@ REASONS = {
 def _reason(reason):
     if ":injuries_" in reason:
         side = "主队" if reason.startswith("home:") else "客队"
-        return side + "伤停截点前证据不足，关键反证未解决"
+        return side + "伤停资料未知；仅此缺口不排除纸面比较"
     return REASONS.get(reason, reason)
 
 
@@ -67,7 +69,7 @@ def _group_lines(group):
         prices = " / ".join(str(leg["market"]["prices"][k]) for k in selected)
         choices = "＋".join(LABEL[k] for k in selected)
         lines.append(
-            f"| {role} {_match(leg)} / {LABEL[leg['original_direction']]} | "
+            f"| {role} {_match(leg)} / {LABEL.get(leg['original_direction'], '最高项并列')} | "
             f"{_probabilities(leg['probabilities'])} | "
             f"{_probabilities(leg['market']['probabilities'])} | {choices} | {omitted} | "
             f"{prices} / {_text(leg['market']['snapshot_utc'])} | "
@@ -75,6 +77,7 @@ def _group_lines(group):
         )
     lines += [
         "",
+        f"规则：{_text(group['rule'])}；仅纸面比较。",
         f"覆盖 {_percent(group['coverage_probability'])}；"
         f"整组盈利概率 {_percent(group['profit_probability'])}；"
         f"税前 EV {_number(group['expected_profit'], 2)} 元；"
@@ -95,13 +98,8 @@ def _group_lines(group):
     lines += [
         "",
         "支持：" + "；".join(map(_text, a["support"])) + "。",
-        "伤停证据："
-        + "；".join(
-            f"{label}供应商报缺席 {a['injuries'][side]['confirmed_injured_out']} 人，"
-            f"捕获 UTC {_text(a['injuries'][side]['captured_utc'])}"
-            for side, label in (("home", "主队"), ("away", "客队"))
-        )
-        + "；不等于主力门将已确认可出场。",
+        *_injury_lines(a, b),
+        *_descriptive_lines(a, b),
         "价格审核：" + a["single"]["price_status"] + "；关键阵容反证尚未由正式首发排除。",
         "反证与可能改向条件：" + "；".join(map(_text, a["direction_change_conditions"])) + "。",
         "共同击穿条件：" + "；".join(map(_text, group["shared_risks"])) + "。",
@@ -109,6 +107,42 @@ def _group_lines(group):
         "",
     ]
     return lines
+
+
+def _injury_lines(a, b):
+    cells = []
+    for role, leg in (("单选", a), ("双选", b)):
+        for side, label in (("home", "主队"), ("away", "客队")):
+            cell = (leg.get("injuries") or {}).get(side) or {}
+            value = cell.get("confirmed_injured_out")
+            detail = (
+                "未知（名单缺失、覆盖不足或无法核实）"
+                if value is None
+                else f"供应商名单报缺席 {value} 人"
+            )
+            cells.append(f"{role}{label}：{detail}，捕获 UTC {_text(cell.get('captured_utc'))}")
+    return ["伤停证据：" + "；".join(cells) + "。人数不代表球员影响；资料缺失不等于关键反证成立。"]
+
+
+def _descriptive_lines(a, b):
+    single, double = a["single"], b["double"]
+    if "top_probability" not in single:
+        return []  # Old freezes retain their original interpretation and fields.
+    text = (
+        f"单选第一 {_percent(single['top_probability'])}，"
+        f"第二 {_percent(single['second_probability'])}，"
+        f"相差 {single['direction_gap'] * 100:.2f} 个百分点（仅描述排序间距）。"
+    )
+    if single["top_below_half"]:
+        text += "该项排序第一，但另外两项合计更可能。"
+    other = (
+        f"双选覆盖 {_percent(double['coverage_probability'])}，"
+        f"放掉项 {_percent(double['omitted_probability'])}，"
+        f"入选中较小项与放掉项相差 {double['selected_min_minus_omitted'] * 100:.2f} 个百分点。"
+    )
+    if double["numerical_tie"]:
+        other += "数值并列；按胜+平、胜+负、平+负的固定顺序处理，不表示更可靠。"
+    return [text, other]
 
 
 def _current(group, matches, now):
@@ -159,7 +193,9 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
             continue
         versions[doc["batch_id"]] = doc["sha256"]
         lines += [
-            f"冻结来源：{_link(doc['path'], repository)}；批次 {_text(doc['batch_id'])}。",
+            f"冻结来源：{_link(doc['path'], repository)}；批次 {_text(doc['batch_id'])}；"
+            f"规则 {_text(doc['rule'])}；"
+            f"本批生效 UTC {_text(doc.get('rule_effective_utc', doc['generated_utc']))}。",
             "",
         ]
         for group in doc["groups"]:
@@ -222,6 +258,23 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
                     for r in doc["diagnostics"]
                 )
             )
+        impact = doc.get("legacy_filter_diagnostic")
+        if impact:
+            lines += [
+                "旧筛选影响（独立诊断，不参与候选或账户 F）："
+                f"{impact['parameters']['single_direction_gap']} / "
+                f"{impact['parameters']['double_fragile_gap']} "
+                "是未经验证的实验筛选参数，默认筛选关闭。",
+                f"旧规则影响 {len(impact['matches'])} 场；"
+                f"恢复参加排序的组合 {len(impact['restored_groups'])} 种（不是新增注单数）。"
+                "不代表准确度或收益改善。",
+            ]
+            for league, counts in impact["leagues"].items():
+                lines.append(
+                    f"- {_text(league)}：影响 {counts['affected_matches']} 场，"
+                    f"恢复 {counts['restored_groups']} 种；"
+                    f"原因计数 {_text(str(counts['reasons']))}。"
+                )
         if doc.get("previous_version_sha256"):
             lines.append(
                 f"替换前版 {_text(doc['previous_version_sha256'][:12])}；"

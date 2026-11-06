@@ -940,15 +940,26 @@ T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，
 `single=0/allUp=1` 可以过关审核，Selling/固定奖 had 不符排除；未知资格仅进参考。
 市场倒数归一化单独构成 MARKET 参考榜，不填 model_probabilities。
 
-`Config` 默认 single_direction_gap=0.10、double_fragile_gap=0.05、max_groups=3（1–5）、
-rounding=ROUND_DOWN（或 ROUND_HALF_UP）。两项差小于阈值、最高项并列、独立模型方向不同、
-两队任一伤停数量未知或不在截点前，均不能当单选。三个双选搭配全列；
-放掉项 >= 较小入选项 − 0.05 则只作参考。双选无 1.20 限制，单选等于 1.20 仅价格通过。
+`Config` 保留 single_direction_gap=0.10、double_fragile_gap=0.05 作为未经验证的实验筛选参数，
+仅供 `legacy_filter_diagnostic` 对同批冻结输入做旧规则影响对照；threshold_filters_enabled 固定 false，
+没有启用筛选的实验模式。max_groups=3（1–5）、rounding=ROUND_DOWN（或 ROUND_HALF_UP）不变。
+默认不按差值排除；单选最高项完全并列时 selection/original_direction=null、原因 single_top_tied，
+独立模型最高项不一致仍不能当单选。保留 top_probability、second_probability、direction_gap、
+top_below_half；小于 50% 只是文字说明。双选三搭配保留 coverage_probability、omitted_probability、
+selected_min_minus_omitted 与 selected_gaps；完全同分按 h+d、h+a、d+a，标 numerical_tie/tied_selections，
+顺序不代表更可靠。双选无 1.20 限制，单选等于 1.20 仅价格通过。
 
 伤停从 `experimental_archive.freeze_parallel` 已恢复技术行的隔离库经只读回调获取，复用 T38 strict
 快照，不另下 Release、不写训练库。`confirmed_injured_out` 作为选择证据名映射 T38 `missing_n`，
 保留 captured_utc、availability_basis、原 evidence 与 missing_reason；其实际含义是供应商 Missing Fixture
 人数，不声称全为已确诊伤员。失败隔离且未知不填 0，绝不退用市场或主观概率。
+`parlay/evidence.py` 将两队资料分 confirmed_none / confirmed_absences / unknown；缺失、覆盖不足、
+捕获不早于截点时 confirmed_injured_out=null，不直接否决纸面比较。可选
+`injuries[match_id].research_invalidation={reason, source, observed_utc}` 须有具体理由、来源且 observed_utc
+严格早于预测截点，才记 research_invalidated 并排除该场两种配腿；不从人数或缺失推断研究失效。
+组合的 injury_coverage 检查两场四队，missing/complete 随冻结记录和 F 注单保存。
+`legacy_filter_diagnostic` 独立记录旧差值/伤停门槛的逐场原因、恢复参加排序的有序配对和分联赛数，
+不反馈候选、排名、账户 F；恢复配对数不是新增票数，跨联赛配对在涉及联赛各计一次，不作收益或准确率结论。
 
 每一证据等级完整枚举 9×N×(N−1)，保存枚举/合格/参考/各拒绝原因计数。用 Decimal 从冻结值的
 十进制表示计算 q1+q2 后排序，同分按两个 match_id 及 h/d/a；贪心登记比赛与四队 ID。
@@ -963,15 +974,17 @@ rounding=ROUND_DOWN（或 ROUND_HALF_UP）。两项差小于阈值、最高项�
 | 文件或字段 | 内容 / 不变性 |
 | --- | --- |
 | `forecasts/<日>/<run>/parlay_sd.json` | 当前主组、分级榜、实验与市场参考榜、诊断、配置、证据和两注现金流 |
-| 同目录 `parlay_sd-<sha256>.json` | 每版不可覆盖副本；previous_version_sha256、replaced_groups 记录替换；原件不改 |
+| 同目录 `parlay_sd-<sha256>.json` | 不可覆盖副本；旧版本链仍可读，新批首次冻结后即锁定，不再替换 |
 | `forecast_manifest.runs.*.forecasts.*` | parlay_path、parlay_versions、parlay_published_utc；files 纳入各版本 SHA256 |
-| `scoreboard/parlay_sd_ledger.jsonl` | account=F、rule=single_plus_double_v1；两 ticket、一 group 与 batch 锁 |
-| `summary.parlay_sd` | F 独立统计、待结原因、赛果更正审计、ledger_sha256；原 summary.files 的 A–E 文件接口不变 |
+| `scoreboard/parlay_sd_ledger.jsonl` | account=F、rule=single_plus_double_v2（兼容 v1）；两 ticket、一 group 与跨规则 batch 锁 |
+| `summary.parlay_sd` | rules 按版本/伤停资料/证据/是否事后重建分列；totals 仅全账核对；待结原因、更正审计、ledger_sha256 不变 |
 | `daily/<日>/<run>.json` | 另存 parlay_pending 与 parlay_versions，原 A–E pending 不动 |
 
 `cloud_predict` 在原预测与实验已冻结后追加组合，不改原五个文件。组合发布前再次检查最早腿未开球；
-parlay_published_utc 是归档写入时刻，不是官方停售凭据。源材料与配置哈希相同重跑不改字节，
-未记账时可追加新版，旧版保留、当前指针唯一；F 已有 batch 回执后锁定（包括零组），不重开票。
+parlay_published_utc 是归档写入时刻，不是官方停售凭据。schema_version=2、rule=single_plus_double_v2，
+rule_effective_utc 记录新规则对本批开始生效的实际生成时刻，不倒填发布前的历史。
+首次冻结即锁定（包括零组、尚未记账批次），换规则或配置也不重写；新规则只作用于新批次。
+F 已有任意 v1/v2 记录的 batch_id 均不重开票；原决策哈希、赔率、注额、结算保留，旧文件无新增字段仍可读。
 组合失败只记录错误，不撤销正式预测。日报只读取各日最新预测对应冻件（缺失不借旧批补齐），
 去掉发报时已开球/状态变化组。今明批次按日期显示时共用四队/比赛占用与展示上限，
 只删去重复或超限的冻结组、不重新配组或重算；原各批次 F 账本不受展示过滤影响。

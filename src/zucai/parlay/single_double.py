@@ -3,20 +3,24 @@
 import json
 import math
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from itertools import combinations, permutations
 
+from zucai.parlay.evidence import injury_evidence, legacy_filter_diagnostic
 from zucai.scoreboard.score import OUTCOMES, frozen_market, instant, record_key
 
-RULE = "single_plus_double_v1"
+RULE = "single_plus_double_v2"
+SUPPORTED_RULES = {"single_plus_double_v1", RULE}
 LEVELS = ("prospective_verified", "historical_gate_passed", "p2_experimental")
 
 
 @dataclass(frozen=True)
 class Config:
+    # Retained solely for the independent v1 counterfactual diagnostic.
     single_direction_gap: float = 0.10
     double_fragile_gap: float = 0.05
+    threshold_filters_enabled: bool = field(default=False, init=False)
     max_groups: int = 3
     rounding: str = "ROUND_DOWN"
 
@@ -104,7 +108,7 @@ def cashflow(single_probability, double_probabilities, single_sp, double_sp, *, 
     )
 
 
-def double_options(p, *, gap=0.05):
+def double_options(p):
     if not probabilities(p):
         return []
     rows = []
@@ -118,7 +122,10 @@ def double_options(p, *, gap=0.05):
                 omitted_probability=p[omitted],
                 coverage_probability=float(coverage),
                 coverage_probability_exact=str(coverage),
-                fragile=decimal(p[omitted]) >= min(decimal(p[k]) for k in selected) - decimal(gap),
+                selected_min_minus_omitted=float(
+                    min(decimal(p[k]) for k in selected) - decimal(p[omitted])
+                ),
+                selected_gaps={k: float(decimal(p[k]) - decimal(p[omitted])) for k in selected},
             )
         )
     return rows
@@ -179,15 +186,12 @@ def eligibility(row, identity, catalog, at):
 
 
 def injury_reasons(injury, cutoff):
-    reasons = []
-    for side in ("home", "away"):
-        cell = (injury or {}).get(side, {})
-        value = cell.get("confirmed_injured_out")
-        if type(value) is not int or value < 0 or cell.get("missing_reason"):
-            reasons.append(f"{side}:injuries_unknown")
-        elif not cell.get("captured_utc") or instant(cell["captured_utc"]) >= instant(cutoff):
-            reasons.append(f"{side}:injuries_not_known_before_cutoff")
-    return reasons
+    evidence = injury_evidence(injury, cutoff)
+    return [
+        f"{side}:injuries_unknown"
+        for side in ("home", "away")
+        if evidence[side]["status"] == "unknown"
+    ]
 
 
 def _market(row, batch):
@@ -218,23 +222,39 @@ def _prepare(row, p, batch, identity, injury, catalog, at, config, *, independen
     order = ranking(p)
     gap = decimal(p[order[0]]) - decimal(p[order[1]])
     single_reasons = []
-    if gap == 0 or gap < decimal(config.single_direction_gap):
-        single_reasons.append("single_direction_fragile")
+    if gap == 0:
+        single_reasons.append("single_top_tied")
     if any(
         ranking(other)[0] != order[0] or other[ranking(other)[0]] == other[ranking(other)[1]]
         for other in independent
     ):
         single_reasons.append("independent_direction_disagrees")
-    if kind != "MARKET":
-        single_reasons.extend(injury_reasons(injury, batch["as_of_utc"]))
+    injuries = injury_evidence(injury, batch["as_of_utc"]) if kind != "MARKET" else None
+    qualification = eligibility(row, identity, catalog, at)
+    if injuries and injuries["research_invalidation"]:
+        single_reasons.append("research_invalidated")
+        qualification = dict(
+            status="excluded", reasons=[*qualification["reasons"], "research_invalidated"]
+        )
     market = _market(row, batch)
     if market is None:
         single_reasons.append("no_frozen_had_sp")
     elif decimal(market["prices"][order[0]]) < Decimal("1.20"):
         single_reasons.append("single_sp_below_1_20")
-    options = double_options(p, gap=config.double_fragile_gap)
+    options = double_options(p)
     best = max(options, key=lambda d: decimal(d["coverage_probability_exact"]))
-    best = dict(best, eligible=not best["fragile"] and market is not None)
+    tied = [
+        d["selections"]
+        for d in options
+        if decimal(d["coverage_probability_exact"]) == decimal(best["coverage_probability_exact"])
+    ]
+    best = dict(
+        best,
+        eligible=market is not None,
+        numerical_tie=len(tied) > 1,
+        tied_selections=tied,
+        tie_break="数值并列时按胜+平、胜+负、平+负顺序；顺序不表示更可靠",
+    )
     return dict(
         **{
             k: row.get(k)
@@ -255,14 +275,18 @@ def _prepare(row, p, batch, identity, injury, catalog, at, config, *, independen
         team_ids=[(identity or {}).get(s + "_team_id") for s in ("home", "away")],
         probabilities=dict(p),
         probability_source=kind,
-        original_direction=order[0],
+        original_direction=order[0] if gap else None,
         model_probabilities=dict(p) if kind != "MARKET" else None,
         market=market,
         catalog=catalog,
-        injuries=injury if kind != "MARKET" else None,
-        eligibility=eligibility(row, identity, catalog, at),
+        injuries=injuries,
+        eligibility=qualification,
         single=dict(
-            selection=order[0],
+            selection=order[0] if gap else None,
+            top_outcomes=[k for k in order if p[k] == p[order[0]]],
+            top_probability=p[order[0]],
+            second_probability=p[order[1]],
+            top_below_half=p[order[0]] < 0.5,
             eligible=not single_reasons,
             reasons=single_reasons,
             direction_gap=float(gap),
@@ -274,7 +298,10 @@ def _prepare(row, p, batch, identity, injury, catalog, at, config, *, independen
         ),
         double_options=options,
         double=best,
-        support=["最高项来自该版本冻结概率", f"第一减第二 {float(gap):.8g}"],
+        support=[
+            "最高项来自该版本冻结概率" if gap else "无法确定唯一最高项",
+            f"第一减第二 {float(gap):.8g}（仅描述排序间距）",
+        ],
         counterevidence=single_reasons,
         direction_change_conditions=["阵容、伤停或赛程新证据可能改变判断；本版本不主观改概率"],
         independent_models_available=len(independent),
@@ -297,6 +324,15 @@ def _group(a, b, alpha, pair, batch, board, config):
         evidence_level=board,
         p2_label=a.get("p2_label") or "P2 实验",
         p2_ready=a.get("p2_ready") is True,
+        injury_coverage="missing"
+        if any(
+            leg.get("injuries", {}).get("coverage") == "missing"
+            for leg in (a, b)
+            if leg.get("injuries")
+        )
+        else "complete"
+        if a.get("injuries") and b.get("injuries")
+        else "unknown_legacy",
         match_ids=[a["match_id"], b["match_id"]],
         team_ids=a["team_ids"] + b["team_ids"],
         single=a,
@@ -361,12 +397,10 @@ def _board(matches, batch, name, config):
                     rejected[reason] += 1
                     continue
                 group = _group(a, b, alpha, pair, batch, name, config)
-                if b["double"]["fragile"] or any(
-                    r["eligibility"]["status"] == "reference" for r in (a, b)
-                ):
-                    group["reference_reasons"] = (
-                        ["double_direction_fragile"] if b["double"]["fragile"] else []
-                    ) + [reason for r in (a, b) for reason in r["eligibility"]["reasons"]]
+                if any(r["eligibility"]["status"] == "reference" for r in (a, b)):
+                    group["reference_reasons"] = [
+                        reason for r in (a, b) for reason in r["eligibility"]["reasons"]
+                    ]
                     references.append(group)
                 else:
                     candidates.append(group)
@@ -463,8 +497,7 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
             )
             tiers[_level(row)].append(prepared)
             reasons = prepared["single"]["reasons"] + prepared["eligibility"]["reasons"]
-            if prepared["double"]["fragile"]:
-                reasons.append("double_direction_fragile")
+            reasons += injury_reasons(injuries.get(mid), batch["as_of_utc"])
             if reasons:
                 diagnostics.append(dict(match_id=mid, reasons=reasons))
         else:
@@ -516,12 +549,14 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
         for name, rows in sorted(experiment_matches.items())
     ]
     market = _board(market_matches, batch["batch_id"], "market_reference", config)
+    impact = legacy_filter_diagnostic(boards, config)
     for board in [*boards, *experiments, market]:
         board["highest_coverage"] = board["candidates"][0] if board["candidates"] else None
         del board["candidates"]
     return dict(
-        schema_version=1,
+        schema_version=2,
         rule=RULE,
+        rule_effective_utc=at.isoformat(),
         batch_id=batch["batch_id"],
         generated_utc=at.isoformat(),
         as_of_utc=batch["as_of_utc"],
@@ -534,5 +569,6 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
         experimental_boards=experiments,
         market_reference=market,
         diagnostics=diagnostics,
+        legacy_filter_diagnostic=impact,
         cross_board_notice="实验与市场榜仅供对照，重合不算新增分散机会；不计算至少中一组概率",
     )

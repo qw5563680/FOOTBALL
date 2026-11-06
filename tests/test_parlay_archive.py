@@ -137,7 +137,7 @@ def test_append_manifest_and_original_quartet_and_experiments_never_change(archi
         verify_forecasts(archive)
 
 
-def test_revision_preserved_and_ledger_batch_locks_new_selection(archive_setup):
+def test_frozen_batch_locks_selection_even_before_ledger(archive_setup):
     archive, db, sample = archive_setup
     _, original = frozen_doc(archive_setup)
     old = (archive / original["path"]).read_bytes()
@@ -147,10 +147,10 @@ def test_revision_preserved_and_ledger_batch_locks_new_selection(archive_setup):
     revised = next(
         d for d in load_documents(archive, verify_forecasts(archive), BEFORE) if d["day"] == DAY
     )
-    assert revised["groups"] == []
-    assert len(revised["replaced_groups"]) == 3
+    assert revised == original
+    assert revised["replaced_groups"] == []
     assert (archive / entry["parlay_versions"][0]).read_bytes() == old
-    assert len(entry["parlay_versions"]) == 2
+    assert len(entry["parlay_versions"]) == 1
     install_ledger(archive, revised)
     before = files(archive)
     fresh = json.loads((FIX / "input.json").read_bytes())
@@ -158,12 +158,36 @@ def test_revision_preserved_and_ledger_batch_locks_new_selection(archive_setup):
     assert files(archive) == before
 
 
+def test_old_v1_freeze_is_readable_and_new_code_cannot_rewrite_it(archive_setup):
+    archive, db, sample = archive_setup
+    frozen_doc(archive_setup)
+    manifest = verify_forecasts(archive)
+    entry = manifest["runs"][RUN]["forecasts"][DAY]
+    legacy = (FIX.parent / "t45-correction/legacy-v1.json").read_bytes()
+    sha = hashlib.sha256(legacy).hexdigest()
+    for name in [entry["parlay_path"], *entry["parlay_versions"]]:
+        (archive / name).write_bytes(legacy)
+        manifest["files"][name] = sha
+    (archive / "forecast_manifest.json").write_bytes(raw_json(manifest))
+    before = files(archive)
+    docs = load_documents(archive, verify_forecasts(archive), BEFORE)
+    assert docs[0]["rule"] == "single_plus_double_v1"
+    freeze(archive, db, RUN, injuries={}, clock=lambda: instant(BEFORE))
+    assert files(archive) == before
+    # It may enter the ledger for the first time under its original rule only.
+    ledger = advance_ledger(docs, {}, [], BEFORE)
+    assert ledger[0]["rule"] == "single_plus_double_v1"
+
+
 def test_archive_failure_rolls_back_and_kickoff_boundary_refuses(archive_setup, monkeypatch):
     from zucai.parlay import archive as module
 
     archive, _, _ = archive_setup
-    _, doc = frozen_doc(archive_setup)
-    doc["input_sha256"] = "changed"
+    from zucai.parlay.single_double import build
+
+    sample = archive_setup[2]
+    doc = build(**sample)
+    doc["input_sha256"] = "new"
     before = files(archive)
     with pytest.raises(ValueError, match="开球"):
         publish_document(archive, RUN, DAY, doc, clock=lambda: instant("2026-11-06T15:00:00Z"))
