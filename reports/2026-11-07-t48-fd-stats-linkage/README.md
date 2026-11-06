@@ -63,6 +63,6 @@
 /workspace/work/t48-venv/bin/python /workspace/work/t48-acceptance/scripts/verify_repair.py --inputs /workspace/work/t48-acceptance --handover-evidence '/workspace/work/football_handover_20261107/详细排查证据' --code /workspace/work/football-t48-fix --output /workspace/work/t48-acceptance/final-verified --evidence /workspace/work/t48-acceptance/final-verified/evidence --protected /workspace/FOOTBALL/scoreboard --protected /workspace/FOOTBALL/sfc
 ```
 
-脚本socket层禁网；本地Release替身只读旧assets并写临时目录。逐场CSV/JSON、完整日志、哈希清单及原评审通过会话交付 `FOOTBALL_T48_离线验收_2026-11-07.zip`；该包不含数据库、模型、正式key或重复分发的原始大归档。`SHA256SUMS`列出包内证据文件哈希。完整包尚未上传新的Release资产，需从本次会话下载保存；原材料仍引用既有固定Git/Release。
+脚本socket层禁网；本地Release替身只读旧assets并写临时目录。已生成完整证据包 `FOOTBALL_T48_离线验收_2026-11-07.zip`（逐场CSV/JSON、完整日志、哈希清单及原评审），不含数据库、模型、正式key或重复的大归档。当前执行环境的附件输出目录不可写，现有GitHub连接也没有Release附件上传能力，因此**未能交付ZIP下载链接**；完整文件暂留工作区，未声称已上传。PR正文直接附210场和21场逐项核对表，复核不只依赖汇总数；全部检查可按本节固定材料与已提交脚本重跑。`SHA256SUMS`列出已生成包内的完整证据哈希；原材料仍引用既有固定Git/Release。
 
 本轮未触发生产、未推data分支、未合并。保持草稿，供独立复核；尚无本修复的真实生产运行验收。
