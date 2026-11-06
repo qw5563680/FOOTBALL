@@ -182,7 +182,23 @@ T38 的 technical_data.version=3 在原三张行表之外增加 match_injuries�
 数据库和 fixtures 原件，不新增普通 fixtures/status 请求。技术请求走独立 1.0 秒限速通道，分钟头
 remaining ≤ 20 时等到下一分钟，429 立即停止。原普通采集/status 的 6.1 秒规则不变。
 历史批次至多 7000 次，除 reserve=10 外预留日常 300 次；日常至多 300 次。失败请求同样扣配额。
-共用发布脚本仅对 push 的 5xx / 网络错误最多尝试 3 次、间隔 30 秒；fetch-first / non-fast-forward 先 rebase 再推，rebase 冲突立即失败，摘要记录每次失败 stderr 原文与次数，最终失败提示 artifact，绝不强推或创建空提交。
+共用发布脚本将 fetch 与本地 rebase 分开；fetch / push 的 5xx 与网络错误共享最多3轮发布尝试，间隔30秒。
+fetch-first / non-fast-forward 下一轮先 fetch/rebase 再推；权限错误与 rebase 冲突立即失败，摘要记录阶段、错误与次数，
+绝不强推、创建空提交或重采数据。T36 后续修复依据 run 42198016056：原 `git pull --rebase` 网络失败位于 push 重试之外。
+
+sporttery 发布步骤指定 `PUBLISH_RECOVERY_DIR`，本地提交后、首次网络操作前，以远端跟踪提交为 base 创建
+`unpublished.bundle`（`HEAD ^base`）、`recovery.txt`（run/base/head/feed SHA）、`SHA256SUMS`。
+包只含本次待发布 Git 对象，不含 `.git/config`、认证头、key 或数据库；包含本次导出的比赛、赔率、结果、审计及清单原字节。
+`always()` 上传独立90天恢复 artifact，runner 工作目录另留本地副本；持续网络故障时附件上传不能保证成功。
+恢复以 base 为前提校验 bundle；远端已前进时重放增量提交，冲突停下，不能用旧快照覆盖后续账本。
+恢复和重复发布不运行评分/记账，只发布相同字节；已有冻结预测与账本不倒写。
+
+sporttery job 输出 `publish_status=steps.publish_jc.outcome`，predict / digest 通过环境传递；
+预测 `forecast_manifest.runs.*` 新增可选 `sporttery_publish_status` 与 `feed_snapshot`
+（commit、run_id、created_utc、schedule_updated_utc、results_updated_utc），引用本次实际恢复的归档。
+原 `feed_manifest_sha256` / 数据库 SHA 校验保留，旧四件套和模型算法不变。发布失败仍标 `sporttery_stale`；
+日报分开呈现本次 job 发布失败和每批冻结预测的数据版本/时间，后续仅重发摘要也保留该批警告。
+缺少新字段的旧冻结继续可读；归档生成时间不得替代竞彩成功采集时间，缺失写未知。
 索引按七桥接＋欧冠 2 的 2022 起赛季页；fd 按九主联赛季文件；四端点依次 statistics/events/lineups/players，
 injuries 仅 11 个有数据联赛。全部范围先验证，未知端点/联赛/季节参数在请求前拒绝。
 
@@ -505,7 +521,7 @@ T06 真实预测路径不应用这项转换，仍使用库中的可知时间。
 `write-football-feed-data`；sporttery 依赖 apis 完成后才 checkout 数据分支，避免基于同一个旧快照写回。
 手动 sync 时 apis 跳过；verify 在 apis 内执行只读恢复。
 `FOOTBALL_FEEDS_RUNNER` 是单标签字符串（`football-local`），直接传给 sporttery 的 runs-on，变量为空时跳过。每次写回先提交，再
-`git pull --rebase origin data/football-feeds`、普通 push，冲突保留原件 artifact 并失败。
+`git fetch origin data/football-feeds`、`git rebase FETCH_HEAD`、普通 push；冲突保留原件及竞彩增量恢复包 artifact 并失败。
 运行目录按 run ID/attempt 隔离，Windows 步骤用 Git Bash 和 setup-python 3.12。
 API 模块按需导入，竞彩与 verify 不加载 Unix-only API 配额锁。
 
@@ -1009,11 +1025,28 @@ F 账本与记分板在同一发布事务内写入，失败恢复旧字节；同
 
 T39 页面依次是头部、今日与明日未开球预测、14场、复盘、昨日评分、虚拟账户、异常。
 T45 在14场后增加纸面二串一小节与独立 F 收支；其余分节顺序不变。头部独立展示
-`collection.jc.schedule_updated_utc/results_updated_utc` 最近成功时刻；失败保留旧成功时刻，未知不以
+`collection.jc.schedule_updated_utc/results_updated_utc` 最近成功时刻，前者标“竞彩接口最近成功检查”，
+不能称为所有场次赔率更新时间；失败保留旧成功时刻，未知不以
 through_beijing/归档生成时间替代。赛程阶段失败提示「赛程更新失败」，赛果阶段失败提示「赛果更新失败」，
 赛果 `partial` 提示「赛果部分未到，还有 N 场待核对」，不将部分结果未到称为失败；兼容旧 `failed_stages`。
 实际 sporttery job 失败也传入日报；若没有同次运行的失败阶段记录，提示「竞彩同步失败，失败阶段未记录」，不猜失败阶段。
 各提示引用对应run，待核对数仅为本周冻结预测中已开球无已知赛果的场数；两阶段同时失败则分别显示。
+`digest_odds` 将接口阶段结果、`collection.jc.odds_snapshots` 新增入库报价数、逐场冻结赔率时间分开显示。
+报价数是各玩法选项的新增记录数，不是场数；成功但零新增时给出历史快照警告，不能单凭零新增判断停售
+（十分钟内原价重采也可能去重）。日报已有 `run_id=GITHUB_RUN_ID-GITHUB_RUN_ATTEMPT` 与
+`jc_sync_run_id=GITHUB_RUN_ID`，完整上下文传入 header/collection，严格比较归档 `collection.jc.run_id`
+的运行编号和正整数重试次数，不再以前缀或缺少 attempt 的旧编号认定本次。发布状态必须明确 success；
+本次阶段 complete、有效检查时间不晚于日报截点，才把计数解释为本次。不同尝试、发布 skipped/缺失/failure，
+本次新增保持未知，归档最近一次结果/接口检查时刻/新增数单列。`jc_sync_status=skipped` 优先标“本次未执行采集”，
+不误称发布失败，不把归档最近一次的零新增提醒写成本次零新增；无运行上下文的离线展示只称归档最近一次。
+旧记录缺字段、阶段失败的初始 0 保持未知；竞彩 job 失败阶段的归属也沿用相同的完整尝试号匹配。
+今明每批及复盘逐场读取 `forecast.json` 的 `market.snapshot_utc`，不取数据库当前最大报价时间，
+不借 run/归档时间补全；比该批 feed_snapshot 接口检查早的时间标历史快照。部分更新不代表其他场次更新。
+没有 market 为“未冻结赔率”，有报价但时间缺失/非法为“未知”；来源和概率不变。
+仅日报调用 `verify_forecasts/load_batch(allow_unknown_odds_time=True)` 兼容旧冻件未知时间，保留原值且仍校验
+全部文件哈希、概率与批次/模型一致性；默认读取、写入冻结报告、记分板等继续严格要求有效报价时间。
+日报重放不改变预测、原清单、纸面账本或结算，不补报价、不重新计账。
+
 每个开球日按生成 UTC、batch_id 取最新冻结批次（空批次不借旧场次补齐），
 只显示 kickoff > digest.generated_utc 的比赛，按竞彩编号展示原胜平负、完整模型版本、P2 ready/experimental 与原 top_scores
 前五，不排序或重算概率；excluded 行统一显示「未预测：原因」，不把已开赛等原因说成缺模型。数据来源链接指向对应数据分支文件。
@@ -1027,12 +1060,19 @@ through_beijing/归档生成时间替代。赛程阶段失败提示「赛程更�
 两道门槛展示原联赛样本 n/200、A/1.05 已结数/500 与原布尔标记，样本数量不代替其余条件，BET 仍禁用。
 复盘只读本周已开球记录，复用 `prematch_rows` 取每场最后有效赛前批次，与 active_keys 原评分核对；
 赛后 excluded 不替换旧有效概率。首行统计已结/首项命中/未中/待核对（并列沿 h/d/a 次序），不重算损失。
-`audit_rows` 只解析从本周一北京零时到发报时刻涉及的 UTC 月份分片（通常 1–2 份），
-涉及 2026-11 时另读两个对应的旧单文件；未涉及月份及未列入 manifest 的文件不解析，未来捕获行仍排除。
+`audit_rows` 默认仍只读取本周涉及月份；T46 日报清单/跳过核对明确传 all_shards=True，
+读取 manifest 声明的各月分片及旧单文件，避免相关比赛捕获在更早月份时被漏掉，未来捕获行仍排除。
+取每个营业日/编号的最新清单后，按实际北京开球日保留本周及未来场次；营业日仅作编号身份。
+开球时间未知/非法时只保留本周一前一天起捕获的条目，保留未知，不据营业日猜日期；无关旧记录不进入日报。
 原有 `archive_info` 全归档哈希校验保持，不能用选择性读取绕过文件完整性检查。
 完整清单仍按营业日/编号逐项核对实际展示的预测集合，包括末尾编号；旧批有预测但未列入当前表也明确提示。
-缺号存在的依据与跳过审计的原因分开；已入库但无有效赛前预测单列。
-无当期清单（含过滤后为空）显示“无法判定是否漏号”，部分营业日清单不为其他日期作完整性保证。
+confirmed 与 reason_known 独立保存；已入库但无有效赛前预测只说明状态，不证明原因。
+原因已知须有采集器支持的明确跳过原因、相同营业日/编号/ID和与最新清单相同的捕获时刻；
+缺证据、过期或未知原因均归原因未查明并计入漏预测总数。单场原因不推断整批失败原因。
+T46 在范围筛选之前区分证据是否可得：截点前没有任何可用清单行（包括只存在未来捕获记录）
+传 None，显示“截点前没有可用清单，无法核对是否漏预测”，不输出漏项计数；已有截点前清单，
+经范围筛选后为空则保留 []，说明范围内为空；范围内有行则正常核对。audit_rows 的共享接口不变。
+部分营业日清单不为其他日期作完整性保证。
 两表由原竞彩响应解析生成，保留条件不变；按营业日/编号/真实捕获时刻去重，不用名称绑定球队。
 
 五账户并列 accounts.1.05 的 settled、settled_stakes、returns−settled_stakes、roi 和资金/现金；

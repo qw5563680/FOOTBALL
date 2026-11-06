@@ -143,10 +143,10 @@ def test_workflow_gate_script_runs_before_project_install_and_without_keys(tmp_p
         assert "run_early=true\nscope=unknown" in output.read_text()
 
 
-def test_sporttery_originals_and_audits_keep_single_ninety_day_artifact():
+def test_sporttery_originals_remain_in_source_artifact_with_separate_recovery_bundle():
     job = jobs()["sporttery"]
     artifact = step("Keep official originals and audit", job)
-    assert job.count("actions/upload-artifact@") == 1
+    assert job.count("actions/upload-artifact@") == 2
     assert "!cancelled()" in artifact
     assert "name: sporttery-source-${{ github.run_id }}-${{ github.run_attempt }}" in artifact
     assert "${{ env.WORK_DIR }}/data/raw" in artifact

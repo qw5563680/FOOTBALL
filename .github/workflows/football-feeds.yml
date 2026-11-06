@@ -395,10 +395,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPORTTERY_STATUS: ${{ needs.sporttery.result }}
+          SPORTTERY_PUBLISH_STATUS: ${{ needs.sporttery.outputs.publish_status }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
-          python -m zucai.cloud_predict run --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --sporttery-status "$SPORTTERY_STATUS"
+          python -m zucai.cloud_predict run --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --sporttery-status "$SPORTTERY_STATUS" --feed-commit "$(git -C ../cloud-data rev-parse HEAD)"
       - name: Freeze SFC14 diagnostics from today's model reports
         continue-on-error: true
         run: python -m zucai.sfc_reports --archive cloud-data --summary "$GITHUB_STEP_SUMMARY"
@@ -502,6 +503,7 @@ jobs:
       - name: Render daily digest from frozen archives
         env:
           SPORTTERY_STATUS: ${{ needs.sporttery.result }}
+          SPORTTERY_PUBLISH_STATUS: ${{ needs.sporttery.outputs.publish_status }}
         run: python -m zucai.daily_digest --archive cloud-data --out cloud-data/daily --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --jc-sync-status "$SPORTTERY_STATUS" --jc-sync-run-id "$GITHUB_RUN_ID" --require-notified-history
       - name: Publish daily Markdown
         working-directory: cloud-data
@@ -528,6 +530,8 @@ jobs:
           if-no-files-found: ignore
 
   sporttery:
+    outputs:
+      publish_status: ${{ steps.publish_jc.outcome }}
     needs: [schedule-gate, apis]
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
@@ -572,9 +576,18 @@ jobs:
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds sync --archive ../cloud-data --days "$LOOKBACK" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Publish verified data
+        id: publish_jc
         working-directory: cloud-data
         shell: bash
-        run: bash ../app/scripts/publish-football-feeds.sh
+        run: PUBLISH_RECOVERY_DIR="../$WORK_DIR/publication-recovery" bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep committed collection recovery bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sporttery-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.WORK_DIR }}/publication-recovery
+          retention-days: 90
+          if-no-files-found: ignore
       - name: Keep official originals and audit even on rebase conflict
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

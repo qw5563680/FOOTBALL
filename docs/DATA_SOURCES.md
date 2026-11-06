@@ -33,12 +33,30 @@ T39（2026-11-05）：只用离线 fixtures，未重新请求站点或 robots；
 跳过记录 `state/audit/jc_skipped/<YYYY-MM>.csv` 另含原因。T42 按采集 `captured_utc` 的 UTC 月分片，
 不按比赛日期、营业日或北京时间分月；字段、原去重键与在售筛选不变。旧单文件 `jc_catalog.csv` / `jc_skipped.csv`
 作为 2026-11 的兼容部分保留，不迁移、不改写；同一捕获记录重放仍去重，矛盾值仍拒绝。
-分片随 feed manifest 哈希导出/恢复；日报仅解析本周涉及的月份，旧单文件只在涉及 2026-11 时读取。
+分片随 feed manifest 哈希导出/恢复；T46 日报核对读取清单全部已归档月份及旧单文件，再按最新条目的实际开球日期限定本周及未来范围，防止跨月捕获的相关比赛漏查；不增加采集请求。
 原全归档哈希校验保留；T42 只做离线实现，不新增请求，不更改既有赔率分片。
 按营业日 / 编号 / 捕获时刻去重；保留标记只表示解析通过，
 不冒充最终入库成功。旧归档没有完整清单不能凭连续编号判断缺号，缺跳过记录不能臆断未开售。
 `collection.jc` 分存 `schedule_updated_utc` / `results_updated_utc`，仅对应阶段完整成功时前进，
 失败阶段保留上次成功时刻，并记录当前状态、run与原因。sporttery 原件随 `sporttery-source-<run>` artifact 保留90天。
+
+### 2026-11-06 晚间旧赔率核对（run 42242081711）
+
+本轮只读取既有 `sporttery-source-42242081711-1` artifact 与数据分支离线重放，没有新请求、未重读 robots，
+不改变端点、频率或在售过滤。原件捕获 UTC `2026-11-06T15:26:05.030882Z`（北京 23:26:05），HTTP 200、
+`success=true/errorCode=0`。48 行全为 `matchStatus=Selling`、`sellStatus=2`，`bettingSingle/bettingAllUp=0`；
+239 个玩法的 `single/allUp` 均为 0，`vtoolsConfig` 同时给出“抱歉，本彩种已停止销售”。
+47 行仍带 had 数字，但报价存在不等于可售；解析按既有 `sellStatus==1` / 在售固定奖玩法规则跳过 48 行，
+原因全部 `sell_status_not_1`，并非把源站正常在售状态误读。停销原因、恢复时刻没有证据，不作推断。
+原件 SHA256：`d9e14edf6ffc1b18753a221bf69598de9d06061b611ae1bf9803dc8780a70b68`。
+裁剪两行回归样本及说明见 `data/fixtures/t36_odds/`；完整 48 行复核不作为联网测试。
+
+对应 `collection.jc.schedule_matches=0/odds_snapshots=0`，接口成功检查时间虽前进，赔率没有新增入库。
+11-07 冻结批次 25 场 predicted：24 场的市场快照时间为 UTC `2026-11-06T03:35:23.875726Z`
+（北京 11:35:23），1 场 market=null；另外 5 场 excluded 未生成预测。11-06 批次 13 场全部 excluded。
+日报只按逐场 `market.snapshot_utc` 展示此证据，不把 `schedule_updated_utc`、run 或归档时间当报价时间。
+`odds_snapshots` 是新增入库的玩法选项条数；零值还可能由原价去重造成，必须结合原件/跳过审计判断原因。
+这批可确认源站响应不满足在售条件；不据此扩大为所有历史/未来时刻的停售结论。
 
 ### T45 两注纸面现金流与停售字段
 

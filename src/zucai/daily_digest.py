@@ -267,6 +267,7 @@ def generate(
     repository=None,
     jc_sync_status=None,
     jc_sync_run_id=None,
+    jc_publish_status=None,
     require_notified_history=False,
 ):
     """Return dated Markdown path; the only permitted in-archive output is daily/."""
@@ -284,7 +285,7 @@ def generate(
     at = _instant(now or datetime.now(UTC))
     today = _day(at)
     feed = archive_info(archive)
-    manifest = verify_forecasts(archive)
+    manifest = verify_forecasts(archive, allow_unknown_odds_time=True)
     scored, ledger, summary, _ = read_state(archive)
     # Experimental scores share the append-only score file but never the original
     # yesterday totals, paper ledger or production evidence gates.
@@ -296,29 +297,31 @@ def generate(
         for day, entry in run["forecasts"].items():
             if _instant(entry["generated_utc"]) <= at:
                 path = entry["path"] + "/forecast.json"
-                batches.append((day, path, load_batch(archive / path)))
+                batches.append(
+                    (day, path, load_batch(archive / path, allow_unknown_odds_time=True))
+                )
     matches = archived_matches(archive, feed)
-    catalog = audit_rows(archive, feed, "jc_catalog", at)
-    skipped = audit_rows(archive, feed, "jc_skipped", at)
+    # No rows known at the cutoff means no evidence, not a checked empty scope.
+    # Only scoped_catalog below may produce [] after usable evidence was found.
+    catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True) or None
+    skipped = audit_rows(archive, feed, "jc_skipped", at, all_shards=True)
     if catalog is not None:
-        from zucai.digest_context import week_start
+        from zucai.digest_context import scoped_catalog
 
-        catalog = [
-            row
-            for row in catalog
-            if week_start(at).date().isoformat()
-            <= row["business_date"]
-            <= (today + timedelta(days=1)).isoformat()
-        ]
+        catalog = scoped_catalog(catalog, at)
         # Enrichment by exact archived ID only; never name matching.
         for row in catalog:
             if row["match_id"] in matches:
                 matches[row["match_id"]].setdefault("business_date", row["business_date"])
     latest, observations = frozen_rows(batches, matches, at)
+    from zucai.digest_context import prediction_window
+
+    window = prediction_window(batches, at)
     inputs = {
         **source_hashes(archive),
         "jc_sync_status": jc_sync_status,
         "jc_sync_run_id": jc_sync_run_id,
+        "jc_publish_status": jc_publish_status,
         "repository": repository,
         "require_notified_history": require_notified_history,
     }
@@ -361,7 +364,14 @@ def generate(
         "",
         f"本日第 {update} 次更新；本次 run ID：{_text(run_id)}；摘要生成 UTC：{at.isoformat()}。",
         *header_lines(
-            feed, latest, matches, at, jc_sync_status=jc_sync_status, jc_sync_run_id=jc_sync_run_id
+            feed,
+            latest,
+            matches,
+            at,
+            run_id=run_id,
+            jc_sync_status=jc_sync_status,
+            jc_sync_run_id=jc_sync_run_id,
+            jc_publish_status=jc_publish_status,
         ),
         f"采集状态：{states}。",
         f"采集归档 UTC：{_text(feed.get('created_utc'))}；"
@@ -369,7 +379,13 @@ def generate(
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
         *_forecast_sections(
-            batches, today, repository, now=at, matches=matches, displayed_ids=displayed_ids
+            batches,
+            today,
+            repository,
+            now=at,
+            matches=matches,
+            displayed_ids=displayed_ids,
+            runs=(manifest or {}).get("runs", {}),
         ),
         *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
         *parlay_lines,
@@ -383,6 +399,7 @@ def generate(
             skipped,
             at,
             displayed_ids=displayed_ids,
+            window=window,
         ),
         *_settlement_sections(scored, summary, batches, today - timedelta(days=1), repository),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
@@ -451,6 +468,9 @@ def main(argv=None):
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
     parser.add_argument("--jc-sync-status", choices=("success", "failure", "cancelled", "skipped"))
     parser.add_argument("--jc-sync-run-id")
+    parser.add_argument(
+        "--jc-publish-status", default=os.environ.get("SPORTTERY_PUBLISH_STATUS") or None
+    )
     parser.add_argument("--require-notified-history", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -462,6 +482,7 @@ def main(argv=None):
             repository=args.repository,
             jc_sync_status=args.jc_sync_status,
             jc_sync_run_id=args.jc_sync_run_id,
+            jc_publish_status=args.jc_publish_status,
             require_notified_history=args.require_notified_history,
         )
     except (OSError, ValueError, KeyError, TypeError) as exc:

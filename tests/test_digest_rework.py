@@ -135,11 +135,12 @@ def test_header_stage_wording_and_separate_success_watermarks(case):
             rows,
             matches,
             _instant(SAMPLE["later_utc"]),
+            run_id=case.get("digest_run_id"),
             jc_sync_status=case.get("job_status", "success"),
             jc_sync_run_id=case.get("job_run_id", "failed-1"),
         )
     )
-    assert "竞彩赛程更新至：2026-11-05 01:39:22" in text
+    assert "竞彩接口最近成功检查：2026-11-05 01:39:22" in text
     assert "赛果更新至：2026-11-03 16:00:00" in text
     for expected in case["expected"]:
         assert expected in text
@@ -183,8 +184,12 @@ def test_gap_wording_keeps_evidence_separate_and_never_infers_final_number():
     assert text.index("缺 周三003") < text.index("缺 周三012")
     for catalog in (None, []):
         unknown = "\n".join(review_sections({}, {}, matches, [], None, catalog, [], now))
-        assert "无法判定是否漏号（无当期完整清单）" in unknown
-        assert "确定漏了" not in unknown
+        if catalog is None:
+            assert "截点前没有可用清单，无法核对是否漏预测" in unknown
+            assert "确定漏了" not in unknown
+        else:
+            assert "已有归档清单" in unknown
+            assert "漏预测合计 0 场" in unknown
 
 
 def test_future_omitted_from_latest_batch_is_checked_against_rendered_table():

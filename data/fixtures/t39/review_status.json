@@ -46,10 +46,11 @@
     },
     {
       "name": "failed_job_with_same_run_stage",
-      "jc": {"schedule_status": "failed", "results_status": "complete", "failed_stages": ["schedule"]},
+      "jc": {"run_id": "stage-1", "schedule_status": "failed", "results_status": "complete", "failed_stages": ["schedule"]},
       "job_status": "failure",
-      "job_run_id": "stage-run",
-      "expected": ["赛程更新失败（run stage-run）"],
+      "job_run_id": "stage",
+      "digest_run_id": "stage-1",
+      "expected": ["赛程更新失败（run stage-1）"],
       "absent": ["赛果更新失败", "失败阶段未记录"]
     },
     {
@@ -57,6 +58,7 @@
       "jc": {"run_id": "12345-2", "schedule_status": "failed", "results_status": "complete", "failed_stages": ["schedule"]},
       "job_status": "cancelled",
       "job_run_id": "12345",
+      "digest_run_id": "12345-2",
       "expected": ["赛程更新失败（run 12345-2）"],
       "absent": ["赛果更新失败", "失败阶段未记录"]
     }

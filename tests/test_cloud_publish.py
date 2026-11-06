@@ -52,7 +52,10 @@ def test_writeback_rebases_or_fails_without_overwriting_remote(tmp_path, conflic
     if conflict:
         assert result.returncode != 0
         assert git(remote, "rev-parse", "refs/heads/data/football-feeds") == before
-        assert not (tmp_path / "summary.md").exists()
+        summary = (tmp_path / "summary.md").read_text()
+        assert "变基 1/3 失败" in summary
+        assert "发布未确认成功" in summary
+        assert "推送 1/3 成功" not in summary
     else:
         assert result.returncode == 0, result.stderr
         assert git(remote, "show", "data/football-feeds:field-notes.txt") == "other observation"
