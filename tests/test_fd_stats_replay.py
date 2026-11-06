@@ -117,6 +117,7 @@ def test_replay_rejects_bad_later_entry_before_writing_earlier_file(tmp_path, da
 @pytest.mark.parametrize("invalid_kind", ["header", "division"])
 def test_replay_parses_later_original_before_writing_earlier_file(tmp_path, invalid_kind):
     database, plan, item = setup_replay(tmp_path)
+    division = "E0" if invalid_kind == "header" else "D2"
     invalid = RawStore(tmp_path / "invalid").save(
         "football-data-co-uk",
         "E0-2425",
@@ -125,13 +126,13 @@ def test_replay_parses_later_original_before_writing_earlier_file(tmp_path, inva
         else (FIX / "fd.csv").read_bytes().replace(b"E0,", b"D2,"),
         "csv",
         captured_at=instant(item["captured_utc"]),
-        url=f"https://www.football-data.co.uk/mmz4281/2425/{'E0' if invalid_kind == 'header' else 'D2'}.csv",
+        url=f"https://www.football-data.co.uk/mmz4281/2425/{division}.csv",
         status_code=200,
     )
     bad = dict(
         item,
         path=str(invalid),
-        div="E0" if invalid_kind == "header" else "D2",
+        div=division,
         sha256=hashlib.sha256(invalid.read_bytes()).hexdigest(),
         sidecar_sha256=hashlib.sha256(
             invalid.with_suffix(".csv.meta.json").read_bytes()
