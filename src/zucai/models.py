@@ -334,3 +334,30 @@ class ApifFixtureIndex(Base):
     parser_version: Mapped[str]
     evidence: Mapped[dict] = mapped_column(JSON)
     version: Mapped[int] = mapped_column(default=1)
+
+
+class FdStatsLink(Base):
+    """Independent FD statistics attachment; never replaces a source counterpart."""
+
+    __tablename__ = "fd_stats_links"
+    __table_args__ = (
+        UniqueConstraint("match_id"),
+        CheckConstraint("home_team_id <> away_team_id"),
+        CheckConstraint("length(raw_sha256) = 64 AND length(aliases_sha256) = 64"),
+    )
+
+    provider_fixture_id: Mapped[str] = mapped_column(primary_key=True)
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"))
+    league: Mapped[str]
+    div_code: Mapped[str]
+    season: Mapped[str]
+    kickoff_utc: Mapped[str] = mapped_column(UTCString)
+    home_raw: Mapped[str]
+    away_raw: Mapped[str]
+    home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    captured_utc: Mapped[str] = mapped_column(UTCString)
+    raw_sha256: Mapped[str]
+    raw_location: Mapped[str]
+    aliases_sha256: Mapped[str]
+    evidence: Mapped[dict] = mapped_column(JSON)
