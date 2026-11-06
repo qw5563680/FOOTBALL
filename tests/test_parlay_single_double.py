@@ -77,8 +77,9 @@ def test_missing_probabilities_or_injuries_never_become_zero_or_baseline(sample,
         for row in sample["batch"]["predictions"]:
             row["model_probabilities"] = dict(h=0.4, d=0.35, a=0.25)
     doc = generate(sample)
-    assert doc["groups"] == []
-    assert doc["diagnostics"]
+    assert bool(doc["groups"]) is (missing != "probabilities")
+    if missing in {"injuries", "probabilities"}:
+        assert doc["diagnostics"]
     if missing == "probabilities":
         assert doc["market_reference"]["groups"]
 
@@ -118,13 +119,19 @@ def test_fewer_qualified_matches_mean_fewer_groups(sample, count, groups):
     assert len(generate(sample)["groups"]) == groups
 
 
-def test_double_fragility_boundary_is_inclusive():
-    assert max(
-        double_options(dict(h=0.5, d=0.275, a=0.225)), key=lambda d: d["coverage_probability"]
-    )["fragile"]
-    assert not max(
-        double_options(dict(h=0.5, d=0.276, a=0.224)), key=lambda d: d["coverage_probability"]
-    )["fragile"]
+def test_double_gap_is_descriptive_at_old_boundary():
+    assert (
+        max(double_options(dict(h=0.5, d=0.275, a=0.225)), key=lambda d: d["coverage_probability"])[
+            "selected_min_minus_omitted"
+        ]
+        == 0.05
+    )
+    assert (
+        max(double_options(dict(h=0.5, d=0.276, a=0.224)), key=lambda d: d["coverage_probability"])[
+            "selected_min_minus_omitted"
+        ]
+        == 0.052
+    )
 
 
 @pytest.mark.parametrize("maximum", [0, 6, True])
@@ -151,8 +158,8 @@ def test_no_fifty_percent_gate_and_configurable_direction_gaps(sample):
     for row in sample["batch"]["predictions"]:
         row["model_probabilities"] = dict(h=0.49, d=0.31, a=0.20)
     assert len(generate(sample)["groups"]) == 3
-    assert generate(sample, config=Config(single_direction_gap=0.19))["groups"] == []
-    assert generate(sample, config=Config(double_fragile_gap=0.12))["groups"] == []
+    assert len(generate(sample, config=Config(single_direction_gap=0.19))["groups"]) == 3
+    assert len(generate(sample, config=Config(double_fragile_gap=0.12))["groups"]) == 3
 
 
 @pytest.mark.parametrize("problem", ["started", "finished", "canceled", "stopped", "identity"])
@@ -229,10 +236,12 @@ def test_injury_missing_and_capture_cutoff_are_not_invented_zero(sample, capture
     for injury in sample["injuries"].values():
         for cell in injury.values():
             cell["captured_utc"] = capture
-    assert bool(generate(sample)["groups"]) is usable
+    doc = generate(sample)
+    assert len(doc["groups"]) == 3
+    assert (doc["groups"][0]["injury_coverage"] == "complete") is usable
     sample["injuries"]["jc:t45-1"]["home"]["confirmed_injured_out"] = None
     first = generate(sample)["boards"][0]["matches"][0]
-    assert not first["single"]["eligible"]
+    assert first["single"]["eligible"]
     assert first["injuries"]["home"]["confirmed_injured_out"] is None
 
 

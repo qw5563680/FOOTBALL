@@ -13,7 +13,7 @@ from zucai.digest_context import audit_rows
 from zucai.features.injuries import InjuryFeatures
 from zucai.forecast_archive import MANIFEST, _path, verify_forecasts
 from zucai.models import Match, Team
-from zucai.parlay.single_double import RULE, Config, build
+from zucai.parlay.single_double import RULE, SUPPORTED_RULES, Config, build
 from zucai.report.render import load_batch
 from zucai.scoreboard.score import instant
 from zucai.sources.base import _atomic_write
@@ -87,7 +87,7 @@ def load_documents(archive, manifest, as_of):
             if not name or instant(entry["parlay_published_utc"]) > instant(as_of):
                 continue
             doc = json.loads(_path(archive, name).read_bytes())
-            if doc.get("rule") != RULE or doc.get("batch_id") != entry["batch_id"]:
+            if doc.get("rule") not in SUPPORTED_RULES or doc.get("batch_id") != entry["batch_id"]:
                 raise ValueError("复式冻结文件与批次不符")
             if instant(doc["generated_utc"]) > instant(entry["parlay_published_utc"]):
                 raise ValueError("复式生成时间晚于归档时间")
@@ -104,9 +104,7 @@ def load_documents(archive, manifest, as_of):
 
 
 def publish_document(archive, run_id, day, document, *, clock=None):
-    """Keep all versions; the ledger's batch receipt locks the current one after accounting."""
-    from zucai.parlay.paper import read_ledger
-
+    """The first frozen decision locks this batch, even before its ledger is advanced."""
     clock = clock or (lambda: datetime.now(UTC))
     manifest = verify_forecasts(archive)
     before = (archive / MANIFEST).read_bytes()
@@ -116,14 +114,7 @@ def publish_document(archive, run_id, day, document, *, clock=None):
     name = entry["path"] + "/parlay_sd.json"
     previous = None
     if entry.get("parlay_path"):
-        previous = json.loads(_path(archive, name).read_bytes())
-        if any(
-            r.get("record_type") == "batch" and r["batch_id"] == document["batch_id"]
-            for r in read_ledger(archive)
-        ):
-            return manifest["runs"][run_id]
-        if previous.get("input_sha256") == document.get("input_sha256"):
-            return manifest["runs"][run_id]
+        return manifest["runs"][run_id]
     doc = dict(document)
     doc["previous_version_sha256"] = digest(archive / name) if previous else None
     doc["replaced_groups"] = sorted(
@@ -170,6 +161,8 @@ def freeze(archive, database, run_id, *, injuries=None, clock=None, config=None)
     run = manifest["runs"][run_id]
     config = config or Config()
     for day, entry in run["forecasts"].items():
+        if entry.get("parlay_path"):
+            continue  # A changed rule/configuration never rewrites an already frozen batch.
         path = entry["path"] + "/forecast.json"
         batch = load_batch(archive / path)
         experimental = (
@@ -196,7 +189,7 @@ def freeze(archive, database, run_id, *, injuries=None, clock=None, config=None)
             else None,
         }
         doc["input_sha256"] = hashlib.sha256(
-            raw_json(dict(context=context, config=doc["config"], sources=doc["sources"]))
+            raw_json(dict(rule=RULE, context=context, config=doc["config"], sources=doc["sources"]))
         ).hexdigest()
         run = publish_document(archive, run_id, day, doc, clock=clock)
     return run

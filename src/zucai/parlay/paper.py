@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from zucai.cloud_feeds import digest
 from zucai.forecast_archive import _path
-from zucai.parlay.single_double import RULE
+from zucai.parlay.single_double import RULE, SUPPORTED_RULES
 from zucai.scoreboard.paper import decision_digest
 from zucai.scoreboard.score import instant, outcome, record_key, result_reason
 
@@ -89,16 +89,20 @@ def advance_ledger(documents, results, existing, at):
     if len(keys) != len(ledger):
         raise ValueError("F 账本有重复记录")
     for row in ledger:
-        if row.get("rule") != RULE or row.get("account") != "F":
+        if row.get("rule") not in SUPPORTED_RULES or row.get("account") != "F":
             raise ValueError("F 账本混入其他策略")
         if row["record_type"] in {"group", "ticket"}:
             if row.get("decision_sha256") != decision_digest(row):
                 raise ValueError("F 冻结注单被修改")
             if row["record_type"] == "ticket":
                 _settle(row, results, at)
+    locked_batches = {r["batch_id"] for r in ledger}
     for doc in sorted(documents, key=lambda d: (instant(d["generated_utc"]), d["batch_id"])):
-        marker = record_key(RULE, "batch", doc["batch_id"])
-        if marker in keys or instant(doc["published_utc"]) > instant(at):
+        rule = doc["rule"]
+        if rule not in SUPPORTED_RULES:
+            raise ValueError("F 冻结文件策略不受支持")
+        marker = record_key(rule, "batch", doc["batch_id"])
+        if doc["batch_id"] in locked_batches or instant(doc["published_utc"]) > instant(at):
             continue
         used_matches, used_teams = set(), set()
         for frozen in doc["groups"]:
@@ -113,10 +117,10 @@ def advance_ledger(documents, results, existing, at):
             legs = [frozen["single"], frozen["double"]]
             if any(instant(leg["kickoff_utc"]) <= instant(doc["published_utc"]) for leg in legs):
                 continue
-            key = record_key(RULE, "group", doc["batch_id"], frozen["group_id"])
+            key = record_key(rule, "group", doc["batch_id"], frozen["group_id"])
             common = dict(
                 account="F",
-                rule=RULE,
+                rule=rule,
                 batch_id=doc["batch_id"],
                 group_id=frozen["group_id"],
                 decision_utc=doc["generated_utc"],
@@ -128,6 +132,12 @@ def advance_ledger(documents, results, existing, at):
                 p2_ready=frozen["p2_ready"],
                 evidence_level=frozen["evidence_level"],
             )
+            if rule == RULE:
+                common.update(
+                    rule_effective_utc=doc["rule_effective_utc"],
+                    rule_config=deepcopy(doc["config"]),
+                    injury_coverage=frozen["injury_coverage"],
+                )
             tickets = []
             for index, beta in enumerate(frozen["double_selections"]):
                 ticket_id = record_key(key, "ticket", index)
@@ -177,7 +187,7 @@ def advance_ledger(documents, results, existing, at):
         ledger.append(
             dict(
                 account="F",
-                rule=RULE,
+                rule=rule,
                 record_type="batch",
                 record_id=marker,
                 batch_id=doc["batch_id"],
@@ -186,6 +196,7 @@ def advance_ledger(documents, results, existing, at):
             )
         )
         keys.add(marker)
+        locked_batches.add(doc["batch_id"])
     _settle_groups(ledger)
     return ledger
 
@@ -218,9 +229,7 @@ def _totals(groups, tickets):
     )
 
 
-def summarize(ledger, results, at):
-    groups = [r for r in ledger if r["record_type"] == "group"]
-    tickets = [r for r in ledger if r["record_type"] == "ticket"]
+def _evidence_totals(groups, tickets):
     tiers = {}
     for level in sorted({g["evidence_level"] for g in groups}):
         tiers[level] = {}
@@ -232,6 +241,30 @@ def summarize(ledger, results, at):
             tiers[level]["replayed" if replayed else "prospective"] = _totals(
                 scope, [t for t in tickets if t["group_id"] in ids and t["replayed"] == replayed]
             )
+    return tiers
+
+
+def summarize(ledger, results, at):
+    groups = [r for r in ledger if r["record_type"] == "group"]
+    tickets = [r for r in ledger if r["record_type"] == "ticket"]
+    rules = {}
+    for rule in sorted({r["rule"] for r in ledger}):
+        subset = [g for g in groups if g["rule"] == rule]
+        parts = [t for t in tickets if t["rule"] == rule]
+        injury = {}
+        for coverage in ("complete", "missing", "unknown_legacy"):
+            selected = [g for g in subset if g.get("injury_coverage", "unknown_legacy") == coverage]
+            part_ids = {key for g in selected for key in g["ticket_ids"]}
+            selected_parts = [t for t in parts if t["record_id"] in part_ids]
+            injury[coverage] = {
+                **_totals(selected, selected_parts),
+                "evidence": _evidence_totals(selected, selected_parts),
+            }
+        rules[rule] = dict(
+            totals=_totals(subset, parts),
+            evidence=_evidence_totals(subset, parts),
+            injury_coverage=injury,
+        )
     corrections = sorted(
         {
             r["match_id"]
@@ -264,13 +297,17 @@ def summarize(ledger, results, at):
         )
     return dict(
         account="F",
-        rule=RULE,
+        rule=next(iter(rules)) if len(rules) == 1 else "multiple_versions" if rules else RULE,
         bet_allowed=False,
-        evidence=tiers,
+        evidence=_evidence_totals(groups, tickets) if len(rules) <= 1 else {},
+        rules=rules,
         totals=_totals(groups, tickets),
         pending=pending,
         settlement_corrections=corrections,
-        statement="独立纸面账；与 A–E、真实出票业绩分开，盈利严格指整组净收益大于零",
+        statement=(
+            "独立纸面账；总计仅用于全账核对，成绩按规则版本/伤停覆盖/证据/事后重建分列；"
+            "与 A–E、真实出票分开，盈利严格指整组净收益大于零"
+        ),
     )
 
 
@@ -288,22 +325,40 @@ def render(summary):
 
     lines = [
         "\n### F 单选＋双选二串一（独立纸面账）\n",
-        "按证据等级与事后重建分列；BET 禁用、可执行性未核实。\n",
-        "| 证据 / 口径 | 已结组 | 两注命中数 | 原单选命中率 | 组覆盖率 | 组盈利率 |"
+        "按规则版本、伤停资料、证据等级与事后重建分列；BET 禁用、可执行性未核实。\n",
+        "| 规则 / 伤停资料 / 证据 / 口径 | 已结组 | 两注命中数 | 原单选命中率 |"
+        " 组覆盖率 | 组盈利率 |"
         " 已结投入 | 盈亏 | ROI | 待结组 |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
-    for level, modes in summary["evidence"].items():
+    rows = []
+    if "rules" in summary:
+        for rule, scope in summary["rules"].items():
+            for coverage, part in scope["injury_coverage"].items():
+                label = {
+                    "complete": "资料齐全",
+                    "missing": "资料缺失",
+                    "unknown_legacy": "旧版未记录",
+                }[coverage]
+                rows.extend(
+                    (f"{rule} / {label}", level, modes) for level, modes in part["evidence"].items()
+                )
+    else:
+        rows = [
+            (summary.get("rule", "single_plus_double_v1"), level, modes)
+            for level, modes in summary["evidence"].items()
+        ]
+    for prefix, level, modes in rows:
         for mode, row in modes.items():
             label = "事后重建" if mode == "replayed" else "赛前记账"
             lines.append(
-                f"| {levels.get(level, level)} / {label} | {row['settled_groups']} | "
+                f"| {prefix} / {levels.get(level, level)} / {label} | {row['settled_groups']} | "
                 f"{row['won_tickets']} | {rate(row['single_hit_rate'])} | "
                 f"{rate(row['coverage_rate'])} | {rate(row['profit_rate'])} | "
                 f"{row['settled_cost']:.2f} | {row['profit']:.2f} | {rate(row['roi'])} | "
                 f"{row['pending_groups']} |"
             )
-    if not summary["evidence"]:
+    if not rows:
         lines.append("| 尚无合格纸面组 | 0 | 0 | — | — | — | 0.00 | 0.00 | — | 0 |")
     if summary["settlement_corrections"]:
         lines.append("已结赛果后来变化：保留原结算，需人工核对。")
