@@ -2,7 +2,14 @@
 
 from datetime import datetime, time, timedelta
 
-from zucai.digest_context import catalog_gaps, observed_result, settled_since, week_start
+from zucai.digest_context import (
+    catalog_gaps,
+    kickoff_day,
+    observed_result,
+    prediction_window,
+    settled_since,
+    week_start,
+)
 from zucai.digest_display import BEIJING, _instant, _link, _match, _number, _probabilities, _text
 
 SKIP_REASONS = {
@@ -102,7 +109,17 @@ def forecast_sections(batches, today, repository, *, now=None, matches=None, dis
 
 
 def review_sections(
-    latest, observations, matches, scored, summary, catalog, skipped, now, *, displayed_ids=None
+    latest,
+    observations,
+    matches,
+    scored,
+    summary,
+    catalog,
+    skipped,
+    now,
+    *,
+    displayed_ids=None,
+    window=None,
 ):
     start = week_start(now)
     active = set((summary or {}).get("audit", {}).get("active_keys", []))
@@ -120,10 +137,10 @@ def review_sections(
         {key: row for key, row in latest.items() if start <= _instant(row["kickoff_utc"]) <= now}
     )
     for key, row in matches.items():
-        if row.get("jc_num") and start <= _instant(row["kickoff_utc"]) <= now:
+        if row.get("jc_num") and kickoff_day(row) and start <= _instant(row["kickoff_utc"]) <= now:
             rows.setdefault(key, row)
     for row in catalog or []:
-        if row.get("kickoff_utc") and start <= _instant(row["kickoff_utc"]) <= now:
+        if kickoff_day(row) and start <= _instant(row["kickoff_utc"]) <= now:
             rows.setdefault(row["match_id"], {**row, **matches.get(row["match_id"], {})})
     settled = []
     pending = 0
@@ -171,18 +188,55 @@ def review_sections(
         lines.append("| 尚无本周已开球记录 | — | — | — | — | — |")
     lines.extend(["", "### 竞彩完整清单逐号核对", ""])
     displayed = set(latest) if displayed_ids is None else displayed_ids | (set(rows) & set(latest))
-    gaps = catalog_gaps(catalog or None, skipped, displayed, observations)
+    window = window or prediction_window([], now)
+    gaps = catalog_gaps(catalog, skipped, displayed, observations, window=window, known_ids=matches)
+    lines.append(
+        "计划覆盖北京开球日："
+        + "、".join(window["planned_dates"])
+        + "；已有成功冻结批次："
+        + ("、".join(window["successful_dates"]) or "无")
+        + "。"
+    )
+    if window["missing_batch_dates"]:
+        lines.append(
+            "计划日期尚无成功批次："
+            + "、".join(window["missing_batch_dates"])
+            + "；可能尚未生成或整批失败，不能据此缩小预测窗口。"
+        )
     if catalog:
         days = sorted({row["business_date"] for row in catalog})
         lines.append(
             "核对范围仅限已归档营业日：" + "、".join(map(_text, days)) + "；其他营业日无法判定。"
         )
     if gaps is None:
-        lines.append("无法判定是否漏号（无当期完整清单）。旧归档不凭编号连续性猜缺号或原因。")
+        lines.append("截点前没有可用清单，无法核对是否漏预测。旧归档不凭编号连续性猜缺号或原因。")
+    elif not catalog:
+        lines.append("已有归档清单，本周开球范围内及近期未知时间的条目为空。")
     elif not gaps:
         lines.append("归档完整清单逐号核对：编号均已在相应表内说明（含未预测原因）。")
-    else:
+    if gaps is not None:
+        counts = {
+            kind: sum(r["category"] == kind for r in gaps)
+            for kind in ("missing", "unexplained", "outside_window", "unknown_window")
+        }
+        lines.append(
+            f"确定漏了（原因已知）{counts['missing']} 场；原因未查明 {counts['unexplained']} 场；"
+            f"尚未进入预测窗口 {counts['outside_window']} 场；"
+            f"开球时间缺失，无法判断窗口 {counts['unknown_window']} 场。"
+            f"漏预测合计 {counts['missing'] + counts['unexplained']} 场，后两类不计入漏预测。"
+        )
         for row in gaps:
+            label = f"{_text(row['jc_num'])}（{_text(row['business_date'])}，{_match(row)}）"
+            if row["category"] == "outside_window":
+                lines.append(
+                    f"- {label}：尚未进入预测窗口（北京时间 {_local(row['kickoff_utc'])} 开球）；"
+                    f"预计自 {row['expected_window_date']} 的预测范围开始覆盖，"
+                    "以实际批次生成情况为准，不承诺准点。"
+                )
+                continue
+            if row["category"] == "unknown_window":
+                lines.append(f"- {label}：开球时间缺失，无法判断窗口；不使用编号日或营业日猜日期。")
+                continue
             reason = row["reason"]
             evidence = row["skip_evidence"]
             if evidence:
@@ -196,9 +250,20 @@ def review_sections(
                 detail = "入库但无赛前预测（晚班或后续同步已入库，但无可查的赛前预测）"
             else:
                 detail = "原因未查明（无可核验的同期跳过记录；旧早班原始页面未归档时不能推断原因）"
+            if not row["reason_known"] and "原因未查明" not in detail:
+                detail += "；原因未查明（无可追踪的同期原因证据）"
             lines.append(
                 f"- 缺 {_text(row['jc_num'])}（{_text(row['business_date'])}，{_match(row)}）："
                 f"确定漏了；{detail}。"
+                + (
+                    (
+                        "该北京开球日尚无成功冻结批次；以上仅为该场同期跳过原因，不推断整批原因。"
+                        if row["reason_known"]
+                        else "该北京开球日属于计划范围，但尚无成功冻结批次；整批缺失原因待查。"
+                    )
+                    if row["batch_missing"]
+                    else ""
+                )
             )
     return lines + [""]
 

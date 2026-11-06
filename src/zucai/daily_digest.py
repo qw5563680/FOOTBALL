@@ -298,23 +298,22 @@ def generate(
                 path = entry["path"] + "/forecast.json"
                 batches.append((day, path, load_batch(archive / path)))
     matches = archived_matches(archive, feed)
-    catalog = audit_rows(archive, feed, "jc_catalog", at)
-    skipped = audit_rows(archive, feed, "jc_skipped", at)
+    # No rows known at the cutoff means no evidence, not a checked empty scope.
+    # Only scoped_catalog below may produce [] after usable evidence was found.
+    catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True) or None
+    skipped = audit_rows(archive, feed, "jc_skipped", at, all_shards=True)
     if catalog is not None:
-        from zucai.digest_context import week_start
+        from zucai.digest_context import scoped_catalog
 
-        catalog = [
-            row
-            for row in catalog
-            if week_start(at).date().isoformat()
-            <= row["business_date"]
-            <= (today + timedelta(days=1)).isoformat()
-        ]
+        catalog = scoped_catalog(catalog, at)
         # Enrichment by exact archived ID only; never name matching.
         for row in catalog:
             if row["match_id"] in matches:
                 matches[row["match_id"]].setdefault("business_date", row["business_date"])
     latest, observations = frozen_rows(batches, matches, at)
+    from zucai.digest_context import prediction_window
+
+    window = prediction_window(batches, at)
     inputs = {
         **source_hashes(archive),
         "jc_sync_status": jc_sync_status,
@@ -383,6 +382,7 @@ def generate(
             skipped,
             at,
             displayed_ids=displayed_ids,
+            window=window,
         ),
         *_settlement_sections(scored, summary, batches, today - timedelta(days=1), repository),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
