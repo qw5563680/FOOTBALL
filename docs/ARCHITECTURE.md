@@ -182,7 +182,23 @@ T38 的 technical_data.version=3 在原三张行表之外增加 match_injuries�
 数据库和 fixtures 原件，不新增普通 fixtures/status 请求。技术请求走独立 1.0 秒限速通道，分钟头
 remaining ≤ 20 时等到下一分钟，429 立即停止。原普通采集/status 的 6.1 秒规则不变。
 历史批次至多 7000 次，除 reserve=10 外预留日常 300 次；日常至多 300 次。失败请求同样扣配额。
-共用发布脚本仅对 push 的 5xx / 网络错误最多尝试 3 次、间隔 30 秒；fetch-first / non-fast-forward 先 rebase 再推，rebase 冲突立即失败，摘要记录每次失败 stderr 原文与次数，最终失败提示 artifact，绝不强推或创建空提交。
+共用发布脚本将 fetch 与本地 rebase 分开；fetch / push 的 5xx 与网络错误共享最多3轮发布尝试，间隔30秒。
+fetch-first / non-fast-forward 下一轮先 fetch/rebase 再推；权限错误与 rebase 冲突立即失败，摘要记录阶段、错误与次数，
+绝不强推、创建空提交或重采数据。T36 后续修复依据 run 42198016056：原 `git pull --rebase` 网络失败位于 push 重试之外。
+
+sporttery 发布步骤指定 `PUBLISH_RECOVERY_DIR`，本地提交后、首次网络操作前，以远端跟踪提交为 base 创建
+`unpublished.bundle`（`HEAD ^base`）、`recovery.txt`（run/base/head/feed SHA）、`SHA256SUMS`。
+包只含本次待发布 Git 对象，不含 `.git/config`、认证头、key 或数据库；包含本次导出的比赛、赔率、结果、审计及清单原字节。
+`always()` 上传独立90天恢复 artifact，runner 工作目录另留本地副本；持续网络故障时附件上传不能保证成功。
+恢复以 base 为前提校验 bundle；远端已前进时重放增量提交，冲突停下，不能用旧快照覆盖后续账本。
+恢复和重复发布不运行评分/记账，只发布相同字节；已有冻结预测与账本不倒写。
+
+sporttery job 输出 `publish_status=steps.publish_jc.outcome`，predict / digest 通过环境传递；
+预测 `forecast_manifest.runs.*` 新增可选 `sporttery_publish_status` 与 `feed_snapshot`
+（commit、run_id、created_utc、schedule_updated_utc、results_updated_utc），引用本次实际恢复的归档。
+原 `feed_manifest_sha256` / 数据库 SHA 校验保留，旧四件套和模型算法不变。发布失败仍标 `sporttery_stale`；
+日报分开呈现本次 job 发布失败和每批冻结预测的数据版本/时间，后续仅重发摘要也保留该批警告。
+缺少新字段的旧冻结继续可读；归档生成时间不得替代竞彩成功采集时间，缺失写未知。
 索引按七桥接＋欧冠 2 的 2022 起赛季页；fd 按九主联赛季文件；四端点依次 statistics/events/lineups/players，
 injuries 仅 11 个有数据联赛。全部范围先验证，未知端点/联赛/季节参数在请求前拒绝。
 
@@ -505,7 +521,7 @@ T06 真实预测路径不应用这项转换，仍使用库中的可知时间。
 `write-football-feed-data`；sporttery 依赖 apis 完成后才 checkout 数据分支，避免基于同一个旧快照写回。
 手动 sync 时 apis 跳过；verify 在 apis 内执行只读恢复。
 `FOOTBALL_FEEDS_RUNNER` 是单标签字符串（`football-local`），直接传给 sporttery 的 runs-on，变量为空时跳过。每次写回先提交，再
-`git pull --rebase origin data/football-feeds`、普通 push，冲突保留原件 artifact 并失败。
+`git fetch origin data/football-feeds`、`git rebase FETCH_HEAD`、普通 push；冲突保留原件及竞彩增量恢复包 artifact 并失败。
 运行目录按 run ID/attempt 隔离，Windows 步骤用 Git Bash 和 setup-python 3.12。
 API 模块按需导入，竞彩与 verify 不加载 Unix-only API 配额锁。
 

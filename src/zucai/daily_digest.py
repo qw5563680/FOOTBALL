@@ -267,6 +267,7 @@ def generate(
     repository=None,
     jc_sync_status=None,
     jc_sync_run_id=None,
+    jc_publish_status=None,
     require_notified_history=False,
 ):
     """Return dated Markdown path; the only permitted in-archive output is daily/."""
@@ -318,6 +319,7 @@ def generate(
         **source_hashes(archive),
         "jc_sync_status": jc_sync_status,
         "jc_sync_run_id": jc_sync_run_id,
+        "jc_publish_status": jc_publish_status,
         "repository": repository,
         "require_notified_history": require_notified_history,
     }
@@ -360,7 +362,13 @@ def generate(
         "",
         f"本日第 {update} 次更新；本次 run ID：{_text(run_id)}；摘要生成 UTC：{at.isoformat()}。",
         *header_lines(
-            feed, latest, matches, at, jc_sync_status=jc_sync_status, jc_sync_run_id=jc_sync_run_id
+            feed,
+            latest,
+            matches,
+            at,
+            jc_sync_status=jc_sync_status,
+            jc_sync_run_id=jc_sync_run_id,
+            jc_publish_status=jc_publish_status,
         ),
         f"采集状态：{states}。",
         f"采集归档 UTC：{_text(feed.get('created_utc'))}；"
@@ -368,7 +376,13 @@ def generate(
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
         *_forecast_sections(
-            batches, today, repository, now=at, matches=matches, displayed_ids=displayed_ids
+            batches,
+            today,
+            repository,
+            now=at,
+            matches=matches,
+            displayed_ids=displayed_ids,
+            runs=(manifest or {}).get("runs", {}),
         ),
         *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
         *parlay_lines,
@@ -451,6 +465,9 @@ def main(argv=None):
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
     parser.add_argument("--jc-sync-status", choices=("success", "failure", "cancelled", "skipped"))
     parser.add_argument("--jc-sync-run-id")
+    parser.add_argument(
+        "--jc-publish-status", default=os.environ.get("SPORTTERY_PUBLISH_STATUS") or None
+    )
     parser.add_argument("--require-notified-history", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -462,6 +479,7 @@ def main(argv=None):
             repository=args.repository,
             jc_sync_status=args.jc_sync_status,
             jc_sync_run_id=args.jc_sync_run_id,
+            jc_publish_status=args.jc_publish_status,
             require_notified_history=args.require_notified_history,
         )
     except (OSError, ValueError, KeyError, TypeError) as exc:
