@@ -36,11 +36,66 @@ done
 if ! git diff --cached --quiet; then
   git commit -m "Update football feeds from Actions run ${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}"
 fi
+# Save the committed collection before any network operation or rebase can fail.
+# Incremental bundle contains Git objects only, never checkout credentials/config.
+if [[ -n "${PUBLISH_RECOVERY_DIR:-}" ]]; then
+  mkdir -p "$PUBLISH_RECOVERY_DIR"
+  base=$(git rev-parse refs/remotes/origin/data/football-feeds)
+  head=$(git rev-parse HEAD)
+  if [[ "$head" != "$base" ]]; then
+    git bundle create "$PUBLISH_RECOVERY_DIR/unpublished.bundle" HEAD "^$base"
+    {
+      printf 'run=%s/%s\nbase=%s\nhead=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$base" "$head"
+      printf 'feed_manifest_sha256='
+      sha256sum feed_manifest.json
+    } > "$PUBLISH_RECOVERY_DIR/recovery.txt"
+    (cd "$PUBLISH_RECOVERY_DIR" && sha256sum unpublished.bundle > SHA256SUMS)
+  fi
+fi
 push_errors=$(mktemp)
 trap 'rm -f "$push_errors"' EXIT
+network_error() {
+  grep -Eiq 'returned error: 5[0-9]{2}|HTTP[^[:alnum:]]+5[0-9]{2}|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|timed? out|timeout|Could not resolve host|Failed to connect|Connection (reset|refused|closed)|remote end hung up unexpectedly|Recv failure|Send failure|Empty reply from server|Network is unreachable|TLS connection was non-properly terminated' "$push_errors"
+}
+failed_attempt() {
+  cat "$push_errors" >&2
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      printf '\n%s %s/3 失败\n\n~~~~text\n' "$1" "$attempt"
+      cat "$push_errors"
+      printf '\n~~~~\n'
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+failed_publication() {
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    printf '\n发布未确认成功；恢复资料由后续 artifact 步骤上传，请核对上传结果。\n' >> "$GITHUB_STEP_SUMMARY"
+    if [[ -n "${PUBLISH_RECOVERY_DIR:-}" ]]; then
+      printf '本次已提交数据的恢复包：%s；未确认发布，后续只能读取远端已有版本。\n' "$PUBLISH_RECOVERY_DIR" >> "$GITHUB_STEP_SUMMARY"
+    fi
+  fi
+  exit "$1"
+}
 for attempt in 1 2 3; do
-  # A failed rebase (including conflicts) exits immediately, without another push.
-  git pull --rebase origin data/football-feeds
+  # Separate fetch from rebase: only the network operation may retry.
+  if git fetch origin data/football-feeds 2>"$push_errors"; then
+    cat "$push_errors" >&2
+  else
+    fetch_status=$?
+    failed_attempt 拉取
+    if ! network_error || [[ "$attempt" == 3 ]]; then
+      failed_publication "$fetch_status"
+    fi
+    sleep 30
+    continue
+  fi
+  if git rebase FETCH_HEAD >"$push_errors" 2>&1; then
+    cat "$push_errors"
+  else
+    rebase_status=$?
+    failed_attempt 变基
+    failed_publication "$rebase_status"
+  fi
   if git push origin HEAD:refs/heads/data/football-feeds 2>"$push_errors"; then
     cat "$push_errors" >&2
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -50,25 +105,15 @@ for attempt in 1 2 3; do
   else
     push_status=$?
   fi
-  cat "$push_errors" >&2
-  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-    {
-      printf '\n推送 %s/3 失败\n\n~~~~text\n' "$attempt"
-      cat "$push_errors"
-      printf '\n~~~~\n'
-    } >> "$GITHUB_STEP_SUMMARY"
-  fi
+  failed_attempt 推送
   retry_kind=none
   if grep -Eiq 'fetch first|non-fast-forward' "$push_errors"; then
     retry_kind=rebase
-  elif grep -Eiq 'returned error: 5[0-9]{2}|HTTP[^[:alnum:]]+5[0-9]{2}|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|timed? out|timeout|Could not resolve host|Failed to connect|Connection (reset|refused|closed)|remote end hung up unexpectedly|Recv failure|Send failure|Empty reply from server|Network is unreachable|TLS connection was non-properly terminated' "$push_errors"; then
+  elif network_error; then
     retry_kind=network
   fi
   if [[ "$retry_kind" == none || "$attempt" == 3 ]]; then
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-      printf '\n推送失败，产物在 artifact\n' >> "$GITHUB_STEP_SUMMARY"
-    fi
-    exit "$push_status"
+    failed_publication "$push_status"
   fi
   if [[ "$retry_kind" == network ]]; then
     sleep 30

@@ -47,7 +47,34 @@ def _local(value):
     )
 
 
-def forecast_sections(batches, today, repository, *, now=None, matches=None, displayed_ids=None):
+def prediction_source_lines(run):
+    snapshot = run.get("feed_snapshot")
+    lines = []
+    if run.get("sporttery_publish_status") == "failure":
+        lines.append("本批预测前竞彩数据发布失败，本次采集结果未确认发布；预测使用已发布快照。")
+    elif run.get("sporttery_stale"):
+        lines.append("本批预测已标记竞彩数据未确认更新，不能视为本次最新采集数据。")
+    if snapshot:
+        lines.append(
+            f"预测所用数据：提交 {_text(snapshot.get('commit'))}；"
+            f"归档 run {_text(snapshot.get('run_id'))}；"
+            f"归档时间 {_local(snapshot.get('created_utc'))}（北京时间，不代表竞彩采集时间）。"
+        )
+        lines.append(
+            f"该预测快照的竞彩赛程更新至：{_local(snapshot.get('schedule_updated_utc'))}；"
+            f"赛果更新至：{_local(snapshot.get('results_updated_utc'))}（北京时间）。"
+        )
+    elif run.get("sporttery_stale"):
+        lines.append(
+            "旧冻结未记录数据提交与竞彩更新时间；"
+            f"输入清单 SHA256：{_text(run.get('feed_manifest_sha256'))}。"
+        )
+    return lines + ([""] if lines else [])
+
+
+def forecast_sections(
+    batches, today, repository, *, now=None, matches=None, displayed_ids=None, runs=None
+):
     now = now or datetime.combine(today, time.min, BEIJING)
     matches = matches or {}
     lines = ["## 今日与明日预测（仅发报时未开球）", ""]
@@ -68,6 +95,17 @@ def forecast_sections(batches, today, repository, *, now=None, matches=None, dis
                 "",
             ]
         )
+        source_run = next(
+            (
+                run
+                for run in (runs or {}).values()
+                if any(
+                    entry["path"] + "/forecast.json" == path for entry in run["forecasts"].values()
+                )
+            ),
+            {},
+        )
+        lines.extend(prediction_source_lines(source_run))
         rows = [
             {**matches.get(row["match_id"], {}), **row}
             for row in batch["predictions"]
@@ -268,7 +306,9 @@ def review_sections(
     return lines + [""]
 
 
-def header_lines(feed, latest, matches, now, *, jc_sync_status=None, jc_sync_run_id=None):
+def header_lines(
+    feed, latest, matches, now, *, jc_sync_status=None, jc_sync_run_id=None, jc_publish_status=None
+):
     jc = feed.get("collection", {}).get("jc", {})
     lines = [
         f"竞彩赛程更新至：{_local(jc.get('schedule_updated_utc'))}（北京时间）。",
@@ -298,7 +338,12 @@ def header_lines(feed, latest, matches, now, *, jc_sync_status=None, jc_sync_run
                 f"赛果部分未到，还有 {pending} 场待核对（run {_text(run)}）。"
                 "成功时刻保留上次值，本次未取得的结果不猜测。"
             )
-    if jc_sync_status in {"failure", "cancelled"}:
+    if jc_publish_status == "failure":
+        lines.append(
+            f"竞彩数据发布失败（run {_text(jc_sync_run_id)}）：本次采集结果未确认发布；"
+            "本版使用远端已发布归档，不能视为本次最新数据。各批预测的数据版本与时间见下方。"
+        )
+    elif jc_sync_status in {"failure", "cancelled"}:
         same_run = jc_sync_run_id is not None and (
             run == jc_sync_run_id or str(run).startswith(f"{jc_sync_run_id}-")
         )

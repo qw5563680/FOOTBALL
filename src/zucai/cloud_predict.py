@@ -54,6 +54,9 @@ def _summary(archive, run):
             "按现有快照预测。",
             "",
         ]
+    from zucai.digest_views import prediction_source_lines
+
+    lines += prediction_source_lines(run)
     lines += [
         "56 天回测仅作冒烟检查，不是 P2 证据；P2 标签由已发布策略和模型共同判定。",
         "",
@@ -95,7 +98,15 @@ def _summary(archive, run):
             output.write("\n".join(lines) + "\n")
 
 
-def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="unknown") -> dict:
+def run(
+    archive: Path,
+    params: Path | None,
+    run_id: str,
+    *,
+    sporttery_status="unknown",
+    sporttery_publish_status=None,
+    feed_commit=None,
+) -> dict:
     archive, params = Path(archive).resolve(), parameters_path(params)
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", run_id):
         raise ValueError("无效 run ID")
@@ -189,7 +200,20 @@ def run(archive: Path, params: Path | None, run_id: str, *, sporttery_status="un
             "database_sha256": database_sha,
             "params_sha256": params_sha,
             "feed_manifest_sha256": digest(archive / "feed_manifest.json"),
-            "sporttery_stale": sporttery_status != "success"
+            "sporttery_publish_status": sporttery_publish_status,
+            "feed_snapshot": {
+                "commit": feed_commit,
+                "run_id": feed.get("run"),
+                "created_utc": feed.get("created_utc"),
+                "schedule_updated_utc": feed.get("collection", {})
+                .get("jc", {})
+                .get("schedule_updated_utc"),
+                "results_updated_utc": feed.get("collection", {})
+                .get("jc", {})
+                .get("results_updated_utc"),
+            },
+            "sporttery_stale": sporttery_publish_status == "failure"
+            or sporttery_status != "success"
             or feed["through_beijing"] != day.isoformat()
             or feed.get("collection", {}).get("jc", {}).get("schedule_status", "complete")
             != "complete",
@@ -311,9 +335,20 @@ def main():
     parser.add_argument("--params", type=Path, help="默认遵循 ZUCAI_PARAMS / T16 定位规则")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--sporttery-status", default="unknown")
+    parser.add_argument(
+        "--sporttery-publish-status", default=os.environ.get("SPORTTERY_PUBLISH_STATUS") or None
+    )
+    parser.add_argument("--feed-commit")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    run(args.archive, args.params, args.run_id, sporttery_status=args.sporttery_status)
+    run(
+        args.archive,
+        args.params,
+        args.run_id,
+        sporttery_status=args.sporttery_status,
+        sporttery_publish_status=args.sporttery_publish_status,
+        feed_commit=args.feed_commit,
+    )
 
 
 if __name__ == "__main__":

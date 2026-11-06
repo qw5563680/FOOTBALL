@@ -197,7 +197,24 @@ daily 沿用相同顺序与失败处理：apis 失败则不预测，预测失败
 daily 各 job 的 Actions 摘要首行是「手动整条链（gate=true/false）」。feed 清单保留原字符串 `run`，
 另记 `event_name` / `operation`；forecast 清单每条 `runs` 也记录这两个字段。定时为 `schedule` / null，
 补跑为 `workflow_dispatch` / `daily`，旧清单仍可恢复。同一天补跑时日报的更新次数沿用原有计数。
-写回前执行 `git pull --rebase`；冲突则失败，不强推。push 遇远端 5xx 或网络错误时最多尝试 3 次，间隔 30 秒；远端有新提交则重新 rebase，摘要保留每次失败原文，最终失败提示 artifact 位置。
+写回前先 fetch 再 rebase；发布最多尝试 3 轮，fetch / push 遇远端 5xx 或临时网络错误均间隔 30 秒重试。
+权限错误和 rebase 冲突立即失败，不强推、不重新采集；远端有新提交仍先 rebase。摘要记录失败阶段、次数和错误。
+竞彩在首次联网前另保存本次提交的增量 Git 恢复包，上传 `sporttery-recovery-<run>-<attempt>` artifact（90天）；
+原始响应仍在 `sporttery-source-<run>-<attempt>`。附件上传也可能失败，须核对上传步骤；自建 runner 的
+`work-sporttery-<run>-<attempt>/publication-recovery/` 仍保留本地副本，不含 Git 配置或凭据。
+
+恢复由审查者核对后进行：先对附件执行 `sha256sum -c SHA256SUMS`，在独立的数据分支检出中
+`git bundle verify /path/to/unpublished.bundle`，再 `git fetch /path/to/unpublished.bundle HEAD`。
+按 `recovery.txt` 的 base/head 核对提交：远端仍为 base 时可 `git merge --ff-only FETCH_HEAD`；
+远端已经前进时只重放该范围的未发布提交，冲突必须人工核查，不能整目录覆盖或强推。
+恢复后运行 `cloud_feeds verify` 校验哈希、行数和冻结记录，再按原发布流程交审查者处理；
+已应用过的提交不重复重放，不重新采集、训练或记账。恢复包不改旧预测，也不冒称当时已发布。
+
+发布失败不阻止沿用已发布快照生成预测，但日报明确写“竞彩数据发布失败”，并展示各预测批次所用的
+数据提交、归档 run/时间及竞彩赛程/赛果成功时间；归档时间不代表竞彩更新时间，未知仍写未知。
+工作流通过 `SPORTTERY_PUBLISH_STATUS` 传递发布步骤结果；本地离线重放可显式传
+`cloud_predict run --sporttery-publish-status failure --feed-commit <原数据提交>` 或
+`daily_digest --jc-publish-status failure`（其余参数照原命令）。旧冻结不补写新字段。
 fd 主联赛赛季按七月换季推导（如 2627），
 已配置 country 合并文件只导入当前自然年；`leagues.json` 可用 `current_season` 明确覆盖。
 未核验联赛不采集。API 解析、去重规则不变；分页必须完整，额外分页同样消耗配额。
