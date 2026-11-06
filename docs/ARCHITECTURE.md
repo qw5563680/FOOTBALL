@@ -1012,11 +1012,28 @@ F 账本与记分板在同一发布事务内写入，失败恢复旧字节；同
 
 T39 页面依次是头部、今日与明日未开球预测、14场、复盘、昨日评分、虚拟账户、异常。
 T45 在14场后增加纸面二串一小节与独立 F 收支；其余分节顺序不变。头部独立展示
-`collection.jc.schedule_updated_utc/results_updated_utc` 最近成功时刻；失败保留旧成功时刻，未知不以
+`collection.jc.schedule_updated_utc/results_updated_utc` 最近成功时刻，前者标“竞彩接口最近成功检查”，
+不能称为所有场次赔率更新时间；失败保留旧成功时刻，未知不以
 through_beijing/归档生成时间替代。赛程阶段失败提示「赛程更新失败」，赛果阶段失败提示「赛果更新失败」，
 赛果 `partial` 提示「赛果部分未到，还有 N 场待核对」，不将部分结果未到称为失败；兼容旧 `failed_stages`。
 实际 sporttery job 失败也传入日报；若没有同次运行的失败阶段记录，提示「竞彩同步失败，失败阶段未记录」，不猜失败阶段。
 各提示引用对应run，待核对数仅为本周冻结预测中已开球无已知赛果的场数；两阶段同时失败则分别显示。
+`digest_odds` 将接口阶段结果、`collection.jc.odds_snapshots` 新增入库报价数、逐场冻结赔率时间分开显示。
+报价数是各玩法选项的新增记录数，不是场数；成功但零新增时给出历史快照警告，不能单凭零新增判断停售
+（十分钟内原价重采也可能去重）。日报已有 `run_id=GITHUB_RUN_ID-GITHUB_RUN_ATTEMPT` 与
+`jc_sync_run_id=GITHUB_RUN_ID`，完整上下文传入 header/collection，严格比较归档 `collection.jc.run_id`
+的运行编号和正整数重试次数，不再以前缀或缺少 attempt 的旧编号认定本次。发布状态必须明确 success；
+本次阶段 complete、有效检查时间不晚于日报截点，才把计数解释为本次。不同尝试、发布 skipped/缺失/failure，
+本次新增保持未知，归档最近一次结果/接口检查时刻/新增数单列。`jc_sync_status=skipped` 优先标“本次未执行采集”，
+不误称发布失败，不把归档最近一次的零新增提醒写成本次零新增；无运行上下文的离线展示只称归档最近一次。
+旧记录缺字段、阶段失败的初始 0 保持未知；竞彩 job 失败阶段的归属也沿用相同的完整尝试号匹配。
+今明每批及复盘逐场读取 `forecast.json` 的 `market.snapshot_utc`，不取数据库当前最大报价时间，
+不借 run/归档时间补全；比该批 feed_snapshot 接口检查早的时间标历史快照。部分更新不代表其他场次更新。
+没有 market 为“未冻结赔率”，有报价但时间缺失/非法为“未知”；来源和概率不变。
+仅日报调用 `verify_forecasts/load_batch(allow_unknown_odds_time=True)` 兼容旧冻件未知时间，保留原值且仍校验
+全部文件哈希、概率与批次/模型一致性；默认读取、写入冻结报告、记分板等继续严格要求有效报价时间。
+日报重放不改变预测、原清单、纸面账本或结算，不补报价、不重新计账。
+
 每个开球日按生成 UTC、batch_id 取最新冻结批次（空批次不借旧场次补齐），
 只显示 kickoff > digest.generated_utc 的比赛，按竞彩编号展示原胜平负、完整模型版本、P2 ready/experimental 与原 top_scores
 前五，不排序或重算概率；excluded 行统一显示「未预测：原因」，不把已开赛等原因说成缺模型。数据来源链接指向对应数据分支文件。
