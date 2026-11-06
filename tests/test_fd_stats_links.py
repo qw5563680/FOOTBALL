@@ -468,3 +468,68 @@ def test_fd_identical_bytes_fresh_capture_advances_receipt_once(setup, tmp_path)
     before_audit = audit.read_bytes()
     assert ingest((database, fresh, path)) == {"inserted": 0, "rejected": 0}
     assert audit.read_bytes() == before_audit
+
+
+@pytest.mark.parametrize("pointer", [None, FD_ID])
+def test_formal_canonical_alias_can_coexist_with_independent_historical_raw_name(setup, pointer):
+    database = setup[0]
+    engine = get_engine(database)
+    with session_scope(engine) as session:
+        session.add(Team(id=4, name="Home", aliases=[]))
+        session.flush()
+        session.add(
+            Match(
+                match_id="fd:E0:20231001:home:third",
+                source="fd",
+                league="英超",
+                home_team_id=4,
+                away_team_id=3,
+                kickoff_utc="2023-10-01T19:00:00Z",
+                status="finished",
+            )
+        )
+        session.get(Match, "jc:1").counterpart_id = pointer
+    engine.dispose()
+    old_teams = sql(database, "SELECT * FROM teams ORDER BY id")
+    old_matches = sql(database, "SELECT * FROM matches ORDER BY match_id")
+    assert ingest(setup) == {"inserted": 16, "rejected": 0}
+    assert sql(database, "SELECT DISTINCT match_id,team_id FROM match_stats ORDER BY team_id") == [
+        ("jc:1", 1),
+        ("jc:1", 2),
+    ]
+    assert sql(database, "SELECT * FROM teams ORDER BY id") == old_teams
+    assert sql(database, "SELECT * FROM matches ORDER BY match_id") == old_matches
+    assert ingest(setup) == {"inserted": 0, "rejected": 0}
+
+
+def test_new_linkage_rejection_retains_distinct_reason_without_rewriting_old_audit(setup):
+    from zucai.stats_storage import load_raw, read_audit, write_audit
+
+    database, raw, path = setup
+    _, meta = load_raw(raw, endpoint="csv", parameters={"div": "E0", "season": "2425"})
+    audit = database.parent / "state/audit/stats_ingest_audit.csv"
+    write_audit(
+        audit,
+        [
+            dict(
+                provider_fixture_id=FD_ID,
+                endpoint="csv",
+                league="英超",
+                season="2425",
+                outcome="rejected",
+                reason="候选不全",
+                detail="旧历史回填未找到 fd 行",
+                **meta,
+            )
+        ],
+    )
+    first = read_audit(audit)[0]
+    path.write_text("{}")
+    assert ingest(setup) == {"inserted": 0, "rejected": 1}
+    receipts = read_audit(audit)
+    assert len(receipts) == 2
+    assert receipts[0] == first
+    assert receipts[1]["detail"] != first["detail"]
+    before = audit.read_bytes()
+    assert ingest(setup) == {"inserted": 0, "rejected": 1}
+    assert audit.read_bytes() == before

@@ -537,7 +537,14 @@ def ingest_fd(
             receipt = dict(base, provider_fixture_id=match_id)
             if position in failures:
                 receipts.append(
-                    dict(receipt, outcome="rejected", reason="候选不全", detail=failures[position])
+                    dict(
+                        receipt,
+                        outcome="rejected",
+                        reason="候选不全",
+                        record_key="fd-link-rejection:"
+                        + hashlib.sha256(failures[position].encode()).hexdigest()[:16],
+                        detail=failures[position],
+                    )
                 )
                 rejected += 1
                 continue

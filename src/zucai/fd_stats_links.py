@@ -103,7 +103,7 @@ def _formal(entry):
     return normalize_team(name)
 
 
-def _canonical_fd_team(teams, entry, raw):
+def _canonical_fd_team(teams, entry):
     name = _formal(entry)
     candidates = [
         t
@@ -113,23 +113,16 @@ def _canonical_fd_team(teams, entry, raw):
     ]
     if len(candidates) != 1 or candidates[0]["name"].startswith(("fd:", "fdorg:", "apif:")):
         raise ValueError("FD 正式别名未唯一映射到既有规范球队")
-    team = candidates[0]
-    raw_owners = [
-        t["id"]
-        for t in teams
-        if normalize_team(t["name"]).casefold() == normalize_team(raw).casefold()
-        or normalize_team(raw).casefold() in {normalize_team(a).casefold() for a in t["aliases"]}
-    ]
-    if any(owner != team["id"] for owner in raw_owners):
-        raise ValueError("FD 原队名已有冲突球队绑定")
-    return team["id"]
+    # A separate historical English name is not a provider fixture ID binding.
+    # The league-scoped formal canonical name supplies the identity evidence.
+    return candidates[0]["id"]
 
 
 def canonical_fd_sides(teams, aliases, league, home_raw, away_raw):
     """Resolve only formal names to existing identities, without adding global aliases."""
     if not isinstance(aliases, dict) or not isinstance(aliases.get(league), dict):
         raise ValueError("FD 联赛正式别名缺失")
-    ids = [_canonical_fd_team(teams, aliases[league].get(raw), raw) for raw in (home_raw, away_raw)]
+    ids = [_canonical_fd_team(teams, aliases[league].get(raw)) for raw in (home_raw, away_raw)]
     if ids[0] == ids[1]:
         raise ValueError("FD 主客身份相同")
     return tuple(ids)
@@ -314,7 +307,7 @@ def _validate_legacy_aliases(session, match, game, league, aliases, context):
             continue
         if teams is None:
             teams = context[0] if context is not None else _session_context(session)[0]
-        team_id = _canonical_fd_team(teams, entry, raw)
+        team_id = _canonical_fd_team(teams, entry)
         if team_id != getattr(match, side + "_team_id"):
             raise ValueError("FD 既有比赛主客身份与正式别名矛盾")
 
