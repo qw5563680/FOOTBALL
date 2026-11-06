@@ -209,7 +209,7 @@ def review_sections(
             "核对范围仅限已归档营业日：" + "、".join(map(_text, days)) + "；其他营业日无法判定。"
         )
     if gaps is None:
-        lines.append("无法判定是否漏号（无当期完整清单）。旧归档不凭编号连续性猜缺号或原因。")
+        lines.append("截点前没有可用清单，无法核对是否漏预测。旧归档不凭编号连续性猜缺号或原因。")
     elif not catalog:
         lines.append("已有归档清单，本周开球范围内及近期未知时间的条目为空。")
     elif not gaps:

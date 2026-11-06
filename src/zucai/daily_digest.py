@@ -298,7 +298,9 @@ def generate(
                 path = entry["path"] + "/forecast.json"
                 batches.append((day, path, load_batch(archive / path)))
     matches = archived_matches(archive, feed)
-    catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True)
+    # No rows known at the cutoff means no evidence, not a checked empty scope.
+    # Only scoped_catalog below may produce [] after usable evidence was found.
+    catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True) or None
     skipped = audit_rows(archive, feed, "jc_skipped", at, all_shards=True)
     if catalog is not None:
         from zucai.digest_context import scoped_catalog

@@ -184,7 +184,7 @@ def test_gap_wording_keeps_evidence_separate_and_never_infers_final_number():
     for catalog in (None, []):
         unknown = "\n".join(review_sections({}, {}, matches, [], None, catalog, [], now))
         if catalog is None:
-            assert "无法判定是否漏号（无当期完整清单）" in unknown
+            assert "截点前没有可用清单，无法核对是否漏预测" in unknown
             assert "确定漏了" not in unknown
         else:
             assert "已有归档清单" in unknown
