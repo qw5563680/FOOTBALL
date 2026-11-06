@@ -172,10 +172,10 @@ def _preserve(new, old):
     return new
 
 
-def observation_clocks(audit):
+def observation_clocks(audit, *, records=None):
     """Unchanged valid observations advance freshness without inventing a new value version."""
     clocks = {}
-    for receipt in read_audit(audit):
+    for receipt in read_audit(audit) if records is None else records:
         if receipt["outcome"] != "ingested":
             continue
         detail = json.loads(receipt["detail"])
@@ -317,10 +317,10 @@ def link_archive(database, raw_file, *, league_id, season, aliases_path, raw_loc
     return {k: v for k, v in result.items() if k != "audit"}
 
 
-def _record_duplicate(audit, provider_fixture_id, endpoint, metadata):
+def _record_duplicate(audit, provider_fixture_id, endpoint, metadata, *, records=None):
     previous = [
         row
-        for row in read_audit(audit)
+        for row in (read_audit(audit) if records is None else records)
         if row["provider_fixture_id"] == str(provider_fixture_id)
         and row["endpoint"] == endpoint
         and row["raw_sha256"] == metadata["raw_sha256"]
@@ -490,7 +490,8 @@ def ingest_fd(
         )
     ids = Counter(fd_match_id(game) for game in games)
     with transaction(database, "stats_ingest_audit.csv") as (session, audit):
-        clocks = observation_clocks(audit)
+        records = read_audit(audit)
+        clocks = observation_clocks(audit, records=records)
         # Plan the whole raw response before writing any proof. Competing aliases,
         # reversed pairs and shared-team games reject all peers, not only the last one.
         plans, failures, incoming = {}, {}, {}
@@ -542,7 +543,7 @@ def ingest_fd(
                 continue
             # Validate identities even on a duplicate; an old receipt is not authority.
             match = resolve_fd_match(session, game, league, meta, aliases, context=context)
-            if _record_duplicate(audit, match_id, "csv", meta):
+            if _record_duplicate(audit, match_id, "csv", meta, records=records):
                 continue
             rows = [
                 dict(

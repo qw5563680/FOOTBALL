@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import re
 from datetime import timedelta
 from types import SimpleNamespace
@@ -54,7 +55,9 @@ def _formal(entry):
         inference = entry.get("inference")
         if (
             not isinstance(inference, dict)
+            or type(inference.get("unique_fd_candidates")) is not int
             or inference.get("unique_fd_candidates") != 1
+            or type(inference.get("unique_jc_candidates")) is not int
             or inference.get("unique_jc_candidates") != 1
             or not isinstance(inference.get("witnesses"), list)
             or not inference.get("witnesses")
@@ -75,35 +78,58 @@ def _formal(entry):
                 or not row["jc_match_id"].startswith("jc:")
             ):
                 raise ValueError("FD 自动核验原件证据无效")
+        evidence_pairs = {(r["fd_row"], r["jc_match_id"]) for r in entry["evidence"]}
+        fd_rows, jc_ids = set(), set()
+        for witness in inference["witnesses"]:
+            fd_row, jc_id = witness.get("fd_row"), witness.get("jc_match_id")
+            difference = witness.get("difference_minutes")
+            if (
+                type(fd_row) is not int
+                or fd_row < 2
+                or not isinstance(jc_id, str)
+                or not re.fullmatch(r"jc:[0-9]+", jc_id)
+                or type(difference) not in (int, float)
+                or not math.isfinite(difference)
+                or not 0 <= difference <= 180
+                or type(witness.get("home_known_before")) is not bool
+                or type(witness.get("away_known_before")) is not bool
+                or (fd_row, jc_id) not in evidence_pairs
+                or fd_row in fd_rows
+                or jc_id in jc_ids
+            ):
+                raise ValueError("FD 自动核验 witness 身份、时间或双向唯一证据无效")
+            fd_rows.add(fd_row)
+            jc_ids.add(jc_id)
     return normalize_team(name)
+
+
+def _canonical_fd_team(teams, entry, raw):
+    name = _formal(entry)
+    candidates = [
+        t
+        for t in teams
+        if normalize_team(t["name"]).casefold() == name.casefold()
+        or name.casefold() in {normalize_team(a).casefold() for a in t["aliases"]}
+    ]
+    if len(candidates) != 1 or candidates[0]["name"].startswith(("fd:", "fdorg:", "apif:")):
+        raise ValueError("FD 正式别名未唯一映射到既有规范球队")
+    team = candidates[0]
+    raw_owners = [
+        t["id"]
+        for t in teams
+        if normalize_team(t["name"]).casefold() == normalize_team(raw).casefold()
+        or normalize_team(raw).casefold() in {normalize_team(a).casefold() for a in t["aliases"]}
+    ]
+    if any(owner != team["id"] for owner in raw_owners):
+        raise ValueError("FD 原队名已有冲突球队绑定")
+    return team["id"]
 
 
 def canonical_fd_sides(teams, aliases, league, home_raw, away_raw):
     """Resolve only formal names to existing identities, without adding global aliases."""
     if not isinstance(aliases, dict) or not isinstance(aliases.get(league), dict):
         raise ValueError("FD 联赛正式别名缺失")
-    ids = []
-    for raw in (home_raw, away_raw):
-        name = _formal(aliases[league].get(raw))
-        candidates = [
-            t
-            for t in teams
-            if normalize_team(t["name"]).casefold() == name.casefold()
-            or name.casefold() in {normalize_team(a).casefold() for a in t["aliases"]}
-        ]
-        if len(candidates) != 1 or candidates[0]["name"].startswith(("fd:", "fdorg:", "apif:")):
-            raise ValueError("FD 正式别名未唯一映射到既有规范球队")
-        team = candidates[0]
-        raw_owners = [
-            t["id"]
-            for t in teams
-            if normalize_team(t["name"]).casefold() == normalize_team(raw).casefold()
-            or normalize_team(raw).casefold()
-            in {normalize_team(a).casefold() for a in t["aliases"]}
-        ]
-        if any(owner != team["id"] for owner in raw_owners):
-            raise ValueError("FD 原队名已有冲突球队绑定")
-        ids.append(team["id"])
+    ids = [_canonical_fd_team(teams, aliases[league].get(raw), raw) for raw in (home_raw, away_raw)]
     if ids[0] == ids[1]:
         raise ValueError("FD 主客身份相同")
     return tuple(ids)
@@ -275,6 +301,24 @@ def validate_fd_links(db):
     return result
 
 
+def _validate_legacy_aliases(session, match, game, league, aliases, context):
+    """Legacy pointers remain usable, but cannot override existing formal conflicts."""
+    entries = aliases.get(league, {}) if isinstance(aliases, dict) else {}
+    if not isinstance(entries, dict):
+        return
+    teams = None
+    for side in ("home", "away"):
+        raw = getattr(game, side + "_raw")
+        entry = entries.get(raw)
+        if not isinstance(entry, dict) or entry.get("status") not in {"approved", "auto_verified"}:
+            continue
+        if teams is None:
+            teams = context[0] if context is not None else _session_context(session)[0]
+        team_id = _canonical_fd_team(teams, entry, raw)
+        if team_id != getattr(match, side + "_team_id"):
+            raise ValueError("FD 既有比赛主客身份与正式别名矛盾")
+
+
 def resolve_fd_match(session, game, league, metadata, aliases, *, persist=True, context=None):
     """Prefer legacy attachments, otherwise prove a new canonical JC stats link."""
     if FD_LEAGUES.get(game.div_code) != league:
@@ -288,6 +332,7 @@ def resolve_fd_match(session, game, league, metadata, aliases, *, persist=True, 
             or instant(direct.kickoff_utc) != game.kickoff_utc
         ):
             raise ValueError("FD 既有比赛身份或时间不符")
+        _validate_legacy_aliases(session, direct, game, league, aliases, context)
         return direct
     counterparts = list(session.scalars(select(Match).where(Match.counterpart_id == provider_id)))
     if counterparts:
@@ -298,6 +343,7 @@ def resolve_fd_match(session, game, league, metadata, aliases, *, persist=True, 
             or abs(instant(counterparts[0].kickoff_utc) - game.kickoff_utc) > WINDOW
         ):
             raise ValueError("FD 已知 counterpart 不唯一或联赛时间不符")
+        _validate_legacy_aliases(session, counterparts[0], game, league, aliases, context)
         return counterparts[0]
     teams, matches = context if context is not None else _session_context(session)
     pair = canonical_fd_sides(teams, aliases, league, game.home_raw, game.away_raw)

@@ -373,7 +373,15 @@ def test_auto_verified_alias_requires_structured_offline_evidence(setup, malform
         inference=dict(
             unique_fd_candidates=1,
             unique_jc_candidates=1,
-            witnesses=[dict(fd_row=2, jc_match_id="jc:1", difference_minutes=0)],
+            witnesses=[
+                dict(
+                    fd_row=2,
+                    jc_match_id="jc:1",
+                    difference_minutes=0,
+                    home_known_before=False,
+                    away_known_before=True,
+                )
+            ],
         ),
         evidence=[dict(fd_row=2, jc_match_id="jc:1", raw_sha256="a" * 64, div_code="E0")],
     )
@@ -385,3 +393,78 @@ def test_auto_verified_alias_requires_structured_offline_evidence(setup, malform
     assert ingest(setup) == (
         {"inserted": 16, "rejected": 0} if malformed is None else {"inserted": 0, "rejected": 1}
     )
+
+
+@pytest.mark.parametrize("legacy", ["counterpart", "direct"])
+@pytest.mark.parametrize("known_sides", ["both", "home_only"])
+def test_legacy_pointer_rejects_resolvable_formal_identity_conflict(setup, legacy, known_sides):
+    database, _, path = setup
+    if legacy == "counterpart":
+        mutate(database, "UPDATE matches SET counterpart_id=?,home_team_id=3", (FD_ID,))
+    else:
+        mutate(database, "UPDATE matches SET match_id=?,source='fd',home_team_id=3", (FD_ID,))
+    if known_sides == "home_only":
+        aliases = json.loads(path.read_text())
+        del aliases["英超"]["Away"]
+        path.write_text(json.dumps(aliases))
+    assert ingest(setup) == {"inserted": 0, "rejected": 1}
+    assert sql(database, "SELECT count(*) FROM match_stats") == [(0,)]
+
+
+@pytest.mark.parametrize(
+    "malformed", ["empty", "row", "target", "delta", "nan", "bool_count", "duplicate"]
+)
+def test_auto_verified_witness_requires_identity_time_and_corresponding_evidence(setup, malformed):
+    _, _, path = setup
+    aliases = json.loads(path.read_text())
+    witness = dict(
+        fd_row=2,
+        jc_match_id="jc:1",
+        difference_minutes=0,
+        home_known_before=False,
+        away_known_before=True,
+    )
+    inference = dict(unique_fd_candidates=1, unique_jc_candidates=1, witnesses=[witness])
+    aliases["英超"]["Home"] = dict(
+        canonical="主队",
+        status="auto_verified",
+        inference=inference,
+        evidence=[dict(fd_row=2, jc_match_id="jc:1", raw_sha256="a" * 64, div_code="E0")],
+    )
+    if malformed == "empty":
+        inference["witnesses"] = [{}]
+    elif malformed == "row":
+        witness["fd_row"] = 3
+    elif malformed == "target":
+        witness["jc_match_id"] = "jc:other"
+    elif malformed == "delta":
+        witness["difference_minutes"] = 181
+    elif malformed == "nan":
+        witness["difference_minutes"] = float("nan")
+    elif malformed == "bool_count":
+        inference["unique_fd_candidates"] = True
+    else:
+        inference["witnesses"].append(dict(witness))
+    path.write_text(json.dumps(aliases))
+    assert ingest(setup) == {"inserted": 0, "rejected": 1}
+
+
+def test_fd_identical_bytes_fresh_capture_advances_receipt_once(setup, tmp_path):
+    from zucai.stats_storage import read_audit
+
+    database, raw, path = setup
+    assert ingest(setup) == {"inserted": 16, "rejected": 0}
+    before = sql(database, "SELECT * FROM match_stats ORDER BY id")
+    fresh = save_raw(tmp_path, raw.read_bytes(), "2026-11-05T12:00:00Z")
+    assert ingest((database, fresh, path)) == {"inserted": 0, "rejected": 0}
+    assert sql(database, "SELECT * FROM match_stats ORDER BY id") == before
+    audit = database.parent / "state/audit/stats_ingest_audit.csv"
+    receipts = read_audit(audit)
+    assert len(receipts) == 2
+    assert {instant(r["captured_utc"]) for r in receipts} == {
+        instant(CAPTURE),
+        instant("2026-11-05T12:00:00Z"),
+    }
+    before_audit = audit.read_bytes()
+    assert ingest((database, fresh, path)) == {"inserted": 0, "rejected": 0}
+    assert audit.read_bytes() == before_audit
