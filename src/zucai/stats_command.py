@@ -17,6 +17,13 @@ def add_stats_parser(sub):
     restore.add_argument("--archive", type=Path, help="feeds 归档目录；默认读取数据库旁持久清单")
     restore.add_argument("--release", help="仅恢复指定 stats-raw-YYYYMM 月份；默认恢复全部")
     restore.add_argument("--repository", help="GitHub owner/repo；默认 GITHUB_REPOSITORY")
+    replay = commands.add_parser("replay-fd", help="按哈希清单离线重放已有 fd CSV，不请求网络")
+    replay.add_argument("--db", type=Path, required=True)
+    replay.add_argument(
+        "--plan", type=Path, required=True, help="原件/sidecar哈希和真实捕获时间清单"
+    )
+    replay.add_argument("--leagues-file", type=Path)
+    replay.add_argument("--aliases-file", type=Path)
     for command in ("migrate", "ingest-fd", "link", "ingest-apif", "ingest-injuries"):
         item = commands.add_parser(command)
         item.add_argument(
@@ -40,6 +47,7 @@ def add_stats_parser(sub):
                 item.add_argument("--div", required=True)
                 item.add_argument("--season", required=True)
                 item.add_argument("--leagues-file", type=Path)
+                item.add_argument("--aliases-file", type=Path)
             elif command == "ingest-injuries":
                 item.add_argument("--league", type=int, required=True)
                 item.add_argument("--season", type=int, required=True)
@@ -85,7 +93,13 @@ def run_stats(args):
     from zucai.stats_schema import migrate_stats
     from zucai.stats_storage import ingest_apif, ingest_fd, link_archive
 
-    if args.stats_command == "restore-rows":
+    if args.stats_command == "replay-fd":
+        from zucai.fd_stats_replay import replay_fd
+
+        result = replay_fd(
+            args.db, args.plan, leagues_path=args.leagues_file, aliases_path=args.aliases_file
+        )
+    elif args.stats_command == "restore-rows":
         from zucai.stats_release import ReleaseStore
         from zucai.stats_rows import restore_rows
 
@@ -119,6 +133,7 @@ def run_stats(args):
             div=args.div,
             season=args.season,
             leagues_path=args.leagues_file,
+            aliases_path=args.aliases_file,
             raw_location=args.raw_location,
         )
     elif args.stats_command == "link":

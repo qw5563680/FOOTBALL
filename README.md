@@ -22,7 +22,8 @@
 SHA256、带时区的 fetched_at_utc）。原件缺失、请求范围不一致或哈希不符即停止。
 不会新建球队或比赛，也不会训练、生成特征或改写冻结预测。
 
-- `stats ingest-fd`：九个主联赛季文件，每次一份 CSV，只写已有 fd 比赛的射门、角球、犯规等；不解析国别文件或赔率。
+- `stats ingest-fd`：九个主联赛季文件，每次一份 CSV，保存到已有 fd 比赛或经精确核验的竞彩比赛；不新建身份、不解析国别文件或赔率。T48 的额外统计关联保留原有 fdorg counterpart。
+- `stats replay-fd`：按显式清单定向重放已归档 CSV；先校验全部原件、sidecar 哈希和真实捕获时间，再逐文件事务处理。绕过历史调度的 ok 游标，不请求网络，也不修改游标。
 - `stats link`：以正式球队 ID 别名和同联赛季、主客、开球 ±3 小时的一对一证据建立索引；冲突写 `state/audit/stats_link_audit.csv`。
 - `stats ingest-apif`：按 `--endpoint statistics|events|lineups|players` 分别回放；先用已归档 fixtures 页建立索引，导入时仍用该页核对所属比赛及 FT/AET 状态。
 - `stats ingest-injuries`：离线回放伤停季页；默认全部标历史回填。只有原本的日常原件才加 `--daily`，且只有抓取早于开球的条目可记赛前捕获。未关联的记录保留空身份并写审计，不创建球队。
@@ -33,12 +34,14 @@ SHA256、带时区的 fetched_at_utc）。原件缺失、请求范围不一致�
 欧冠是 index_only，不导入赛程或赛果，不加入普通比赛采集/backfill；本地用 `--raw-file` 离线回放。
 T31 独立回放命令不自动请求；T32 的手动作业与晚班技术增量见下方云端采集，真实验收由审查者安排。
 
-新表为 match_stats / match_events / match_lineups / match_injuries / apif_fixture_index。默认 feeds 仅保存
+附属表为 match_stats / match_events / match_lineups / match_injuries / apif_fixture_index，以及 T48 的 fd_stats_links。默认 feeds 仅保存
 `state/apif_fixture_index.jsonl`、覆盖率、游标、审计与分片清单；四个行表不整表提交数据分支。
 manifest v2 的 `technical_data.version=3` 增加伤停分片行数和 SHA256；
 旧版技术归档 v1/v2 仍可恢复，旧清单不凭空增加伤停行。`restore_feeds` 默认只还原索引和审计，
 日常预测不下载技术行表；T33 需要行表时使用 `stats restore-rows`（见快速开始）。
 重复原件不重复写入，空值不覆盖有效值，更正保留旧版本，审计随数据分支归档。
+额外 fd 统计关联使用可选的哈希列入清单文件 `state/fd_stats_links.jsonl`，先于技术行恢复；
+旧归档没有该文件仍可恢复，T31/T32/T38 行分片格式不变。
 历史技术行 available_utc 留空、标 backfilled；伤停按下节的真实抓取时间区分。FT 与含加时分开，半场统计不可得，不补造数据。
 
 ## T33 技术特征实验（第一轮）
@@ -95,10 +98,11 @@ zucai fetch results --source c500 --from 2026-11-02 --to 2026-11-02  # 仅根页
 zucai fetch sfc --issue 26156 --matches-out inputs/26156.csv
 zucai fetch fd --div E0 --season 2526 --season 2627 --assume-known-after 3h
 zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-after 3h
-zucai stats migrate --db data/zucai.db  # 仅创建五张技术数据附属表
+zucai stats migrate --db data/zucai.db  # 创建技术数据附属表与独立 fd 统计关联索引
 zucai stats restore-rows --db data/zucai.db --archive ../cloud-data --release stats-raw-202611  # 从清单恢复该月行表；省略 --release 恢复全部
 python -m zucai.predict.experiments.command --db data/zucai.db --out work/t33-run --source-commit <数据分支SHA>  # T33：恢复行表后离线实验，只读库，不接入每日预测
 zucai stats ingest-fd --db data/zucai.db --div E0 --season 2425 --raw-file work/E0.csv
+zucai stats replay-fd --db work/isolated/feeds.db --plan work/fd-replay.json  # 仅重放已保存原件，不采集
 zucai stats ingest-injuries --db data/zucai.db --league 39 --season 2024 --raw-file work/injuries.json  # 离线历史季页，须有 sidecar
 python -m zucai.predict.experiments.injury_command --db data/zucai.db --out work/t38-run --source-commit <数据分支SHA>  # 只读实验；全量归档走 Release
 zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
