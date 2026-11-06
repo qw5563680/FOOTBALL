@@ -269,6 +269,8 @@ def export_feeds(
         "columns": {name: list(cols) for name, cols in TABLES.items()},
         "through_beijing": through.isoformat(),
         "run": run_id,
+        "event_name": os.environ.get("GITHUB_EVENT_NAME") or "local",
+        "operation": os.environ.get("ZUCAI_OPERATION") or None,
         "created_utc": datetime.now(UTC).isoformat(),
         "counts": totals,
         "technical_data": technical_data,
