@@ -12,22 +12,48 @@ def _timestamp(value):
         return None
 
 
-def collection_lines(feed, now, *, jc_sync_run_id=None, jc_publish_status=None):
-    jc = feed.get("collection", {}).get("jc", {})
-    run = jc.get("run_id")
-    same_run = (
-        jc_sync_run_id is None
-        or str(run) == str(jc_sync_run_id)
-        or str(run).startswith(f"{jc_sync_run_id}-")
+def same_collection_attempt(archived_run, run_id, jc_sync_run_id):
+    """Actions passes a bare workflow ID and a separate ID-attempt digest run."""
+    if not isinstance(run_id, str) or jc_sync_run_id is None:
+        return False
+    workflow, _, attempt = run_id.rpartition("-")
+    return (
+        workflow == str(jc_sync_run_id)
+        and attempt.isascii()
+        and attempt.isdecimal()
+        and int(attempt) > 0
+        and archived_run == run_id
     )
+
+
+def collection_lines(
+    feed, now, *, run_id=None, jc_sync_status=None, jc_sync_run_id=None, jc_publish_status=None
+):
+    jc = feed.get("collection", {}).get("jc", {})
+    if jc_sync_status == "skipped":
+        lines = ["本次未执行采集；以下单列归档最近一次采集，不算作本次新增。"]
+    elif all(value is None for value in (jc_sync_status, jc_sync_run_id, jc_publish_status)):
+        lines = []  # Local read-only rendering has no evidence of a current collection.
+    elif (
+        same_collection_attempt(jc.get("run_id"), run_id, jc_sync_run_id)
+        and jc_publish_status == "success"
+    ):
+        return _record_lines(jc, now, label="本次")
+    else:
+        lines = [
+            f"本次竞彩接口采集：结果未知（run {_text(run_id)}）；本次结果未确认发布，"
+            "归档记录不能代替本次结果。",
+            "本次新增入库有效赔率：未知；运行编号、重试次数及发布成功记录须同时核实。",
+        ]
+    return lines + _record_lines(jc, now, label="归档最近一次")
+
+
+def _record_lines(jc, now, *, label):
     stamp = _timestamp(jc.get("schedule_updated_utc"))
     status = jc.get("schedule_status")
     complete = status == "complete" and "schedule" not in (jc.get("failed_stages") or [])
-    usable = same_run and jc_publish_status != "failure" and stamp is not None and stamp <= now
-    label = "本次" if jc_sync_run_id else "归档最近一次"
-    if not same_run or jc_publish_status == "failure":
-        collection = "本次结果未确认发布，归档记录不能代替本次结果"
-    elif not usable:
+    usable = stamp is not None and stamp <= now
+    if not usable:
         collection = "未知（缺少有效阶段或捕获时间记录）"
     elif complete:
         collection = "成功（仅指赛程/赔率接口检查完成，不代表赔率有更新）"
@@ -35,7 +61,10 @@ def collection_lines(feed, now, *, jc_sync_run_id=None, jc_publish_status=None):
         collection = "失败（保留上次成功检查时间）"
     else:
         collection = "未知（未记录完整成功的接口采集）"
-    lines = [f"{label}竞彩接口采集：{collection}；归档记录 run {_text(run)}。"]
+    lines = [f"{label}竞彩接口采集：{collection}；归档记录 run {_text(jc.get('run_id'))}。"]
+    if label == "归档最近一次":
+        checked = stamp.astimezone(BEIJING).strftime("%Y-%m-%d %H:%M:%S") if usable else "未知"
+        lines.append(f"归档最近一次接口成功检查：{checked}（北京时间）。")
     count = jc.get("odds_snapshots")
     if not (usable and complete and type(count) is int and count >= 0):
         lines.append(f"{label}新增入库有效赔率：未知；缺少可核实的新报价记录，不推断为零更新。")
@@ -45,7 +74,12 @@ def collection_lines(feed, now, *, jc_sync_run_id=None, jc_publish_status=None):
         "成功检查或有新增记录均不代表所有比赛均已更新。"
     )
     if count == 0:
-        lines.append(HISTORICAL_WARNING)
+        warning = (
+            HISTORICAL_WARNING
+            if label == "本次"
+            else HISTORICAL_WARNING.replace("本次", "归档最近一次采集", 1)
+        )
+        lines.append(warning)
         lines.append(
             "零新增也可能包含重复报价被去重，不能仅凭此数判断停售；销售状态以原件及跳过审计为准。"
         )

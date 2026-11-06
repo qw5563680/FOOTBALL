@@ -11,7 +11,7 @@ from zucai.digest_context import (
     week_start,
 )
 from zucai.digest_display import BEIJING, _instant, _link, _match, _number, _probabilities, _text
-from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time
+from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time, same_collection_attempt
 
 SKIP_REASONS = {
     "match_status_not_selling": "比赛状态非 Selling",
@@ -315,7 +315,15 @@ def review_sections(
 
 
 def header_lines(
-    feed, latest, matches, now, *, jc_sync_status=None, jc_sync_run_id=None, jc_publish_status=None
+    feed,
+    latest,
+    matches,
+    now,
+    *,
+    run_id=None,
+    jc_sync_status=None,
+    jc_sync_run_id=None,
+    jc_publish_status=None,
 ):
     jc = feed.get("collection", {}).get("jc", {})
     lines = [
@@ -324,7 +332,12 @@ def header_lines(
     ]
     lines.extend(
         collection_lines(
-            feed, now, jc_sync_run_id=jc_sync_run_id, jc_publish_status=jc_publish_status
+            feed,
+            now,
+            run_id=run_id,
+            jc_sync_status=jc_sync_status,
+            jc_sync_run_id=jc_sync_run_id,
+            jc_publish_status=jc_publish_status,
         )
     )
     failed_stages = jc.get("failed_stages") or []
@@ -357,9 +370,7 @@ def header_lines(
             "本版使用远端已发布归档，不能视为本次最新数据。各批预测的数据版本与时间见下方。"
         )
     elif jc_sync_status in {"failure", "cancelled"}:
-        same_run = jc_sync_run_id is not None and (
-            run == jc_sync_run_id or str(run).startswith(f"{jc_sync_run_id}-")
-        )
+        same_run = same_collection_attempt(run, run_id, jc_sync_run_id)
         if not same_run or not (schedule_failed or results_failed):
             lines.append(
                 f"竞彩同步失败（run {_text(jc_sync_run_id)}），还有 {pending} 场已开球未核对；"

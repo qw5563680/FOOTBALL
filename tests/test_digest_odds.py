@@ -78,7 +78,11 @@ def test_complete_digest_distinguishes_collection_and_each_frozen_quote(
     install_case(digest_archive, case)
     before = snapshot(digest_archive)
     kwargs = dict(
-        now=NOW, run_id="offline-odds", jc_sync_run_id="collection", jc_sync_status="success"
+        now=NOW,
+        run_id="collection-1",
+        jc_sync_run_id="collection",
+        jc_sync_status="success",
+        jc_publish_status="success",
     )
     text = generate(digest_archive, tmp_path / "daily", **kwargs).read_text()
     assert generate(digest_archive, tmp_path / "daily", **kwargs).read_text() == text
@@ -160,4 +164,75 @@ def test_publication_failure_does_not_present_previous_positive_count_as_new(
     ).read_text()
     assert "竞彩数据发布失败" in text
     assert "本次新增入库有效赔率：未知" in text
-    assert "新增入库有效赔率：6 条" not in text
+    assert "本次新增入库有效赔率：6 条" not in text
+    assert "归档最近一次新增入库有效赔率：6 条" in text
+
+
+RUN_CONTEXTS = json.loads((FIX / "run_contexts.json").read_bytes())
+
+
+@pytest.mark.parametrize("name", list(RUN_CONTEXTS))
+def test_full_digest_with_checked_in_workflow_arguments(
+    digest_archive, tmp_path, monkeypatch, name
+):
+    import shlex
+    from string import Template
+
+    from test_stats_workflow import jobs, step
+    from zucai import daily_digest
+
+    context = RUN_CONTEXTS[name]
+    install_case(digest_archive, context["case"])
+    path = digest_archive / "feed_manifest.json"
+    feed = json.loads(path.read_bytes())
+    feed["collection"]["jc"]["run_id"] = context["archived_run"]
+    path.write_text(json.dumps(feed))
+    before = snapshot(digest_archive)
+    # Execute the real CLI argument wiring from the checked-in workflow, offline.
+    render = step("Render daily digest from frozen archives", jobs()["digest"])
+    assert "SPORTTERY_STATUS: ${{ needs.sporttery.result }}" in render
+    assert "SPORTTERY_PUBLISH_STATUS: ${{ needs.sporttery.outputs.publish_status }}" in render
+    command = render.split("        run: ", 1)[1].splitlines()[0]
+    command = Template(command).substitute(
+        GITHUB_RUN_ID=context["run"],
+        GITHUB_RUN_ATTEMPT=context["attempt"],
+        SPORTTERY_STATUS=context["sync_status"],
+    )
+    argv = shlex.split(command)[3:]
+    argv[argv.index("--archive") + 1] = str(digest_archive)
+    out = tmp_path / "daily"
+    argv[argv.index("--out") + 1] = str(out)
+    monkeypatch.setenv("SPORTTERY_PUBLISH_STATUS", context["publish_status"])
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    captured = {}
+
+    def at_fixture_cutoff(*args, **kwargs):
+        captured.update(kwargs)
+        return generate(*args, **kwargs, now=NOW)
+
+    monkeypatch.setattr(daily_digest, "generate", at_fixture_cutoff)
+    assert daily_digest.main(argv) == 0
+    assert captured["run_id"] == f"{context['run']}-{context['attempt']}"
+    assert captured["jc_sync_run_id"] == context["run"]
+    text = (out / "latest.md").read_text()
+    header = text.split("## 今日与明日预测", 1)[0]
+    if context["mode"] == "skipped":
+        assert "本次未执行采集" in header
+        assert "本次结果未确认发布" not in header
+        assert "本次新增入库有效赔率：" not in header
+    elif context["mode"] == "unknown":
+        assert "本次新增入库有效赔率：未知" in header
+        assert "本次新增入库有效赔率：6 条" not in header
+        assert "本次结果未确认发布" in header
+    else:
+        assert "本次新增入库有效赔率：6 条" in header
+        assert "归档最近一次新增入库有效赔率：" not in header
+    if context["mode"] != "current":
+        assert "归档最近一次竞彩接口采集：成功" in header
+        assert f"归档记录 run {context['archived_run']}" in header
+        assert "归档最近一次接口成功检查：2026-11-03 17:30:00（北京时间）" in header
+        assert f"归档最近一次新增入库有效赔率：{CASES[context['case']]['count']} 条" in header
+        assert WARNING not in header  # Historical zero must not be attributed to this attempt.
+    assert daily_digest.main(argv) == 0
+    assert (out / "latest.md").read_text() == text
+    assert snapshot(digest_archive) == before

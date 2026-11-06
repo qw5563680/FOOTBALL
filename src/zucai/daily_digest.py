@@ -368,6 +368,7 @@ def generate(
             latest,
             matches,
             at,
+            run_id=run_id,
             jc_sync_status=jc_sync_status,
             jc_sync_run_id=jc_sync_run_id,
             jc_publish_status=jc_publish_status,

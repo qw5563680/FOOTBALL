@@ -135,6 +135,7 @@ def test_header_stage_wording_and_separate_success_watermarks(case):
             rows,
             matches,
             _instant(SAMPLE["later_utc"]),
+            run_id=case.get("digest_run_id"),
             jc_sync_status=case.get("job_status", "success"),
             jc_sync_run_id=case.get("job_run_id", "failed-1"),
         )
