@@ -2,7 +2,7 @@
 
 import csv
 import json
-from datetime import UTC, timedelta
+from datetime import UTC, date, timedelta
 from decimal import Decimal
 
 from zucai.forecast_archive import _path
@@ -72,7 +72,32 @@ def frozen_rows(batches, matches, now):
     return latest, observations
 
 
-def catalog_gaps(catalog, skipped, predicted_ids, observations):
+def prediction_window(batches, now):
+    """Plan is today's + tomorrow's Beijing dates, independently of batch success."""
+    today = instant(now).astimezone(BEIJING).date()
+    planned = [today.isoformat(), (today + timedelta(days=1)).isoformat()]
+    successful = set()
+    for _, _, batch in batches:
+        if batch.get("mode") != "prematch" or instant(batch["generated_utc"]) > instant(now):
+            continue
+        declared = batch.get("input", {}).get("kickoff_date_beijing")
+        if declared in planned:
+            successful.add(declared)
+    return dict(
+        planned_dates=planned,
+        successful_dates=sorted(successful),
+        missing_batch_dates=sorted(set(planned) - successful),
+    )
+
+
+def kickoff_day(row):
+    try:
+        return instant(row.get("kickoff_utc")).astimezone(BEIJING).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, known_ids=()):
     """Only a preserved catalog proves absence, never a hole in a numeric sequence."""
     if catalog is None:
         return None
@@ -88,8 +113,37 @@ def catalog_gaps(catalog, skipped, predicted_ids, observations):
             continue
         skipped_row = explanations.get((*key, row["match_id"]))
         observed = observations.get(row["match_id"])
-        reason = skipped_row["reason"] if skipped_row else "no_prematch" if observed else "unknown"
-        gaps.append({**row, "confirmed": True, "reason": reason, "skip_evidence": skipped_row})
+        reason = (
+            skipped_row["reason"]
+            if skipped_row
+            else "no_prematch"
+            if observed or row["match_id"] in known_ids
+            else "unknown"
+        )
+        day = kickoff_day(row)
+        category = "unexplained" if reason == "unknown" else "missing"
+        expected = None
+        missing_batch = False
+        if window is not None:
+            if day is None:
+                category = "unknown_window"
+            elif day > date.fromisoformat(max(window["planned_dates"])):
+                category = "outside_window"
+                expected = (day - timedelta(days=1)).isoformat()
+            else:
+                missing_batch = day.isoformat() in window["missing_batch_dates"]
+        gaps.append(
+            {
+                **row,
+                "confirmed": category in {"missing", "unexplained"},
+                "reason": reason,
+                "skip_evidence": skipped_row,
+                "category": category,
+                "kickoff_date_beijing": day.isoformat() if day else None,
+                "expected_window_date": expected,
+                "batch_missing": missing_batch,
+            }
+        )
     return gaps
 
 

@@ -315,6 +315,9 @@ def generate(
             if row["match_id"] in matches:
                 matches[row["match_id"]].setdefault("business_date", row["business_date"])
     latest, observations = frozen_rows(batches, matches, at)
+    from zucai.digest_context import prediction_window
+
+    window = prediction_window(batches, at)
     inputs = {
         **source_hashes(archive),
         "jc_sync_status": jc_sync_status,
@@ -383,6 +386,7 @@ def generate(
             skipped,
             at,
             displayed_ids=displayed_ids,
+            window=window,
         ),
         *_settlement_sections(scored, summary, batches, today - timedelta(days=1), repository),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
