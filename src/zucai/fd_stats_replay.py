@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from zucai.sources.apif_stats import instant
+from zucai.sources.football_data import LEAGUES_PATH, FootballDataCoUk, read_json
 from zucai.stats_storage import ingest_fd, load_raw
 
 
@@ -28,6 +29,7 @@ def replay_fd(database, plan, *, leagues_path=None, aliases_path=None):
     if not isinstance(files, list) or not files:
         raise ValueError("重放清单需要非空 files 列表")
     prepared, seen = [], set()
+    leagues = read_json(leagues_path or LEAGUES_PATH)
     for item in files:
         fields = (
             "path",
@@ -50,7 +52,7 @@ def replay_fd(database, plan, *, leagues_path=None, aliases_path=None):
         sidecar = path.with_suffix(path.suffix + ".meta.json")
         if _sha(path) != item["sha256"] or _sha(sidecar) != item["sidecar_sha256"]:
             raise ValueError("重放清单的原件或 sidecar SHA256 不符")
-        _, metadata = load_raw(
+        raw, metadata = load_raw(
             path,
             endpoint="csv",
             parameters={"div": item["div"], "season": item["season"]},
@@ -58,6 +60,11 @@ def replay_fd(database, plan, *, leagues_path=None, aliases_path=None):
         )
         if instant(metadata["captured_utc"]) != instant(item["captured_utc"]):
             raise ValueError("重放清单与原始 sidecar 的采集时间不符")
+        # Whole-file format/scope errors must surface before any earlier file commits.
+        # Normal per-row rejects still belong to ingest_fd's audited transaction.
+        FootballDataCoUk(
+            leagues=leagues, div_code=item["div"], season=item["season"]
+        ).parse_statistics(raw)
         key = (item["div"], item["season"], item["sha256"])
         if key in seen:
             raise ValueError("重放清单包含重复原件")

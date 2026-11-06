@@ -112,3 +112,35 @@ def test_replay_rejects_bad_later_entry_before_writing_earlier_file(tmp_path, da
     assert run_replay(database, plan).returncode != 0
     assert database.read_bytes() == before
     assert not (database.parent / "state/audit/stats_ingest_audit.csv").exists()
+
+
+@pytest.mark.parametrize("invalid_kind", ["header", "division"])
+def test_replay_parses_later_original_before_writing_earlier_file(tmp_path, invalid_kind):
+    database, plan, item = setup_replay(tmp_path)
+    invalid = RawStore(tmp_path / "invalid").save(
+        "football-data-co-uk",
+        "E0-2425",
+        b"Div,Date\nE0,01/10/2024\n"
+        if invalid_kind == "header"
+        else (FIX / "fd.csv").read_bytes().replace(b"E0,", b"D2,"),
+        "csv",
+        captured_at=instant(item["captured_utc"]),
+        url=f"https://www.football-data.co.uk/mmz4281/2425/{'E0' if invalid_kind == 'header' else 'D2'}.csv",
+        status_code=200,
+    )
+    bad = dict(
+        item,
+        path=str(invalid),
+        div="E0" if invalid_kind == "header" else "D2",
+        sha256=hashlib.sha256(invalid.read_bytes()).hexdigest(),
+        sidecar_sha256=hashlib.sha256(
+            invalid.with_suffix(".csv.meta.json").read_bytes()
+        ).hexdigest(),
+    )
+    plan.write_text(json.dumps({"files": [item, bad]}))
+    before = database.read_bytes()
+    result = run_replay(database, plan)
+    assert result.returncode != 0
+    assert database.read_bytes() == before, (
+        "A malformed later CSV must be rejected before the first file writes"
+    )

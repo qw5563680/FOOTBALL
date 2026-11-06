@@ -28,6 +28,7 @@ def test_cli_initializes_all_tables_without_losing_existing_rows(tmp_path, monke
             "match_lineups",
             "match_injuries",
             "apif_fixture_index",
+            "fd_stats_links",
             "closing_odds",
             "teams",
             "matches",
