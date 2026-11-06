@@ -40,7 +40,11 @@ CATALOG_FIELDS = (
     "retained",
     "captured_utc",
     "kickoff_utc",
+    "poolList",
+    "lastUpdateTime",
+    "sale_end_fields",
 )
+PARLAY_CATALOG_FIELDS = ("poolList", "lastUpdateTime", "sale_end_fields")
 LEGACY_AUDIT_MONTH = "2026-11"
 
 
@@ -48,6 +52,24 @@ def utc_stamp(instant: datetime) -> str:
     if instant.utcoffset() is None:
         raise ValueError("竞彩采集时刻必须包含时区")
     return instant.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def sale_end_fields(row):
+    """Preserve supplied sale-deadline-like fields verbatim, without interpreting clocks."""
+    found = {}
+    scopes = [("", row)] + [
+        (f"poolList[{i}].", pool)
+        for i, pool in enumerate(row.get("poolList") or [])
+        if isinstance(pool, dict)
+    ]
+    for prefix, values in scopes:
+        for key, value in values.items():
+            lower = key.lower()
+            if any(s in lower for s in ("sell", "sale", "bet")) and any(
+                s in lower for s in ("end", "stop", "close", "deadline")
+            ):
+                found[prefix + key] = value
+    return json.dumps(found, ensure_ascii=False, sort_keys=True) if found else ""
 
 
 def official_value(raw: bytes) -> dict:
@@ -210,6 +232,9 @@ class SportteryCalculator(Source[JcMatch]):
                     retained=str(int(bool(quotes))),
                     captured_utc=captured_utc,
                     kickoff_utc=kickoff,
+                    poolList=json.dumps(pools, ensure_ascii=False) if pools is not None else "",
+                    lastUpdateTime=str(row.get("lastUpdateTime", "")),
+                    sale_end_fields=sale_end_fields(row),
                 )
                 self.catalog.append(catalog)
                 if not quotes:
@@ -235,7 +260,8 @@ def _existing_audit(path: Path, fields) -> list[dict[str, str]]:
     if path.exists():
         with path.open(encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream, strict=True)
-            if reader.fieldnames != list(fields):
+            legacy_fields = [field for field in fields if field not in PARLAY_CATALOG_FIELDS]
+            if reader.fieldnames not in (list(fields), legacy_fields):
                 raise ValueError(f"竞彩审计字段无效：{path.name}")
             existing = list(reader)
         if any(None in row or any(value is None for value in row.values()) for row in existing):
@@ -247,16 +273,24 @@ def _audit_content(path: Path, rows: list[dict[str, str]], fields, keys, *, lega
     existing = _existing_audit(path, fields)
     historical = _existing_audit(legacy, fields) if legacy is not None else []
     seen = {}
+    historical_keys = {tuple(row[field] for field in keys) for row in historical}
     for row in [*historical, *existing]:
         key = tuple(row[field] for field in keys)
-        if key in seen and seen[key] != row:
+        if key in seen and any(seen[key][k] != row[k] for k in seen[key].keys() & row.keys()):
             raise ValueError(f"竞彩同一编号与采集时刻的审计冲突：{path.name}")
         seen[key] = row
     for row in rows:
         key = tuple(row[field] for field in keys)
         if key in seen:
-            if seen[key] != row:
+            # Expanded old rows have blank new fields: absence is not contrary evidence.
+            if any(
+                value != row.get(k)
+                for k, value in seen[key].items()
+                if k not in PARLAY_CATALOG_FIELDS or value != ""
+            ):
                 raise ValueError(f"竞彩同一编号与采集时刻的审计冲突：{path.name}")
+            if key not in historical_keys:
+                seen[key].update(row)
             continue
         existing.append(row)
         seen[key] = row

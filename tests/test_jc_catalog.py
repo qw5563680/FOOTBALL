@@ -25,6 +25,9 @@ FIELDS = [
     "retained",
     "captured_utc",
     "kickoff_utc",
+    "poolList",
+    "lastUpdateTime",
+    "sale_end_fields",
 ]
 
 

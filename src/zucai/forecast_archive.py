@@ -81,6 +81,17 @@ def _run_files(run_id: str, run: dict) -> set[str]:
             if forecast["experimental_path"] != f"{directory}/experimental.json":
                 raise ValueError("实验预测路径与北京日 / run ID 不符")
             files.add(forecast["experimental_path"])
+        if "parlay_path" in forecast:
+            if forecast["parlay_path"] != f"{directory}/parlay_sd.json":
+                raise ValueError("复式预测路径与北京日 / run ID 不符")
+            files.add(forecast["parlay_path"])
+            versions = forecast.get("parlay_versions", [])
+            if not versions or len(versions) != len(set(versions)):
+                raise ValueError("复式历史版本清单无效")
+            for name in versions:
+                if not re.fullmatch(re.escape(directory) + r"/parlay_sd-[0-9a-f]{64}\.json", name):
+                    raise ValueError("复式历史版本路径无效")
+                files.add(name)
     return files
 
 

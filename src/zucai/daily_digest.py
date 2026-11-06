@@ -326,6 +326,11 @@ def generate(
         archive, out, today, at, run_id, inputs, require_notified=require_notified_history
     )
     pending = pending_tickets(ledger, at)
+    from zucai.digest_parlay import section as parlay_section
+
+    parlay_lines, parlay_pending, parlay_versions = parlay_section(
+        archive, manifest, summary, at, repository, matches=matches, previous=previous
+    )
     quota_path = "state/api_football_quota.json"
     quota = (
         json.loads(_path(archive, quota_path).read_bytes()) if quota_path in feed["files"] else {}
@@ -367,6 +372,7 @@ def generate(
             batches, today, repository, now=at, matches=matches, displayed_ids=displayed_ids
         ),
         *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
+        *parlay_lines,
         *review_sections(
             latest,
             observations,
@@ -401,6 +407,8 @@ def generate(
         "update_number": update,
         "inputs": inputs,
         "pending": pending,
+        "parlay_pending": parlay_pending,
+        "parlay_versions": parlay_versions,
         "previous_version": previous["version_id"] if previous else None,
         "markdown_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
     }

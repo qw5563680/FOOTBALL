@@ -27,7 +27,15 @@ LOG = logging.getLogger(__name__)
 
 
 def freeze_parallel(
-    archive, database, feed, batches, run, *, clock=None, release_factory=ReleaseStore
+    archive,
+    database,
+    feed,
+    batches,
+    run,
+    *,
+    clock=None,
+    release_factory=ReleaseStore,
+    on_restored=None,
 ):
     """Production is already published; even restore/fit/upload errors cannot undo it."""
     clock = clock or (lambda: datetime.now(UTC))
@@ -48,6 +56,11 @@ def freeze_parallel(
             if feed.get("technical_data", {}).get("version") in (2, 3):
                 release = release_factory()
                 restore_rows(working, archive, release=release)
+            if on_restored is not None:
+                try:
+                    on_restored(working)
+                except Exception:
+                    LOG.exception("纸面复式伤停证据读取失败；实验计算继续，缺口保持未知")
             engine = get_engine(working)
             try:
                 with engine.connect() as connection:

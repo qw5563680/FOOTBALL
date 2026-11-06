@@ -12,6 +12,8 @@ from tempfile import TemporaryDirectory
 
 from zucai.cloud_feeds import digest, restore_feeds
 from zucai.forecast_archive import _path, verify_forecasts
+from zucai.parlay import paper as parlay_paper
+from zucai.parlay.archive import load_documents
 from zucai.scoreboard.experimental import (
     load_experiments,
     render_experiments,
@@ -67,9 +69,12 @@ def read_state(archive):
     return scored, ledger, summary, scored_raw
 
 
-def _publish(archive, contents, *, sfc_raw=None):
+def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None):
     root = _path(archive, "scoreboard")
     paths = {name: _path(root, name) for name in FILES}
+    if parlay_raw is not None:
+        contents = {**contents, "parlay-ledger": parlay_raw}
+        paths["parlay-ledger"] = _path(archive, parlay_paper.LEDGER)
     if sfc_raw is not None:
         contents = {**contents, "sfc-settled": sfc_raw}
         paths["sfc-settled"] = _path(archive, "sfc/settled.jsonl")
@@ -107,6 +112,9 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     if previous and instant(previous["as_of_utc"]) > at:
         raise ValueError("不能倒退已有记分板的截点，请用独立归档副本回放")
     forecast_manifest = verify_forecasts(archive)
+    parlay_documents = load_documents(archive, forecast_manifest, at)
+    parlay_ledger = parlay_paper.read_ledger(archive, previous)
+    has_parlays = bool(parlay_documents) or "parlay_sd" in (previous or {})
     forecasts = load_forecasts(archive, at)
     experimental, experiment_file_audit = load_experiments(archive, forecast_manifest, at)
     production_existing = [
@@ -145,6 +153,13 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         )
         experiment_audit["invalid_files"] = experiment_file_audit
         ledger = advance_ledger(selected, results, ledger, at)
+        parlay_selected = [
+            d
+            for d in parlay_documents
+            if replay_days is None
+            or instant(d["generated_utc"]) >= at - timedelta(days=replay_days)
+        ]
+        parlay_ledger = parlay_paper.advance_ledger(parlay_selected, results, parlay_ledger, at)
         if digest(database) != before:
             raise ValueError("记分板计算改变了恢复库")
     latest = {r["match_id"]: r for r in prematch_rows(forecasts, at)}
@@ -222,8 +237,15 @@ def run(archive: Path, *, as_of=None, replay_days=None):
             "simulated_profit_evidence": profit_evidence(accounts["1.05"]["A"]),
         },
     }
+    parlay_raw = _jsonl(parlay_ledger) if has_parlays else None
+    if has_parlays:
+        summary["parlay_sd"] = parlay_paper.summarize(parlay_ledger, results, at)
+        summary["parlay_sd"]["ledger_sha256"] = hashlib.sha256(parlay_raw).hexdigest()
     markdown = (
-        render_scoreboard(summary) + render_diagnostics(summary) + render_experiments(experiments)
+        render_scoreboard(summary)
+        + render_diagnostics(summary)
+        + render_experiments(experiments)
+        + parlay_paper.render(summary.get("parlay_sd"))
     )
     contents = {
         "scored.jsonl": scored_raw
@@ -236,7 +258,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     contents["summary.json"] = _json(summary)
     if any(digest(archive / name) != sha for name, sha in inputs.items()):
         raise ValueError("输入归档在计算期间发生变化")
-    _publish(archive, contents, sfc_raw=sfc_raw)
+    _publish(archive, contents, sfc_raw=sfc_raw, parlay_raw=parlay_raw)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
             output.write("\n".join(markdown.splitlines()[:60]) + "\n")
