@@ -1,0 +1,77 @@
+name: Football data access catalogue
+on:
+  push:
+    branches: ['probe/sportmonks-derby-20261108']
+    paths: ['.github/workflows/football-source-catalog.yml']
+permissions: {}
+jobs:
+  catalogue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read authenticated coverage and small match samples
+        env:
+          AP: ${{ secrets.API_FOOTBALL_KEY }}
+          FD: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+          SM: ${{ secrets.SPORTMONKS_API_TOKEN }}
+        shell: python
+        run: |
+          import csv, json, os
+          from pathlib import Path
+          from urllib import request, parse
+          class NoRedirect(request.HTTPRedirectHandler):
+              def redirect_request(self,*args): return None
+          client=request.build_opener(NoRedirect())
+          def get(url,header,key,**params):
+              req=request.Request(url+"?"+parse.urlencode(params),headers={header:os.environ[key],"Accept":"application/json"})
+              with client.open(req,timeout=55) as f: return json.load(f)
+          def save(name,cols,rows):
+              with open("catalog/"+name+".csv","w",encoding="utf-8-sig",newline="") as f:
+                  w=csv.writer(f);w.writerow(cols);w.writerows(rows)
+          Path("catalog").mkdir()
+          ap=get("https://v3.football.api-sports.io/leagues","x-apisports-key","AP")
+          assert not ap.get("errors") and ap["paging"]["total"]<=1 and ap["response"]
+          rows=[];names=set()
+          for item in ap["response"]:
+              league=item["league"]; names.add(league["id"])
+              for season in item["seasons"]:
+                  c=season.get("coverage") or {}; fields=c.get("fixtures") or {}
+                  rows.append([league["id"],item["country"]["name"],league["name"],league["type"],season["year"],season.get("current")]+[fields.get(k) for k in ("events","lineups","statistics_fixtures","statistics_players")]+[c.get(k) for k in ("injuries","standings","odds")])
+          save("1_API-Football_逐联赛逐赛季",["赛事ID","国家或地区","赛事","类别","赛季","供应商标为当前季","事件","阵容","球队统计","球员统计","伤停","积分榜","赔率"],rows)
+          print("AP_CATALOG",len(names),len(rows))
+          fd=get("https://api.football-data.org/v4/competitions","X-Auth-Token","FD")
+          frows=[[c["code"],c["area"]["name"],c["name"],c["type"],c.get("plan"),(c.get("currentSeason") or {}).get("startDate")] for c in fd["competitions"]]
+          print("FD",json.dumps(frows));save("2_football-data.org_赛事",["代码","地区","赛事","类型","供应商套餐标记","本季开始"],frows)
+          smurl="https://api.sportmonks.com/v3/football/"
+          def sm(path,**params):return get(smurl+path,"Authorization","SM",**params)
+          rows=[];page=1
+          while True:
+              ls=sm("leagues",include="country",page=page)
+              rows.extend([[x["id"],x["country"]["name"],x["name"]] for x in ls["data"]])
+              if not ls["pagination"]["has_more"]:break
+              page+=1
+          print("SM",json.dumps(rows));save("3_Sportmonks_赛事",["ID","国家","赛事"],rows)
+          st=[]
+          for lid,ct,name in rows:
+              date_range="2026-05-01/2026-06-15" if lid in (513,1659) else "2026-10-30/2026-11-02"
+              try:
+                  games=sm("fixtures/between/"+date_range,filters="fixtureLeagues:"+str(lid),include="state;participants",per_page=50)["data"]
+                  gs=sorted([g for g in games if g["league_id"]==lid and g["state"]["state"]=="FT"],key=lambda g:g["starting_at"])
+                  if not gs:
+                      print("MATCH",lid,"none in sample dates");continue
+                  g=gs[0]
+                  d=sm("fixtures/"+str(g["id"]),include="statistics.type;periods.statistics;participants")["data"]
+                  assert d["id"]==g["id"]
+                  side={t["id"]:t["meta"]["location"] for t in d["participants"]}
+                  def entries(period,stats):
+                      for x in stats:
+                          st.append([lid,name,g["id"],g["name"],g["starting_at"],period,side.get(x["participant_id"]),x["type_id"],(x.get("type") or {}).get("code"),x["data"].get("value")])
+                  entries("全场",d.get("statistics") or [])
+                  for part in d.get("periods") or []:entries(str(part["type_id"]),part.get("statistics") or [])
+                  print("MATCH",lid,g["id"],g["name"],sorted({x["type_id"] for x in d.get("statistics") or []}),"H1",sorted({x["type_id"] for pp in d.get("periods") or [] if pp["type_id"]==1 for x in pp.get("statistics") or []}))
+              except (KeyError,ValueError, OSError) as e: print("MATCH",lid,"sample unavailable",type(e).__name__)
+          save("4_Sportmonks_单场实测",["联赛ID","联赛","比赛ID","比赛","开球UTC","全场或时段编号","主客","指标ID","指标名","数值"],st)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: football-api-coverage
+          path: catalog/
