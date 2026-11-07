@@ -1,7 +1,7 @@
 """Owner-authorized T48 publication, executed under the existing Actions write mutex.
 No sports requests, no training, no model/ledger changes, no forced updates.
 """
-import base64,concurrent.futures,hashlib,json,os,shutil,socket,sqlite3,sys,zipfile
+import base64,concurrent.futures,hashlib,json,math,os,shutil,socket,sqlite3,sys,zipfile
 from pathlib import Path
 from unittest.mock import patch
 from github_publication_client import GitHub,dump,digest
@@ -14,6 +14,26 @@ def require(value,message):
 def sha(b):return hashlib.sha256(b).hexdigest()
 def blobsha(b):return hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
 def read(p):return json.loads(Path(p).read_text(encoding='utf-8'))
+def compare_cross_platform_features(expected,actual):
+ # The original np.exp/dot calculation can round differently on Windows/Linux.
+ # Only derived cell decay values may differ by one representable float step.
+ # Cutoff, windows, IDs, counts, raw values and every evidence item remain exact.
+ differences=[]
+ def visit(a,b,path):
+  if isinstance(a,dict) and isinstance(b,dict):
+   require(a.keys()==b.keys(),'Feature keys differ: '+str(path))
+   for key in a:visit(a[key],b[key],path+(key,))
+  elif isinstance(a,list) and isinstance(b,list):
+   require(len(a)==len(b),'Feature list length differs: '+str(path))
+   for i,(x,y) in enumerate(zip(a,b)):visit(x,y,path+(i,))
+  elif a!=b:
+   allowed=(len(path)==4 and path[1]=='cells' and path[3]=='decay' and isinstance(a,float) and isinstance(b,float) and math.isfinite(a) and math.isfinite(b))
+   require(allowed,'Feature value differs: '+str(path))
+   step=max(math.ulp(a),math.ulp(b));require(abs(a-b)<=step,'Derived decay differs by more than one float step: '+str(path))
+   differences.append({'path':list(path),'windows_value':a,'linux_value':b,'absolute_difference':abs(a-b),'ulps':abs(a-b)/step})
+ visit(expected,actual,())
+ return differences
+
 def main():
  bundle=ROOT/'verified_candidate.zip';require(digest(bundle)=='d49571447dc2350334b2c91fb1c40d4790d9cfd683a68047c3fe0965763873aa','Candidate ZIP changed')
  with zipfile.ZipFile(bundle) as z:
@@ -31,6 +51,13 @@ def main():
  require(g.get('/git/commits/'+head)['tree']['sha']==expected['original_tree_sha'],'Original production tree differs')
  J.update({'original_head':head,'code_commit':code,'run_id':os.environ['GITHUB_RUN_ID'],'run_url':'https://github.com/qw5563680/FOOTBALL/actions/runs/'+os.environ['GITHUB_RUN_ID']});save()
  print('Pinned production/code heads verified',flush=True)
+ # Preserve and read back the entire production ref before asset work.
+ backup='backup/t48-production-20261108-'+head[:7]
+ refs=g.get('/git/matching-refs/heads/'+backup)
+ if refs:require(len(refs)==1 and refs[0]['ref']=='refs/heads/'+backup and refs[0]['object']['sha']==head,'Backup ref conflict')
+ else:g.request('/git/refs','POST',{'ref':'refs/heads/'+backup,'sha':head})
+ require(g.get('/git/ref/heads/'+backup)['object']['sha']==head,'Backup readback differs')
+ J['backup_branch']=backup;save()
  release=g.get('/releases/tags/stats-raw-202611');assets=g.pages('/releases/'+str(release['id'])+'/assets');index={a['name']:a for a in assets}
  cache=ROOT/'asset-cache';cache.mkdir()
  # Append-only immutable assets. Existing different bytes are a hard stop, never delete/replace.
@@ -82,11 +109,13 @@ def main():
    actual=v.canonical_tables(database);features=v.build_features(database,expected['targets'])
    dump(E/(label+'-tables.json'),actual);dump(E/(label+'-features.json'),features)
    require(actual==expected['tables'],label+' database contents differ from fixed acceptance')
-   require(features==expected['features'],label+' target features differ')
+   rounding=compare_cross_platform_features(expected['features'],features)
+   dump(E/(label+'-cross-platform-rounding.json'),{'policy':'only derived cell decay values may differ by at most 1 ULP; everything else exact','differences':rounding})
+   if label=='online-readback':require(features==read(E/'prepublication-features.json'),'Linux pre/post publication feature dictionaries differ')
    with sqlite3.connect(database) as db:
     require(db.execute('PRAGMA integrity_check').fetchall()==[('ok',)],'Database integrity failed')
     require(not db.execute('PRAGMA foreign_key_check').fetchall(),'Foreign keys failed')
-  J[label]={'all_14_tables_exact':True,'all_21_target_features_exact':True,'integrity_ok':True,'foreign_keys_clean':True,'restored_counts':restored};save()
+  J[label]={'all_14_tables_exact':True,'all_21_target_windows_and_evidence_exact':True,'windows_linux_feature_dictionaries_bitwise_equal':not rounding,'decay_rounding_differences':rounding,'max_allowed_decay_rounding_ulps':1,'linux_pre_post_feature_dictionaries_exact':label=='online-readback','integrity_ok':True,'foreign_keys_clean':True,'restored_counts':restored};save()
  check_database(feed,'prepublication')
  print('Linux prepublication restore passed, without compatibility adapters',flush=True)
  require(g.get('/git/ref/heads/data/football-feeds')['object']['sha']==head,'Production advanced before backup')
@@ -128,7 +157,7 @@ def main():
  J.update({'status':'published_and_online_readback_passed','next_normal_run_verified':False,'business_source_modified':False,'linux_unmodified_restore':True,'whole_production_tree_protected':True});save()
  print(json.dumps(J,ensure_ascii=False,indent=2),flush=True)
  with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
-  f.write('# T48 publication and online readback passed\n\nCommit: `'+commit['sha']+'`\n\nBackup: `'+backup+'`\n\nOnly four planned data files changed; '+str(len(protected))+' other files preserved. All 14 tables and 21 frozen target features match. No sports requests, training, or ledger updates. Next normal run is NOT yet verified.\n')
+  f.write('# T48 publication and online readback passed\n\nCommit: `'+commit['sha']+'`\n\nBackup: `'+backup+'`\n\nOnly four planned data files changed; '+str(len(protected))+' other files preserved. All 14 tables match exactly. All 21 feature dictionaries match exactly before/after publication on Linux; cross-platform comparison permits at most 1 ULP only for derived decay values, with every difference recorded. All windows and raw evidence match exactly. No sports requests, training, or ledger updates. Next normal run is NOT yet verified.\n')
 if __name__=='__main__':
  try:main()
  except Exception as e:
