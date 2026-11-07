@@ -1,0 +1,40 @@
+name: Sportmonks accessible competitions
+on:
+  push:
+    branches: ['probe/sportmonks-derby-20261108']
+    paths: ['.github/workflows/sportmonks-access-list.yml']
+  workflow_dispatch:
+permissions: {}
+jobs:
+  competitions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: List leagues available to this repository token
+        env:
+          SM_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.request as http
+          from urllib.parse import urlencode
+          class NoRedirect(http.HTTPRedirectHandler):
+              def redirect_request(self, *args):
+                  return None
+          client = http.build_opener(NoRedirect())
+          count = 0
+          for page in range(1, 101):
+              query = urlencode(dict(include="country", per_page=50, page=page))
+              url = "https://api.sportmonks.com/v3/football/leagues?" + query
+              req = http.Request(url, headers={"Authorization": os.environ["SM_TOKEN"], "Accept":"application/json"})
+              with client.open(req, timeout=30) as response:
+                  data = json.load(response)
+              for league in data["data"]:
+                  print("LEAGUE", json.dumps([league["id"], league["name"], (league.get("country") or {}).get("name")]))
+                  count += 1
+              if not data["pagination"]["has_more"]:
+                  print("TOTAL", count)
+                  break
+          else:
+              raise SystemExit("Incomplete pagination")
