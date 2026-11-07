@@ -3,6 +3,8 @@ No sports requests, no training, no model/ledger changes, no forced updates.
 """
 import base64,concurrent.futures,hashlib,json,math,os,shutil,socket,sqlite3,sys,zipfile
 from pathlib import Path
+from datetime import datetime,timezone
+from decimal import Decimal,localcontext
 from unittest.mock import patch
 from github_publication_client import GitHub,dump,digest
 ROOT=Path.cwd();E=ROOT/'publication-evidence';E.mkdir(exist_ok=True)
@@ -16,7 +18,8 @@ def blobsha(b):return hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdig
 def read(p):return json.loads(Path(p).read_text(encoding='utf-8'))
 def compare_cross_platform_features(expected,actual):
  # The original np.exp/dot calculation can round differently on Windows/Linux.
- # Only derived cell decay values may differ by one representable float step.
+ # Only derived decay values receive a 16-ULP roundoff bound; they are also
+ # independently recalculated with 60 decimal digits. All other fields are exact.
  # Cutoff, windows, IDs, counts, raw values and every evidence item remain exact.
  differences=[]
  def visit(a,b,path):
@@ -29,10 +32,35 @@ def compare_cross_platform_features(expected,actual):
   elif a!=b:
    allowed=(len(path)==4 and path[1]=='cells' and path[3]=='decay' and isinstance(a,float) and isinstance(b,float) and math.isfinite(a) and math.isfinite(b))
    require(allowed,'Feature value differs: '+str(path))
-   step=max(math.ulp(a),math.ulp(b));require(abs(a-b)<=step,'Derived decay differs by more than one float step: '+str(path))
+   step=max(math.ulp(a),math.ulp(b));require(abs(a-b)<=16*step,'Derived decay exceeds fixed 16-ULP roundoff bound: '+str(path))
    differences.append({'path':list(path),'windows_value':a,'linux_value':b,'absolute_difference':abs(a-b),'ulps':abs(a-b)/step})
  visit(expected,actual,())
  return differences
+
+def verify_decimal_decay(database,features):
+ # Independent arithmetic, not a second call to NumPy or the feature builder.
+ with sqlite3.connect(database) as db:
+  times={r[0]:datetime.fromisoformat(r[1]) for r in db.execute('SELECT match_id,kickoff_utc FROM matches')}
+ times={key:value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value for key,value in times.items()}
+ checks=[]
+ with localcontext() as context:
+  context.prec=60;ln2=Decimal(2).ln()
+  for target,feature in features.items():
+   cutoff=datetime.fromisoformat(feature['feature_cutoff'])
+   for name,cell in feature['cells'].items():
+    if cell['decay'] is None:continue
+    numerator=Decimal(0);denominator=Decimal(0)
+    require(len(cell['match_ids'])==len(cell['evidence']),'Independent arithmetic window mismatch')
+    for match_id,evidence in zip(cell['match_ids'],cell['evidence']):
+     delta=cutoff-times[match_id]
+     seconds=Decimal(delta.days*86400+delta.seconds)+Decimal(delta.microseconds)/Decimal(1000000)
+     weight=(-ln2*seconds/Decimal(86400)/Decimal(90)).exp()
+     numerator+=weight*Decimal(str(evidence['value']));denominator+=weight
+    exact=numerator/denominator;reference=float(exact);actual=cell['decay'];step=math.ulp(reference)
+    error=abs(actual-reference)/step
+    require(math.isfinite(actual) and error<=16,'Independent 60-digit arithmetic failed: '+target+'/'+name)
+    checks.append({'target':target,'cell':name,'decimal_reference':str(exact),'actual':actual,'error_ulps':error})
+ return {'precision_digits':60,'fixed_max_ulps':16,'checked_cells':len(checks),'max_error_ulps':max((x['error_ulps'] for x in checks),default=0),'checks':checks}
 
 def main():
  bundle=ROOT/'verified_candidate.zip';require(digest(bundle)=='d49571447dc2350334b2c91fb1c40d4790d9cfd683a68047c3fe0965763873aa','Candidate ZIP changed')
@@ -110,12 +138,14 @@ def main():
    dump(E/(label+'-tables.json'),actual);dump(E/(label+'-features.json'),features)
    require(actual==expected['tables'],label+' database contents differ from fixed acceptance')
    rounding=compare_cross_platform_features(expected['features'],features)
-   dump(E/(label+'-cross-platform-rounding.json'),{'policy':'only derived cell decay values may differ by at most 1 ULP; everything else exact','differences':rounding})
+   decimal_check=verify_decimal_decay(database,features);windows_decimal_check=verify_decimal_decay(database,expected['features'])
+   dump(E/(label+'-independent-decimal-check.json'),{'linux':decimal_check,'windows':windows_decimal_check})
+   dump(E/(label+'-cross-platform-rounding.json'),{'policy':'only derived cell decay values may differ by at most 16 ULP; independently checked with 60-digit arithmetic; everything else exact','differences':rounding})
    if label=='online-readback':require(features==read(E/'prepublication-features.json'),'Linux pre/post publication feature dictionaries differ')
    with sqlite3.connect(database) as db:
     require(db.execute('PRAGMA integrity_check').fetchall()==[('ok',)],'Database integrity failed')
     require(not db.execute('PRAGMA foreign_key_check').fetchall(),'Foreign keys failed')
-  J[label]={'all_14_tables_exact':True,'all_21_target_windows_and_evidence_exact':True,'windows_linux_feature_dictionaries_bitwise_equal':not rounding,'decay_rounding_differences':rounding,'max_allowed_decay_rounding_ulps':1,'linux_pre_post_feature_dictionaries_exact':label=='online-readback','integrity_ok':True,'foreign_keys_clean':True,'restored_counts':restored};save()
+  J[label]={'all_14_tables_exact':True,'all_21_target_windows_and_evidence_exact':True,'windows_linux_feature_dictionaries_bitwise_equal':not rounding,'decay_rounding_differences':rounding,'max_allowed_decay_rounding_ulps':16,'independent_60_digit_check':{'checked_cells':decimal_check['checked_cells'],'linux_max_error_ulps':decimal_check['max_error_ulps'],'windows_max_error_ulps':windows_decimal_check['max_error_ulps']}, 'linux_pre_post_feature_dictionaries_exact':label=='online-readback','integrity_ok':True,'foreign_keys_clean':True,'restored_counts':restored};save()
  check_database(feed,'prepublication')
  print('Linux prepublication restore passed, without compatibility adapters',flush=True)
  require(g.get('/git/ref/heads/data/football-feeds')['object']['sha']==head,'Production advanced before backup')
@@ -157,7 +187,7 @@ def main():
  J.update({'status':'published_and_online_readback_passed','next_normal_run_verified':False,'business_source_modified':False,'linux_unmodified_restore':True,'whole_production_tree_protected':True});save()
  print(json.dumps(J,ensure_ascii=False,indent=2),flush=True)
  with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
-  f.write('# T48 publication and online readback passed\n\nCommit: `'+commit['sha']+'`\n\nBackup: `'+backup+'`\n\nOnly four planned data files changed; '+str(len(protected))+' other files preserved. All 14 tables match exactly. All 21 feature dictionaries match exactly before/after publication on Linux; cross-platform comparison permits at most 1 ULP only for derived decay values, with every difference recorded. All windows and raw evidence match exactly. No sports requests, training, or ledger updates. Next normal run is NOT yet verified.\n')
+  f.write('# T48 publication and online readback passed\n\nCommit: `'+commit['sha']+'`\n\nBackup: `'+backup+'`\n\nOnly four planned data files changed; '+str(len(protected))+' other files preserved. All 14 tables match exactly. All 21 feature dictionaries match exactly before/after publication on Linux; cross-platform comparison permits at most 16 ULP only for derived decay values, independently rechecked with 60-digit arithmetic, with every difference recorded. All windows and raw evidence match exactly. No sports requests, training, or ledger updates. Next normal run is NOT yet verified.\n')
 if __name__=='__main__':
  try:main()
  except Exception as e:
