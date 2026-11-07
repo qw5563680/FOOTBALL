@@ -56,6 +56,9 @@ jobs:
               date_range="2026-05-01/2026-06-15" if lid in (513,1659) else "2026-10-30/2026-11-02"
               try:
                   games=sm("fixtures/between/"+date_range,filters="fixtureLeagues:"+str(lid),include="state;participants",per_page=50)["data"]
+                  if not games and lid==1659:
+                      older=sm("fixtures",filters="fixtureLeagues:1659",include="state;participants",per_page=50)
+                      games=older.get("data") or []
                   gs=sorted([g for g in games if g["league_id"]==lid and g["state"]["state"]=="FT"],key=lambda g:g["starting_at"])
                   if not gs:
                       print("MATCH",lid,"none in sample dates");continue
@@ -71,6 +74,15 @@ jobs:
                   print("MATCH",lid,g["id"],g["name"],sorted({x["type_id"] for x in d.get("statistics") or []}),"H1",sorted({x["type_id"] for pp in d.get("periods") or [] if pp["type_id"]==1 for x in pp.get("statistics") or []}))
               except (KeyError,ValueError, OSError) as e: print("MATCH",lid,"sample unavailable",type(e).__name__)
           save("4_Sportmonks_单场实测",["联赛ID","联赛","比赛ID","比赛","开球UTC","全场或时段编号","主客","指标ID","指标名","数值"],st)
+          import time
+          from urllib.error import HTTPError
+          for code in ("EC","CLI","WC"):
+              time.sleep(6.2)
+              try:
+                  ds=get("https://api.football-data.org/v4/competitions/"+code+"/matches","X-Auth-Token","FD")
+                  ms=ds.get("matches",[])
+                  print("FDMATCH",code,len(ms),sorted(ms[0].keys()) if ms else [])
+              except HTTPError as e: print("FDMATCH",code,"HTTP",e.code)
       - uses: actions/upload-artifact@v4
         with:
           name: football-api-coverage
