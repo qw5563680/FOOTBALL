@@ -593,6 +593,8 @@ D/E 每个北京开球日每档每账户最多一注。后续批次不替换已�
 每天直接看[最新摘要](https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/daily/latest.md)，
 或者订阅置顶的「每日报告 YYYY-MM」Issue。工作流先发布数据分支，再把同一正文发为 Issue 评论；
 同一天晚班编辑已有评论，每月首次运行新建并置顶当月 Issue、取消上月置顶并关闭上月 Issue。
+每次成功推送后，月报正文自动显示最新日报，并将当月日报入口按北京时间日期从新到旧排列。
+原有说明文字保留在自动目录之外。完整日报接近 GitHub 正文长度限制时，首页保留完整评论链接。
 如果 1 日漏跑，下一次运行补做换月。顶层仅 `contents: write`；仅 digest job 增加 `issues: write`，不新增 Secret。
 GitHub App / 邮件是否提醒取决于账号的订阅与通知设置；编辑评论不保证再次提醒，真实通知由 Actions 验收。
 
