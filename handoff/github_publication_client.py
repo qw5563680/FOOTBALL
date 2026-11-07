@@ -12,7 +12,7 @@ class GithubError(RuntimeError):pass
 class GitHub:
  def __init__(self,token=None):
   self.token=token or os.environ['FOOTBALL_PUBLISH_TOKEN'];self.opener=urllib.request.build_opener(SafeRedirect())
- def request(self,path,method='GET',data=None,accept='application/vnd.github+json',content_type=None):
+ def request(self,path,method='GET',data=None,accept='application/vnd.github+json',content_type=None,binary=False):
   url=path if path.startswith('https://') else BASE+path
   parsed=urllib.parse.urlparse(url)
   assert parsed.hostname in ('api.github.com','uploads.github.com') and not parsed.username
@@ -23,7 +23,7 @@ class GitHub:
   try:
    with self.opener.open(req,timeout=120) as r:
     b=r.read();h=dict(r.headers)
-    if accept=='application/octet-stream' or accept=='application/vnd.github.raw+json':return b,h
+    if binary or accept=='application/octet-stream' or accept=='application/vnd.github.raw+json':return b,h
     return (json.loads(b) if b else None),h
   except urllib.error.HTTPError as e:
    body=e.read().decode('utf-8','replace').replace(self.token,'[REDACTED]')[:600]

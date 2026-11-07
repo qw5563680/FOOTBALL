@@ -12,7 +12,7 @@ for name in ['t48_publish.py','verified_candidate.zip','expected.json']:
 assert digest('verified_candidate.zip')=='d49571447dc2350334b2c91fb1c40d4790d9cfd683a68047c3fe0965763873aa'
 code='a664318450675946a578c041cb1f24219981e771'
 assert client.get('/git/ref/heads/main')['object']['sha']==code
-archive=client.get('/tarball/'+code,accept='application/octet-stream')
+archive=client.get('/tarball/'+code,binary=True)
 Path('code').mkdir()
 with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as tar:
  members=tar.getmembers();prefix=members[0].name.split('/')[0]+'/'
