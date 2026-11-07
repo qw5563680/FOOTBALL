@@ -1,0 +1,78 @@
+name: Sportmonks Derby coverage probe
+on:
+  push:
+    branches: ['probe/sportmonks-derby-20261108']
+    paths: ['.github/workflows/sportmonks-derby-probe.yml']
+  workflow_dispatch:
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify subscription and Derby v Norwich stats
+        env:
+          SM_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
+        shell: python
+        run: |
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.parse import urlencode
+          from urllib.request import Request, build_opener, HTTPRedirectHandler
+          
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, *args):
+                  return None
+          
+          def get(path, **params):
+              url = "https://api.sportmonks.com/v3/football/" + path + "?" + urlencode(params)
+              req = Request(url, headers={"Authorization": os.environ["SM_TOKEN"], "Accept": "application/json"})
+              try:
+                  with build_opener(NoRedirect()).open(req, timeout=30) as response:
+                      return json.load(response)
+              except HTTPError as err:
+                  print("HTTP", err.code, path, flush=True)
+                  return {}
+          
+          if not os.environ.get("SM_TOKEN"):
+              raise SystemExit("Actions secret unavailable")
+          leagues = []
+          for page in range(1, 31):
+              reply = get("leagues", page=page, per_page=50)
+              if not isinstance(reply.get("data"), list):
+                  raise SystemExit("No valid league list; see HTTP result")
+              leagues.extend(reply["data"])
+              if not reply.get("pagination", {}).get("has_more"):
+                  break
+          else:
+              raise SystemExit("League list incomplete")
+          print("Authentication OK. League count:", len(leagues))
+          print("Accessible league IDs:", [x["id"] for x in leagues])
+          days = get("fixtures/date/2026-11-03", filters="fixtureLeagues:9", include="participants", per_page=50)
+          if not isinstance(days.get("data"), list):
+              raise SystemExit("Could not read fixtures for Championship (9)")
+          matches = []
+          for game in days["data"]:
+              teams = {t.get("meta", {}).get("location"):t for t in game.get("participants", [])}
+              if (game.get("league_id")==9 and game.get("starting_at")=="2026-11-03 19:45:00" and
+                  teams.get("home", {}).get("name") in ("Derby County","Derby") and
+                  teams.get("away", {}).get("name") in ("Norwich City","Norwich")):
+                  matches.append((game, teams))
+          if len(matches) != 1:
+              if not any(x["id"]==9 for x in leagues):
+                  print("English Championship (9) absent from accessible leagues")
+              raise SystemExit("Target fixture unavailable or identity unverified")
+          game, teams = matches[0]
+          print("Fixture", game["id"], game["starting_at"], "UTC", teams["home"]["name"], "vs", teams["away"]["name"])
+          for inc in ("statistics", "periods.statistics"):
+              d=get("fixtures/"+str(game["id"]), include=inc).get("data") or {}
+              if d.get("id") != game["id"]:
+                  print("No verified data for",inc)
+                  continue
+              groups=[("MATCH",d.get("statistics") or [])] if inc=="statistics" else [
+                  ("PERIOD_TYPE_"+str(p["type_id"]),p.get("statistics") or []) for p in d.get("periods") or []]
+              for group, rows in groups:
+                  for side,t in teams.items():
+                      vals={str(row["type_id"]):row["data"]["value"] for row in rows if row.get("participant_id")==t["id"] and isinstance(row.get("data"),dict) and isinstance(row["data"].get("value"),(int,float))}
+                      print(group,side,"type IDs and values",json.dumps(vals,sort_keys=True))
