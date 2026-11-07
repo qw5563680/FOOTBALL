@@ -1,0 +1,1071 @@
+{
+  "status": "passed",
+  "command": "/workspace/work/t48-venv/bin/python examples/t48_verify_replay.py --inputs /workspace/work/t48-production/inputs --handover-evidence '/workspace/work/football_handover_20261107/详细排查证据' --code /workspace/work/football-t48-production --output /workspace/work/t48-production/validation --evidence /workspace/work/t48-production/validation/evidence --protected /workspace/work/t48-production/backup/feed",
+  "inputs": "/workspace/work/t48-production/inputs",
+  "code": "/workspace/work/football-t48-production/src",
+  "output": "/workspace/work/t48-production/validation",
+  "network_requests_permitted": 0,
+  "as_of": "2026-11-06T17:13:13.835049+00:00",
+  "window": 10,
+  "targets": 21,
+  "source_plan_sha256": "113832ed72fb34e9b414a65508dac7aeb01abc1719317405b7a33790e8328dfa",
+  "protected_roots": [
+    "/workspace/work/t48-production/inputs/input",
+    "/workspace/work/t48-production/inputs/observed",
+    "/workspace/work/t48-production/inputs/raw",
+    "/workspace/work/t48-production/inputs/assets",
+    "/workspace/work/t48-production/inputs/archives",
+    "/workspace/work/t48-production/inputs/restored",
+    "/workspace/work/t48-production/inputs/code",
+    "/workspace/work/t48-production/inputs/selected-raw-manifest.json",
+    "/workspace/work/football_handover_20261107/详细排查证据",
+    "/workspace/work/t48-production/backup/feed"
+  ],
+  "baseline_sha256": "fbe4b2905aea7fc894e3507dad9e634aed75185c0dbd952852f9bb1fbe6b6007",
+  "stage_timings_seconds": {
+    "input_validation": 2.539,
+    "copy_baseline": 1.319,
+    "frozen_features_before": 4.772,
+    "replay_first_real_nine_files": 69.864,
+    "verify_210_original_histories_and_targets": 3.81,
+    "idempotent_second_nine_file_replay": 49.065,
+    "local_publish_rows_with_full_old_snapshot": 43.256,
+    "local_export_restore_full_roundtrip": 70.573
+  },
+  "core_before": {
+    "closing_odds": {
+      "exists": true,
+      "columns": [
+        "match_id",
+        "bookmaker",
+        "pool",
+        "h",
+        "d",
+        "a",
+        "basis"
+      ],
+      "count": 100030,
+      "sha256": "d47efebf031f1283f9d783b81bab71a0a2e0f0fb9ee81bea50a54b6ce08ed844"
+    },
+    "matches": {
+      "exists": true,
+      "columns": [
+        "match_id",
+        "source",
+        "league",
+        "home_team_id",
+        "away_team_id",
+        "kickoff_utc",
+        "jc_num",
+        "status",
+        "result_checked_utc",
+        "result_provider",
+        "counterpart_id"
+      ],
+      "count": 34901,
+      "sha256": "2b5e88540dd7df645ad9c979eb90ccf9dd0f37ad506d6a336ff5ceabaf18e000"
+    },
+    "odds": {
+      "exists": true,
+      "columns": [
+        "id",
+        "match_id",
+        "pool",
+        "line",
+        "selection",
+        "price",
+        "snapshot_utc"
+      ],
+      "count": 10356,
+      "sha256": "353ed00c878d666b0cdeecf03aa22dc2d505de8df7cacf3601a3cde3ad21a45c"
+    },
+    "predictions": {
+      "exists": true,
+      "columns": [
+        "id",
+        "batch_id",
+        "mode",
+        "as_of_utc",
+        "match_id",
+        "model_name",
+        "model_version",
+        "p_home",
+        "p_draw",
+        "p_away",
+        "score_matrix",
+        "created_utc"
+      ],
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "results": {
+      "exists": true,
+      "columns": [
+        "match_id",
+        "home_goals",
+        "away_goals",
+        "ht_home_goals",
+        "ht_away_goals",
+        "available_utc",
+        "available_source"
+      ],
+      "count": 34207,
+      "sha256": "9e32586e9907adf9898194496c5b5884519adfaec960fef99a8befb54890c4f4"
+    },
+    "teams": {
+      "exists": true,
+      "columns": [
+        "id",
+        "name",
+        "aliases"
+      ],
+      "count": 999,
+      "sha256": "d9854290584219186586911ab1ffa7daccac4e835e540733b99c303d0351abf9"
+    }
+  },
+  "frozen_before_exact": 21,
+  "first_replay": {
+    "operation": "replay_fd",
+    "requests": 0,
+    "files": [
+      {
+        "div": "D1",
+        "season": "2627",
+        "sha256": "490b69c06ec2890be818372c7ea3bd5413b7fe6539185890d9eaeb6b59a6f22b",
+        "inserted": 1008,
+        "rejected": 0
+      },
+      {
+        "div": "E0",
+        "season": "2627",
+        "sha256": "c429b75f681dc7aaec5641a23320402409530b4b01a9f147bb7e386fe508159b",
+        "inserted": 1008,
+        "rejected": 7
+      },
+      {
+        "div": "E1",
+        "season": "2627",
+        "sha256": "c7fa2ecb1aaff715701c0bc0f2d812ec46e71dfbfd1540168ecd0ce4d6210fb4",
+        "inserted": 512,
+        "rejected": 0
+      },
+      {
+        "div": "F1",
+        "season": "2627",
+        "sha256": "18fed04746c2f4d764e02a331d5e94b0ca6c71c102ee82ae95423e4de410f4c0",
+        "inserted": 592,
+        "rejected": 1
+      },
+      {
+        "div": "F2",
+        "season": "2627",
+        "sha256": "f578606f30ad2f5a48e1b0953510237fb084b6f1c661185022e8ddcc0c0a0a10",
+        "inserted": 80,
+        "rejected": 11
+      },
+      {
+        "div": "I1",
+        "season": "2627",
+        "sha256": "4138a4f01e96312a7a5dc07450c7a520c3861a479620fe3d102f12d42a6678ba",
+        "inserted": 1280,
+        "rejected": 0
+      },
+      {
+        "div": "N1",
+        "season": "2627",
+        "sha256": "5f5cdffe5f8c413ae73bd1988b259d453a05ba6884e2a2b6060a17fa71867ed1",
+        "inserted": 496,
+        "rejected": 2
+      },
+      {
+        "div": "P1",
+        "season": "2627",
+        "sha256": "eed51b09af8112e9f2e35d062f67dd07e5ae73ac267cd0235237f30eeabacae8",
+        "inserted": 400,
+        "rejected": 6
+      },
+      {
+        "div": "SP1",
+        "season": "2627",
+        "sha256": "a382f00d78d85eae814e8b06a4a0d5ba0dd70905156f20b02f8c0e6c28b7c7d6",
+        "inserted": 1248,
+        "rejected": 0
+      }
+    ],
+    "inserted": 6624,
+    "rejected": 27
+  },
+  "core_after_replay": {
+    "closing_odds": {
+      "exists": true,
+      "columns": [
+        "match_id",
+        "bookmaker",
+        "pool",
+        "h",
+        "d",
+        "a",
+        "basis"
+      ],
+      "count": 100030,
+      "sha256": "d47efebf031f1283f9d783b81bab71a0a2e0f0fb9ee81bea50a54b6ce08ed844"
+    },
+    "matches": {
+      "exists": true,
+      "columns": [
+        "match_id",
+        "source",
+        "league",
+        "home_team_id",
+        "away_team_id",
+        "kickoff_utc",
+        "jc_num",
+        "status",
+        "result_checked_utc",
+        "result_provider",
+        "counterpart_id"
+      ],
+      "count": 34901,
+      "sha256": "2b5e88540dd7df645ad9c979eb90ccf9dd0f37ad506d6a336ff5ceabaf18e000"
+    },
+    "odds": {
+      "exists": true,
+      "columns": [
+        "id",
+        "match_id",
+        "pool",
+        "line",
+        "selection",
+        "price",
+        "snapshot_utc"
+      ],
+      "count": 10356,
+      "sha256": "353ed00c878d666b0cdeecf03aa22dc2d505de8df7cacf3601a3cde3ad21a45c"
+    },
+    "predictions": {
+      "exists": true,
+      "columns": [
+        "id",
+        "batch_id",
+        "mode",
+        "as_of_utc",
+        "match_id",
+        "model_name",
+        "model_version",
+        "p_home",
+        "p_draw",
+        "p_away",
+        "score_matrix",
+        "created_utc"
+      ],
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "results": {
+      "exists": true,
+      "columns": [
+        "match_id",
+        "home_goals",
+        "away_goals",
+        "ht_home_goals",
+        "ht_away_goals",
+        "available_utc",
+        "available_source"
+      ],
+      "count": 34207,
+      "sha256": "9e32586e9907adf9898194496c5b5884519adfaec960fef99a8befb54890c4f4"
+    },
+    "teams": {
+      "exists": true,
+      "columns": [
+        "id",
+        "name",
+        "aliases"
+      ],
+      "count": 999,
+      "sha256": "d9854290584219186586911ab1ffa7daccac4e835e540733b99c303d0351abf9"
+    }
+  },
+  "provenance_210": {
+    "verified_histories": 210,
+    "expected_histories": 210,
+    "failures": []
+  },
+  "links": {
+    "before": 0,
+    "after_all_nine_files": 52,
+    "within_target_210": 26
+  },
+  "targets_after": [
+    {
+      "match_id": "jc:2042558",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042559",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042561",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042562",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042563",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042564",
+      "n": [
+        10,
+        10,
+        8,
+        8
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        8,
+        8
+      ],
+      "complete": false,
+      "missing_history_ids": [],
+      "missing_reasons": [
+        "insufficient_window"
+      ]
+    },
+    {
+      "match_id": "jc:2042565",
+      "n": [
+        9,
+        9,
+        9,
+        9
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": false,
+      "missing_history_ids": [
+        "fdorg:561921",
+        "fdorg:561928"
+      ],
+      "missing_reasons": [
+        "not_provided"
+      ]
+    },
+    {
+      "match_id": "jc:2042566",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042567",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042587",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042589",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042590",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042591",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042592",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042593",
+      "n": [
+        8,
+        8,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        8,
+        8,
+        10,
+        10
+      ],
+      "complete": false,
+      "missing_history_ids": [],
+      "missing_reasons": [
+        "insufficient_window"
+      ]
+    },
+    {
+      "match_id": "jc:2042594",
+      "n": [
+        10,
+        10,
+        8,
+        8
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        8,
+        8
+      ],
+      "complete": false,
+      "missing_history_ids": [],
+      "missing_reasons": [
+        "insufficient_window"
+      ]
+    },
+    {
+      "match_id": "jc:2042595",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042596",
+      "n": [
+        10,
+        10,
+        9,
+        9
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        9,
+        9
+      ],
+      "complete": false,
+      "missing_history_ids": [],
+      "missing_reasons": [
+        "insufficient_window"
+      ]
+    },
+    {
+      "match_id": "jc:2042597",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042600",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    },
+    {
+      "match_id": "jc:2042601",
+      "n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": true,
+      "missing_history_ids": [],
+      "missing_reasons": []
+    }
+  ],
+  "complete_targets": 16,
+  "unresolved_targets": [
+    {
+      "match_id": "jc:2042564",
+      "n": [
+        10,
+        10,
+        8,
+        8
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        8,
+        8
+      ],
+      "complete": false,
+      "missing_history_ids": [],
+      "missing_reasons": [
+        "insufficient_window"
+      ]
+    },
+    {
+      "match_id": "jc:2042565",
+      "n": [
+        9,
+        9,
+        9,
+        9
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "complete": false,
+      "missing_history_ids": [
+        "fdorg:561921",
+        "fdorg:561928"
+      ],
+      "missing_reasons": [
+        "not_provided"
+      ]
+    },
+    {
+      "match_id": "jc:2042593",
+      "n": [
+        8,
+        8,
+        10,
+        10
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        8,
+        8,
+        10,
+        10
+      ],
+      "complete": false,
+      "missing_history_ids": [],
+      "missing_reasons": [
+        "insufficient_window"
+      ]
+    },
+    {
+      "match_id": "jc:2042594",
+      "n": [
+        10,
+        10,
+        8,
+        8
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        8,
+        8
+      ],
+      "complete": false,
+      "missing_history_ids": [],
+      "missing_reasons": [
+        "insufficient_window"
+      ]
+    },
+    {
+      "match_id": "jc:2042596",
+      "n": [
+        10,
+        10,
+        9,
+        9
+      ],
+      "N": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "sample_n": [
+        10,
+        10,
+        9,
+        9
+      ],
+      "complete": false,
+      "missing_history_ids": [],
+      "missing_reasons": [
+        "insufficient_window"
+      ]
+    }
+  ],
+  "selected_histories_unchanged": true,
+  "second_replay": {
+    "operation": "replay_fd",
+    "requests": 0,
+    "files": [
+      {
+        "div": "D1",
+        "season": "2627",
+        "sha256": "490b69c06ec2890be818372c7ea3bd5413b7fe6539185890d9eaeb6b59a6f22b",
+        "inserted": 0,
+        "rejected": 0
+      },
+      {
+        "div": "E0",
+        "season": "2627",
+        "sha256": "c429b75f681dc7aaec5641a23320402409530b4b01a9f147bb7e386fe508159b",
+        "inserted": 0,
+        "rejected": 7
+      },
+      {
+        "div": "E1",
+        "season": "2627",
+        "sha256": "c7fa2ecb1aaff715701c0bc0f2d812ec46e71dfbfd1540168ecd0ce4d6210fb4",
+        "inserted": 0,
+        "rejected": 0
+      },
+      {
+        "div": "F1",
+        "season": "2627",
+        "sha256": "18fed04746c2f4d764e02a331d5e94b0ca6c71c102ee82ae95423e4de410f4c0",
+        "inserted": 0,
+        "rejected": 1
+      },
+      {
+        "div": "F2",
+        "season": "2627",
+        "sha256": "f578606f30ad2f5a48e1b0953510237fb084b6f1c661185022e8ddcc0c0a0a10",
+        "inserted": 0,
+        "rejected": 11
+      },
+      {
+        "div": "I1",
+        "season": "2627",
+        "sha256": "4138a4f01e96312a7a5dc07450c7a520c3861a479620fe3d102f12d42a6678ba",
+        "inserted": 0,
+        "rejected": 0
+      },
+      {
+        "div": "N1",
+        "season": "2627",
+        "sha256": "5f5cdffe5f8c413ae73bd1988b259d453a05ba6884e2a2b6060a17fa71867ed1",
+        "inserted": 0,
+        "rejected": 2
+      },
+      {
+        "div": "P1",
+        "season": "2627",
+        "sha256": "eed51b09af8112e9f2e35d062f67dd07e5ae73ac267cd0235237f30eeabacae8",
+        "inserted": 0,
+        "rejected": 6
+      },
+      {
+        "div": "SP1",
+        "season": "2627",
+        "sha256": "a382f00d78d85eae814e8b06a4a0d5ba0dd70905156f20b02f8c0e6c28b7c7d6",
+        "inserted": 0,
+        "rejected": 0
+      }
+    ],
+    "inserted": 0,
+    "rejected": 27
+  },
+  "idempotent": {
+    "inserted_zero": true,
+    "database_bytes_unchanged": true,
+    "all_tables_unchanged": true,
+    "state_audit_index_files_unchanged": true
+  },
+  "technical_counts_after": {
+    "apif_fixture_index": 10755,
+    "fd_stats_links": 52,
+    "match_events": 96,
+    "match_injuries": 100355,
+    "match_lineups": 501,
+    "match_stats": 341284
+  },
+  "roundtrip_restore_rows": {
+    "match_stats": 341284,
+    "match_events": 96,
+    "match_lineups": 501,
+    "match_injuries": 100355
+  },
+  "database_sha256": {
+    "repair": "4d935b1e07b423ab83e5abab41717bbb9d730d7007f47686518170e2ed4eab83",
+    "roundtrip": "6258d63968f6c14068eb6b6e3719de4c08dc6dcab4353fefc63b79f247ce1938"
+  },
+  "roundtrip": {
+    "technical_rows_and_links_exact": true,
+    "production_snapshot_exact": true,
+    "features_exact": true,
+    "source_core_unchanged": true,
+    "restored_core_exact": true,
+    "foreign_keys_clean": true,
+    "integrity_ok": true,
+    "feed_manifest_sha256": "a8482457d74fb52b237a83b0e0b510734a60d7be1aa2030782fbc3f5dab6be67",
+    "feed_counts": {
+      "teams": 999,
+      "matches": 34901,
+      "results": 34207,
+      "odds": 10356,
+      "closing_odds": 100030
+    }
+  },
+  "source_artifacts_forecasts_accounts_unchanged": true,
+  "changed_protected_paths": [],
+  "implementation_source_unchanged": true,
+  "changed_implementation_paths": []
+}
