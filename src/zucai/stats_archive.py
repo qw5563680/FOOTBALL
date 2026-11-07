@@ -10,6 +10,7 @@ from pathlib import Path
 
 from sqlalchemy import JSON
 
+from zucai.fd_stats_links import fd_link_authorizes, validate_fd_links
 from zucai.injuries_archive import check_published
 from zucai.sources.base import _atomic_write
 from zucai.stats_release import validate_name, validate_tag
@@ -64,6 +65,7 @@ def read_rows_manifest(database):
 
 
 def check_stats(db, *, rows=True):
+    fd_links = validate_fd_links(db)
     tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     present = tables & STATS_COLUMNS.keys()
     if not present:
@@ -116,15 +118,32 @@ def check_stats(db, *, rows=True):
     for table in LEGACY_ROW_TABLES if rows else ():
         if db.execute(f"""SELECT 1 FROM {table} t JOIN matches m USING(match_id)
             WHERE t.team_id <> CASE t.side WHEN 'home' THEN m.home_team_id ELSE m.away_team_id END
-            OR (t.provider='fd' AND NOT (
-                (m.source='fd' AND t.provider_fixture_id=t.match_id)
-                OR (m.source='jc' AND COALESCE(m.counterpart_id,'')=t.provider_fixture_id)))
             OR (t.provider='apif' AND NOT EXISTS (
                 SELECT 1 FROM apif_fixture_index i WHERE i.provider_fixture_id=t.provider_fixture_id
                 AND i.match_id=t.match_id AND t.provider_team_id=CASE t.side
                     WHEN 'home' THEN i.home_provider_id ELSE i.away_provider_id END))
             LIMIT 1""").fetchone():
             raise ValueError(f"技术数据 {table} 身份或主客校验失败")
+        for fixture_id, match_id, sha, location, captured, source in db.execute(f"""
+            SELECT t.provider_fixture_id,t.match_id,t.raw_sha256,t.raw_location,t.captured_utc,
+                m.source FROM {table} t JOIN matches m USING(match_id)
+            WHERE t.provider='fd' AND NOT (
+                (m.source='fd' AND t.provider_fixture_id=t.match_id)
+                OR (m.source='jc' AND COALESCE(m.counterpart_id,'')=t.provider_fixture_id))
+            """):
+            link = fd_links.get(fixture_id)
+            if (
+                source != "jc"
+                or link is None
+                or not fd_link_authorizes(
+                    link,
+                    match_id=match_id,
+                    raw_sha256=sha,
+                    raw_location=location,
+                    captured_utc=captured,
+                )
+            ):
+                raise ValueError(f"技术数据 {table} fd 身份或原件证据校验失败")
     if rows:
         for table in LEGACY_ROW_TABLES:
             if db.execute(

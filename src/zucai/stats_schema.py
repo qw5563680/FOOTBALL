@@ -2,7 +2,15 @@
 
 from sqlalchemy import inspect
 
-from zucai.models import ApifFixtureIndex, Base, MatchEvent, MatchInjury, MatchLineup, MatchStat
+from zucai.models import (
+    ApifFixtureIndex,
+    Base,
+    FdStatsLink,
+    MatchEvent,
+    MatchInjury,
+    MatchLineup,
+    MatchStat,
+)
 
 STATS_MODELS = (ApifFixtureIndex, MatchStat, MatchEvent, MatchLineup, MatchInjury)
 STATS_COLUMNS = {
@@ -24,4 +32,6 @@ def migrate_stats(engine):
                     "未部署的 T38 伤停草稿表不支持迁移；从既有 v1/v2 feeds 归档恢复后重新回放原件"
                 )
         connection.exec_driver_sql("BEGIN IMMEDIATE")
-        Base.metadata.create_all(connection, tables=[model.__table__ for model in STATS_MODELS])
+        Base.metadata.create_all(
+            connection, tables=[model.__table__ for model in (*STATS_MODELS, FdStatsLink)]
+        )

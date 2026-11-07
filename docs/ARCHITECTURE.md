@@ -83,8 +83,24 @@ T45 不加数据库表：比赛与球队身份仍取 `matches` 的主外键。�
 
 ### T31 技术数据附属表
 
+T48 新增 `fd_stats_links`：`provider_fixture_id` 主键、`match_id` 唯一外键，保存
+div/season/league、原件开球、原始主客名称与规范球队 ID、真实 captured_utc、原件 SHA256/位置、
+正式别名快照哈希和逐次原件观察证据。只建立统计附着，不修改 `matches.counterpart_id`，不创建球队或比赛。
+已有明确 jc→fd counterpart 在历史和日常路径均可复用；额外关联只用正式 approved/auto_verified
+别名、同联赛/同向主客 ID、三小时窗口及双向唯一检查，反向、歧义或同窗冲突拒绝并审计。
+
+该索引不加入 `STATS_COLUMNS`/`ROW_TABLES`，不改变既有技术数据 v1/v2/v3 的行快照。
+feeds 将可选 `state/fd_stats_links.jsonl` 列入文件哈希及独立版本化描述，恢复时先装入并验证
+全部身份/别名/原件观察，再验证和恢复技术行；writer 与 archive 共用同一关联验证。
+没有额外索引的旧归档继续走既有 fd/counterpart 校验。额外关联缺失或篡改不能授权技术行。
+
+`stats replay-fd` 使用显式的原件路径、div、season、CSV SHA256、sidecar SHA256、真实
+captured_utc 和长期 raw_location。先检查全部清单，再逐原件事务重放；不依赖调度游标，
+不请求网络、不改来源时钟；历史回放仍为 backfilled/null available。重放前必须在隔离副本
+完整恢复旧技术分片和回执，随后本地 publish_rows/export/restore 验证，不向生产自动发布。
+
 技术数据独立保存，不改 `matches`、`results`、`teams` 等既有表，不改赛果可知时间、冻结预测、
-模型或训练选择。`stats migrate` 只创建附属表（T38 增加第五张）；日常 `init_db` 在新库中也会创建它们。
+模型或训练选择。`stats migrate` 只创建附属表（T38 第五张，T48 另加统计关联索引）；日常 `init_db` 在新库中也会创建它们。
 
 | 表 | 内容与逻辑身份 |
 | --- | --- |
@@ -105,7 +121,7 @@ FT 标 `90/false/true`；AET/PEN 标 `incl_extra_time/true/false`；其余状态
 
 `sources/apif_stats.py` 只解析已归档的四类端点，先核对 get、fixture、errors、results 和完整单页。
 `sources/fd_stats.py` 经 `FootballDataCoUk.parse_statistics` 解析九个主联赛季文件，不读赔率，不解析国别文件。
-`stats ingest-fd` 只挂到已有且联赛/开球一致的 fd 主键；不创建球队或比赛。
+`stats ingest-fd` 挂到已有且联赛/开球一致的 fd 主键，或经 T48 证据核验的既有竞彩主键；不创建球队或比赛。
 解析异常按来源行拒绝并写 `state/audit/stats_ingest_audit.csv`，同批其他有效行可继续。
 空 statistics 对两支已知球队写缺失指标；空 events/lineups/players 只记审计，不虚构事件或球员。
 

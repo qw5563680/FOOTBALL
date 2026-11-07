@@ -13,11 +13,27 @@ from urllib.parse import parse_qs, urlparse
 from sqlalchemy import select, text
 
 from zucai.db import get_engine, session_scope
-from zucai.models import ApifFixtureIndex, Match, MatchEvent, MatchLineup, MatchStat
+from zucai.fd_stats_links import (
+    FD_LINK_COLUMNS,
+    _model_dict,
+    _session_context,
+    _validate_link,
+    canonical_fd_sides,
+    fd_link_authorizes,
+    resolve_fd_match,
+)
+from zucai.models import ApifFixtureIndex, FdStatsLink, Match, MatchEvent, MatchLineup, MatchStat
 from zucai.sources.apif_stats import envelope, fixture_identity, instant, parse_endpoint
 from zucai.sources.base import _atomic_write
 from zucai.sources.fd_ingest import fd_match_id
-from zucai.sources.football_data import LEAGUES_PATH, FootballDataCoUk, csv_url, read_json
+from zucai.sources.football_data import (
+    ALIASES_PATH,
+    LEAGUES_PATH,
+    FootballDataCoUk,
+    csv_url,
+    read_json,
+)
+from zucai.sources.teams import normalize_team
 from zucai.stats_schema import migrate_stats
 
 AUDIT_FIELDS = (
@@ -156,10 +172,10 @@ def _preserve(new, old):
     return new
 
 
-def observation_clocks(audit):
+def observation_clocks(audit, *, records=None):
     """Unchanged valid observations advance freshness without inventing a new value version."""
     clocks = {}
-    for receipt in read_audit(audit):
+    for receipt in read_audit(audit) if records is None else records:
         if receipt["outcome"] != "ingested":
             continue
         detail = json.loads(receipt["detail"])
@@ -183,6 +199,7 @@ def _receipt_detail(rows, inserted, rejected=0):
 def store_rows(session, rows, metadata, *, clocks=None, daily=False):
     """Append corrections per logical record; never mutate an earlier observation."""
     inserted = 0
+    validated_links = {}
     keys = [(r["provider"], r["provider_fixture_id"], r["endpoint"], r["record_key"]) for r in rows]
     if len(set(keys)) != len(keys):
         raise ValueError("技术数据逻辑行键重复")
@@ -211,11 +228,23 @@ def store_rows(session, rows, metadata, *, clocks=None, daily=False):
                 or row["provider_team_id"] != getattr(index, row["side"] + "_provider_id")
             ):
                 raise ValueError("技术数据缺少一致的 fixture 索引")
-        elif not (
-            (match.source == "fd" and row["provider_fixture_id"] == match.match_id)
-            or (match.source == "jc" and match.counterpart_id == row["provider_fixture_id"])
-        ):
-            raise ValueError("fd 技术数据须附着既有 fd 行或其已核验 jc counterpart")
+        else:
+            legacy = (match.source == "fd" and row["provider_fixture_id"] == match.match_id) or (
+                match.source == "jc" and match.counterpart_id == row["provider_fixture_id"]
+            )
+            link = session.get(FdStatsLink, row["provider_fixture_id"])
+            if link is not None:
+                if link.provider_fixture_id not in validated_links:
+                    teams, matches = _session_context(session)
+                    validated_links[link.provider_fixture_id] = _validate_link(
+                        _model_dict(link, FD_LINK_COLUMNS), teams, matches
+                    )
+                if not fd_link_authorizes(
+                    validated_links[link.provider_fixture_id], match_id=match.match_id, **metadata
+                ):
+                    raise ValueError("fd 技术数据缺少一致的原件关联观察")
+            elif not legacy:
+                raise ValueError("fd 技术数据须附着既有 fd 行、jc counterpart 或一致统计关联")
         scope = [
             getattr(model, key) == row[key]
             for key in ("provider", "provider_fixture_id", "endpoint", "record_key")
@@ -288,10 +317,10 @@ def link_archive(database, raw_file, *, league_id, season, aliases_path, raw_loc
     return {k: v for k, v in result.items() if k != "audit"}
 
 
-def _record_duplicate(audit, provider_fixture_id, endpoint, metadata):
+def _record_duplicate(audit, provider_fixture_id, endpoint, metadata, *, records=None):
     previous = [
         row
-        for row in read_audit(audit)
+        for row in (read_audit(audit) if records is None else records)
         if row["provider_fixture_id"] == str(provider_fixture_id)
         and row["endpoint"] == endpoint
         and row["raw_sha256"] == metadata["raw_sha256"]
@@ -429,7 +458,15 @@ def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location
 
 
 def ingest_fd(
-    database, raw_file, *, div, season, leagues_path=None, raw_location=None, daily=False
+    database,
+    raw_file,
+    *,
+    div,
+    season,
+    leagues_path=None,
+    raw_location=None,
+    daily=False,
+    aliases_path=None,
 ):
     raw, meta = load_raw(
         raw_file, endpoint="csv", parameters={"div": div, "season": season}, location=raw_location
@@ -438,6 +475,7 @@ def ingest_fd(
     adapter = FootballDataCoUk(leagues=leagues, div_code=div, season=season)
     games = adapter.parse_statistics(raw)
     league = leagues[div]["league"]
+    aliases = read_json(aliases_path or ALIASES_PATH)
     rejected, inserted, receipts = len(adapter.rejected), 0, []
     base = dict(endpoint="csv", league=league, season=season, **meta)
     for row in adapter.rejected:
@@ -452,43 +490,67 @@ def ingest_fd(
         )
     ids = Counter(fd_match_id(game) for game in games)
     with transaction(database, "stats_ingest_audit.csv") as (session, audit):
-        clocks = observation_clocks(audit)
-        for game in games:
+        records = read_audit(audit)
+        clocks = observation_clocks(audit, records=records)
+        # Plan the whole raw response before writing any proof. Competing aliases,
+        # reversed pairs and shared-team games reject all peers, not only the last one.
+        plans, failures, incoming = {}, {}, {}
+        context = _session_context(session)
+        for position, game in enumerate(games):
+            try:
+                incoming[position] = canonical_fd_sides(
+                    context[0], aliases, league, game.home_raw, game.away_raw
+                )
+            except ValueError:
+                pass  # Legacy pointers need no alias; unresolved names cannot grant identity.
+            try:
+                if ids[fd_match_id(game)] != 1:
+                    raise ValueError("同一原件 provider fixture ID 重复")
+                plans[position] = resolve_fd_match(
+                    session, game, league, meta, aliases, persist=False, context=context
+                )
+                incoming[position] = (plans[position].home_team_id, plans[position].away_team_id)
+            except ValueError as exc:
+                failures[position] = str(exc)
+        raw_sides = [
+            {normalize_team(g.home_raw).casefold(), normalize_team(g.away_raw).casefold()}
+            for g in games
+        ]
+        for position, game in enumerate(games):
+            for other_position in range(position):
+                if (
+                    abs(game.kickoff_utc - games[other_position].kickoff_utc) <= timedelta(hours=3)
+                    and raw_sides[position] & raw_sides[other_position]
+                ):
+                    failures[position] = "同窗 FD 原队名冲突"
+                    failures[other_position] = "同窗 FD 原队名冲突"
+        for position, pair in incoming.items():
+            for other_position, other in incoming.items():
+                if position == other_position:
+                    continue
+                if abs(
+                    games[position].kickoff_utc - games[other_position].kickoff_utc
+                ) <= timedelta(hours=3) and (set(pair) & set(other)):
+                    failures[position] = "整批 FD 原件存在多对一、反向或共享球队冲突"
+        for position, game in enumerate(games):
             match_id = fd_match_id(game)
             receipt = dict(base, provider_fixture_id=match_id)
-            if _record_duplicate(audit, match_id, "csv", meta):
-                continue
-            match = session.get(Match, match_id)
-            if match is None and daily:
-                linked = list(
-                    session.scalars(
-                        select(Match).where(
-                            Match.source == "jc",
-                            Match.counterpart_id == match_id,
-                            Match.league == league,
-                            Match.kickoff_utc >= game.kickoff_utc - timedelta(hours=3),
-                            Match.kickoff_utc <= game.kickoff_utc + timedelta(hours=3),
-                        )
-                    )
-                )
-                if len(linked) == 1:
-                    match = linked[0]
-            if (
-                ids[match_id] != 1
-                or not match
-                or match.source not in ({"fd", "jc"} if daily else {"fd"})
-                or match.league != league
-                or (match.source == "fd" and instant(match.kickoff_utc) != game.kickoff_utc)
-            ):
+            if position in failures:
                 receipts.append(
                     dict(
                         receipt,
                         outcome="rejected",
                         reason="候选不全",
-                        detail="未找到唯一且时间一致的既有 fd 行",
+                        record_key="fd-link-rejection:"
+                        + hashlib.sha256(failures[position].encode()).hexdigest()[:16],
+                        detail=failures[position],
                     )
                 )
                 rejected += 1
+                continue
+            # Validate identities even on a duplicate; an old receipt is not authority.
+            match = resolve_fd_match(session, game, league, meta, aliases, context=context)
+            if _record_duplicate(audit, match_id, "csv", meta, records=records):
                 continue
             rows = [
                 dict(

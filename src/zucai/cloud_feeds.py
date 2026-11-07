@@ -20,6 +20,8 @@ from tempfile import TemporaryDirectory
 from requests import RequestException
 
 from zucai.db import get_engine, init_db
+from zucai.fd_stats_archive import export_fd_links, restore_fd_links, validate_fd_links_manifest
+from zucai.fd_stats_links import FD_LINK_FILE
 from zucai.sfc_state import export_sfc_state, restore_sfc_state
 from zucai.sources.results import ResultRowsRejected, fetch_results
 from zucai.sources.sporttery import BEIJING, fetch_schedule
@@ -210,6 +212,9 @@ def export_feeds(
                 dump_rows(archive / key, db.execute(query + f" ORDER BY {','.join(cols)}"))
                 files.append(key)
         files.extend(export_sfc_state(db, archive))
+        fd_links = export_fd_links(db, archive)
+        if fd_links is not None:
+            files.append(FD_LINK_FILE)
         technical_data = export_stats(db, archive, source)
         files.extend((INDEX_FILE, ROWS_MANIFEST))
         sources = source_inventory(db)
@@ -283,6 +288,8 @@ def export_feeds(
         "pending_result_dates": sorted({row["date"] for row in pending}),
         "files": {k: digest(archive / k) for k in sorted(files)},
     }
+    if fd_links is not None:
+        manifest["fd_stats_links"] = fd_links
     (archive / MANIFEST).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -294,7 +301,7 @@ def archive_info(archive: Path) -> dict:
     if meta["version"] not in (1, 2):
         raise ValueError("不支持的云端归档版本")
     for key, want in meta["files"].items():
-        if key not in STATS_FILES and not re.fullmatch(
+        if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
             rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
             key,
         ):
@@ -313,6 +320,7 @@ def archive_info(archive: Path) -> dict:
     if meta["version"] == 2 and "state/closing_odds.jsonl" not in meta["files"]:
         raise ValueError("云端数据校验失败：缺少 closing_odds")
     validate_stats_manifest(meta)
+    validate_fd_links_manifest(meta)
     return meta
 
 
@@ -351,6 +359,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                 if count != meta["counts"][table]:
                     raise ValueError(f"{table} 行数校验失败")
             restore_sfc_state(db, archive, meta["files"])
+            restore_fd_links(db, archive, meta)
             restore_stats(db, archive, meta)
             check_db(db)
             if meta["version"] == 2 and source_inventory(db) != meta.get("sources"):

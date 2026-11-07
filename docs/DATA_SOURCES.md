@@ -607,6 +607,14 @@ T32 使用 `data/api_football/stats_coverage.json` 的初始 unsupported 规则�
 `stats link --fetch` 仅允许审查者在 Actions 手动对七桥接＋2 请求一页 fixtures，不导入比赛；
 原件回放 `--raw-file` 不发请求。以上为 T31 边界；T32 技术通道的间隔、任务时长与增量如下，普通采集请求不变。
 
+### T48 既有 fd 原件的统计附着
+
+T48（2026-11-07，既有归档离线修复）：历史 fd 统计可复用已核验 jc→fd counterpart；
+另一来源已占用 counterpart 或为空时，用正式 fd 别名、同联赛/同向主客规范ID、三小时窗口和
+双向唯一证据建立独立 `fd_stats_links`，不覆盖 fdorg 关系，不作相似名绑定。只读已保存
+CSV及sidecar，不新增体育HTTP、robots、权限或配额结论。旧原件的 captured_utc、SHA和
+backfilled/null available 保持原样；旧冻结预测与账户不回写。原件重放入口不依赖 ok 游标。
+
 ### T38 伤停字段、捕获时间与空接口边界
 
 复用 `injuries?league&season` 已有单页请求，不新增采集源、路径、频率或配额。正式 key 只在 Actions；
