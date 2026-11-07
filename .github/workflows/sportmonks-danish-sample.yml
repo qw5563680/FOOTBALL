@@ -38,7 +38,7 @@ jobs:
           print("GAME",json.dumps([g["id"],g["starting_at"],g["name"],g["state"]["state"],[(p["id"],p["name"],p["meta"]["location"]) for p in g["participants"]],[(s["description"],s["score"]) for s in g["scores"]]],ensure_ascii=False))
           def stats(rows):
               return [(r.get("participant_id"),r["type_id"],r.get("data",{}).get("value")) for r in rows or []]
-          for inc in ("statistics.type","periods.statistics","lineups.details.type","events.type","trends"):
+          for inc in ("lineups.details.type",):
               d=get("fixtures/"+str(g["id"]),include=inc)
               if not isinstance(d,dict) or d.get("id")!=g["id"]:continue
               if inc=="statistics.type":print("STATS",json.dumps(stats(d.get("statistics"))))
@@ -54,6 +54,15 @@ jobs:
                       if t["type_id"] in (43,44,117,580,581):
                           print("TARGET_TREND",json.dumps({k:t.get(k) for k in ("type_id","participant_id","period_id","minute","value","data")}))
               else:
-                  for l in d.get("lineups") or []:
-                      details={a.get("type",{}).get("code",str(a["type_id"])):a.get("data",{}).get("value") for a in l.get("details") or []}
-                      print("PLAYER",json.dumps([l.get("team_id"),l.get("player_id"),l.get("type_id"),{k:v for k,v in details.items() if k in ("minutes-played","clearances","possession-lost","tackles","tackles-won","key-passes","big-chances-created","big-chances-missed","long-balls","long-balls-won","dribble-attempts","successful-dribbles")}, sorted(details) if len(details)>0 and l==(d.get("lineups") or [None])[0] else []]))
+                  for team in g["participants"]:
+                      active=[]
+                      for l in d.get("lineups") or []:
+                          if l.get("team_id") != team["id"]: continue
+                          detail={(a.get("type") or {}).get("code"):a.get("data",{}).get("value") for a in l.get("details") or []}
+                          if (detail.get("minutes-played") or 0)>0:
+                              active.append(detail)
+                              if l.get("position_id")==24 or "goalkeeper-goals-conceded" in detail:
+                                  print("KEEPER",team["id"],l["player_id"],l.get("position_id"),detail.get("minutes-played"),detail.get("saves"))
+                      keys=set().union(*(set(p) for p in active))
+                      totals={k:sum(p[k] for p in active) for k in keys if all(isinstance(p.get(k),(int,float)) for p in active)}
+                      print("COMPLETE_PLAYER_SUMS",team["id"],len(active),json.dumps(totals))
