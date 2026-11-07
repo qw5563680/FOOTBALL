@@ -1,0 +1,51 @@
+name: T48 owner-authorized publication
+on:
+  push:
+    branches: [handoff/t48-publication-20261108-3783d4e]
+    paths:
+      - '.github/workflows/t48-handoff-publish.yml'
+      - 'handoff/**'
+permissions:
+  contents: write
+concurrency:
+  group: write-football-feed-data
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read pinned handoff and verify unmodified business code without clone
+        env:
+          FOOTBALL_PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import os,urllib.request
+          from pathlib import Path
+          url='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/handoff/bootstrap.py?ref='+os.environ['GITHUB_SHA']
+          request=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['FOOTBALL_PUBLISH_TOKEN'],'User-Agent':'football-t48-bootstrap','Accept':'application/vnd.github.raw+json'})
+          with urllib.request.urlopen(request,timeout=120) as response: Path('bootstrap.py').write_bytes(response.read())
+          PY
+          python bootstrap.py
+      - name: Install existing development dependencies
+        run: python -m pip install -e './code[dev]'
+      - name: Check unchanged business source and run existing offline tests
+        working-directory: code
+        run: |
+          ruff check src tests examples
+          pytest -q
+      - name: Upload immutable assets, preserve full tree, publish and read back
+        env:
+          FOOTBALL_PUBLISH_TOKEN: ${{ github.token }}
+        run: python t48_publish.py
+      - name: Retain publication journal and full readback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t48-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: publication-evidence
+          if-no-files-found: warn
+          retention-days: 90
