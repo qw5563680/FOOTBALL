@@ -1,0 +1,52 @@
+name: Sportmonks Danish match sample
+on:
+  push:
+    branches: ['probe/sportmonks-derby-20261108']
+    paths: ['.github/workflows/sportmonks-danish-sample.yml']
+  workflow_dispatch:
+permissions: {}
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Read completed Superliga fixture
+        shell: python
+        env:
+          SM_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
+        run: |
+          import json, os
+          from urllib import request, parse, error
+          class NoRedirect(request.HTTPRedirectHandler):
+              def redirect_request(self, *args): return None
+          client=request.build_opener(NoRedirect())
+          def get(path, **params):
+              url="https://api.sportmonks.com/v3/football/"+path+"?"+parse.urlencode(params)
+              req=request.Request(url,headers={"Authorization":os.environ["SM_TOKEN"],"Accept":"application/json"})
+              try:
+                  with client.open(req,timeout=35) as f:
+                      reply=json.load(f)
+                      print("QUERY", path, params.get("include"), "HTTP", f.status, "keys", sorted(reply))
+                      return reply.get("data")
+              except error.HTTPError as e:
+                  print("QUERY",path,params.get("include"),"HTTP",e.code)
+                  return None
+          games=get("fixtures/between/2026-10-30/2026-11-02",filters="fixtureLeagues:271",include="participants;state;scores",per_page=50)
+          eligible=sorted((g for g in games or [] if g["league_id"]==271 and g["state"]["state"]=="FT"),key=lambda g:(g["starting_at"],g["id"]))
+          if not eligible: raise SystemExit("No confirmed FT sample")
+          g=eligible[0]
+          print("GAME",json.dumps([g["id"],g["starting_at"],g["name"],g["state"]["state"],[(p["id"],p["name"],p["meta"]["location"]) for p in g["participants"]],[(s["description"],s["score"]) for s in g["scores"]]],ensure_ascii=False))
+          def stats(rows):
+              return [(r.get("participant_id"),r["type_id"],r.get("data",{}).get("value")) for r in rows or []]
+          for inc in ("statistics","periods.statistics","xGFixture","lineups.details.type"):
+              d=get("fixtures/"+str(g["id"]),include=inc)
+              if not isinstance(d,dict) or d.get("id")!=g["id"]:continue
+              if inc=="statistics":print("STATS",json.dumps(stats(d.get("statistics"))))
+              elif inc=="periods.statistics":
+                  for p in d.get("periods") or []:print("PERIOD",p["type_id"],json.dumps([x for x in stats(p.get("statistics")) if x[1]==34]))
+              elif inc=="xGFixture":
+                  print("XG",json.dumps([(r.get("participant_id") or r.get("team_id"),r.get("type_id"),r.get("data")) for r in d.get("xgfixture",d.get("xGFixture",[])) or []]),"keys",sorted(d.keys()))
+              else:
+                  for l in d.get("lineups") or []:
+                      details={a.get("type",{}).get("code",str(a["type_id"])):a.get("data",{}).get("value") for a in l.get("details") or []}
+                      print("PLAYER",json.dumps([l.get("team_id"),l.get("player_id"),l.get("type_id"),{k:v for k,v in details.items() if k in ("minutes-played","clearances","possession-lost","tackles","tackles-won","key-passes","big-chances-created","big-chances-missed","long-balls","long-balls-won","dribble-attempts","successful-dribbles")}, sorted(details) if len(details)>0 and l==(d.get("lineups") or [None])[0] else []]))
