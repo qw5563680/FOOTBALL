@@ -1,0 +1,34 @@
+name: Nations League sample
+on:
+  push:
+    branches: ['probe/sportmonks-derby-20261108']
+    paths: ['.github/workflows/nations-league-sample.yml']
+permissions: {}
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check France Belgium statistics
+        shell: python
+        env:
+          AP: ${{ secrets.API_FOOTBALL_KEY }}
+        run: |
+          import os,json,time
+          from urllib.request import Request,build_opener,HTTPRedirectHandler
+          from urllib.parse import urlencode
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self,*args):return None
+          client=build_opener(NoRedirect())
+          def read(endpoint,**q):
+              req=Request("https://v3.football.api-sports.io/"+endpoint+"?"+urlencode(q),headers={"x-apisports-key":os.environ["AP"]})
+              with client.open(req,timeout=25) as f:r=json.load(f)
+              if r.get("errors"):raise SystemExit("API rejected "+endpoint)
+              return r["response"]
+          rows=read("fixtures",league=5,season=2026,date="2026-10-05")
+          g=next(g for g in rows if g["teams"]["home"]["name"]=="France" and g["teams"]["away"]["name"]=="Belgium" and g["fixture"]["status"]["short"]=="FT")
+          print("MATCH",g["fixture"]["id"],g["league"]["name"],g["fixture"]["date"],g["score"]["halftime"],g["score"]["fulltime"])
+          time.sleep(6.2)
+          stats=read("fixtures/statistics",fixture=g["fixture"]["id"])
+          for team in stats:
+              print("STATS",team["team"]["name"],json.dumps({x["type"]:x["value"] for x in team["statistics"]}))
