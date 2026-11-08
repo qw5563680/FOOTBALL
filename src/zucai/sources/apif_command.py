@@ -6,6 +6,8 @@ from datetime import timedelta
 from pathlib import Path
 
 from zucai.db import get_engine, init_db, session_scope
+from zucai.nations import LEAGUE as NATIONS_LEAGUE
+from zucai.nations import identities
 from zucai.sources.api_common import LocalValidationError
 from zucai.sources.api_football import LEAGUES, ApiFootball
 from zucai.sources.apif_aliases import validate_approvals
@@ -53,6 +55,11 @@ def fetch_apif(
         raise LocalValidationError("--date 增量只允许 captured，不能指定假设")
     leagues = read_json(leagues_path or LEAGUES)
     aliases = read_json(aliases_path or ALIASES)
+    if aliases_path is None:
+        aliases[NATIONS_LEAGUE] = {
+            key: {"canonical": side["canonical"], "status": "auto_verified"}
+            for key, side in identities()["teams"].items()
+        }
     validate_approvals(aliases, require_metadata=aliases_path is None)
     source = ApiFootball(
         store=RawStore(raw_root), leagues=leagues, quota_path=quota_path, reserve=reserve

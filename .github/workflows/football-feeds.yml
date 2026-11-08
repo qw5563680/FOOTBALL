@@ -163,6 +163,7 @@ jobs:
         env:
           FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          ZUCAI_NATIONS_LEAGUE: "1"
           LOOKBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.operation != 'daily' && format('{0}', inputs.days) || '3' }}
           FEED_SLOT: ${{ (github.event_name == 'schedule' || inputs.operation == 'daily') && 'auto' || fromJSON(inputs.options || '{}').slot || 'auto' }}
         run: |

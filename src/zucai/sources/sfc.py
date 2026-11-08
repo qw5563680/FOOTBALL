@@ -11,6 +11,8 @@ from sqlalchemy import delete, select
 
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
+from zucai.nations import LEAGUE as NATIONS_LEAGUE
+from zucai.nations import sfc_team
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
 from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
@@ -121,6 +123,14 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
         return match, "matched", [m.match_id for m in linked], evidence
     home_name = bridge["home"] if bridge else fixture.home
     away_name = bridge["away"] if bridge else fixture.away
+    if fixture.league == NATIONS_LEAGUE and not bridge:
+        home_name = sfc_team(fixture.home_id, home_name)
+        away_name = sfc_team(fixture.away_id, away_name)
+        evidence = {
+            "basis": "national_team_ids_and_exact_kickoff",
+            "home_id": fixture.home_id,
+            "away_id": fixture.away_id,
+        }
     home, away = _find_team(session, home_name), _find_team(session, away_name)
     # An earlier SFC-only record may retain the source's abbreviated names.
     # Check that original identity before considering the bridge's longer names;

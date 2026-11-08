@@ -72,11 +72,12 @@ def read_history(
     frame.attrs["sources"] = sources or sorted(frame.source.unique())
     for key in ("kickoff_utc", "available_utc"):
         frame[key] = pd.to_datetime(frame[key], utc=True, format="ISO8601")
-    if training_leagues is not None:
+    if training_leagues is not None or league == "欧国联":
         from zucai.predict.pooled import linked_representatives
 
         frame = linked_representatives(frame)
-        frame.attrs["training_leagues"] = sorted(training_leagues)
+        if training_leagues is not None:
+            frame.attrs["training_leagues"] = sorted(training_leagues)
     reject_cross_source_overlaps(frame)
     frame["available_source"] = availability_sources(frame)
     frame.attrs["replay_delay"] = None

@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from zucai.cloud_feeds import digest, restore_feeds
 from zucai.db import get_engine
 from zucai.forecast_archive import _component, publish_forecasts, verify_forecasts
-from zucai.models import Match
+from zucai.models import Match, SfcIssue
+from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.command import train
 from zucai.predict.dixon_coles import DixonColes
 from zucai.predict.parameters import (
@@ -30,6 +31,7 @@ from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
 from zucai.report.render import write_report
 from zucai.scoreboard.evidence import read_evidence
+from zucai.sources.sfc import refresh_snapshot
 from zucai.sources.sporttery import BEIJING
 
 LOG = logging.getLogger(__name__)
@@ -98,6 +100,31 @@ def _summary(archive, run):
             output.write("\n".join(lines) + "\n")
 
 
+def open_national_fixtures(session, now):
+    """Include only unstarted, mapped Nations League fixtures from issues still open."""
+    by_day = {}
+    for issue in session.scalars(select(SfcIssue).where(SfcIssue.sale_end_utc > now)):
+        if not issue.snapshot or not any(
+            row.get("league") == NATIONS_LEAGUE for row in issue.snapshot
+        ):
+            continue
+        if not issue.observed_utc or datetime.fromisoformat(issue.observed_utc) > now:
+            continue
+        for row in refresh_snapshot(session, issue):
+            if (
+                row["league"] != NATIONS_LEAGUE
+                or row.get("source_ended")
+                or row.get("mapping") != "matched"
+                or not row.get("match_id")
+                or row.get("kickoff_basis") == "placeholder"
+            ):
+                continue
+            kickoff = datetime.fromisoformat(row["kickoff_utc"])
+            if kickoff > now:
+                by_day.setdefault(kickoff.astimezone(BEIJING).date(), set()).add(row["match_id"])
+    return by_day
+
+
 def run(
     archive: Path,
     params: Path | None,
@@ -121,6 +148,8 @@ def run(
     for league, entry in config["leagues"].items():
         _component(league)
         allowed = set(SOURCES) if league == POOL else {"jc", "fd"}
+        if league == NATIONS_LEAGUE:
+            allowed = {"jc", "apif"}
         if not entry.get("sources") or not set(entry["sources"]) <= allowed:
             raise ValueError(f"{league} 的训练来源必须显式配置且仅限 {' / '.join(sorted(allowed))}")
         if league == POOL and "jc" not in entry["sources"]:
@@ -228,8 +257,12 @@ def run(
                 connection.exec_driver_sql("PRAGMA query_only=ON")
                 connection.exec_driver_sql("BEGIN")
                 with Session(bind=connection) as session:
-                    for offset in range(2):
-                        forecast_day = day + timedelta(days=offset)
+                    standard_days = {day, day + timedelta(days=1)}
+                    national = open_national_fixtures(session, prediction_time)
+                    result["sfc_extra_dates"] = sorted(
+                        d.isoformat() for d in national.keys() - standard_days
+                    )
+                    for forecast_day in sorted(standard_days | national.keys()):
                         start = datetime.combine(forecast_day, time(), BEIJING)
                         keys = list(
                             session.scalars(
@@ -242,6 +275,9 @@ def run(
                                 .order_by(Match.kickoff_utc, Match.match_id)
                             )
                         )
+                        if forecast_day not in standard_days:
+                            keys = []
+                        keys.extend(sorted(national.get(forecast_day, set()).difference(keys)))
                         batch = predict_batch(
                             session,
                             model_files=[stage / outcomes[k]["model_path"] for k in fitted],

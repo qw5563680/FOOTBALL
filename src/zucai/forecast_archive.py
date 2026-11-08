@@ -53,7 +53,15 @@ def _run_files(run_id: str, run: dict) -> set[str]:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", run_id) or run["run_id"] != run_id:
         raise ValueError("无效 run ID")
     files = set()
-    if not run["leagues"] or len(run["forecasts"]) != 2:
+    extra = run.get("sfc_extra_dates", [])
+    dates = sorted(run["forecasts"])
+    if (
+        not run["leagues"]
+        or not isinstance(extra, list)
+        or len(dates) < 2
+        or extra != dates[2:]
+        or (date.fromisoformat(dates[1]) - date.fromisoformat(dates[0])).days != 1
+    ):
         raise ValueError("归档必须包含联赛训练结果和两个北京日")
     for league, result in run["leagues"].items():
         _component(league)
