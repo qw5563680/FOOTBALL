@@ -4,7 +4,7 @@ import json
 
 from zucai.forecast_archive import _path
 from zucai.report.render import _beijing, _md, _percent, _timestamp
-from zucai.report.sfc import OPTIONS
+from zucai.report.sfc import OPTIONS, pick_nine_lines
 from zucai.scoreboard.sfc import read_settled
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
 from zucai.sfc_reports import read_reports
@@ -119,6 +119,7 @@ def section(archive, feed, summary, now, link):
         lines += [
             f"复式未生成：至少 {report['minimum_lines']} 注，超过 64 注上限；覆盖概率未生成。"
         ]
+    lines += ["", *pick_nine_lines(report)]
     previous = [
         r for r in settled if r["issue_no"] < number and _timestamp(r["settled_utc"]) <= now
     ]

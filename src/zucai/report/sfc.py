@@ -227,6 +227,43 @@ def build_sfc_report(
     )
 
 
+def pick_nine_lines(report):
+    """Render one single-choice ticket from verified, frozen match probabilities."""
+    lines = ["### 任九 · 模型单选", ""]
+    if not report or report.get("sale_state") != "published_before_deadline":
+        return lines + ["未确认报告在截止前发布，本期不展示任九方案。", ""]
+    if report.get("mode") != "prematch":
+        return lines + ["没有赛前冻结预测，本期不展示任九方案。", ""]
+    eligible = [
+        row
+        for row in report["rows"]
+        if row.get("probabilities")
+        and row.get("kickoff_basis") != "placeholder"
+        and _timestamp(report["published_utc"]) < _timestamp(row["kickoff_utc"])
+    ]
+    if len(eligible) < 9:
+        return lines + [f"只有 {len(eligible)} 场有可用赛前概率，不足 9 场。", ""]
+    ranked = sorted(eligible, key=lambda r: (-max(r["probabilities"].values()), r["seq"]))
+    chosen = sorted(ranked[:9], key=lambda r: r["seq"])
+    lines += ["| 原场号 | 对阵 | 单选 | 模型概率 |", "|---|---|---|---|"]
+    outcomes = {"h": "3 主胜", "d": "1 平", "a": "0 客胜"}
+    combined = 1.0
+    for row in chosen:
+        probs = row["probabilities"]
+        pick = max("hda", key=probs.__getitem__)
+        combined *= probs[pick]
+        lines.append(
+            f"| {row['seq']} | {_md(row['home'])} VS {_md(row['away'])} | "
+            f"{outcomes[pick]} | {_percent(probs[pick])} |"
+        )
+    return lines + [
+        "",
+        f"按各场相互独立估算，九场全中概率 {_percent(combined)}。"
+        "这是模型估算，实际命中率待赛后检验。",
+        "",
+    ]
+
+
 def _markdown(report):
     if report.get("publication_schema") and report["sale_state"] != "published_before_deadline":
         return _unconfirmed_markdown(report)
@@ -281,6 +318,7 @@ def _markdown(report):
         + "。",
         "",
     ]
+    lines += pick_nine_lines(report)
     combo = report["combo"]
     if combo:
         lines += [
