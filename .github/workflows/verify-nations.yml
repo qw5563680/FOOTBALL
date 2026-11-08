@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: aade44499de1f4af2e7ad0060505c7de177d0a28
+          ref: a63f53d497f1cb8337f36c8ed0030635bcf920b5
           path: app
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -66,4 +66,22 @@ jobs:
               report=build_sfc_report(session,issue,batch,forecast_sha256=hashlib.sha256(json.dumps(batch).encode()).hexdigest(),generated=datetime.now(UTC),allow_missing=True)
               for row in report['rows']:print("FIXTURE",row['seq'],row['home'],row['away'],row['match_id'],row['probabilities'],row['reason'],flush=True)
               assert all(row['probabilities'] and row['mapping']=='matched' for row in report['rows'])
+          from zucai.cloud_feeds import export_feeds
+          from zucai.cloud_predict import run
+          from zucai.sfc_reports import publish_reports,read_reports
+          from zucai.sources.sporttery import BEIJING
+          target=Path("frozen-copy").resolve()
+          export_feeds(db,target,datetime.now(BEIJING).date(),"t50-source")
+          p=json.loads(params.read_bytes())
+          p["leagues"]={"欧国联":p["leagues"]["欧国联"]}
+          config=Path("national-params.json");config.write_text(json.dumps(p,ensure_ascii=False))
+          frozen=run(target,config,"t50-acceptance")
+          reports=publish_reports(target)
+          assert "26163" in reports
+          versions=read_reports(target,include_unconfirmed=True)
+          report=next(r for _,r in versions if r["issue_no"]=="26163")
+          assert len(report["rows"])==14 and all(r["probabilities"] and r["forecast_reference"] for r in report["rows"])
+          assert set(frozen["sfc_extra_dates"])=={"2026-11-13","2026-11-14"}
+          assert all("parlay_path" not in frozen["forecasts"][d] for d in frozen["sfc_extra_dates"])
+          print("FROZEN",report["issue_no"],len(report["rows"]),len(report["confidence_order"]),frozen["sfc_extra_dates"])
           PY
