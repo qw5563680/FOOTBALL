@@ -1,0 +1,69 @@
+name: Nations League acceptance
+on:
+  push:
+    branches: [check/t50-national-acceptance]
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aade44499de1f4af2e7ad0060505c7de177d0a28
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: feed
+          persist-credentials: false
+          sparse-checkout: |
+            state
+            matches
+            feed_manifest.json
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip -q install -e './app[model]'
+      - name: National team model on a restored copy of the actual feed
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          OPENBLAS_NUM_THREADS: 1
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          from datetime import UTC,datetime,timedelta
+          from zucai.cloud_feeds import restore_feeds
+          from zucai.nations import collect_editions
+          from zucai.sources.apif_command import fetch_apif
+          from zucai.cloud_predict import open_national_fixtures
+          from zucai.predict.command import train
+          from zucai.report.batch import predict_batch
+          from zucai.report.sfc import build_sfc_report
+          from zucai.models import SfcIssue
+          from zucai.db import get_engine
+          from sqlalchemy.orm import Session
+          db=Path('work/data/zucai.db').resolve()
+          restore_feeds(Path('feed').resolve(),db)
+          now=datetime.now(UTC)
+          state=db.parent/'state'
+          for result in collect_editions(now,state,dict(db=db,audit_dir=state/'audit',raw_root=db.parent/'raw'),fetch=fetch_apif):
+              f=result['files'][0]; print("EDITION",f['scope']['season'],len(f['outcomes']),result['rejected_rows'],result['suspected_duplicates'],flush=True)
+          params=Path('app/data/model/params.json')
+          now=datetime.now(UTC); modelpath=Path('national.pkl')
+          summary=train(db=db,league='欧国联',source='apif,jc',as_of=now,since=now-timedelta(days=56),output=modelpath,params_file=params)
+          print("TRAIN",summary['training_rows'],summary['training_source_counts'],summary['assumed_training_share'],flush=True)
+          print("EVAL",json.dumps({k:summary['backtest'].get(k) for k in ['model','uniform','market','skipped','n']},ensure_ascii=False),flush=True)
+          at=datetime.now(UTC)
+          with Session(get_engine(db)) as session:
+              mids=sorted(set().union(*open_national_fixtures(session,at).values()))
+              batch=predict_batch(session,model_files=[modelpath],as_of=at,generated=at,match_ids=mids,persist=False,params_file=params)
+              issue=session.get(SfcIssue,'26163')
+              report=build_sfc_report(session,issue,batch,forecast_sha256=hashlib.sha256(json.dumps(batch).encode()).hexdigest(),generated=datetime.now(UTC),allow_missing=True)
+              for row in report['rows']:print("FIXTURE",row['seq'],row['home'],row['away'],row['match_id'],row['probabilities'],row['reason'],flush=True)
+              assert all(row['probabilities'] and row['mapping']=='matched' for row in report['rows'])
+          PY
