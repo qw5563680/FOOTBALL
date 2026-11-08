@@ -128,7 +128,7 @@ def build_sfc_report(
         elif match.status == "cancelled":
             row["reason"] = "比赛已取消，不能按正常14场计算覆盖"
         elif (
-            row["league"] == "欧国联"
+            match.league == "欧国联"
             and batch["mode"] == "prematch"
             and (
                 row.get("source_ended")
