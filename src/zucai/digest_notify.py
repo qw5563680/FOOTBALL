@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -18,6 +18,8 @@ from zucai.sources.base import _atomic_write
 
 LOG = logging.getLogger(__name__)
 API = "https://api.github.com"
+OVERVIEW_START = "<!-- zucai-daily-overview:start -->"
+OVERVIEW_END = "<!-- zucai-daily-overview:end -->"
 
 
 def validate_repository(repository):
@@ -128,6 +130,50 @@ def _record_notification(root, version, repository, issue, comment, body):
     )
 
 
+def monthly_issue_body(issue, comments, repository, today):
+    """Keep dated report links newest first and show the latest report at the top."""
+    reports = []
+    for comment in comments:
+        body = comment.get("body") or ""
+        markers = re.findall(r"<!-- zucai-daily:(\d{4}-\d{2}-\d{2}) -->", body)
+        if len(markers) != 1 or comment.get("user", {}).get("login") != "github-actions[bot]":
+            continue
+        try:
+            day = date.fromisoformat(markers[0])
+        except ValueError:
+            continue
+        if (day.year, day.month) == (today.year, today.month):
+            reports.append((day, comment["id"], body))
+    if not reports:
+        raise ValueError("月报缺少可核实的当月日报，无法更新目录")
+    reports.sort(reverse=True)
+    issue_url = f"https://github.com/{repository}/issues/{issue['number']}"
+    links = "\n".join(
+        f"- [{day}]({issue_url}#issuecomment-{comment_id})" for day, comment_id, _ in reports
+    )
+    latest_day, latest_id, latest_body = reports[0]
+    overview = f"**日报目录（最新在前）**\n\n{links}\n\n**最新日报 {latest_day}**\n\n"
+    full_link = f"[查看完整日报]({issue_url}#issuecomment-{latest_id})"
+    original = issue.get("body") or ""
+    if original.count(OVERVIEW_START) != original.count(OVERVIEW_END):
+        raise ValueError("月报自动目录标记不完整，保留现有正文")
+    if OVERVIEW_START in original:
+        start, end = original.index(OVERVIEW_START), original.index(OVERVIEW_END)
+        if original.count(OVERVIEW_START) != 1 or end < start:
+            raise ValueError("月报自动目录标记重复或顺序错误，保留现有正文")
+        prefix, suffix = original[:start], original[end + len(OVERVIEW_END) :]
+    else:
+        prefix, suffix = original.rstrip() + "\n\n", ""
+    leading = prefix + OVERVIEW_START + "\n\n" + overview
+    trailing = "\n\n" + OVERVIEW_END + suffix
+    result = leading + latest_body + trailing
+    if len(result) > 65536:
+        result = leading + full_link + trailing
+    if len(result) > 65536:
+        raise ValueError("月报正文超过 GitHub 长度限制，保留现有正文和完整日报评论")
+    return result
+
+
 def publish(body, repository, *, now=None, history_root=None):
     """Workflow concurrency serializes the find/create/update operation across both shifts."""
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_EVENT_NAME") not in {
@@ -204,6 +250,11 @@ def publish(body, repository, *, now=None, history_root=None):
         # erase proof that this exact version became the visible Issue comment.
         if version:
             _record_notification(*version, repository, issue, comment, body)
+        current_comments = [item for item in comments if item["id"] != comment["id"]]
+        current_comments.append({**comment, "body": body})
+        overview = monthly_issue_body(issue, current_comments, repository, today)
+        if overview != (issue.get("body") or ""):
+            api.request("PATCH", f"{api.root}/issues/{issue['number']}", json={"body": overview})
         # Close only after the new month's report is successfully visible; safe to retry.
         if previous and previous["state"] != "closed":
             api.request(

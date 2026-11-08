@@ -47,6 +47,7 @@ def test_monthly_issue_create_reuse_and_same_day_edit(actions, mode):
         responses.patch(ROOT + "/issues/comments/201", json=comment)
     else:
         responses.post(ROOT + "/issues/101/comments", json=comment, status=201)
+    responses.patch(ROOT + "/issues/101", json=issue)
     assert publish(BODY, FIXTURE["repository"], now=NOW) == (101, 201)
     writes = [call for call in responses.calls if call.request.method in {"POST", "PATCH"}]
     comment_write = [c for c in writes if "/comments" in c.request.url]
@@ -70,6 +71,7 @@ def test_month_rollover_unpins_and_closes_only_previous_report(actions):
     responses.post(API + "/graphql", json={"data": {"pinIssue": {"clientMutationId": None}}})
     responses.get(ROOT + "/issues/101/comments", json=[])
     responses.post(ROOT + "/issues/101/comments", json=FIXTURE["comment"], status=201)
+    responses.patch(ROOT + "/issues/101", json=issue)
     responses.patch(ROOT + "/issues/100", json={**previous, "state": "closed"})
     # Nov 1 in Beijing, still Oct 31 UTC. Rollover is based on Beijing, not UTC.
     first = datetime(2026, 10, 31, 16, tzinfo=UTC)
@@ -115,9 +117,20 @@ def test_paginated_comments_edit_bot_comment_only(actions):
     responses.get(ROOT + "/issues/101/comments", json=[human] * 100)
     responses.get(ROOT + "/issues/101/comments", json=[FIXTURE["comment"]])
     responses.patch(ROOT + "/issues/comments/201", json=FIXTURE["comment"])
+    responses.patch(ROOT + "/issues/101", json=FIXTURE["issue"])
     publish(BODY, FIXTURE["repository"], now=NOW)
-    assert "page=2" in responses.calls[-2].request.url
-    assert responses.calls[-1].request.url.endswith("/comments/201")
+    comment_reads = [
+        call
+        for call in responses.calls
+        if call.request.method == "GET" and "/comments?" in call.request.url
+    ]
+    assert "page=2" in comment_reads[-1].request.url
+    comment_writes = [
+        call
+        for call in responses.calls
+        if call.request.method == "PATCH" and "/comments/" in call.request.url
+    ]
+    assert comment_writes[-1].request.url.endswith("/comments/201")
 
 
 @responses.activate
@@ -148,6 +161,7 @@ def notification_routes(
         responses.patch(ROOT + "/issues/comments/201", json=published, status=status)
     else:
         responses.post(ROOT + "/issues/101/comments", json=published, status=status)
+    responses.patch(ROOT + "/issues/101", json=FIXTURE["issue"])
     if previous:
         responses.patch(ROOT + "/issues/100", status=500)
 
@@ -275,3 +289,119 @@ def test_github_whole_second_receipt_accepts_same_second_microsecond_generation(
         require_notified=True,
     )
     assert previous == first and update == 2
+
+
+@pytest.mark.parametrize("edit", [False, True])
+@responses.activate
+def test_monthly_issue_shows_latest_report_and_reverse_date_links(actions, edit):
+    from zucai.digest_notify import publish
+
+    issue = {
+        **FIXTURE["issue"],
+        "body": "Owner notes\n<!-- zucai-daily-overview:start -->\nStale overview\n"
+        "<!-- zucai-daily-overview:end -->\nMore owner notes",
+    }
+    older = {**FIXTURE["comment"], "id": 190, "body": BODY.replace("11-03", "11-02")}
+    oldest = {
+        **FIXTURE["comment"],
+        "id": 180,
+        "body": BODY.replace("11-03", "11-01"),
+        "updated_at": "2026-11-04T10:00:00Z",
+    }
+    human = {**FIXTURE["comment"], "id": 999, "user": {"login": "owner"}}
+    other_month = {**FIXTURE["comment"], "id": 170, "body": BODY.replace("11-03", "10-31")}
+    comments = [oldest, older, human, other_month]
+    if edit:
+        comments.append(FIXTURE["comment"])
+    responses.get(ROOT + "/issues", json=[issue])
+    responses.post(API + "/graphql", json=pinned([issue["node_id"]]))
+    responses.get(ROOT + "/issues/101/comments", json=comments)
+    published = {**FIXTURE["comment"], "body": BODY}
+    if edit:
+        responses.patch(ROOT + "/issues/comments/201", json=published)
+    else:
+        responses.post(ROOT + "/issues/101/comments", json=published, status=201)
+    responses.patch(ROOT + "/issues/101", json=issue)
+
+    publish(BODY, FIXTURE["repository"], now=NOW)
+
+    updates = [c for c in responses.calls if c.request.url == ROOT + "/issues/101"]
+    assert len(updates) == 1
+    visible = json.loads(updates[0].request.body)["body"]
+    assert visible.index("[2026-11-03]") < visible.index("[2026-11-02]")
+    assert visible.index("[2026-11-02]") < visible.index("[2026-11-01]")
+    assert "issues/101#issuecomment-201" in visible
+    assert "issues/101#issuecomment-999" not in visible
+    assert "2026-10-31" not in visible
+    assert BODY in visible and "旧摘要" not in visible and "Stale overview" not in visible
+    assert visible.startswith("Owner notes\n") and visible.endswith("\nMore owner notes")
+    assert visible.count("<!-- zucai-daily-overview:start -->") == 1
+
+
+@responses.activate
+def test_monthly_issue_links_full_comment_when_report_nearly_fills_body_limit(actions):
+    from zucai.digest_notify import publish
+
+    body = BODY + "数" * (65536 - len(BODY))
+    issue = {**FIXTURE["issue"], "body": "Owner notes"}
+    responses.get(ROOT + "/issues", json=[issue])
+    responses.post(API + "/graphql", json=pinned([issue["node_id"]]))
+    responses.get(ROOT + "/issues/101/comments", json=[])
+    responses.post(
+        ROOT + "/issues/101/comments", json={**FIXTURE["comment"], "body": body}, status=201
+    )
+    responses.patch(ROOT + "/issues/101", json=issue)
+
+    publish(body, FIXTURE["repository"], now=NOW)
+
+    updates = [c for c in responses.calls if c.request.url == ROOT + "/issues/101"]
+    assert len(updates) == 1
+    visible = json.loads(updates[0].request.body)["body"]
+    assert len(visible) <= 65536 and visible.startswith("Owner notes")
+    assert "issues/101#issuecomment-201" in visible
+    comment_write = next(
+        c for c in responses.calls if c.request.method == "POST" and "/comments" in c.request.url
+    )
+    assert json.loads(comment_write.request.body)["body"] == body
+
+
+def test_monthly_overview_repeat_is_identical_and_keeps_manual_notes():
+    from zucai.digest_notify import monthly_issue_body
+
+    issue = {**FIXTURE["issue"], "body": "Owner notes"}
+    comments = [{**FIXTURE["comment"], "body": BODY}]
+    visible = monthly_issue_body(issue, comments, FIXTURE["repository"], NOW.date())
+    assert (
+        monthly_issue_body({**issue, "body": visible}, comments, FIXTURE["repository"], NOW.date())
+        == visible
+    )
+
+
+@pytest.mark.parametrize(
+    "existing", ["<!-- zucai-daily-overview:start -->", "<!-- zucai-daily-overview:end -->"]
+)
+def test_broken_monthly_overview_keeps_existing_manual_text(existing):
+    from zucai.digest_notify import monthly_issue_body
+
+    issue = {**FIXTURE["issue"], "body": "Owner notes\n" + existing}
+    comments = [{**FIXTURE["comment"], "body": BODY}]
+    with pytest.raises(ValueError, match="标记不完整"):
+        monthly_issue_body(issue, comments, FIXTURE["repository"], NOW.date())
+    assert issue["body"] == "Owner notes\n" + existing
+
+
+@responses.activate
+def test_notification_receipt_survives_overview_update_failure(actions, tmp_path):
+    from zucai.digest_notify import publish
+
+    out = tmp_path / "daily"
+    value, body = render_version(out, "published-before-overview")
+    notification_routes(body)
+    responses.replace(responses.PATCH, ROOT + "/issues/101", status=500)
+    with pytest.raises(ValueError, match="GitHub HTTP 500"):
+        publish(body, FIXTURE["repository"], now=NOW, history_root=out)
+    receipt = json.loads(
+        (out / str(TODAY) / "published-before-overview.notification.json").read_bytes()
+    )
+    assert receipt["markdown_sha256"] == value["markdown_sha256"]
+    assert (receipt["issue_number"], receipt["comment_id"]) == (101, 201)
