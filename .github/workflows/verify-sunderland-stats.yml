@@ -10,68 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: a8dd814da6923f7717208f77d1751aae85126285
-          path: feed
-          persist-credentials: false
-          sparse-checkout: |
-            matches/2026-11.csv
-            state/stats_rows_manifest.json
-          sparse-checkout-cone-mode: false
-      - name: Read exact match, technical statistics and archived rows
+      - name: Read all available player statistic names from the identified match
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
-          import csv, collections, hashlib, json, os, pathlib, subprocess, urllib.parse, urllib.request
-          def fetch(endpoint, **params):
-              req = urllib.request.Request("https://v3.football.api-sports.io/"+endpoint+"?"+urllib.parse.urlencode(params),headers={"x-apisports-key":os.environ["API_FOOTBALL_KEY"]})
-              with urllib.request.urlopen(req, timeout=30) as resp:
-                  doc=json.load(resp)
-              if doc.get("errors"):
-                  raise RuntimeError("Provider error on "+endpoint+" "+str(list(doc["errors"])))
-              return doc["response"]
-          matches=fetch("fixtures",league=39,season=2026,date="2026-11-08")
-          games=[g for g in matches if g["teams"]["home"]["name"]=="Sunderland" and g["teams"]["away"]["name"]=="Chelsea"]
-          assert len(games)==1
-          game=games[0]; fid=game["fixture"]["id"]; names=[game["teams"][s]["name"] for s in ("home","away")]
-          assert game["fixture"]["status"]["short"]=="FT" and game["fixture"]["date"].startswith("2026-11-08T14:00:00") and game["league"]["id"]==39
-          print("MATCH",fid,names,game["fixture"]["date"],game["score"]["halftime"],game["score"]["fulltime"],flush=True)
-          rows=fetch("fixtures/statistics",fixture=fid,half="true")
-          if not rows: rows=fetch("fixtures/statistics",fixture=fid)
-          assert sorted(r["team"]["name"] for r in rows)==sorted(names)
-          for row in rows:
-              for period in ("statistics","statistics_1h","statistics_2h"):
-                  print("TEAM",row["team"]["name"],period,json.dumps({r["type"]:r["value"] for r in (row.get(period) or [])},ensure_ascii=False),flush=True)
-          players=fetch("fixtures/players",fixture=fid)
-          assert sorted(r["team"]["name"] for r in players)==sorted(names)
-          for row in players:
-              active=[p["statistics"][0] for p in row["players"] if p["statistics"] and (p["statistics"][0]["games"]["minutes"] or 0)>0]
-              for sec,fields in {"passes":["key","crosses","long"],"dribbles":["attempts","success"],"tackles":["total","interceptions","blocks"],"duels":["won"],"shots":["total"]}.items():
-                  for field in fields:
-                      vals=[p.get(sec,{}).get(field) for p in active]
-                      print("PLAYER",row["team"]["name"],sec,field,sum(x for x in vals if isinstance(x,(int,float))),sum(isinstance(x,(int,float)) for x in vals),len(vals))
-          root=pathlib.Path("feed")
-          with (root/"matches/2026-11.csv").open(encoding="utf-8-sig") as f:
-              stored=[r for r in csv.DictReader(f) if r["home"] in ("桑德兰","Sunderland") and r["away"] in ("切尔西","Chelsea") and r["kickoff_utc"].startswith("2026-11-08T14:00")]
-          ids={"apif:"+str(fid),*(r["match_id"] for r in stored)}
-          print("FORMAL_GAMES",[(r["match_id"],r["status"]) for r in stored])
-          man=json.loads((root/"state/stats_rows_manifest.json").read_text())
-          shards=[x for x in man["row_shards"] if x["league"]=="英超" and x["provider_season"] in ("2627","2026")]
-          assert shards
-          counts=collections.Counter()
-          for shard in shards:
-              name=shard["name"]
-              subprocess.run(["gh","release","download",shard["tag"],"--repo",os.environ["GITHUB_REPOSITORY"],"-p",name],check=True)
-              content=pathlib.Path(name).read_bytes()
-              assert hashlib.sha256(content).hexdigest()==shard["sha256"]
-              lines=subprocess.check_output(["zstd","-dc",name]).splitlines()
-              for line in lines:
-                  row=json.loads(line); item=dict(zip(row["columns"],row["row"]))
-                  if str(item.get("provider_fixture_id"))==str(fid) or item.get("provider_fixture_id") in ids or item.get("match_id") in ids:
-                      counts[row["table"]]+=1
-                      if row["table"]=="match_stats": print("STORED",item.get("team_id"),item.get("record_key"),item.get("value"))
-          print("FORMAL_DETAILS",len(shards),dict(counts),flush=True)
+          import json, os, urllib.request
+          req=urllib.request.Request("https://v3.football.api-sports.io/fixtures/players?fixture=1557466",headers={"x-apisports-key":os.environ["API_FOOTBALL_KEY"]})
+          with urllib.request.urlopen(req, timeout=30) as resp: doc=json.load(resp)
+          assert not doc["errors"] and str(doc["parameters"]["fixture"])=="1557466"
+          assert sorted(r["team"]["name"] for r in doc["response"])==["Chelsea","Sunderland"]
+          for r in doc["response"]:
+              all_stats=[p["statistics"][0] for p in r["players"] if p.get("statistics")]
+              active=[s for s in all_stats if (s["games"]["minutes"] or 0)>0]
+              def flat(s):
+                  return {(g+"."+k if isinstance(val,dict) else g):v for g,val in s.items() for k,v in (val.items() if isinstance(val,dict) else [("",val)])}
+              rows=[flat(s) for s in active]
+              fields=sorted(set().union(*(flat(s).keys() for s in all_stats)))
+              print("FIELDS",r["team"]["name"],json.dumps(fields))
+              for k in fields:
+                  if k.startswith(("games.","cards.","penalty.","goals.")): continue
+                  v=[s.get(k) for s in rows]; n=[x for x in v if isinstance(x,(int,float)) and not isinstance(x,bool)]
+                  print("VALUES",r["team"]["name"],k,len(n),len(rows),sum(n))
+          
           PY
