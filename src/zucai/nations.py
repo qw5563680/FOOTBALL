@@ -19,6 +19,8 @@ def sfc_team(provider_id, label):
     """An ID plus the original printed label must agree before expanding a short name."""
     entry = identities()["sfc"].get(provider_id)
     if entry is None:
+        if provider_id and any(r["label"] == label for r in identities()["sfc"].values()):
+            raise ValueError("欧国联期次球队名称与已核验编号冲突")
         return label
     if label not in (entry["label"], entry["canonical"]):
         raise ValueError("欧国联球队编号与期次原队名冲突")

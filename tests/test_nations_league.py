@@ -86,3 +86,38 @@ def test_five_editions_resume_and_refresh_only_current_once_daily(tmp_path):
     for date in (when, when, when + timedelta(days=1)):
         list(nations.collect_editions(date, tmp_path, common, fetch=fetch))
     assert times == [2026, 2024, 2022, 2020, 2018, 2026]
+
+
+def test_still_open_issue_extends_window_and_closed_issue_disappears(tmp_path):
+    import json
+    from pathlib import Path
+
+    from zucai.cloud_predict import open_national_fixtures
+    from zucai.models import SfcIssue
+
+    original = json.loads((Path(__file__).parents[1] / "data/fixtures/t50/26163.json").read_bytes())
+    engine = get_engine(tmp_path / "games.db")
+    init_db(engine)
+    with Session(engine) as session:
+        sides = [Team(name=name, aliases=[]) for name in ("亚美尼亚", "塞浦路斯")]
+        session.add_all(sides)
+        session.flush()
+        game = Match(
+            match_id="apif:1528959",
+            league="欧国联",
+            source="apif",
+            home_team_id=sides[0].id,
+            away_team_id=sides[1].id,
+            status="scheduled",
+            kickoff_utc=datetime(2026, 11, 12, 17, tzinfo=UTC),
+        )
+        issue = SfcIssue(**original)
+        session.add_all([game, issue])
+        session.flush()
+        at = datetime(2026, 11, 9, tzinfo=UTC)
+        assert open_national_fixtures(session, at) == {
+            datetime(2026, 11, 13).date(): {"apif:1528959"}
+        }
+        assert open_national_fixtures(session, datetime.fromisoformat(issue.sale_end_utc)) == {}
+        assert open_national_fixtures(session, at - timedelta(days=2)) == {}
+    engine.dispose()
