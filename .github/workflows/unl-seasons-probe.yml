@@ -1,0 +1,38 @@
+name: Verify Nations League seasons
+on:
+  push:
+    branches: [probe/unl-seasons-20261109]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify league 5 fixture history and scheduled team identities
+        env:
+          KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: |
+          python - <<'PY'
+          import os, json, time, hashlib, urllib.request
+          class LocalOnly(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args): return None
+          client=urllib.request.build_opener(LocalOnly())
+          for year in (2018,2020,2022,2024,2026):
+              req=urllib.request.Request(f"https://v3.football.api-sports.io/fixtures?league=5&season={year}",headers={"x-apisports-key":os.environ["KEY"]})
+              with client.open(req,timeout=30) as response:
+                  raw=response.read()
+                  remaining=response.headers.get("x-ratelimit-requests-remaining")
+                  if remaining is not None and int(remaining)<11: raise SystemExit("Insufficient reserve")
+              doc=json.loads(raw)
+              assert not doc["errors"] and doc["paging"]=={"current":1,"total":1}
+              rows=doc["response"]
+              assert rows and all(r["league"]["id"]==5 and r["league"]["season"]==year for r in rows)
+              print("SEASON",year,len(rows),sum(r["fixture"]["status"]["short"]=="FT" for r in rows),hashlib.sha256(raw).hexdigest())
+              if year==2026:
+                  names={t["id"]:t["name"] for r in rows for t in r["teams"].values()}
+                  print("TEAMS",json.dumps(names,ensure_ascii=False))
+                  for r in rows:
+                      if "2026-11-12" <= r["fixture"]["date"][:10] <= "2026-11-13":print("GAME",r["fixture"]["id"],r["fixture"]["date"],r["teams"]["home"]["name"],"/",r["teams"]["away"]["name"])
+              time.sleep(6.2)
+          PY
