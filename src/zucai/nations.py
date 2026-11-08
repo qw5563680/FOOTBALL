@@ -1,7 +1,7 @@
 """Verified national team identities, scoped to the men's UEFA Nations League."""
 
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 from functools import lru_cache
 
 from zucai.sources.base import _atomic_write
@@ -36,8 +36,11 @@ def collect_editions(now, state, common, *, fetch):
     today = now.date().isoformat()
     for season in seasons:
         previous = receipts.get(str(season))
-        if previous and (season != seasons[0] or previous["day"] == today):
-            continue
+        if previous:
+            age = (now.date() - date.fromisoformat(previous["day"])).days
+            retry_conflicts = previous["conflicts"] and age >= 7
+            if age == 0 or (season != seasons[0] and not retry_conflicts):
+                continue
         result = fetch(
             league_id="5",
             seasons=[season],

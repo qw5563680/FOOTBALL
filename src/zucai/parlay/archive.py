@@ -161,7 +161,7 @@ def freeze(archive, database, run_id, *, injuries=None, clock=None, config=None)
     run = manifest["runs"][run_id]
     config = config or Config()
     for day, entry in run["forecasts"].items():
-        if entry.get("parlay_path"):
+        if day in run.get("sfc_extra_dates", []) or entry.get("parlay_path"):
             continue  # A changed rule/configuration never rewrites an already frozen batch.
         path = entry["path"] + "/forecast.json"
         batch = load_batch(archive / path)

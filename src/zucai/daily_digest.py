@@ -10,7 +10,13 @@ from pathlib import Path
 from statistics import fmean
 
 from zucai.cloud_feeds import archive_info
-from zucai.digest_context import archived_matches, audit_rows, frozen_rows, pending_tickets
+from zucai.digest_context import (
+    archived_matches,
+    audit_rows,
+    frozen_rows,
+    jc_digest_batch,
+    pending_tickets,
+)
 from zucai.digest_display import (
     _day,
     _instant,
@@ -297,9 +303,9 @@ def generate(
         for day, entry in run["forecasts"].items():
             if _instant(entry["generated_utc"]) <= at:
                 path = entry["path"] + "/forecast.json"
-                batches.append(
-                    (day, path, load_batch(archive / path, allow_unknown_odds_time=True))
-                )
+                batch = jc_digest_batch(load_batch(archive / path, allow_unknown_odds_time=True))
+                if batch is not None:
+                    batches.append((day, path, batch))
     matches = archived_matches(archive, feed)
     # No rows known at the cutoff means no evidence, not a checked empty scope.
     # Only scoped_catalog below may produce [] after usable evidence was found.

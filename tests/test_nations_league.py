@@ -121,3 +121,83 @@ def test_still_open_issue_extends_window_and_closed_issue_disappears(tmp_path):
         assert open_national_fixtures(session, datetime.fromisoformat(issue.sale_end_utc)) == {}
         assert open_national_fixtures(session, at - timedelta(days=2)) == {}
     engine.dispose()
+
+
+def test_existing_jc_counterpart_cannot_bypass_national_fixture_clock_or_orientation(tmp_path):
+    engine = get_engine(tmp_path / "game.db")
+    init_db(engine)
+    when = datetime(2026, 11, 12, 17, tzinfo=UTC)
+    with Session(engine) as session:
+        home, away = (Team(name=n, aliases=[]) for n in ("亚美尼亚", "塞浦路斯"))
+        session.add_all([home, away])
+        session.flush()
+        session.add(
+            Match(
+                match_id="jc:1",
+                counterpart_id="c500:1",
+                league="欧国联",
+                source="jc",
+                home_team_id=home.id,
+                away_team_id=away.id,
+                status="scheduled",
+                kickoff_utc=when,
+            )
+        )
+        session.flush()
+        fx = SimpleNamespace(
+            fixture_id="1",
+            league="欧国联",
+            home="亚美尼",
+            away="塞浦路",
+            home_id="101",
+            away_id="84",
+            kickoff_utc=when + timedelta(days=1),
+        )
+        with pytest.raises(ValueError):
+            _map_fixture(session, fx, {}, mapped_only=True)
+        fx.kickoff_utc = when
+        fx.home, fx.away, fx.home_id, fx.away_id = "塞浦路", "亚美尼", "84", "101"
+        with pytest.raises(ValueError):
+            _map_fixture(session, fx, {}, mapped_only=True)
+    engine.dispose()
+
+
+def test_digest_shows_concurrent_open_issues_before_higher_closed_issue(tmp_path):
+    import json
+
+    from zucai.sfc_digest import section
+
+    folder = tmp_path / "state/sfc"
+    folder.mkdir(parents=True)
+    files = []
+    for number, end in (("26163", "2026-11-12"), ("26164", "2026-11-13"), ("26165", "2026-11-08")):
+        issue = dict(
+            issue_no=number,
+            sale_end_utc=end + "T12:00:00Z",
+            observed_utc="2026-11-08T05:00:00Z",
+            snapshot=[],
+        )
+        path = folder / (number + ".json")
+        path.write_text(json.dumps({"issue": issue}))
+        files.append(path.relative_to(tmp_path).as_posix())
+    text = "\n".join(
+        section(tmp_path, {"files": files}, {}, datetime(2026, 11, 9, tzinfo=UTC), str)
+    )
+    assert "26163" in text and "26164" in text and "26165" not in text
+
+
+def test_advance_sfc_freeze_does_not_cover_jc_day_or_hide_missing_jc_run():
+    from zucai.digest_context import jc_digest_batch, prediction_window
+
+    day = "2026-11-13"
+    at = datetime(2026, 11, 12, tzinfo=UTC)
+    normal = {
+        "input": {"kickoff_date_beijing": day},
+        "mode": "prematch",
+        "generated_utc": "2026-11-09T01:00:00Z",
+        "predictions": [{"match_id": "jc:1"}, {"match_id": "apif:2", "sfc_only": True}],
+    }
+    early = {**normal, "input": {**normal["input"], "scope": "sfc_only"}}
+    assert jc_digest_batch(early) is None
+    assert jc_digest_batch(normal)["predictions"] == [{"match_id": "jc:1"}]
+    assert day in prediction_window([], at)["missing_batch_dates"]

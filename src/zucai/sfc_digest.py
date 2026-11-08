@@ -31,7 +31,18 @@ def section(archive, feed, summary, now, link):
         ]
     if not states:
         return lines + ["尚无已归档期次。", ""]
-    name, issue = max(states, key=lambda item: item[1]["issue_no"])
+    open_states = [
+        (name, issue)
+        for name, issue in states
+        if issue.get("sale_end_utc") and _timestamp(issue["sale_end_utc"]) > now
+    ]
+    visible = open_states or [max(states, key=lambda item: item[1]["issue_no"])]
+    for name, issue in sorted(visible, key=lambda item: item[1]["issue_no"], reverse=True):
+        lines.extend(_issue_lines(name, issue, reports, settled, now, link))
+    return lines
+
+
+def _issue_lines(name, issue, reports, settled, now, link):
     number = issue["issue_no"]
     choices = [
         (path, r)
@@ -59,7 +70,7 @@ def section(archive, feed, summary, now, link):
         sale_state="deadline_unconfirmed", generated_utc=None, published_utc=None, sale_end_utc=end
     )
     published = _beijing(publication["published_utc"]) if publication["published_utc"] else "未知"
-    lines += [
+    lines = [
         f"期号：{number}；第三方所报截止：{deadline}（北京时间，{state}）。",
         f"来源：{link(path + '/sfc.json') if report else link(name)}；仅作诊断，BET 禁用。",
         f"报告生成：{_beijing(report['generated_utc'])}（北京时间）。"

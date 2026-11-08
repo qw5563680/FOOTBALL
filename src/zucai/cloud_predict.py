@@ -277,7 +277,8 @@ def run(
                         )
                         if forecast_day not in standard_days:
                             keys = []
-                        keys.extend(sorted(national.get(forecast_day, set()).difference(keys)))
+                        sfc_only = national.get(forecast_day, set()).difference(keys)
+                        keys.extend(sorted(sfc_only))
                         batch = predict_batch(
                             session,
                             model_files=[stage / outcomes[k]["model_path"] for k in fitted],
@@ -290,6 +291,11 @@ def run(
                             allow_empty=True,
                             prospective_evidence=prospective_evidence,
                         )
+                        if forecast_day not in standard_days:
+                            batch["input"]["scope"] = "sfc_only"
+                        for prediction in batch["predictions"]:
+                            if prediction["match_id"] in sfc_only:
+                                prediction["sfc_only"] = True
                         batch["input"]["kickoff_date_beijing"] = forecast_day.isoformat()
                         batch["batch_id"] = f"{run_id}-{forecast_day}"
                         completed = _now()

@@ -141,7 +141,7 @@ def advance_ledger(forecasts, results, existing, as_of):
                 raise ValueError("注单的冻结字段已被修改")
             _settle(row, results, as_of)
     batches = defaultdict(list)
-    for row in prematch_rows(forecasts, as_of):
+    for row in prematch_rows([r for r in forecasts if not r.get("sfc_only")], as_of):
         batches[instant(row["generated_utc"]), row["batch_id"]].append(row)
     watermark = max(
         (
