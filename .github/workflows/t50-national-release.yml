@@ -1,0 +1,37 @@
+name: Publish verified Nations League data and forecast
+on:
+  push:
+    branches: [ops/t50-national-release-20261109]
+    paths: ['.github/workflows/t50-national-release.yml']
+permissions:
+  contents: read
+  actions: write
+  checks: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Run the official collection, then run the official predictions
+        run: |
+          set -euo pipefail
+          for operation in apis predict; do
+            since=$(date -u +%FT%TZ)
+            if [[ "$operation" == apis ]]; then
+              gh workflow run football-feeds.yml --repo "$GH_REPO" --ref main -f operation=apis -f 'options={"slot":"early"}'
+            else
+              gh workflow run football-feeds.yml --repo "$GH_REPO" --ref main -f operation=predict
+            fi
+            id=""
+            for n in $(seq 1 24); do
+              id=$(gh api -X GET "repos/$GH_REPO/actions/workflows/football-feeds.yml/runs" -f event=workflow_dispatch -f branch=main -F per_page=10 | jq -r --arg t "$since" '[.workflow_runs[] | select(.created_at >= $t and .actor.login == "github-actions[bot]")] | sort_by(.id) | .[0].id // empty')
+              [[ -n "$id" ]] && break
+              sleep 5
+            done
+            [[ -n "$id" ]] || { echo "Could not identify official run for $operation"; exit 1; }
+            echo "$operation https://github.com/$GH_REPO/actions/runs/$id"
+            gh run watch "$id" --repo "$GH_REPO" --exit-status --interval 20
+          done
