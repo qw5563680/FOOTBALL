@@ -299,3 +299,21 @@ def test_checked_in_acceptance_artifacts_keep_their_original_hashes():
         manifest = json.loads(path.read_bytes())
         for name, digest in manifest["files"].items():
             assert hashlib.sha256((path.parent / name).read_bytes()).hexdigest() == digest
+
+
+@pytest.mark.parametrize("source_ended,status", [(True, "scheduled"), (False, "finished")])
+def test_ended_national_fixture_has_no_pool_pick(complete_issue, source_ended, status):
+    from zucai.models import Match
+
+    engine, issue, batch = complete_issue
+    row = issue.snapshot[0]
+    row.update(league="欧国联", source_ended=source_ended)
+    row["matched_identity"]["league"] = "欧国联"
+    batch["predictions"][0]["league"] = "欧国联"
+    batch["models"][0]["league"] = "欧国联"
+    with session_scope(engine) as session:
+        game = session.get(Match, row["match_id"])
+        game.league, game.status = "欧国联", status
+    result = build(engine, issue, batch)["rows"][0]
+    assert result["probabilities"] is None
+    assert "赛前" in result["reason"]

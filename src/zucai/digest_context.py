@@ -80,6 +80,13 @@ def frozen_rows(batches, matches, now):
     return latest, observations
 
 
+def jc_digest_batch(batch):
+    """An advance SFC freeze cannot establish full coverage of a JC day."""
+    if batch.get("input", {}).get("scope") == "sfc_only":
+        return None
+    return {**batch, "predictions": [p for p in batch["predictions"] if not p.get("sfc_only")]}
+
+
 def prediction_window(batches, now):
     """Plan is today's + tomorrow's Beijing dates, independently of batch success."""
     today = instant(now).astimezone(BEIJING).date()

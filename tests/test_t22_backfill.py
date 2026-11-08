@@ -21,11 +21,8 @@ DOMESTIC = "98,292,188,113,103,244,119,253,169"
 
 def test_permissions_match_reviewed_actions_evidence():
     leagues = json.loads((ROOT / "data/api_football/leagues.json").read_bytes())
-    leagues = {
-        code: config
-        for code, config in leagues.items()
-        if not config.get("identity_only") and not config.get("index_only")
-    }
+    # The T22 evidence is frozen to two club cups and nine domestic leagues.
+    leagues = {code: leagues[code] for code in ["3", "848", *DOMESTIC.split(",")]}
     rows = list(csv.DictReader((FIXTURES / "t22/paid_season_probes.csv").open()))
     assert len(rows) == 30
     for row in rows:

@@ -67,7 +67,7 @@ TABLES = {
 MANIFEST = "feed_manifest.json"
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 STATE_FILE = (
-    r"state/(?:api_football_quota\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
+    r"state/(?:(?:api_football_quota|nations_league)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif)\.json)"
@@ -381,6 +381,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
             "state/audit/stats_link_audit.csv",
             "state/stats_backfill_cursor.json",
             "state/stats_coverage.json",
+            "state/nations_league.json",
         ):
             if key not in meta["files"]:
                 (dest.parent / key).unlink(missing_ok=True)

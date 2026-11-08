@@ -123,6 +123,7 @@ def train(
     )
     model = DixonColes(
         parameters["half_life_days"],
+        unknown_team_prior=league != "欧国联",
         draw_calibration=calibrate,
         **({"pooled": True} if pool else {}),
     ).fit(training, as_of=cutoff)
@@ -150,10 +151,14 @@ def train(
                 calibration_mapping[season] = window.get("draw_calibration", False)
     # Do not back-project today's recommended parameter into its own selection data.
     evaluation_days = half_life_days if half_life_days is not None else 90
+    if league == "欧国联":
+        # Fixed in advance for this research model, never selected by historical outcomes.
+        evaluation_days = parameters["half_life_days"]
     options = dict(
         since=since,
         as_of=cutoff,
         half_life_days=evaluation_days,
+        unknown_team_prior=league != "欧国联",
         seasons=seasons,
         fold=fold,
         closing=closing,

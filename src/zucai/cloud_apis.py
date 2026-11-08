@@ -2,12 +2,14 @@
 
 import json
 import logging
+import os
 import re
 from datetime import UTC, timedelta
 from pathlib import Path
 
 import requests
 
+from zucai.nations import collect_editions
 from zucai.sources.api_common import CredentialError, LocalValidationError
 from zucai.sources.api_football import ApiFootball, ApifResponseError
 from zucai.sources.apif_command import fetch_apif
@@ -201,6 +203,13 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
                 before["used"] if saved["date_utc"] == before["date_utc"] else 0
             )
         reports["apif"]["remaining_quota"] = budget._read()["remaining"]
+
+    if os.environ.get("ZUCAI_NATIONS_LEAGUE") == "1":
+        try:
+            for edition in collect_editions(now, state, common, fetch=fetch_apif):
+                _record(reports["apif"], edition)
+        except Exception as exc:
+            _failed(reports["apif"], "欧国联历史与赛程", exc)
 
     try:
         reports["apif"].update(budget.describe())

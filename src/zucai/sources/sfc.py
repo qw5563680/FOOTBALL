@@ -11,6 +11,8 @@ from sqlalchemy import delete, select
 
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
+from zucai.nations import LEAGUE as NATIONS_LEAGUE
+from zucai.nations import sfc_team
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
 from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
@@ -114,6 +116,19 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
             and match.match_id == bridge["jc_id"]
             and _league_key(bridge["league"]) == _league_key(fixture.league)
         )
+        if fixture.league == NATIONS_LEAGUE:
+            names = (
+                sfc_team(fixture.home_id, fixture.home),
+                sfc_team(fixture.away_id, fixture.away),
+            )
+            teams = [_find_team(session, name) for name in names]
+            if (
+                match.league != NATIONS_LEAGUE
+                or datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc
+                or [team.id if team else None for team in teams]
+                != [match.home_team_id, match.away_team_id]
+            ):
+                raise ValueError(f"{own_id} 欧国联的球队、主客或原始开球时间不一致")
         if (
             _league_key(match.league) != _league_key(fixture.league) and not source_league_confirmed
         ) or (not mapped_only and datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc):
@@ -121,6 +136,14 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
         return match, "matched", [m.match_id for m in linked], evidence
     home_name = bridge["home"] if bridge else fixture.home
     away_name = bridge["away"] if bridge else fixture.away
+    if fixture.league == NATIONS_LEAGUE and not bridge:
+        home_name = sfc_team(fixture.home_id, home_name)
+        away_name = sfc_team(fixture.away_id, away_name)
+        evidence = {
+            "basis": "national_team_ids_and_exact_kickoff",
+            "home_id": fixture.home_id,
+            "away_id": fixture.away_id,
+        }
     home, away = _find_team(session, home_name), _find_team(session, away_name)
     # An earlier SFC-only record may retain the source's abbreviated names.
     # Check that original identity before considering the bridge's longer names;
@@ -248,6 +271,8 @@ def _snapshot_rows(session, issue, bridge_map, *, mapped_only, bridge_conflicts=
             for f in issue.fixtures
             if f.seq != fixture.seq
         )
+        if fixture.league == NATIONS_LEAGUE and placeholder:
+            match, mapping = None, "unmatched"
         kickoff = _iso(match.kickoff_utc) if match else source_time
         snapshot.append(
             dict(
@@ -322,8 +347,24 @@ def refresh_snapshot(session, issue):
         session, source, bridges, mapped_only=True, bridge_conflicts=conflicts
     )
     for index, row in enumerate(rows):
-        if row["match_id"] is None:
-            rows[index] = refreshed[index]
+        if row["match_id"] is None or row["league"] == NATIONS_LEAGUE:
+            candidate = refreshed[index]
+            if row["league"] == NATIONS_LEAGUE and (
+                row.get("kickoff_basis") == "placeholder"
+                or (
+                    row["match_id"]
+                    and candidate["match_id"]
+                    and row["match_id"] != candidate["match_id"]
+                )
+            ):
+                candidate.update(
+                    match_id=None,
+                    matched_identity=None,
+                    mapping="ambiguous",
+                    reason="期次原场次待复核",
+                    kickoff_basis=row.get("kickoff_basis"),
+                )
+            rows[index] = candidate
             continue
         # Previously linked rows (including manual T07 c500 rows) keep their
         # identity evidence. Only the clock is refreshed; the report still checks
