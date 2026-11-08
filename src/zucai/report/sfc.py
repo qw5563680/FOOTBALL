@@ -127,6 +127,16 @@ def build_sfc_report(
             row["reason"] = "数据库身份与期次映射快照冲突，需重新核对"
         elif match.status == "cancelled":
             row["reason"] = "比赛已取消，不能按正常14场计算覆盖"
+        elif (
+            row["league"] == "欧国联"
+            and batch["mode"] == "prematch"
+            and (
+                row.get("source_ended")
+                or match.status != "scheduled"
+                or generated >= _timestamp(row["kickoff_utc"])
+            )
+        ):
+            row["reason"] = "场次已结束、已开赛或状态变化，本次赛前预测已失效"
         elif not predicted:
             row["reason"] = "该冻结批次没有此比赛的球队模型概率"
         elif predicted["status"] != "predicted":

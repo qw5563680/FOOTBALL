@@ -201,3 +201,27 @@ def test_advance_sfc_freeze_does_not_cover_jc_day_or_hide_missing_jc_run():
     assert jc_digest_batch(early) is None
     assert jc_digest_batch(normal)["predictions"] == [{"match_id": "jc:1"}]
     assert day in prediction_window([], at)["missing_batch_dates"]
+
+
+def test_open_national_issue_will_not_show_old_picks_after_fixture_changes():
+    from zucai.sfc_digest import _issue_lines
+
+    now = datetime(2026, 11, 9, tzinfo=UTC)
+    fixture = dict(
+        seq=1,
+        fixture_id="1",
+        league="欧国联",
+        home="法国",
+        away="德国",
+        kickoff_utc="2026-11-13T19:45:00Z",
+        source_ended=False,
+    )
+    issue = dict(issue_no="26163", sale_end_utc="2026-11-12T14:00:00Z", snapshot=[fixture])
+    report = dict(
+        issue_no="26163",
+        generated_utc="2026-11-08T10:00:00Z",
+        published_utc="2026-11-08T11:00:00Z",
+        rows=[{**fixture, "away": "比利时"}],
+    )
+    text = "\n".join(_issue_lines("state/sfc/26163.json", issue, [("old", report)], [], now, str))
+    assert "德国" in text and "比利时" not in text and "不展示任九" in text
