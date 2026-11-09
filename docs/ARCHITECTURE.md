@@ -25,6 +25,23 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 
 ## 模块
 
+### T51 国家队历史参考资料
+
+`python -m zucai.history_supplement` 是独立离线入口，只读取固定审核计划、
+`international_results/results.csv`、既有 `nations.json` 和月度归档副本。
+先校验版本、SHA256、球队编号/名称、赛事、主客方向、开球UTC、常规90分钟比分、
+中立场及独立官方依据，再生成全新的资料目录。16场既有赛果只作核对，3场欧洲杯另存
+`supplement.jsonl`，使用 `uefa:` 比赛身份及已核验的 `apif:` 球队身份；不编造 APIF 比赛ID。
+
+目录包含 `supplement.jsonl`、逐场 `audit.json`、完整 `plan.json` 和 SHA256 `manifest.json`。
+`read_supplement` 用同一清单验证导出/恢复后的内容。同批重复执行返回新增0；不同内容拒绝
+替换旧目录。任何输入校验失败均无部分结果。补充目录必须在正式归档之外。
+
+此功能没有数据库迁移、定时入口、网络请求，也不接入 `restore_feeds`、特征或模型。
+`historical_available_utc=null`，真实取回时间另存；不能据此重写历史预测或声称当时已知。
+本批只处理已核验19场；扩大样本、更新基线或正式集成需另行核对。原始CSV的含加时比分与
+人工核验的90分钟比分同时保留；程序校验事实清单的一致性，不自动解释UEFA网页或PDF。
+
 | 模块 | 职责 |
 | --- | --- |
 | `zucai/cli.py` | `argparse` 子命令：`fetch`、`features`、`train`、`predict`、`report`、`db` |

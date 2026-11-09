@@ -105,6 +105,7 @@ zucai stats ingest-fd --db data/zucai.db --div E0 --season 2425 --raw-file work/
 zucai stats replay-fd --db work/isolated/feeds.db --plan work/fd-replay.json  # 仅重放已保存原件，不采集
 zucai stats ingest-injuries --db data/zucai.db --league 39 --season 2024 --raw-file work/injuries.json  # 离线历史季页，须有 sidecar
 python -m zucai.predict.experiments.injury_command --db data/zucai.db --out work/t38-run --source-commit <数据分支SHA>  # 只读实验；全量归档走 Release
+python -m zucai.history_supplement --plan data/history/international-results-t51-plan.json --source work/history/results.csv --archive work/history/archive --registry data/api_football/nations.json --output work/history/supplement  # T51：固定19场离线校验，只另存3场历史参考；不接入训练
 zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
 zucai stats ingest-apif --db data/zucai.db --endpoint statistics --raw-file work/statistics.json --fixture-file work/fixtures.json
 # 以下 API 采集命令由审查者在 Actions 执行，正式凭据只取 Secrets；开发测试用离线 fixtures
