@@ -187,3 +187,47 @@ def test_tampered_export_and_changed_replay_are_rejected(inputs):
     with pytest.raises(ValueError):
         run(inputs)
     assert snapshot(inputs["output_path"]) == before
+
+
+@pytest.mark.parametrize("swap_proof_too", [False, True])
+def test_reference_ids_cannot_be_swapped_between_distinct_fixtures(inputs, swap_proof_too):
+    plan = json.loads(inputs["plan_path"].read_text())
+    one, two = plan["matches"][:2]
+    one["reference_id"], two["reference_id"] = two["reference_id"], one["reference_id"]
+    if swap_proof_too:
+        for field in ("score_source_url", "venue_source_url"):
+            one[field], two[field] = two[field], one[field]
+    inputs["plan_path"].write_text(json.dumps(plan))
+    with pytest.raises(ValueError):
+        run(inputs)
+    assert not inputs["output_path"].exists()
+
+
+@pytest.mark.parametrize(
+    "change", ["invalid_audit", "wrong_decision", "short_plan", "plan_purpose", "wrong_counts"]
+)
+def test_restored_bundle_revalidates_plan_and_audit_even_with_recomputed_hashes(inputs, change):
+    run(inputs)
+    root = inputs["output_path"]
+    manifest = json.loads((root / "manifest.json").read_text())
+    if change == "invalid_audit":
+        (root / "audit.json").write_text("not JSON")
+    elif change == "wrong_decision":
+        audit = json.loads((root / "audit.json").read_text())
+        audit[0]["decision"] = "replace_existing"
+        (root / "audit.json").write_text(json.dumps(audit))
+    elif change in ("short_plan", "plan_purpose"):
+        plan = json.loads((root / "plan.json").read_text())
+        if change == "short_plan":
+            plan["matches"] = [m for m in plan["matches"] if m["project_match_id"] is None]
+        else:
+            plan["purpose"] = "production-training"
+        (root / "plan.json").write_text(json.dumps(plan))
+    else:
+        manifest["counts"]["retained"] = 0
+    manifest["files"] = {name: digest(root / name) for name in manifest["files"]}
+    (root / "manifest.json").write_text(json.dumps(manifest))
+    from zucai.history_supplement import read_supplement
+
+    with pytest.raises(ValueError):
+        read_supplement(root)

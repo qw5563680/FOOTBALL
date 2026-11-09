@@ -14,9 +14,15 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 PURPOSE = "historical-reference-only"
-FILES = {"supplement.jsonl", "audit.json", "plan.json"}
+FILES = {"supplement.jsonl", "audit.json", "plan.json", "registry.json"}
 COMPETITIONS = {"UEFA Euro": "欧洲杯", "UEFA Nations League": "欧国联"}
-NEW_IDS = {"uefa:2036206", "uefa:2036209", "uefa:2036211"}
+# This is a reviewed, fixed batch, not an unrestricted international-results importer.
+NEW_FIXTURES = {
+    "uefa:2036206": ("2024-07-05", "Portugal", "France", "UEFA Euro"),
+    "uefa:2036209": ("2024-07-09", "Spain", "France", "UEFA Euro"),
+    "uefa:2036211": ("2024-07-14", "Spain", "England", "UEFA Euro"),
+}
+NEW_IDS = set(NEW_FIXTURES)
 
 
 def _require(condition, message):
@@ -112,9 +118,21 @@ def _validate_match(plan, match, registry):
     _require(kickoff < _time(match["checked_at_utc"]) <= now, "Invalid verification time")
     for field in ("score_source_url", "venue_source_url"):
         _require(match[field].startswith("https://www.uefa.com/"), "UEFA proof URL required")
+    uefa_id = match["reference_id"].split(":")[1]
+    _require(
+        f"/match/{uefa_id}--" in match["venue_source_url"]
+        or match["venue_source_url"].endswith(f"/{uefa_id}_FR.pdf"),
+        "UEFA proof identifies a different fixture",
+    )
     _require(match["period_note"], "Explicit period verification required")
     if match["project_match_id"] is None:
         _require(match["reference_id"] in NEW_IDS, "Outside the three reviewed additions")
+        _require(_key(raw) == NEW_FIXTURES[match["reference_id"]], "UEFA fixture identity mismatch")
+        proof = f"https://www.uefa.com/newsfiles/EURO/2024/{uefa_id}_FR.pdf"
+        _require(
+            match["score_source_url"] == match["venue_source_url"] == proof,
+            "Incorrect official report for the supplemental fixture",
+        )
         clock = match["kickoff_evidence"]
         _require(
             clock["source_url"].startswith(
@@ -129,7 +147,7 @@ def _validate_match(plan, match, registry):
         )
 
 
-def _prepare(plan, source_path, archive_path, registry_path):
+def _validate_plan(plan, registry):
     _require(plan["version"] == 1 and plan["purpose"] == PURPOSE, "Unsupported history plan")
     _require(plan["batch"] == "T51-international-results-19", "Unreviewed batch")
     source = plan["source"]
@@ -142,20 +160,11 @@ def _prepare(plan, source_path, archive_path, registry_path):
     _require(
         source["source_url"] == expected_url and source["http_status"] == 200, "Source mismatch"
     )
-    raw_rows = _rows(_checked_bytes(source_path, source["sha256"]))
-    registry = json.loads(_checked_bytes(registry_path, plan["registry_sha256"]))["teams"]
     baseline = plan["baseline"]
     _require(re.fullmatch(r"[0-9a-f]{40}", baseline["commit"]), "Pinned archive commit required")
-    existing = []
     for name, sha in baseline["files"].items():
         _require(re.fullmatch(r"matches/\d{4}-\d{2}\.csv", name), "Invalid archive path")
-        path = archive_path / name
-        _require(path.resolve().is_relative_to(archive_path.resolve()), "Archive path escapes root")
-        rows = _rows(_checked_bytes(path, sha))
-        _require(
-            all(r["kickoff_utc"].startswith(Path(name).stem) for r in rows), "Wrong archive month"
-        )
-        existing.extend(rows)
+        _require(re.fullmatch(r"[0-9a-f]{64}", sha), "Invalid archive digest")
     matches = plan["matches"]
     _require(len(matches) == 19, "Reviewed batch requires 19 distinct matches")
     _require(len({m["reference_id"] for m in matches}) == 19, "Duplicate reference identity")
@@ -164,14 +173,56 @@ def _prepare(plan, source_path, archive_path, registry_path):
         {m["reference_id"] for m in matches if m["project_match_id"] is None} == NEW_IDS,
         "Reviewed additions changed",
     )
-    additions, audit = [], []
+    retained = [m["project_match_id"] for m in matches if m["project_match_id"] is not None]
+    _require(
+        len(set(retained)) == 16 and all(re.fullmatch(r"apif:\d+", r) for r in retained),
+        "Invalid existing fixture identities",
+    )
     for match in matches:
         _validate_match(plan, match, registry)
+        month = "matches/" + match["source_row"]["date"][:7] + ".csv"
+        _require(month in baseline["files"], f"Missing reviewed month: {month}")
+
+
+def _audit_entry(match):
+    raw = match["source_row"]
+    return {
+        "reference_id": match["reference_id"],
+        "project_match_id": match["project_match_id"],
+        "decision": "retain_existing" if match["project_match_id"] else "add_separate_reference",
+        "source_score": [int(raw["home_score"]), int(raw["away_score"])],
+        "verified_score_90": [match["home_goals_90"], match["away_goals_90"]],
+    }
+
+
+def _counts(audit):
+    added = sum(r["decision"] == "add_separate_reference" for r in audit)
+    return {
+        "added": added,
+        "retained": len(audit) - added,
+        "source_score_differences": sum(r["source_score"] != r["verified_score_90"] for r in audit),
+    }
+
+
+def _prepare(plan, source_path, archive_path, registry_path):
+    registry_data = _checked_bytes(registry_path, plan["registry_sha256"])
+    registry = json.loads(registry_data)["teams"]
+    _validate_plan(plan, registry)
+    raw_rows = _rows(_checked_bytes(source_path, plan["source"]["sha256"]))
+    existing = []
+    for name, sha in plan["baseline"]["files"].items():
+        path = archive_path / name
+        _require(path.resolve().is_relative_to(archive_path.resolve()), "Archive path escapes root")
+        rows = _rows(_checked_bytes(path, sha))
+        _require(
+            all(r["kickoff_utc"].startswith(Path(name).stem) for r in rows), "Wrong archive month"
+        )
+        existing.extend(rows)
+    additions, audit = [], []
+    for match in plan["matches"]:
         raw = match["source_row"]
         selected = [r for r in raw_rows if _key(r) == _key(raw)]
         _require(selected == [raw], f"Missing, changed or ambiguous source row: {_key(raw)}")
-        month = "matches/" + raw["date"][:7] + ".csv"
-        _require(month in baseline["files"], f"Missing reviewed month: {month}")
         home_names = {raw["home_team"], registry[match["home_apif_team_id"]]["canonical"]}
         away_names = {raw["away_team"], registry[match["away_apif_team_id"]]["canonical"]}
         candidates = [
@@ -211,25 +262,14 @@ def _prepare(plan, source_path, archive_path, registry_path):
                 == [match["home_goals_90"], match["away_goals_90"]],
                 "Existing reliable result conflict",
             )
-        audit.append(
-            {
-                "reference_id": match["reference_id"],
-                "project_match_id": expected_id,
-                "decision": "retain_existing" if expected_id else "add_separate_reference",
-                "source_score": [int(raw["home_score"]), int(raw["away_score"])],
-                "verified_score_90": [match["home_goals_90"], match["away_goals_90"]],
-            }
-        )
+        audit.append(_audit_entry(match))
     additions.sort(key=lambda r: r["match_id"])
     return {
         "supplement.jsonl": b"".join(_json(row) for row in additions),
         "audit.json": _json(audit),
         "plan.json": _json(plan),
-    }, {
-        "added": len(additions),
-        "retained": len(audit) - len(additions),
-        "source_score_differences": sum(r["source_score"] != r["verified_score_90"] for r in audit),
-    }
+        "registry.json": registry_data,
+    }, _counts(audit)
 
 
 def read_supplement(output_path):
@@ -246,6 +286,11 @@ def read_supplement(output_path):
         data = {n: _checked_bytes(root / n, sha) for n, sha in manifest["files"].items()}
         rows = [json.loads(line) for line in data["supplement.jsonl"].splitlines()]
         plan = json.loads(data["plan.json"])
+        _require(_sha(data["registry.json"]) == plan["registry_sha256"], "Registry digest mismatch")
+        _validate_plan(plan, json.loads(data["registry.json"])["teams"])
+        audit = json.loads(data["audit.json"])
+        _require(audit == [_audit_entry(m) for m in plan["matches"]], "Audit differs from plan")
+        _require(manifest["counts"] == _counts(audit), "Bundle counts differ from audit")
         expected = sorted(
             (_reference_row(plan, m) for m in plan["matches"] if m["project_match_id"] is None),
             key=lambda r: r["match_id"],

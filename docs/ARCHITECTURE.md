@@ -33,8 +33,9 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 中立场及独立官方依据，再生成全新的资料目录。16场既有赛果只作核对，3场欧洲杯另存
 `supplement.jsonl`，使用 `uefa:` 比赛身份及已核验的 `apif:` 球队身份；不编造 APIF 比赛ID。
 
-目录包含 `supplement.jsonl`、逐场 `audit.json`、完整 `plan.json` 和 SHA256 `manifest.json`。
-`read_supplement` 用同一清单验证导出/恢复后的内容。同批重复执行返回新增0；不同内容拒绝
+目录包含 `supplement.jsonl`、逐场 `audit.json`、完整 `plan.json`、球队映射 `registry.json`
+和 SHA256 `manifest.json`。`read_supplement` 复核哈希、完整19场计划、编号与比赛的绑定、
+球队映射、审计决定及全部计数。同批重复执行返回新增0；不同内容拒绝
 替换旧目录。任何输入校验失败均无部分结果。补充目录必须在正式归档之外。
 
 此功能没有数据库迁移、定时入口、网络请求，也不接入 `restore_feeds`、特征或模型。
