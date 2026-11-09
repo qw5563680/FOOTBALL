@@ -13,18 +13,18 @@ No production writes, network calls or credentials in the importer/tests. No odd
 
 Interfaces: build_supplement(plan_path, source_path, archive_path, registry_path, output_path) → counts; read_supplement(output_path) → supplemental records.
 
-- [ ] Write offline fixtures and failing behavior tests for three additions, preservation, replay and rejection of unsafe inputs.
-- [ ] Implement minimum validation, whole-batch staging, immutable output, checksummed readback and standalone command.
-- [ ] Run targeted tests, then complete pytest suite; lint and format. Commit implementation and documentation together after acceptance.
+- [x] Write offline fixtures and failing behavior tests for three additions, preservation, replay and rejection of unsafe inputs.
+- [x] Implement minimum validation, whole-batch staging, immutable output, checksummed readback and standalone command.
+- [x] Run targeted tests, then complete pytest suite; lint and format. Commit implementation and documentation together after acceptance.
 
 ## Task 2 — Actual fixed-batch acceptance and draft delivery
 
 Interfaces: Task 1 outputs are read back and copied into an isolated acceptance archive.
 
-- [ ] Freeze exact production/source inputs and official evidence; run first/second import; compare original file hashes.
-- [ ] Zip/export and restore; validate equality; save actual counts, time, commands, logs, input/output hashes.
-- [ ] Document usage, sources, scope and limits; reports contains README and SHA256 only.
-- [ ] Review whole change in a fresh context; fix important findings with regression checks.
+- [x] Freeze exact production/source inputs and official evidence; run first/second import; compare original file hashes.
+- [x] Zip/export and restore; validate equality; save actual counts, time, commands, logs, input/output hashes.
+- [x] Document usage, sources, scope and limits; reports contains README and SHA256 only.
+- [x] Review whole change in a fresh context; fix important findings with regression checks.
 - [ ] Commit to independent task branch and create draft PR; no merge or production run.
 
 ## Review Focus
