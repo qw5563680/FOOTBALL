@@ -1,0 +1,71 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_pending_keys_do_not_recompute_or_erase_probability_summary ________
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-102/test_pending_keys_do_not_recom0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-102/test_pending_keys_do_not_recom0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f986c25e300>
+
+    def test_pending_keys_do_not_recompute_or_erase_probability_summary(
+        scoreboard_archive, tmp_path, monkeypatch
+    ):
+        archive = scoreboard_archive
+        _prepare_metadata(archive)
+        _, summary = _legacy_scores(archive)
+        before = files(archive)
+        text, viewed = _generate_and_observe(archive, tmp_path / "digest", monkeypatch)
+>       assert viewed["probability"] == summary["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Omitting 4 identical items, use -vv to show
+E         Differing items:
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss': None, 'brier': None, 'draw_mean': None, ....': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}} != {'prior_strata': {'default_strength': {'n': 1, 'model': {'n': 1, 'log_loss': 0.7339691750802004, 'brier': 0.4064000000...t': {'n': 1, 'log_loss': 1.271631452799751, 'brier': 0.7789326578740501, 'draw_mean': 0.32710280373831774, ...}, ...}}}
+E         {'leagues': {'测试联赛': {'n': 4, 'mo...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_t55_digest_publication_review.py:129: AssertionError
+___ test_actual_score_exclusion_keeps_empty_leagues_and_frozen_prior_strata ____
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-102/test_actual_score_exclusion_ke0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-102/test_actual_score_exclusion_ke0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9866ef9790>
+
+    def test_actual_score_exclusion_keeps_empty_leagues_and_frozen_prior_strata(
+        scoreboard_archive, tmp_path, monkeypatch
+    ):
+        archive = scoreboard_archive
+        _prepare_metadata(archive)
+        _add_single_match_batch(archive, tmp_path / "targeted-stage")
+        scored, old_summary = _legacy_scores(archive)
+        manifest = verify_forecasts(archive)
+        entry = manifest["runs"]["targeted"]["forecasts"]["2026-11-01"]
+        entry.pop("publication_evidence")
+        entry["published_utc"] = None
+        _write_manifest(archive, manifest)
+        forecasts = load_forecasts(archive, NOW)
+        expected_keys = set(old_summary["audit"]["active_keys"]) & published_score_keys(
+            scored, forecasts, NOW
+        )
+        expected = summarize_scores(scored, NOW, active_keys=expected_keys, forecast_rows=forecasts)
+        assert expected["total"]["n"] == 3
+        assert expected["prior_strata"]["default_strength"]["n"] == 1
+        before = files(archive)
+        text, viewed = _generate_and_observe(archive, tmp_path / "digest", monkeypatch)
+        actual = viewed["probability"]
+        assert actual["total"] == expected["total"]
+>       assert actual["prior_strata"] == expected["prior_strata"]
+E       AssertionError: assert {'default_str...4, ...}, ...}} == {'default_str...4, ...}, ...}}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss': None, 'brier': None, 'draw_mean': None, ...}, 'uniform': {...ier': None, 'draw_mean': None, ...}, 'market': {'n': 0, 'log_loss': None, 'brier': None, 'draw_mean': None, ...}, ...}} != {'default_strength': {'n': 1, 'model': {'n': 1, 'log_loss': 0.7339691750802004, 'brier': 0.40640000000000004, 'draw_me...t': {'n': 1, 'log_loss': 0.9351592161785378, 'brier': 0.5546335924534893, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'unrecorded': {'n': 3, 'model': ...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_t55_digest_publication_review.py:158: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t55_digest_publication_review.py::test_pending_keys_do_not_recompute_or_erase_probability_summary
+FAILED tests/test_t55_digest_publication_review.py::test_actual_score_exclusion_keeps_empty_leagues_and_frozen_prior_strata
+2 failed in 1.41s
