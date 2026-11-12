@@ -1129,6 +1129,9 @@ T35：云端已由 ID 桥接/counterpart 确认的场次采用库内开球时间
 同场候选经 counterpart 或同联赛/开球/主客 ID 确认后，按 jc > fd > fdorg 取唯一最高优先级；
 真实冲突及最高优先级并列仍 ambiguous。桥接命中体彩 ID 且两个500页面联赛标签一致时，云端允许
 库内联赛显示名不同，原标签与 matched_identity.league 分存，不生成通用别名，手工 T07 联赛校验不变。
+T52：欧国联桥接目标在 `Match` 中不存在时，沿用国家队来源 ID 与精确开球匹配已有比赛，
+新映射证据记录 `bridge_fallback_reason=target_match_missing` 并完整保留 `bridge`。
+已存在目标仍走严格冲突核验，不因匹配失败而降级；后续刷新会重新检查保留的原对照。
 不创建或修改 Team/Match。未匹配/歧义的
 snapshot 行保持 match_id、matched_identity 为 null，全部14行仍保留；只有已匹配行写 sfc_issue_matches。
 旧手工 T07 默认行为保留。审计 sfc_unmatched.csv 按期号/序号/fixture/reason/candidates 去重，保留首次原件哈希。

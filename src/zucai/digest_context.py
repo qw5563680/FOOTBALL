@@ -37,6 +37,17 @@ def archived_matches(archive, feed):
     return matches
 
 
+def archived_sfc_issues(archive, feed, now):
+    """Only source snapshots observed by the digest cutoff establish fixture presence."""
+    states = []
+    for name in sorted(feed["files"]):
+        if name.startswith("state/sfc/"):
+            issue = json.loads(_path(archive, name).read_bytes())["issue"]
+            if issue.get("observed_utc") and instant(issue["observed_utc"]) <= instant(now):
+                states.append((name, issue))
+    return states
+
+
 def audit_rows(archive, feed, name, now, *, all_shards=False):
     now = instant(now)
     start = week_start(now).astimezone(UTC).date()

@@ -1,8 +1,6 @@
 """Read-only SFC section for the daily digest."""
 
-import json
-
-from zucai.forecast_archive import _path
+from zucai.digest_context import archived_sfc_issues
 from zucai.report.render import _beijing, _md, _percent, _timestamp
 from zucai.report.sfc import OPTIONS, pick_nine_lines
 from zucai.scoreboard.sfc import read_settled
@@ -15,12 +13,7 @@ def section(archive, feed, summary, now, link):
         archive, read_reports(archive, include_unconfirmed=True), now=now
     )
     settled, _ = read_settled(archive, summary)
-    states = []
-    for name in sorted(feed["files"]):
-        if name.startswith("state/sfc/"):
-            issue = json.loads(_path(archive, name).read_bytes())["issue"]
-            if issue.get("observed_utc") and _timestamp(issue["observed_utc"]) <= now:
-                states.append((name, issue))
+    states = archived_sfc_issues(archive, feed, now)
     lines = ["## 14 场胜负彩", ""]
     collected = feed.get("collection", {}).get("sfc")
     if collected:
