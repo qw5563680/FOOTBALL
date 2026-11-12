@@ -6,6 +6,7 @@ from collections import defaultdict
 from copy import deepcopy
 from decimal import ROUND_DOWN, Decimal
 
+from zucai.prediction_disclosure import uses_unknown_team_prior
 from zucai.scoreboard.score import (
     OUTCOMES,
     frozen_market,
@@ -216,6 +217,7 @@ def advance_ledger(forecasts, results, existing, as_of):
         late = watermark is not None and (when, batch) < watermark
         if not late:
             candidates, favourites = [], []
+            prior_ids = {r["match_id"] for r in rows if uses_unknown_team_prior(r)}
             for row in rows:
                 not_ready = row.get("p2_ready") is not True
                 market = frozen_market(row)
@@ -272,11 +274,17 @@ def advance_ledger(forecasts, results, existing, as_of):
                         skip(account, threshold, batch, batch, "no_edge_above_threshold")
                 for leg in favourites:
                     place("C", threshold, batch, when, leg["match_id"], [leg])
+                for leg in selected:
+                    if leg["match_id"] in prior_ids:
+                        for account in ("D", "E"):
+                            skip(account, threshold, batch, leg["match_id"], "unknown_team_prior")
                 for day in days:
                     day_legs = [
                         leg
                         for leg in selected
-                        if instant(leg["kickoff_utc"]).astimezone(BEIJING).date().isoformat() == day
+                        if leg["match_id"] not in prior_ids
+                        and instant(leg["kickoff_utc"]).astimezone(BEIJING).date().isoformat()
+                        == day
                     ]
                     for account, size in (("D", 2), ("E", 3)):
                         if len(day_legs) >= size:

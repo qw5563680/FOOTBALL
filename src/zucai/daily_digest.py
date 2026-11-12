@@ -37,8 +37,10 @@ from zucai.digest_views import (
     review_sections,
 )
 from zucai.forecast_archive import _path, verify_forecasts
+from zucai.prediction_disclosure import prior_label
 from zucai.report.render import load_batch
 from zucai.scoreboard.command import read_state
+from zucai.scoreboard.score import enrich_prior_disclosures
 from zucai.sfc_digest import section as sfc_section
 from zucai.sources.base import _atomic_write
 
@@ -53,11 +55,16 @@ ACCOUNTS = {
 }
 
 
-def _settlement_sections(scored, summary, batches, yesterday, repository):
+def _settlement_sections(scored, summary, batches, yesterday, repository, *, forecast_hashes=None):
     lines = ["## 昨日结算", ""]
     names = {
-        (batch["batch_id"], row["match_id"]): row
-        for _, _, batch in batches
+        (batch["batch_id"], row["match_id"]): {
+            **row,
+            **{key: batch[key] for key in ("batch_id", "generated_utc")},
+            "forecast_path": path,
+            "forecast_sha256": (forecast_hashes or {}).get(path),
+        }
+        for _, path, batch in batches
         for row in batch["predictions"]
     }
     lines.extend(
@@ -77,11 +84,20 @@ def _settlement_sections(scored, summary, batches, yesterday, repository):
         for row in scored
         if row["record_id"] in active and _day(row["available_utc"]) == yesterday
     ]
-    for row in rows:
+    for row in enrich_prior_disclosures(rows, names.values()):
         match = names.get((row["batch_id"], row["match_id"]), row)
         actual = {"h": "主胜", "d": "平局", "a": "客胜"}[row["actual"]]
+        disclosure = prior_label(
+            {
+                **{key: match.get(key) for key in ("home", "away")},
+                "prior_disclosure": row["prior_disclosure"],
+            }
+        )
+        probability = _probabilities(row)
+        if disclosure:
+            probability += "；" + _text(disclosure)
         lines.append(
-            f"| {_match(match)} / {_text(row['record_id'])} | {_probabilities(row)} "
+            f"| {_match(match)} / {_text(row['record_id'])} | {probability} "
             f"| {row['home_goals']}:{row['away_goals']} {actual} "
             f"| {_text(row['model']['log_loss'])} | {_text(row['model']['brier'])} |"
         )
@@ -320,7 +336,9 @@ def generate(
         for row in catalog:
             if row["match_id"] in matches:
                 matches[row["match_id"]].setdefault("business_date", row["business_date"])
-    latest, observations = frozen_rows(batches, matches, at)
+    latest, observations = frozen_rows(
+        batches, matches, at, forecast_hashes=(manifest or {}).get("files", {})
+    )
     from zucai.digest_context import prediction_window
 
     window = prediction_window(batches, at)
@@ -410,7 +428,14 @@ def generate(
             displayed_ids=displayed_ids,
             window=window,
         ),
-        *_settlement_sections(scored, summary, batches, today - timedelta(days=1), repository),
+        *_settlement_sections(
+            scored,
+            summary,
+            batches,
+            today - timedelta(days=1),
+            repository,
+            forecast_hashes=(manifest or {}).get("files", {}),
+        ),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
         *pending_sections(pending, ledger, previous, at),
         *render_experiments((summary or {}).get("experiments")).splitlines(),

@@ -16,6 +16,7 @@ from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, Team
 from zucai.predict.base import model_sources
 from zucai.predict.pooled import model_targets
+from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
 from zucai.report.render import (
     _beijing,
     _csv_cell,
@@ -167,6 +168,7 @@ def build_sfc_report(
             row["probabilities"] = copy.deepcopy(predicted["model_probabilities"])
             row["model_version"] = predicted["model_version"]
             row["top_outcome"] = max("hda", key=lambda k: row["probabilities"][k])
+            row["prior_disclosure"] = prior_disclosure(predicted)
     combo = None
     if all(r["probabilities"] is not None for r in rows):
         combo = optimize_cover([r["probabilities"] for r in rows], max_lines)
@@ -230,24 +232,76 @@ def build_sfc_report(
         confidence_order=[
             r["seq"]
             for r in sorted(
-                (r for r in rows if r["probabilities"]),
+                (r for r in rows if r["probabilities"] and not uses_unknown_team_prior(r)),
                 key=lambda r: -max(r["probabilities"].values()),
             )
         ],
     )
 
 
+def disclosed_rows(report):
+    """Read prior evidence from the original forecast without changing frozen SFC rows."""
+    predictions = {
+        (p.get("match_id"), p.get("model_version")): p
+        for p in report.get("forecast_batch", {}).get("predictions", [])
+    }
+    rows = []
+    for row in report["rows"]:
+        original = predictions.get((row.get("match_id"), row.get("model_version")))
+        evidence = prior_disclosure(row)
+        identity = row.get("matched_identity") or row
+        if (
+            original is not None
+            and row.get("probabilities") is not None
+            and original.get("model_probabilities") == row["probabilities"]
+            and all(
+                original.get(key) == identity.get(key)
+                for key in ("home", "away", "source", "league")
+            )
+            and original.get("kickoff_utc")
+            and identity.get("kickoff_utc")
+            and _timestamp(original["kickoff_utc"]) == _timestamp(identity["kickoff_utc"])
+        ):
+            source = prior_disclosure(original)
+            # A conflicting derived record must not clear affirmative prior use.
+            if evidence["used"] is not True or source["used"] is True:
+                evidence = source
+        rows.append({**row, "prior_disclosure": evidence})
+    return rows
+
+
+def _prior_diagnostics(rows):
+    affected = [row for row in rows if uses_unknown_team_prior(row)]
+    if not affected:
+        return []
+    lines = ["### 默认实力诊断", ""]
+    for row in affected:
+        lines.append(
+            f"- 第 {row['seq']} 场：{_md(prior_label(row))}；不进入任九模型单选或最高项排序。"
+        )
+    return lines + [""]
+
+
+def _row_reason(row, default):
+    reason = row.get("reason") or default
+    note = prior_label(row)
+    return "；".join(part for part in (reason, note) if part)
+
+
 def pick_nine_lines(report):
     """Render one single-choice ticket from verified, frozen match probabilities."""
     lines = ["### 任九 · 模型单选", ""]
+    rows = disclosed_rows(report) if report else []
+    lines += _prior_diagnostics(rows)
     if not report or report.get("sale_state") != "published_before_deadline":
         return lines + ["未确认报告在截止前发布，本期不展示任九方案。", ""]
     if report.get("mode") != "prematch":
         return lines + ["没有赛前冻结预测，本期不展示任九方案。", ""]
     eligible = [
         row
-        for row in report["rows"]
+        for row in rows
         if row.get("probabilities")
+        and not uses_unknown_team_prior(row)
         and row.get("kickoff_basis") != "placeholder"
         and _timestamp(report["published_utc"]) < _timestamp(row["kickoff_utc"])
     ]
@@ -278,6 +332,7 @@ def _markdown(report):
     if report.get("publication_schema") and report["sale_state"] != "published_before_deadline":
         return _unconfirmed_markdown(report)
     source, batch = report["source"], report["forecast_batch"]
+    rows = disclosed_rows(report)
     title = "诊断" if report.get("diagnostic") else "实验参考"
     lines = [
         f"# 第{report['issue_no']}期 · 14场胜负彩{title}",
@@ -307,7 +362,7 @@ def _markdown(report):
         "|序号|赛事/对阵|北京时间|匹配|主胜|平|客胜|最高项|复式覆盖项|状态/缺口|",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
-    for r in report["rows"]:
+    for r in rows:
         p = r["probabilities"] or {}
         columns = [
             r["seq"],
@@ -318,13 +373,15 @@ def _markdown(report):
             *[_percent(p.get(k)) for k in "hda"],
             OPTIONS.get(r["top_outcome"], "—"),
             "+".join(OPTIONS[k] for k in r["selection"]) if r["selection"] else "—",
-            r["reason"] or "P2 实验",
+            _row_reason(r, "P2 实验"),
         ]
         lines.append("|" + "|".join(_md(c) for c in columns) + "|")
+    eligible_sequences = {r["seq"] for r in rows if not uses_unknown_team_prior(r)}
+    confidence_order = [seq for seq in report["confidence_order"] if seq in eligible_sequences]
     lines += [
         "",
         "单场最高项置信度顺序（仅数值排序）："
-        + ("、".join(map(str, report["confidence_order"])) or "无可用概率")
+        + ("、".join(map(str, confidence_order)) or "无可用概率")
         + "。",
         "",
     ]
@@ -384,11 +441,16 @@ def _unconfirmed_markdown(report):
         "|序号|赛事/对阵|北京时间|状态|",
         "|---|---|---|---|",
     ]
-    for row in report["rows"]:
+    for row in disclosed_rows(report):
         kickoff = _beijing(row["kickoff_utc"])
         if row.get("kickoff_basis") == "placeholder":
             kickoff += "（占位开球时间，待核实）"
-        values = [row["seq"], f"{row['league']} {row['home']}—{row['away']}", kickoff, "无冻结概率"]
+        values = [
+            row["seq"],
+            f"{row['league']} {row['home']}—{row['away']}",
+            kickoff,
+            _row_reason({**row, "reason": "无冻结概率"}, ""),
+        ]
         lines.append("|" + "|".join(_md(value) for value in values) + "|")
     lines += [
         "",
@@ -437,7 +499,7 @@ def _csv(report):
             *(["published_utc", "publication_commit"] if report.get("publication_schema") else []),
         ]
     )
-    for r in report["rows"]:
+    for r in disclosed_rows(report):
         p = r["probabilities"] or {}
         reference = r.get("forecast_reference") or report["forecast_batch"]
         writer.writerow(
@@ -455,7 +517,7 @@ def _csv(report):
                     *[p.get(k) for k in "hda"],
                     OPTIONS.get(r["top_outcome"]),
                     "+".join(OPTIONS[k] for k in r["selection"]) if r["selection"] else None,
-                    r["reason"],
+                    _row_reason(r, "") or None,
                     r.get("model_version"),
                     report["mode"],
                     report["probability_type"],
@@ -499,7 +561,7 @@ def _unconfirmed_csv(report):
             "publication_commit",
         ]
     )
-    for row in report["rows"]:
+    for row in disclosed_rows(report):
         writer.writerow(
             [
                 _csv_cell(value)
@@ -510,7 +572,7 @@ def _unconfirmed_csv(report):
                     row["home"],
                     row["away"],
                     _beijing(row["kickoff_utc"]),
-                    "无冻结概率",
+                    _row_reason({**row, "reason": "无冻结概率"}, ""),
                     report["generated_utc"],
                     report["published_utc"],
                     report["sale_end_utc"],
