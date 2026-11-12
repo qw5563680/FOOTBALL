@@ -11,10 +11,11 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from zucai.db import get_engine, init_db, session_scope, upsert_match
+from zucai.db import get_engine, init_db, upsert_match
 from zucai.models import Match, Odds, Prediction, Result, SfcIssueMatch
 from zucai.sources.base import RateLimiter, RawStore, Source, make_session
 from zucai.sources.sporttery import API, BEIJING, beijing_kickoff, official_value
+from zucai.sources.sporttery_aliases import candidate_transaction, load_aliases, resolve_teams
 from zucai.sources.teams import upsert_team
 
 LOGGER = logging.getLogger(__name__)
@@ -264,15 +265,26 @@ def reconcile_backup(session: Session, game: GameResult, home_id: int, away_id: 
 
 
 def apply_result(
-    session: Session, game: GameResult, seen: datetime, assume: timedelta | None = None
+    session: Session,
+    game: GameResult,
+    seen: datetime,
+    assume: timedelta | None = None,
+    *,
+    aliases=None,
+    alias_candidates=None,
 ) -> str:
     if game.kickoff_utc is None:
         raise ValueError(f"{game.match_id} 缺少已核实开球时间")
     if game.status == "finished" and seen <= game.kickoff_utc:
         raise ValueError(f"{game.match_id} 完赛比分的采集不晚于开球")
     provider = game.match_id.split(":")[0]
-    home = upsert_team(session, game.home, provider)
-    away = upsert_team(session, game.away, provider)
+    if provider == "jc":
+        home, away = resolve_teams(
+            session, game, seen, aliases=aliases, candidates=alias_candidates
+        )
+    else:
+        home = upsert_team(session, game.home, provider)
+        away = upsert_team(session, game.away, provider)
     sid = game.match_id
     if provider == "jc":
         reconcile_backup(session, game, home.id, away.id)
@@ -379,6 +391,7 @@ def fetch_results(
     counts = {"finished": 0, "cancelled": 0, "assumed": 0, "unchanged": 0}
     try:
         init_db(engine)
+        aliases = load_aliases() if source == "jc" else None
         day = start
         while day <= end:
             ready = []
@@ -395,15 +408,23 @@ def fetch_results(
                         feed.rejected.append((day, game.match_id, seen, str(exc)))
                         continue
                 ready.append((game, seen))
-            with session_scope(engine) as s:
-                s.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            with candidate_transaction(engine) as (s, candidates):
                 for game, seen in ready:
+                    row_candidates = []
                     try:
                         with s.begin_nested():
-                            state = apply_result(s, game, seen, assume)
+                            state = apply_result(
+                                s,
+                                game,
+                                seen,
+                                assume,
+                                aliases=aliases,
+                                alias_candidates=row_candidates,
+                            )
                     except (ValueError, IntegrityError) as exc:
                         feed.rejected.append((day, game.match_id, seen, str(exc)))
                         continue
+                    candidates.extend(row_candidates)
                     if state in {"unchanged", "cancelled"}:
                         counts[state] += 1
                     else:

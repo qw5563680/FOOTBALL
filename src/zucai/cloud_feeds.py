@@ -70,7 +70,7 @@ STATE_FILE = (
     r"state/(?:(?:api_football_quota|nations_league)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
-    r"alias_candidates/(?:fdorg|apif)\.json)"
+    r"alias_candidates/(?:fdorg|apif|jc)\.json)"
 )
 VIEW = """
 WITH triples AS (
@@ -376,6 +376,8 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
         for key in (
             "state/audit/jc_catalog.csv",
             "state/audit/jc_skipped.csv",
+            "state/alias_candidates/jc.json",
+            "state/audit/jc_identity_merges.csv",
             "state/audit/stats_ingest_audit.csv",
             "state/audit/injuries_ingest_audit.csv",
             "state/audit/stats_link_audit.csv",
@@ -643,8 +645,12 @@ def main():
     if args.command == "reconcile":
         from zucai.sources.apif_reconcile import reconcile
         from zucai.sources.apif_reconcile import write_summary as identity_summary
+        from zucai.sources.jc_identity import reconcile as reconcile_jc
 
-        collection = {"apif": reconcile(target, args.run_id)}
+        collection = {
+            "apif": reconcile(target, args.run_id),
+            "jc_identity": reconcile_jc(target, args.run_id),
+        }
         day = date.fromisoformat(meta["through_beijing"])
     if args.command in {"probe", "identity"}:
         if args.command == "identity":
@@ -727,6 +733,10 @@ def main():
             restore_feeds(archive, Path(temporary) / "data/zucai.db")
         verify_forecasts(archive)
         identity_summary(collection["apif"])
+        if args.command == "reconcile":
+            from zucai.sources.jc_identity import write_summary as jc_identity_summary
+
+            jc_identity_summary(collection["jc_identity"])
     if manifest["pending_result_count"]:
         LOG.warning(
             "部分归档 partial：待补抓 %d 场，拒绝清单已持久保存", manifest["pending_result_count"]
