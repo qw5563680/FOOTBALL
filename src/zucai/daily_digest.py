@@ -10,6 +10,7 @@ from pathlib import Path
 from statistics import fmean
 
 from zucai.cloud_feeds import archive_info
+from zucai.digest_aliases import pending_name_lines
 from zucai.digest_context import (
     archived_matches,
     archived_sfc_issues,
@@ -37,7 +38,7 @@ from zucai.digest_views import (
     review_sections,
 )
 from zucai.forecast_archive import _path, verify_forecasts
-from zucai.prediction_disclosure import prior_label
+from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.report.render import load_batch
 from zucai.scoreboard.command import read_state
 from zucai.scoreboard.score import enrich_prior_disclosures
@@ -84,7 +85,8 @@ def _settlement_sections(scored, summary, batches, yesterday, repository, *, for
         for row in scored
         if row["record_id"] in active and _day(row["available_utc"]) == yesterday
     ]
-    for row in enrich_prior_disclosures(rows, names.values()):
+    enriched = enrich_prior_disclosures(rows, names.values())
+    for row in enriched:
         match = names.get((row["batch_id"], row["match_id"]), row)
         actual = {"h": "主胜", "d": "平局", "a": "客胜"}[row["actual"]]
         disclosure = prior_label(
@@ -101,6 +103,8 @@ def _settlement_sections(scored, summary, batches, yesterday, repository, *, for
             f"| {row['home_goals']}:{row['away_goals']} {actual} "
             f"| {_text(row['model']['log_loss'])} | {_text(row['model']['brier'])} |"
         )
+    if note := prior_footnote(enriched):
+        lines.extend(["", _text(note)])
     if not rows:
         lines.extend(["| 昨日无已结算场次 | — | — | — | — |", ""])
     else:
@@ -399,6 +403,7 @@ def generate(
             jc_publish_status=jc_publish_status,
         ),
         f"采集状态：{states}。",
+        *pending_name_lines(archive, feed, at),
         f"采集归档 UTC：{_text(feed.get('created_utc'))}；"
         f"记分板截点 UTC：{_text((summary or {}).get('as_of_utc'))}。",
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",

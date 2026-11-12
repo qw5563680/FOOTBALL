@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from zucai.cloud_feeds import digest
 from zucai.forecast_archive import _path
+from zucai.parlay import dedup
 from zucai.parlay.single_double import RULE, SUPPORTED_RULES
 from zucai.scoreboard.paper import decision_digest
 from zucai.scoreboard.score import instant, outcome, record_key, result_reason
@@ -302,6 +303,7 @@ def summarize(ledger, results, at):
         evidence=_evidence_totals(groups, tickets) if len(rules) <= 1 else {},
         rules=rules,
         totals=_totals(groups, tickets),
+        deduplication=dedup.summarize(ledger),
         pending=pending,
         settlement_corrections=corrections,
         statement=(
@@ -326,6 +328,7 @@ def render(summary):
     lines = [
         "\n### F 单选＋双选二串一（独立纸面账）\n",
         "按规则版本、伤停资料、证据等级与事后重建分列；BET 禁用、可执行性未核实。\n",
+        *dedup.render(summary),
         "| 规则 / 伤停资料 / 证据 / 口径 | 已结组 | 两注命中数 | 原单选命中率 |"
         " 组覆盖率 | 组盈利率 |"
         " 已结投入 | 盈亏 | ROI | 待结组 |",

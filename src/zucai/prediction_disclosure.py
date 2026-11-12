@@ -71,7 +71,7 @@ def uses_unknown_team_prior(row):
 
 
 def prior_label(row):
-    """Plain text; callers escape team names and methods for their output format."""
+    """Compact inline label; callers escape it for their output format."""
     detail = prior_disclosure(row)
     if detail["used"] is not True:
         return ""
@@ -81,5 +81,37 @@ def prior_label(row):
         if detail[side] is True
     ]
     missing = "、".join(sides) if sides else "缺失方未记录"
+    return f"默认实力：{missing}"
+
+
+def prior_export_label(row):
+    """Keep the existing CSV disclosure value and fields unchanged."""
+    label = prior_label(row)
+    if not label:
+        return ""
+    detail = prior_disclosure(row)
     method = f"先验方法：{detail['method']}" if detail["method"] else "先验方法未记录"
-    return f"使用默认实力（{missing}；{method}）；仅保留研究概率，不进入主候选"
+    return (
+        f"使用默认实力（{label.removeprefix('默认实力：')}；{method}）；"
+        "仅保留研究概率，不进入主候选"
+    )
+
+
+def prior_footnote(rows):
+    """One explanation for the affected rows in a table, without inferring evidence."""
+    affected = [row for row in rows if uses_unknown_team_prior(row)]
+    if not affected:
+        return ""
+    methods = sorted({prior_disclosure(row)["method"] or "未记录" for row in affected})
+    description = "、".join(methods)
+    if len(methods) > 1:
+        description = "；".join(
+            f"{row.get('match_id') or prior_label(row)}="
+            f"{prior_disclosure(row)['method'] or '未记录'}"
+            for row in affected
+        )
+    return (
+        "默认实力说明：先验方法："
+        + description
+        + "；仅保留研究概率，不进入主候选、任九模型单选或最高项排序。"
+    )

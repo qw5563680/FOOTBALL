@@ -46,7 +46,8 @@ def test_default_strength_cannot_be_either_leg_or_rank_leader(sample, sides):
     diagnostic = next(r for r in doc["diagnostics"] if r["match_id"] == row["match_id"])
     assert diagnostic["prior_disclosure"]["home"] is sides[0]
     assert diagnostic["prior_disclosure"]["away"] is sides[1]
-    assert "weakest_quartile_half_shrinkage" in diagnostic["prior_label"]
+    assert diagnostic["prior_disclosure"]["method"] == "weakest_quartile_half_shrinkage"
+    assert "weakest_quartile_half_shrinkage" not in diagnostic["prior_label"]
     assert sample == before
 
 

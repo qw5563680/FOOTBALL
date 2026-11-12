@@ -1,7 +1,7 @@
 """Read-only SFC section for the daily digest."""
 
 from zucai.digest_context import archived_sfc_issues
-from zucai.prediction_disclosure import prior_label
+from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.report.render import _beijing, _md, _percent, _timestamp
 from zucai.report.sfc import OPTIONS, disclosed_rows, pick_nine_lines
 from zucai.scoreboard.sfc import prior_group_text, read_settled
@@ -143,6 +143,8 @@ def _issue_lines(name, issue, reports, settled, now, link):
         lines.append("| " + " | ".join(_md(value) for value in values) + " |")
     combo = report["combo"] if eligible else None
     lines += [""]
+    if eligible and (note := prior_footnote(rows)):
+        lines.extend([_md(note), ""])
     if combo:
         lines += [
             f"复式 {combo['lines']} 注 / 上限 64；"
@@ -153,7 +155,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
         lines += [
             f"复式未生成：至少 {report['minimum_lines']} 注，超过 64 注上限；覆盖概率未生成。"
         ]
-    lines += ["", *pick_nine_lines(report)]
+    lines += ["", *pick_nine_lines(report, prior_explained=bool(eligible))]
     previous = [
         r for r in settled if r["issue_no"] < number and _timestamp(r["settled_utc"]) <= now
     ]
