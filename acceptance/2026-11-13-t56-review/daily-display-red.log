@@ -1,0 +1,105 @@
+FFF...                                                                   [100%]
+=================================== FAILURES ===================================
+__ test_real_daily_row_keeps_scores_and_model_name_inline_with_hash_reference __
+
+    def test_real_daily_row_keeps_scores_and_model_name_inline_with_hash_reference():
+        batch = real_batch()
+        now = datetime.fromisoformat("2026-11-05T16:05:00+00:00")
+        text = "\n".join(
+            forecast_sections(
+                [("2026-11-06", "fixture/forecast.json", batch)], now.date(), None, now=now
+            )
+        )
+        line = next(line for line in text.splitlines() if line.startswith("|") and "AC米兰" in line)
+        assert "默认实力：客队 费伦茨" in line
+        assert "96.29% / 3.07% / 0.64%" in line
+        assert text.count("默认实力说明：") == 1
+        assert "weakest_quartile_half_shrinkage" in text.replace("\\_", "_")
+        assert all(row["model_version"] in text for row in batch["predictions"])
+        row = next(row for row in batch["predictions"] if row["match_id"] == "jc:2042523")
+        for score in row["top_scores"][:5]:
+>           assert f"{score['score']} {score['probability']:.2%}" in line
+E           AssertionError: assert '4:0 14.70%' in '| 周四006 | 2026-11-06 01:45:00 | 欧罗巴 / AC米兰 VS 费伦茨 | 96.29% / 3.07% / 0.64% | M1 | 实验；默认实力：客队 费伦茨 | S3 | 2026-11-05 18:43:39 |'
+
+tests/test_t56_prior_display.py:38: AssertionError
+_ test_model_hash_and_p2_display_are_consistent_across_days_and_prior_use[False] _
+
+prior_today = False
+
+    @pytest.mark.parametrize("prior_today", [False, True])
+    def test_model_hash_and_p2_display_are_consistent_across_days_and_prior_use(prior_today):
+        now = datetime.fromisoformat("2026-11-05T16:05:00+00:00")
+        batch = real_batch()
+        batches = []
+        for offset in range(2):
+            current = deepcopy(batch)
+            day = (date(2026, 11, 6) + timedelta(days=offset)).isoformat()
+            current["batch_id"] += "-" + day
+            for index, row in enumerate(current["predictions"]):
+                unknown = index == 2 and (prior_today if offset == 0 else not prior_today)
+                row["metadata"] = {
+                    "unknown_team_prior": unknown,
+                    "home_unknown_team": False,
+                    "away_unknown_team": unknown,
+                    "prior_method": "weakest_quartile_half_shrinkage" if unknown else None,
+                }
+                row["p2_ready"] = index == 0
+                row["kickoff_utc"] = (
+                    datetime.fromisoformat(row["kickoff_utc"]) + timedelta(days=offset)
+                ).isoformat()
+            batches.append((day, f"fixture/{day}/forecast.json", current))
+        text = "\n".join(forecast_sections(batches, date(2026, 11, 6), None, now=now))
+        lines = [line for line in text.splitlines() if line.startswith("| 周四")]
+        assert len(lines) == 6
+>       assert [line.split(" | ")[5].split("；")[0] for line in lines] == [
+            "可用", "实验", "实验", "可用", "实验", "实验"
+        ]
+E       AssertionError: assert ['ready', 'ex...', '实验', '实验'] == ['可用', '实验', ...', '实验', '实验']
+E         
+E         At index 0 diff: 'ready' != '可用'
+E         Use -v to get more diff
+
+tests/test_t56_prior_display.py:69: AssertionError
+_ test_model_hash_and_p2_display_are_consistent_across_days_and_prior_use[True] _
+
+prior_today = True
+
+    @pytest.mark.parametrize("prior_today", [False, True])
+    def test_model_hash_and_p2_display_are_consistent_across_days_and_prior_use(prior_today):
+        now = datetime.fromisoformat("2026-11-05T16:05:00+00:00")
+        batch = real_batch()
+        batches = []
+        for offset in range(2):
+            current = deepcopy(batch)
+            day = (date(2026, 11, 6) + timedelta(days=offset)).isoformat()
+            current["batch_id"] += "-" + day
+            for index, row in enumerate(current["predictions"]):
+                unknown = index == 2 and (prior_today if offset == 0 else not prior_today)
+                row["metadata"] = {
+                    "unknown_team_prior": unknown,
+                    "home_unknown_team": False,
+                    "away_unknown_team": unknown,
+                    "prior_method": "weakest_quartile_half_shrinkage" if unknown else None,
+                }
+                row["p2_ready"] = index == 0
+                row["kickoff_utc"] = (
+                    datetime.fromisoformat(row["kickoff_utc"]) + timedelta(days=offset)
+                ).isoformat()
+            batches.append((day, f"fixture/{day}/forecast.json", current))
+        text = "\n".join(forecast_sections(batches, date(2026, 11, 6), None, now=now))
+        lines = [line for line in text.splitlines() if line.startswith("| 周四")]
+        assert len(lines) == 6
+>       assert [line.split(" | ")[5].split("；")[0] for line in lines] == [
+            "可用", "实验", "实验", "可用", "实验", "实验"
+        ]
+E       AssertionError: assert ['可用', '实验', ...experimental'] == ['可用', '实验', ...', '实验', '实验']
+E         
+E         At index 3 diff: 'ready' != '可用'
+E         Use -v to get more diff
+
+tests/test_t56_prior_display.py:69: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t56_prior_display.py::test_real_daily_row_keeps_scores_and_model_name_inline_with_hash_reference
+FAILED tests/test_t56_prior_display.py::test_model_hash_and_p2_display_are_consistent_across_days_and_prior_use[False]
+FAILED tests/test_t56_prior_display.py::test_model_hash_and_p2_display_are_consistent_across_days_and_prior_use[True]
+3 failed, 3 passed in 0.76s

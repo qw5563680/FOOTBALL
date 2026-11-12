@@ -1,0 +1,84 @@
+FFF...                                                                   [100%]
+=================================== FAILURES ===================================
+_______ test_cross_batch_duplicates_keep_cash_and_count_first_group_once _______
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+
+    def test_cross_batch_duplicates_keep_cash_and_count_first_group_once(document):
+        second = deepcopy(document)
+        second["batch_id"] += "-repeat"
+        second["generated_utc"] = "2026-11-06T02:01:00+00:00"
+        ledger = advance_ledger([document, second], results(), [], AFTER)
+        before = raw_json(ledger)
+        summary = summarize(ledger, results(), AFTER)
+        assert summary["totals"]["groups"] == 2
+        assert summary["totals"]["covered_groups"] == 2
+        assert summary["totals"]["paper_invested"] == 8
+        assert summary["totals"]["profit"] == -0.8
+        dedup = summary["deduplication"]
+        assert dedup["unique_combinations"] == 1
+        assert dedup["first_occurrence"]["covered_groups"] == 1
+        assert dedup["first_occurrence"]["won_tickets"] == 1
+        repeated = dedup["repeated_combinations"][0]
+        assert repeated["occurrences"] == 2 and repeated["repeat_count"] == 1
+        assert len(repeated["batch_ids"]) == 2
+        assert all(row["ticket_appearances"] == 4 for row in dedup["most_repeated_matches"])
+        text = render(summary)
+        assert "2 组 / 1 种不同组合" in text
+        assert "按首次出现去重" in text and "出现 2 次（重复 1 次）" in text
+        single, double = document["groups"][0]["single"], document["groups"][0]["double"]
+>       assert f"单选 {single['home']} VS {single['away']}（{single['match_id']}）主胜" in text
+E       AssertionError: assert '单选 球队1 VS 球队2（jc:t45-1）主胜' in '\n### F 单选＋双选二串一（独立纸面账）\n\n按规则版本、伤停资料、证据等级与事后重建分列；BET 禁用、可执行性未核实。\n\n机会计数：2 组 / 1 种不同组合；重复出现 1 组。\n相同比赛可用于不同组合，去重后仍不代... |\n| single_plus_double_v2 / 资料齐全 / P2 实验 / 事后重建 | 2 | 2 | 100.00% | 100.00% | 0.00% | 8.00 | -0.80 | -10.00% | 0 |\n'
+
+tests/test_t56_parlay_dedup.py:34: AssertionError
+_______ test_names_are_display_only_and_come_from_the_first_frozen_group _______
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+
+    def test_names_are_display_only_and_come_from_the_first_frozen_group(document):
+        ledger = advance_ledger([document], results(), [], AFTER)
+        second = deepcopy(document)
+        second["batch_id"] += "-repeat"
+        second["generated_utc"] = "2026-11-06T02:04:00+00:00"
+        second["published_utc"] = "2026-11-06T02:04:30+00:00"
+        later = advance_ledger([second], results(), [], AFTER)
+        for row in later:
+            if row["record_type"] == "group":
+                row["frozen"]["single"]["home"] = "后批改名"
+        before = raw_json([*later, *ledger])
+        summary = summarize([*later, *ledger], results(), AFTER)
+        assert summary["deduplication"]["unique_combinations"] == 1
+        assert "后批改名" not in render(summary)
+>       assert summary["deduplication"]["repeated_combinations"][0]["single"]["home"] == (
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            document["groups"][0]["single"]["home"]
+        )
+E       KeyError: 'home'
+
+tests/test_t56_parlay_dedup.py:56: KeyError
+____ test_missing_names_and_markup_are_explicitly_safe_in_the_readable_list ____
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+
+    def test_missing_names_and_markup_are_explicitly_safe_in_the_readable_list(document):
+        second = deepcopy(document)
+        second["batch_id"] += "-repeat"
+        ledger = advance_ledger([document, second], {}, [], BEFORE)
+        for row in ledger:
+            if row["record_type"] == "group":
+                row["frozen"]["single"]["home"] = "甲|[队]"
+                row["frozen"]["single"].pop("away", None)
+                row["frozen"]["double"].pop("home", None)
+                row["frozen"]["double"].pop("away", None)
+                row["frozen"]["double_selections"] = ["a", "d"]
+        before = raw_json(ledger)
+        text = render(summarize(ledger, {}, BEFORE))
+>       assert r"甲\|\[队\] VS 客队名未记录（jc:t45-1）主胜" in text
+E       AssertionError: assert '甲\\|\\[队\\] VS 客队名未记录（jc:t45-1）主胜' in '\n### F 单选＋双选二串一（独立纸面账）\n\n按规则版本、伤停资料、证据等级与事后重建分列；BET 禁用、可执行性未核实。\n\n机会计数：2 组 / 1 种不同组合；重复出现 1 组。\n相同比赛可用于不同组合，去重后仍不代...— | 0.00 | 0.00 | — | 2 |\n| single_plus_double_v2 / 资料齐全 / P2 实验 / 事后重建 | 0 | 0 | — | — | — | 0.00 | 0.00 | — | 0 |\n'
+
+tests/test_t56_parlay_dedup.py:75: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t56_parlay_dedup.py::test_cross_batch_duplicates_keep_cash_and_count_first_group_once
+FAILED tests/test_t56_parlay_dedup.py::test_names_are_display_only_and_come_from_the_first_frozen_group
+FAILED tests/test_t56_parlay_dedup.py::test_missing_names_and_markup_are_explicitly_safe_in_the_readable_list
+3 failed, 3 passed in 1.28s

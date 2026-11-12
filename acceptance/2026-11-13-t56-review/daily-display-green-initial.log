@@ -1,0 +1,74 @@
+......FF.................................                                [100%]
+=================================== FAILURES ===================================
+_____________ test_expected_markdown_and_inputs_unchanged[partial] _____________
+
+digest_archive = PosixPath('/tmp/pytest-of-agent/pytest-98/test_expected_markdown_and_inp0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-98/test_expected_markdown_and_inp0')
+scenario = 'partial'
+
+    @pytest.mark.parametrize("scenario", ["partial", "gates", "empty"])
+    def test_expected_markdown_and_inputs_unchanged(digest_archive, tmp_path, scenario):
+        from zucai.daily_digest import generate
+    
+        archive = digest_archive
+        if scenario == "gates":
+            install_scoreboard(archive, "summary_gates.json")
+        elif scenario == "empty":
+            add_forecasts(
+                archive, tmp_path / "empty-stage", "empty", "2026-11-03T09:55:00+00:00", empty=True
+            )
+        before = snapshot(archive)
+        output = tmp_path / "daily"
+        path = generate(archive, output, now=NOW, run_id="offline-1")
+        assert path.name == "2026-11-03.md"
+>       assert path.read_text() == (FIXTURES / f"expected_{scenario}.md").read_text()
+E       AssertionError: assert '非购买建议 · BET ...不授予 BET 权限。\n' == '非购买建议 · BET ...不授予 BET 权限。\n'
+E         
+E         Skipping 1030 identical leading characters in diff, use -v to show
+E         - n-coles / c706621afb10d1ac7fdb047e99eeb10ffef2df1cb3b37eb33aa4d63fef1e38e4 | experimental | 1:0 30.00%；0:0 20.00%；0:1 15.00%；2:0 12.00%；1:1 6.00% | 未冻结赔率 |
+E         + n-coles / M1 | 实验 | 1:0 30.00%；0:0 20.00%；0:1 15.00%；2:0 12.00%；1:1 6.00% | 未冻结赔率 |
+E         + 
+E         + 模型版本 M1：c706621afb10d1ac7fdb047e99eeb10ffef2df1cb3b37eb33aa4d63fef1e38e4。
+E           ...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_daily_digest.py:116: AssertionError
+______________ test_expected_markdown_and_inputs_unchanged[gates] ______________
+
+digest_archive = PosixPath('/tmp/pytest-of-agent/pytest-98/test_expected_markdown_and_inp1/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-98/test_expected_markdown_and_inp1')
+scenario = 'gates'
+
+    @pytest.mark.parametrize("scenario", ["partial", "gates", "empty"])
+    def test_expected_markdown_and_inputs_unchanged(digest_archive, tmp_path, scenario):
+        from zucai.daily_digest import generate
+    
+        archive = digest_archive
+        if scenario == "gates":
+            install_scoreboard(archive, "summary_gates.json")
+        elif scenario == "empty":
+            add_forecasts(
+                archive, tmp_path / "empty-stage", "empty", "2026-11-03T09:55:00+00:00", empty=True
+            )
+        before = snapshot(archive)
+        output = tmp_path / "daily"
+        path = generate(archive, output, now=NOW, run_id="offline-1")
+        assert path.name == "2026-11-03.md"
+>       assert path.read_text() == (FIXTURES / f"expected_{scenario}.md").read_text()
+E       AssertionError: assert '非购买建议 · BET ...不授予 BET 权限。\n' == '非购买建议 · BET ...不授予 BET 权限。\n'
+E         
+E         Skipping 1030 identical leading characters in diff, use -v to show
+E         - n-coles / c706621afb10d1ac7fdb047e99eeb10ffef2df1cb3b37eb33aa4d63fef1e38e4 | experimental | 1:0 30.00%；0:0 20.00%；0:1 15.00%；2:0 12.00%；1:1 6.00% | 未冻结赔率 |
+E         + n-coles / M1 | 实验 | 1:0 30.00%；0:0 20.00%；0:1 15.00%；2:0 12.00%；1:1 6.00% | 未冻结赔率 |
+E         + 
+E         + 模型版本 M1：c706621afb10d1ac7fdb047e99eeb10ffef2df1cb3b37eb33aa4d63fef1e38e4。
+E           ...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_daily_digest.py:116: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_daily_digest.py::test_expected_markdown_and_inputs_unchanged[partial]
+FAILED tests/test_daily_digest.py::test_expected_markdown_and_inputs_unchanged[gates]
+2 failed, 39 passed in 1.25s
