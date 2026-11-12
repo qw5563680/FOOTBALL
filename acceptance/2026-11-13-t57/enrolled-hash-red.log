@@ -1,0 +1,70 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_enrolled_history_append_uses_final_manifest_hash_and_is_idempotent[scoreboard] _
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-126/test_enrolled_history_append_u0/archive')
+name = 'scoreboard'
+
+    @pytest.mark.parametrize('name', ['scoreboard', 'digest'])
+    def test_enrolled_history_append_uses_final_manifest_hash_and_is_idempotent(scoreboard_archive, name):
+        import hashlib
+        from zucai.publication_history import encode_history
+    
+        archive = scoreboard_archive
+        _legacy(archive)
+        prepare_remote(archive, '2026-11-02T18:00:00Z')
+        command(archive, name)
+        entries = json.loads((archive / HISTORY).read_bytes())['entries']
+        entries.pop(next(iter(entries)))  # Simulate an older enrolled proof snapshot.
+        (archive / HISTORY).write_bytes(encode_history(entries))
+        meta = json.loads((archive / 'feed_manifest.json').read_bytes())
+        meta['files'][HISTORY] = hashlib.sha256((archive / HISTORY).read_bytes()).hexdigest()
+        (archive / 'feed_manifest.json').write_text(json.dumps(meta))
+        command(archive, name)
+        sha = hashlib.sha256((archive / 'feed_manifest.json').read_bytes()).hexdigest()
+        if name == 'scoreboard':
+            result = json.loads((archive / 'scoreboard/summary.json').read_bytes())
+>           assert result['input_manifests']['feed_manifest.json'] == sha
+E           AssertionError: assert 'd32816f07c74...9d29b642050d2' == 'f8a9b29d7fa9...e58960cbde642'
+E             
+E             - f8a9b29d7fa9ea4208c10f7e9b187647f561691a8fd778e18abe58960cbde642
+E             + d32816f07c74a7c9fc3f1e1f013bf3373daebdb54295a368f5d9d29b642050d2
+
+tests/test_t57_publication_history.py:229: AssertionError
+_ test_enrolled_history_append_uses_final_manifest_hash_and_is_idempotent[digest] _
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-126/test_enrolled_history_append_u1/archive')
+name = 'digest'
+
+    @pytest.mark.parametrize('name', ['scoreboard', 'digest'])
+    def test_enrolled_history_append_uses_final_manifest_hash_and_is_idempotent(scoreboard_archive, name):
+        import hashlib
+        from zucai.publication_history import encode_history
+    
+        archive = scoreboard_archive
+        _legacy(archive)
+        prepare_remote(archive, '2026-11-02T18:00:00Z')
+        command(archive, name)
+        entries = json.loads((archive / HISTORY).read_bytes())['entries']
+        entries.pop(next(iter(entries)))  # Simulate an older enrolled proof snapshot.
+        (archive / HISTORY).write_bytes(encode_history(entries))
+        meta = json.loads((archive / 'feed_manifest.json').read_bytes())
+        meta['files'][HISTORY] = hashlib.sha256((archive / HISTORY).read_bytes()).hexdigest()
+        (archive / 'feed_manifest.json').write_text(json.dumps(meta))
+        command(archive, name)
+        sha = hashlib.sha256((archive / 'feed_manifest.json').read_bytes()).hexdigest()
+        if name == 'scoreboard':
+            result = json.loads((archive / 'scoreboard/summary.json').read_bytes())
+            assert result['input_manifests']['feed_manifest.json'] == sha
+        else:
+            result = max((json.loads(p.read_bytes()) for p in (archive / 'daily').rglob('*.json')), key=lambda r: r['update_number'])
+>           assert result['inputs']['feed_manifest.json'] == sha
+E           AssertionError: assert 'e919ce6ee634...d60c8b7d2d435' == '69dd393cd8bf...f5399b77c26d4'
+E             
+E             - 69dd393cd8bf4b3c1c2fce3e355a77e156a10b4f39711ba2e52f5399b77c26d4
+E             + e919ce6ee634a58639a7dfe1f5deb179c0d4e38afa3b17e3445d60c8b7d2d435
+
+tests/test_t57_publication_history.py:232: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t57_publication_history.py::test_enrolled_history_append_uses_final_manifest_hash_and_is_idempotent[scoreboard]
+FAILED tests/test_t57_publication_history.py::test_enrolled_history_append_uses_final_manifest_hash_and_is_idempotent[digest]

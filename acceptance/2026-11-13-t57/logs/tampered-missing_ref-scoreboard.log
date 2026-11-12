@@ -1,0 +1,40 @@
+Traceback (most recent call last):
+  File "/workspace/work/football-t57/src/zucai/publication_history.py", line 20, in git_read
+    return subprocess.run(
+           ^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['git', '-C', '/workspace/work/t57-evidence/acceptance-release/work/cached-missing_ref', 'show-ref', '--verify', 'refs/remotes/origin/data/football-feeds']' returned non-zero exit status 128.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspace/work/football-t57/src/zucai/publication_history.py", line 51, in check_history
+    if not git_read(root, *args).strip():
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t57/src/zucai/publication_history.py", line 29, in git_read
+    raise PublicationHistoryError(
+zucai.publication_history.PublicationHistoryError: 数据分支历史不可用：Git show-ref 命令失败（CalledProcessError）
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<string>", line 13, in <module>
+  File "/workspace/work/football-t57/src/zucai/scoreboard/command.py", line 324, in main
+    run(args.archive, as_of=args.as_of, replay_days=args.replay_days)
+  File "/workspace/work/football-t57/src/zucai/scoreboard/command.py", line 127, in run
+    publications = publication_times(archive, forecast_manifest, pending=pending_history)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t57/src/zucai/forecast_publication.py", line 137, in publication_times
+    resolve_history(
+  File "/workspace/work/football-t57/src/zucai/publication_history.py", line 116, in resolve_history
+    inferred = derive(missing)  # Unavailable infrastructure raises even for invalid saved slots.
+               ^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t57/src/zucai/forecast_publication.py", line 141, in <lambda>
+    lambda paths: git_evidence(
+                  ^^^^^^^^^^^^^
+  File "/workspace/work/football-t57/src/zucai/forecast_publication.py", line 51, in git_evidence
+    check_history(root, published_ref)
+  File "/workspace/work/football-t57/src/zucai/publication_history.py", line 54, in check_history
+    raise PublicationHistoryError("数据分支历史不可用：" + reason) from exc
+zucai.publication_history.PublicationHistoryError: 数据分支历史不可用：published_ref 缺失或不可读

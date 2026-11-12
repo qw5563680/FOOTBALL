@@ -1,0 +1,56 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_t57_confirmed_sfc_receipt_covers_its_original_without_git ________
+
+publication_archive = PosixPath('/tmp/pytest-of-agent/pytest-125/test_t57_confirmed_sfc_receipt0/publication')
+
+    def test_t57_confirmed_sfc_receipt_covers_its_original_without_git(publication_archive):
+        import shutil
+        from zucai.daily_digest import generate
+        from zucai.sfc_reports import confirm_publication
+        from test_t57_publication_history import files as archive_files
+    
+        archive = publication_archive
+        publish_reports(archive, now=GENERATED)
+        commit_report(archive, '2026-11-02T09:29:30+00:00')
+        assert confirm_publication(archive, published_ref=REF)
+        expected = digest(archive)
+        shutil.rmtree(archive / '.git')
+        before = archive_files(archive)
+>       assert digest(archive) == expected
+               ^^^^^^^^^^^^^^^
+
+/workspace/work/football-t57/tests/test_sfc_publication.py:466: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/work/football-t57/tests/test_sfc_publication.py:40: in digest
+    return "\n".join(section(archive, feed, {}, now, lambda name: name))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/work/football-t57/src/zucai/sfc_digest.py:13: in section
+    reports = resolve_publications(
+/workspace/work/football-t57/src/zucai/sfc_publication.py:186: in resolve_publications
+    evidence = publication_evidence(
+/workspace/work/football-t57/src/zucai/sfc_publication.py:173: in publication_evidence
+    resolved = resolve_history(archive, "sfc", candidates, derive, pending=pending)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/work/football-t57/src/zucai/publication_history.py:116: in resolve_history
+    inferred = derive(missing)  # Unavailable infrastructure raises even for invalid saved slots.
+               ^^^^^^^^^^^^^^^
+/workspace/work/football-t57/src/zucai/sfc_publication.py:163: in derive
+    found = _git_evidence(
+/workspace/work/football-t57/src/zucai/sfc_publication.py:93: in _git_evidence
+    check_history(archive, published_ref)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-agent/pytest-125/test_t57_confirmed_sfc_receipt0/publication')
+published_ref = 'refs/remotes/origin/data/football-feeds'
+
+    def check_history(root, published_ref):
+        if not re.fullmatch(r"refs/remotes/[^/]+/data/football-feeds", published_ref):
+            raise ValueError("发布时间必须来自远程 data/football-feeds 分支")
+        if not (root / ".git").exists():
+>           raise PublicationHistoryError("数据分支历史不可用：非仓库或 .git 缺失")
+E           zucai.publication_history.PublicationHistoryError: 数据分支历史不可用：非仓库或 .git 缺失
+
+/workspace/work/football-t57/src/zucai/publication_history.py:38: PublicationHistoryError
+=========================== short test summary info ============================
+FAILED tests/test_sfc_publication.py::test_t57_confirmed_sfc_receipt_covers_its_original_without_git
