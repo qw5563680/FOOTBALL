@@ -53,6 +53,7 @@ def verify_git_snapshot(root, commit, repository):
 
 def worker(args):
     from zucai.daily_digest import generate
+    from zucai.digest_display import _match, _text
     from zucai.parlay.paper import read_ledger, render, summarize
     from zucai.report.render import _csv_bytes, load_batch
     from zucai.report.sfc import _csv
@@ -81,6 +82,28 @@ def worker(args):
     (out / "nov6-single-table.md").write_text(table)
     (out / "ac-milan-row.txt").write_text(line + "\n")
     batch = load_batch(args.nov6_archive / "forecasts/2026-11-06/42024862563-1/forecast.json")
+    display = []
+    for row in batch["predictions"]:
+        if row["status"] != "predicted":
+            continue
+        rendered = next(
+            line for line in table.splitlines() if line.startswith("|") and _match(row) in line
+        )
+        display.append(
+            dict(
+                match_id=row["match_id"],
+                model_name_inline=_text(row["model_name"]) in rendered,
+                model_hash_in_note=row["model_version"] not in rendered
+                and row["model_version"] in table,
+                top_five_inline=all(
+                    f"{score['score']} {score['probability']:.2%}" in rendered
+                    for score in row["top_scores"][:5]
+                ),
+                expected_p2="可用" if row.get("p2_ready") is True else "实验",
+                displayed_p2=rendered.split(" | ")[5].split("；", 1)[0],
+            )
+        )
+    (out / "nov6-display.json").write_bytes(raw(display))
     (out / "single-report.csv").write_bytes(_csv_bytes(batch))
     sfc = json.loads((args.nov6_archive / "sfc/26159/sfc.json").read_bytes())
     (out / "sfc-report.csv").write_bytes(_csv(sfc))
@@ -148,18 +171,34 @@ def run(args):
     base_line = (base / "ac-milan-row.txt").read_text().rstrip("\n")
     line = (current / "ac-milan-row.txt").read_text().rstrip("\n")
     table = (current / "nov6-single-table.md").read_text()
-    assert len(line) <= len(base_line) / 2
+    # Owner decision on PR114: keep scores inline; half-row length is not a gate.
     assert "默认实力：客队 费伦茨" in line
     assert table.count("默认实力说明：") == 1
     assert "weakest_quartile_half_shrinkage" in table.replace("\\_", "_")
     assert "96.29% / 3.07% / 0.64%" in line
-    assert "4:0 14.70%" in table and "6:0 8.61%" in table
+    assert "4:0 14.70%" in line and "6:0 8.61%" in line
+    assert "比分 S" not in table and "| S1 |" not in table
+    display = json.loads((current / "nov6-display.json").read_bytes())
+    assert display and all(
+        row["model_name_inline"]
+        and row["model_hash_in_note"]
+        and row["top_five_inline"]
+        and row["displayed_p2"] == row["expected_p2"]
+        for row in display
+    )
     csv_hashes = {}
     for name in ("single-report.csv", "sfc-report.csv"):
         assert (base / name).read_bytes() == (current / name).read_bytes()
         csv_hashes[name] = hashlib.sha256((current / name).read_bytes()).hexdigest()
     daily = (current / "daily-fixed/2026-11-12.md").read_text()
     assert "21 组 / 14 种不同组合" in daily
+    repeated_line = (
+        "单选 热那亚 VS AC米兰（jc:2042626）客胜 × 双选 蒙扎 VS 亚特兰大（jc:2042625）平+客胜"
+    )
+    assert repeated_line in daily and repeated_line in (current / "f-summary.md").read_text()
+    most_line = next(line for line in daily.splitlines() if line.startswith("被重复押注最多"))
+    for row in dedup["most_repeated_matches"]:
+        assert f"{row['home']} VS {row['away']}（{row['match_id']}）" in most_line
     report = dict(
         baseline_code=commit,
         archive_commits=ARCHIVE_COMMITS,
@@ -169,12 +208,16 @@ def run(args):
         original_totals=summary["totals"],
         deduplication=dedup,
         repeated_pair=pair,
+        repeated_pair_display=repeated_line,
         nov6_ac_milan=dict(
             baseline_characters=len(base_line),
             current_characters=len(line),
             footnote_count=table.count("默认实力说明："),
             historical_replay_utc="2026-11-05T16:05:00+00:00",
+            half_row_length_required=False,
+            owner_decision="https://github.com/qw5563680/FOOTBALL/pull/114#issuecomment-6829284391",
         ),
+        nov6_display_checks=display,
         csv_bytes_equal=csv_hashes,
         network_requests=0,
         production_written=False,

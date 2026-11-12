@@ -1,5 +1,6 @@
 """Daily and review views of archived facts, with explicit observation times."""
 
+import re
 from datetime import datetime, time, timedelta
 
 from zucai.digest_context import (
@@ -181,8 +182,6 @@ def forecast_sections(
             ]
         )
         versions = {}
-        score_notes = []
-        compact = any(prior_label(row) for row in rows)
         for row in sorted(rows, key=_order):
             head = (
                 f"| {_text(row.get('jc_num'))} | {_local(row['kickoff_utc'])} | "
@@ -202,33 +201,27 @@ def forecast_sections(
                 )
                 or "未提供"
             )
-            status = "ready" if row.get("p2_ready") is True else "experimental"
-            if compact:
-                status = "可用" if row.get("p2_ready") is True else "实验"
+            status = "可用" if row.get("p2_ready") is True else "实验"
             disclosure = prior_label(row)
             if disclosure:
                 status += "；" + _text(disclosure)
-            reference = f"{_text(row['model_name'])} / {_text(row['model_version'])}"
-            score_reference = scores
-            if compact:
-                version = (row["model_name"], row["model_version"])
+            version = row["model_version"]
+            reference = _text(version)
+            if re.fullmatch(r"[0-9a-fA-F]{64}", version):
                 reference = versions.setdefault(version, f"M{len(versions) + 1}")
-                score_reference = f"S{len(score_notes) + 1}"
-                score_notes.append(f"比分 {score_reference}：{scores}。")
             lines.append(
-                f"{head} | {_probabilities(row)} | {reference} | {status} | {score_reference} | "
+                f"{head} | {_probabilities(row)} | {_text(row['model_name'])} / {reference} | "
+                f"{status} | {scores} | "
                 f"{odds_time(row, checked_at=checked_at)} |"
             )
-        if compact:
-            lines.append("")
+        lines.append("")
         if note := prior_footnote(rows):
             lines.extend([_text(note), ""])
         lines.extend(
-            f"模型 {reference}：{_text(name)} / {_text(version)}。"
-            for (name, version), reference in versions.items()
+            f"模型版本 {reference}：{_text(version)}。" for version, reference in versions.items()
         )
-        lines.extend(score_notes)
-        lines.append("")
+        if versions:
+            lines.append("")
         lines.extend(
             _known_unstarted_lines(
                 day,

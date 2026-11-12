@@ -5,6 +5,12 @@ from collections import Counter
 from zucai.digest_display import _text
 from zucai.scoreboard.score import instant
 
+OUTCOMES = {"h": "主胜", "d": "平", "a": "客胜"}
+
+
+def _team_names(leg):
+    return dict(home=leg.get("home"), away=leg.get("away"))
+
 
 def combination_key(group):
     frozen = group["frozen"]
@@ -17,12 +23,19 @@ def combination_key(group):
 
 
 def summarize(ledger):
-    groups = [row for row in ledger if row["record_type"] == "group"]
+    # The decision time defines first appearance; stable ledger order breaks ties.
+    groups = sorted(
+        (row for row in ledger if row["record_type"] == "group"),
+        key=lambda row: instant(row["decision_utc"]),
+    )
     tickets = {row["record_id"]: row for row in ledger if row["record_type"] == "ticket"}
     combinations = {}
-    # The decision time defines first appearance; stable ledger order breaks ties.
-    for group in sorted(groups, key=lambda row: instant(row["decision_utc"])):
+    names = {}
+    for group in groups:
         combinations.setdefault(combination_key(group), []).append(group)
+        for side in ("single", "double"):
+            leg = group["frozen"][side]
+            names.setdefault(leg["match_id"], _team_names(leg))
     first = [rows[0] for rows in combinations.values()]
     settled = [row for row in first if row["settlement"] is not None]
     first_tickets = [tickets[key] for row in first for key in row["ticket_ids"]]
@@ -35,8 +48,16 @@ def summarize(ledger):
         if len(batches) > 1:
             repeated.append(
                 dict(
-                    single=dict(match_id=single, selection=option),
-                    double=dict(match_id=double, selections=list(options)),
+                    single=dict(
+                        match_id=single,
+                        selection=option,
+                        **_team_names(rows[0]["frozen"]["single"]),
+                    ),
+                    double=dict(
+                        match_id=double,
+                        selections=list(options),
+                        **_team_names(rows[0]["frozen"]["double"]),
+                    ),
                     occurrences=len(rows),
                     repeat_count=len(rows) - 1,
                     batch_ids=batches,
@@ -69,11 +90,22 @@ def summarize(ledger):
         ),
         repeated_combinations=repeated,
         most_repeated_matches=[
-            dict(match_id=mid, group_appearances=group_matches[mid], ticket_appearances=count)
+            dict(
+                match_id=mid,
+                group_appearances=group_matches[mid],
+                ticket_appearances=count,
+                **names.get(mid, {}),
+            )
             for mid, count in sorted(ticket_matches.items())
             if count == most and group_matches[mid] > 1
         ],
     )
+
+
+def _match_label(row):
+    home = _text(row.get("home") or "主队名未记录")
+    away = _text(row.get("away") or "客队名未记录")
+    return f"{home} VS {away}（{_text(row['match_id'])}）"
 
 
 def render(summary):
@@ -99,9 +131,10 @@ def render(summary):
     lines.extend(["", "跨批次重复组合："])
     for row in dedup["repeated_combinations"]:
         a, b = row["single"], row["double"]
+        options = "+".join(OUTCOMES[option] for option in "hda" if option in b["selections"])
         lines.append(
-            f"- 单选 {_text(a['match_id'])} {a['selection']} × "
-            f"双选 {_text(b['match_id'])} {'+'.join(b['selections'])}："
+            f"- 单选 {_match_label(a)}{OUTCOMES[a['selection']]} × "
+            f"双选 {_match_label(b)}{options}："
             f"出现 {row['occurrences']} 次（重复 {row['repeat_count']} 次），"
             f"涉及 {len(row['batch_ids'])} 批。"
         )
@@ -111,8 +144,7 @@ def render(summary):
         "被重复押注最多的比赛（并列全部列出，按基础注出现次数）："
         + (
             "；".join(
-                f"{_text(row['match_id'])} {row['ticket_appearances']} 注 / "
-                f"{row['group_appearances']} 组"
+                f"{_match_label(row)}{row['ticket_appearances']} 注 / {row['group_appearances']} 组"
                 for row in dedup["most_repeated_matches"]
             )
             or "无重复比赛"

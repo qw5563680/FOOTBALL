@@ -1,6 +1,8 @@
 # T56：二串一去重计数与披露小修验收
 
-执行日期：2026-11-12（UTC）；代码基线 `c1ace6fc5d2131fb0d4bdf2421420c6bd9e3c543`。
+本版按 [PR114 所有者决定](https://github.com/qw5563680/FOOTBALL/pull/114#issuecomment-6829284391)
+及[审查意见](https://github.com/qw5563680/FOOTBALL/pull/114#pullrequestreview-5877972861)修订；
+代码对照基线仍为 `c1ace6fc5d2131fb0d4bdf2421420c6bd9e3c543`。
 仅实现 [T56 任务单](../../docs/tasks/T56-parlay-dedup-and-display-fixes.md)，没有运行生产流程、
 体育网络请求、正式 key、模型训练或账本写入。
 
@@ -32,22 +34,28 @@
 首次按 `decision_utc` 排序，同刻保持原账本顺序，不借后组的结算。
 不同组合可以共享比赛或某一张基础注，不能视作相互独立的机会；28是首次组所属的基础注数量。
 
-`jc:2042626` 单选负 × `jc:2042625` 双选平/负，跨三个批次出现 **3组，额外重复2组**。
+单选 **热那亚 VS AC米兰（jc:2042626）客胜** × 双选 **蒙扎 VS 亚特兰大（jc:2042625）平+客胜**，
+跨三个批次出现 **3组，额外重复2组**。
 因此有 **6张基础注，两种选法各出现3次**；这就是任务中“出现6次”的基础注口径，不能写成6组。
 批次分别为 `42358846882-1-2026-11-08`、`42380973719-1-2026-11-08`、
 `42467250305-1-2026-11-08`。比赛曝光最高为 `jc:2042623`、`jc:2042625`、`jc:2042626`，
 三者并列各 **6注/3组**。
+重复清单和最多重复比赛都先显示首次冻结的真实主客对阵，ID放在括号里，选项用“主胜 / 平 / 客胜”。
+摘要仅补展示用 `home/away`；去掉这两个新展示字段后，原去重摘要逐字节相同。
+名字不参与分组键，后来改名不替换首次冻结名，缺名时明确写“主队名未记录 / 客队名未记录”。
 
 新增字段之外的整个 F 汇总与基线规范 JSON **逐字节相同**，包括全部规则/伤停/证据分层。
 原投入84元、原返还67.49元、原盈亏−16.51元、原覆盖13组不变。
 全量原账本哈希未变，原注额、奖金及既有结算没有回写；日报直接从已校验旧账本生成新视图，
 不用先更新旧 `summary.json`。
 
-北京11月6日实际全日报重放中，AC米兰–费伦茨单场行由 **320字符缩为125字符（39.06%）**，
+北京11月6日实际全日报重放中，AC米兰–费伦茨单场行由 **320字符缩为190字符（59.38%）**，
 行内显示“默认实力：客队 费伦茨”，研究概率仍为96.29% / 3.07% / 0.64%。
-该表方法与解释脚注 **恰好一次**。只缩短默认实力标签不足以减半，所以有默认实力的预测表
-还将完整模型版本和比分前五移到紧随表后的 M/S 编号对照；完整哈希、五项比分概率和赔率采集时间保留。
-其他预测表保持原布局，既有无默认实力日报 golden fixtures 不变。
+该表方法与解释脚注 **恰好一次**。按所有者批准，行长减半不再作为门槛。
+每行原样保留模型名和比分前五，只有64位模型版本哈希以 M 编号在表后列全；不再使用 S 编号。
+非64位哈希的旧版本字符串仍留行内。P2在所有表、各日统一为“可用 / 实验”，
+不因当天是否有默认实力而变化；两份合成日报 golden fixtures 只更新这项统一展示。
+12条真实11月6日已预测行均逐条验证模型名、五项比分和正确P2标签留在行内，完整哈希及赔率时间保留。
 单场和14场 CSV **全部字节相同**，并非仅列名相同；两份输出哈希见验收 JSON 与本目录清单。
 
 两份完整归档重放前后共 **3,120/3,120** 文件 SHA256 相同，包括原预测、日报、模型、期次、评分和账本。
@@ -70,26 +78,31 @@
 
 ## 检查与证据
 
-新增测试先观察失败，再实现：核心去重/短披露6项失败、竞彩后续8项失败，均为预期缺失行为。
-最终定向回归：**265 passed, 2 warnings in 8.63s**，包含所有 T53/T54、F账本、日报和14场相关测试。
+本次修订先观察失败再实现：行内比分/跨日P2统一3项预期失败，重复对阵名/中文选项3项预期失败。
+定向回归：**270 passed, 2 warnings in 7.99s**，包含所有 T53/T54、F账本、日报和14场相关测试。
 Ruff：`All checks passed!`；格式：`303 files already formatted`；`git diff --check` 通过。
-最终全量 `pytest -q`：**2747 passed，0 failed（132.86s）**，包含最后补充的混合先验方法映射回归。
+本次修订全量 `pytest -q`：**2752 passed，0 failed（142.13s）**。
+完整原始日志与 JUnit XML 随证据发布；上一版2747项全绿日志保留在旧证据目录。
 警告为既有 penaltyblog/NumPy 弃用提示。
 
 ```bash
 PYTHONPATH=src python scripts/verify-t56-archive.py \
   --archive /workspace/work/t56-evidence/archive-fixed \
   --nov6-archive /workspace/work/t56-evidence/archive-nov6 \
-  --output /workspace/work/t56-evidence/acceptance-final
+  --output /workspace/work/t56-review-evidence/acceptance-final
 PYTHONPATH=src pytest -o addopts='' -q
 ruff check src tests scripts/verify-t56-archive.py
 ruff format --check src tests scripts/verify-t56-archive.py
 ```
 
-完整证据当前位于 `/workspace/work/t56-evidence/acceptance-final/`，包含前后全档案哈希、
-两版完整日报/CSV、F汇总、逐组合重复明细和来源校验摘要。定向测试及红绿日志位于该目录的上级。
-完整证据发布目录为
+修订证据位于 `/workspace/work/t56-review-evidence/acceptance-final/`，包含前后全档案哈希、
+两版完整日报/CSV、逐行展示断言、F汇总、逐组合重复明细和来源校验摘要；定向测试及红绿日志位于上级。
+本次修订独立发布到
+[acceptance/2026-11-13-t56-review](https://github.com/qw5563680/FOOTBALL/tree/data/t56-parlay-display-acceptance-20261112/acceptance/2026-11-13-t56-review)。
+上一版证据保留于
 [data/t56-parlay-display-acceptance-20261112: acceptance/2026-11-12-t56](https://github.com/qw5563680/FOOTBALL/tree/data/t56-parlay-display-acceptance-20261112/acceptance/2026-11-12-t56)，
-其中保留 `acceptance-final/` 和上述日志文件名；本地路径不作为永久下载链接。
-`SHA256SUMS` 中 `repository/` 以代码仓库为根，`evidence/` 以该证据目录为根。
+其中125字符、M/S对照属于已被所有者决定替代的展示版本，不是当前行为；旧文件不覆盖。
+两个目录均保留 `acceptance-final/` 和日志文件名，本地路径不作为永久下载链接。
+`SHA256SUMS` 中 `repository/` 以当前代码为根、`evidence/` 以本次修订证据目录为根；
+`prior-repository/` 对应代码提交 `54ff69a`，`prior-evidence/` 对应上一版证据目录。
 代码分支 `reports/` 只提交本说明和 `SHA256SUMS`，全量证据另存，低于200KB限制。
