@@ -70,7 +70,7 @@ STATE_FILE = (
     r"state/(?:(?:api_football_quota|nations_league)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
-    r"alias_candidates/(?:fdorg|apif|jc)\.json)"
+    r"alias_candidates/(?:fdorg|apif|jc)\.json|publication/(?:forecast|sfc)_history\.json)"
 )
 VIEW = """
 WITH triples AS (
@@ -254,10 +254,30 @@ def export_feeds(
                             writer = csv.DictWriter(out, fieldnames=reader.fieldnames)
                             writer.writeheader()
                             writer.writerows(rows)
+    from zucai.publication_history import HISTORY_FILES, encode_history, read_history
+
+    # A scoreboard/digest may have saved proof after this working DB was restored.
+    # Preserve archive entries first; a stale exporter may only add unseen paths.
+    for key in HISTORY_FILES:
+        current, working = read_history(archive, key), read_history(source.parent, key)
+        merged = {**working, **current}
+        if merged or (archive / key).exists() or (source.parent / key).exists():
+            target = archive / key
+            target.parent.mkdir(parents=True, exist_ok=True)
+            raw = encode_history(merged)
+            if not target.exists() or target.read_bytes() != raw:
+                from zucai.sources.base import _atomic_write
+
+                _atomic_write(target, raw)
+            files.append(key)
     state = source.parent / "state"
     for path in sorted(state.rglob("*")) if state.exists() else []:
         key = "state/" + path.relative_to(state).as_posix()
-        if path.is_file() and key != ROWS_MANIFEST and re.fullmatch(STATE_FILE, key):
+        if (
+            path.is_file()
+            and key not in (ROWS_MANIFEST, *HISTORY_FILES)
+            and re.fullmatch(STATE_FILE, key)
+        ):
             if path.is_symlink():
                 raise ValueError("持久状态不允许符号链接")
             (archive / key).parent.mkdir(parents=True, exist_ok=True)
@@ -384,6 +404,8 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
             "state/stats_backfill_cursor.json",
             "state/stats_coverage.json",
             "state/nations_league.json",
+            "state/publication/forecast_history.json",
+            "state/publication/sfc_history.json",
         ):
             if key not in meta["files"]:
                 (dest.parent / key).unlink(missing_ok=True)

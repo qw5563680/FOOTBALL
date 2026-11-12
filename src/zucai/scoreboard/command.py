@@ -15,6 +15,7 @@ from zucai.forecast_archive import _path, verify_forecasts
 from zucai.forecast_publication import publication_times
 from zucai.parlay import paper as parlay_paper
 from zucai.parlay.archive import load_documents
+from zucai.publication_history import publication_updates
 from zucai.scoreboard import paper as paper_accounts
 from zucai.scoreboard.experimental import (
     load_experiments,
@@ -75,7 +76,7 @@ def read_state(archive):
     return scored, ledger, summary, scored_raw
 
 
-def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None):
+def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None, history=None):
     root = _path(archive, "scoreboard")
     paths = {name: _path(root, name) for name in FILES}
     if parlay_raw is not None:
@@ -84,6 +85,10 @@ def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None):
     if sfc_raw is not None:
         contents = {**contents, "sfc-settled": sfc_raw}
         paths["sfc-settled"] = _path(archive, "sfc/settled.jsonl")
+    for index, (path, raw) in enumerate((history or {}).items()):
+        key = f"publication-{index}"
+        contents = {**contents, key: raw}
+        paths[key] = path
     backups = {name: path.read_bytes() if path.exists() else None for name, path in paths.items()}
     try:
         with TemporaryDirectory(prefix=".scoreboard-", dir=archive) as temporary:
@@ -118,7 +123,8 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     if previous and instant(previous["as_of_utc"]) > at:
         raise ValueError("不能倒退已有记分板的截点，请用独立归档副本回放")
     forecast_manifest = verify_forecasts(archive)
-    publications = publication_times(archive, forecast_manifest)
+    pending_history = {}
+    publications = publication_times(archive, forecast_manifest, pending=pending_history)
     parlay_documents = load_documents(archive, forecast_manifest, at, publications=publications)
     parlay_ledger = parlay_paper.read_ledger(archive, previous)
     has_parlays = bool(parlay_documents) or "parlay_sd" in (previous or {})
@@ -233,6 +239,12 @@ def run(archive: Path, *, as_of=None, replay_days=None):
             and any(e[k] != results[e["match_id"]][k] for k in ("home_goals", "away_goals"))
         }
     )
+    history_updates = publication_updates(archive, pending_history)
+    final_inputs = dict(inputs)
+    if archive / "feed_manifest.json" in history_updates:
+        final_inputs["feed_manifest.json"] = hashlib.sha256(
+            history_updates[archive / "feed_manifest.json"]
+        ).hexdigest()
     summary = {
         "schema_version": 1,
         "generated_utc": generated.isoformat(),
@@ -241,7 +253,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         "default_threshold": "1.05",
         "edge_rule": "model_probability * frozen_sp > threshold",
         "replay_days": replay_days,
-        "input_manifests": inputs,
+        "input_manifests": final_inputs,
         "probability": probability,
         "accounts": accounts,
         "sfc": sfc_summary,
@@ -277,7 +289,13 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     contents["summary.json"] = _json(summary)
     if any(digest(archive / name) != sha for name, sha in inputs.items()):
         raise ValueError("输入归档在计算期间发生变化")
-    _publish(archive, contents, sfc_raw=sfc_raw, parlay_raw=parlay_raw)
+    _publish(
+        archive,
+        contents,
+        sfc_raw=sfc_raw,
+        parlay_raw=parlay_raw,
+        history=history_updates,
+    )
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
             output.write("\n".join(markdown.splitlines()[:60]) + "\n")

@@ -997,8 +997,39 @@ candidate_sha256、commit、ref、published_utc。第二次 push 失败时新批
 旧批次无新 marker/receipt 时，只读完整、非 shallow 的远程数据分支历史，以首次加入文件的提交
 **committer** 时间作为历史回退。该时间是任务允许的历史近似，不声称恢复了真实 push 完成时刻。
 首次加入的 blob、当前原件与清单 SHA256 必须完全一致；若文件后来改写，不采纳更晚版本替代冻结证据。
-导不出、SHA 不同、早于生成（Git 秒级精度的同秒截断除外）、坏 receipt 或没有历史，均为未知。
+个别原件导不出、SHA 不同、早于生成（Git 秒级精度的同秒截断除外）或坏 receipt，均为未知；
+整体 Git 历史不可用的失败语义见下面 T57 说明。
 离线解压副本可显式提供只读 Git 仓库，仍逐文件验证固定快照字节；不 fetch、不改索引、不回填旧清单。
+
+### T57 历史证据持久化与失败边界
+
+`state/publication/forecast_history.json` 和 `state/publication/sfc_history.json` 是独立的附加状态：
+`{"schema_version": 1, "entries": {"<candidate_path>": {"method": "historical_first_containing_commit",
+"candidate_path": "...", "candidate_sha256": "...", "commit": "...", "ref": "refs/remotes/origin/data/football-feeds",
+"published_utc": "UTC ISO..."}}}`。第一次成功推导的条目为准，只追加从未存在的路径，
+不更改已有条目；哈希不符或格式/时间不合格的已有条目不被重新推导覆盖。
+每次读取核对路径、方法、commit/ref 格式、时间、预测清单 SHA256 以及当前原件 SHA256；
+SFC 原件另经现有报告清单校验。`post_push_confirmation` 回执始终优先，坏回执/新批次待确认
+继续遵守 T55 的未知语义，不用历史近似补造成功推送。
+
+只读 `publication_times` / `resolve_publications` 保持只读；记分板与日报用 `pending` 收集新增证据，
+完成全部读取/计算后将状态文件并入各自的输出事务。原子替换失败时，状态、报告和既有文件一同恢复。
+因此 SFC 历史不可读导致日报失败时，先前推导出的预测证据也不会提前落盘。
+
+尚未被有效回执或落盘证据覆盖的历史候选需要查询 Git。非仓库/缺 `.git`、目录非仓库顶层、
+浅克隆、缺远程发布引用、缺远端配置、Git 命令失败或无法解析历史，抛出
+`PublicationHistoryError`（`ValueError` 子类），点名原因；两个 CLI 非零退出，不产出清零报告。
+SFC 历史查询采用同样边界。Git 正常但个别路径没有首次加入记录、原件哈希不匹配等，
+只令该文件保持未知；不改变发布门槛、选版、概率、原评分或账本。所有需要历史的候选已覆盖时
+不调用 Git，缺 `.git` 或 shallow 不影响复用。Git 完整历史检出配置保持不变。
+
+首次写入尚未纳入 feeds 的历史状态时，不改 `feed_manifest.json`，满足第一次运行只有
+`state/publication/` 和记分板/日报输出变化的约束。下次正常 `export_feeds` 把两文件加入
+`files` SHA256 清单；导出以归档已有条目优先，再合入工作库旁的未见条目，防止旧工作副本丢失新证据。
+若文件已在清单中，后续追加时其清单哈希与状态/输出一起原子更新。`restore_feeds` 只恢复已纳入清单
+且通过哈希校验的历史文件；恢复不含该状态的旧快照时删除目标目录遗留文件。
+首次落盘后、下次常规导出前可直接在原归档复用，但未入清单的状态不会被冒充为已通过 feeds 恢复校验。
+无数据库迁移、联网或 workflow 调整。
 
 有效行共同要求 `as_of_utc <= generated_utc < kickoff_utc`、`published_utc < kickoff_utc`，
 且生成/发布都不晚于读取截点。同场在有效行中沿用原生成时间和 batch_id 排序，不改概率或模型。

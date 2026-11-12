@@ -7,6 +7,13 @@ import re
 import subprocess
 from pathlib import Path
 
+from zucai.publication_history import (
+    PublicationHistoryError,
+    check_history,
+    git_read,
+    resolve_history,
+)
+from zucai.publication_history import precedes_calculation as _precedes_calculation
 from zucai.report.render import _beijing, _timestamp
 
 LOG = logging.getLogger(__name__)
@@ -30,14 +37,6 @@ def deadline_status(deadline, published):
         if _timestamp(published) < _timestamp(deadline)
         else "missed_deadline"
     )
-
-
-def _precedes_calculation(published, generated):
-    published, generated = _timestamp(published), _timestamp(generated)
-    # Git %cI drops subsecond precision. Accept only that exact truncation;
-    # never move the recorded commit timestamp or relax the sale deadline.
-    same_git_second = published.microsecond == 0 and published == generated.replace(microsecond=0)
-    return published < generated and not same_git_second
 
 
 def with_publication(report, evidence=None):
@@ -73,7 +72,7 @@ def deadline_message(report):
     return f"无法确认赶上停售（算完 {generated}，存好时间未知）"
 
 
-def publication_evidence(archive, reports, *, published_ref=PUBLISHED_REF):
+def _git_evidence(archive, reports, *, published_ref=PUBLISHED_REF):
     """Batch lookup; an unpushed local commit or incomplete history proves nothing.
 
     The caller supplies immutable report paths and already hash-validated reports.
@@ -88,22 +87,10 @@ def publication_evidence(archive, reports, *, published_ref=PUBLISHED_REF):
         return {}
 
     def git(*args, input=None):
-        return subprocess.run(
-            ["git", "-C", str(archive), *args],
-            input=input,
-            capture_output=True,
-            check=True,
-            timeout=30,
-        ).stdout
+        return git_read(archive, *args, input=input)
 
     try:
-        if Path(git("rev-parse", "--show-toplevel").decode().strip()).resolve() != archive:
-            return {}
-        if git("rev-parse", "--is-shallow-repository").strip() != b"false":
-            LOG.warning("SFC 发布记录缺少完整 Git 历史，存好时间未知")
-            return {}
-        git("show-ref", "--verify", published_ref)
-        git("config", "--get", "remote." + published_ref.split("/")[2] + ".url")
+        check_history(archive, published_ref)
         history = git(
             "log",
             "--reverse",
@@ -135,7 +122,7 @@ def publication_evidence(archive, reports, *, published_ref=PUBLISHED_REF):
             newline = raw.index(b"\n", offset)
             header = raw[offset:newline].split()
             if len(header) != 3 or header[1] != b"blob":
-                return {}
+                raise PublicationHistoryError("数据分支历史不可用：SFC Git blob 响应无效")
             size = int(header[2])
             offset = newline + 1
             contents = raw[offset : offset + size]
@@ -155,14 +142,66 @@ def publication_evidence(archive, reports, *, published_ref=PUBLISHED_REF):
             }
         return result
     except (OSError, subprocess.SubprocessError, ValueError, UnicodeError) as error:
-        LOG.warning("SFC 存好时间无法从数据分支确认：%s", type(error).__name__)
-        return {}
+        if isinstance(error, PublicationHistoryError):
+            raise
+        raise PublicationHistoryError(
+            "数据分支历史不可用：SFC Git 历史读取失败（" + type(error).__name__ + "）"
+        ) from error
 
 
-def resolve_publications(archive, reports, *, published_ref=PUBLISHED_REF, now=None):
+def publication_evidence(archive, reports, *, published_ref=PUBLISHED_REF, pending=None):
+    reports = list(reports)
+    candidates = {
+        path + "/sfc.json": (
+            hashlib.sha256((archive / path / "sfc.json").read_bytes()).hexdigest(),
+            report["generated_utc"],
+        )
+        for path, report in reports
+    }
+
+    def derive(missing):
+        found = _git_evidence(
+            archive,
+            [(path, r) for path, r in reports if path + "/sfc.json" in missing],
+            published_ref=published_ref,
+        )
+        return {
+            path + "/sfc.json": dict(entry, method="historical_first_containing_commit")
+            for path, entry in found.items()
+        }
+
+    resolved = resolve_history(archive, "sfc", candidates, derive, pending=pending)
+    # Existing SFC reports/receipts retain their original schema and exact presentation.
+    return {
+        path.removesuffix("/sfc.json"): {k: v for k, v in entry.items() if k != "method"}
+        for path, entry in resolved.items()
+    }
+
+
+def resolve_publications(
+    archive, reports, *, published_ref=PUBLISHED_REF, now=None, pending_history=None
+):
     """Read-only views for digest, including legacy files with no saved receipt."""
-    pending = [(path, report) for path, report in reports if not report.get("published_utc")]
-    evidence = publication_evidence(archive, pending, published_ref=published_ref)
+    # read_reports has already verified each receipt against the exact original.
+    # The original remains in immutable history alongside its confirmation version.
+    receipts = {
+        report["publication_evidence"]["candidate_path"].removesuffix("/sfc.json"): report[
+            "publication_evidence"
+        ]
+        for _, report in reports
+        if report.get("publication_evidence")
+    }
+    pending = [
+        (path, report)
+        for path, report in reports
+        if not report.get("published_utc") and path not in receipts
+    ]
+    evidence = {
+        **publication_evidence(
+            archive, pending, published_ref=published_ref, pending=pending_history
+        ),
+        **receipts,
+    }
     views = []
     for path, report in reports:
         view = (

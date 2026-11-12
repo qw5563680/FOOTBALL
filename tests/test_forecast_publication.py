@@ -89,15 +89,17 @@ def test_historical_first_remote_commit_exact_bytes_and_readonly(scoreboard_arch
     assert path not in publication_times(archive, manifest)
 
 
-def test_no_git_or_only_local_commit_is_unknown(scoreboard_archive):
+def test_no_git_or_missing_published_ref_is_an_infrastructure_error(scoreboard_archive):
     from zucai.forecast_publication import publication_times
 
     archive = scoreboard_archive
     manifest = _legacy(archive)
-    assert publication_times(archive, manifest) == {}
+    with pytest.raises(ValueError, match="非仓库"):
+        publication_times(archive, manifest)
     prepare_remote(archive, "2026-11-01T16:00:00Z")
     git(archive, "update-ref", "-d", REF)
-    assert publication_times(archive, manifest) == {}
+    with pytest.raises(ValueError, match="published_ref"):
+        publication_times(archive, manifest)
 
 
 def test_confirmation_uses_after_push_clock_and_never_local_commit_date(scoreboard_archive):
@@ -109,7 +111,8 @@ def test_confirmation_uses_after_push_clock_and_never_local_commit_date(scoreboa
         for entry in run["forecasts"].values():
             entry["publication_required"] = True
     (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
-    assert confirm_publication(archive) == []
+    with pytest.raises(ValueError, match="非仓库"):
+        confirm_publication(archive)
     prepare_remote(archive, "2026-11-01T16:00:00Z")
     assert publication_times(archive, manifest) == {}
     after = datetime(2026, 11, 1, 17, tzinfo=UTC)
