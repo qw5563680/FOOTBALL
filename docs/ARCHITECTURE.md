@@ -982,6 +982,26 @@ T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，
 失败时仍能结算旧批次，取消则停止。托管机 30 分钟，共用写回锁，artifact 90 天，Actions 贴前 60 行。
 漂移仅提示：四个连续完整且有样本的北京周平局偏差绝对值均>5个百分点，或最近100场LL高于等概率；不自动 tune。
 
+## T53 默认实力披露与候选隔离
+
+`prediction_disclosure.py` 只读冻结行的 `metadata`，统一返回是否使用先验、主客缺失方、
+先验方法与证据来源。新预测在已有 `unknown_team_prior` / `prior_method` 之外记录
+`home_unknown_team`、`away_unknown_team`；Dixon-Coles 计算、训练参数、概率矩阵均不改变。
+旧欧战冻件可从双方完整且一致的 `home_training_leagues` / `away_training_leagues` 判定缺失方；
+仅有总标记时显示“缺失方未记录”，不能猜测。没有历史标记的记录属于未记录组，不能冒称双方已知。
+
+单场与日报保留原研究概率，注明缺失方/球队及方法。14场与任九复用原预测证据，
+默认实力场次不进入置信度排序或任九模型单选；完整14场研究覆盖计算保持原数学口径。
+二串一 F 不允许相关球队模型场次出现在主组任一腿或最高排序，保留诊断；市场对照仍独立。
+既有 A–E 中，仅新批次 D/E 的排名候选增加这项排除，A/B/C 的既有规则不变。
+已经冻结的报告展示通过只读视图补说明或过滤当前候选，不重选旧组、不重写原件或既有账本决定。
+
+记分板 `probability.prior_strata` 按 `default_strength` / `known_teams` / `unrecorded` 分层。
+新评分行可附 `prior_disclosure`；旧评分由精确比赛/批次/模型版本及原件路径/哈希关联，
+仅在内存补齐披露。原总评分、active_keys、P2 门槛和已存评分字节不变；
+日报本周复盘与14场已结诊断同样分别展示，未记录证据不归入已知组。
+没有新增数据库表、正式数据请求或可执行投注能力。
+
 ## T45 单选＋双选：独立纸面组合与账户 F
 
 `parlay/single_double.py` 只读同 batch 的原精度 TEAM 概率与同目录独立实验概率。
@@ -1147,6 +1167,9 @@ T35：云端已由 ID 桥接/counterpart 确认的场次采用库内开球时间
 同场候选经 counterpart 或同联赛/开球/主客 ID 确认后，按 jc > fd > fdorg 取唯一最高优先级；
 真实冲突及最高优先级并列仍 ambiguous。桥接命中体彩 ID 且两个500页面联赛标签一致时，云端允许
 库内联赛显示名不同，原标签与 matched_identity.league 分存，不生成通用别名，手工 T07 联赛校验不变。
+T52：欧国联桥接目标在 `Match` 中不存在时，沿用国家队来源 ID 与精确开球匹配已有比赛，
+新映射证据记录 `bridge_fallback_reason=target_match_missing` 并完整保留 `bridge`。
+已存在目标仍走严格冲突核验，不因匹配失败而降级；后续刷新会重新检查保留的原对照。
 不创建或修改 Team/Match。未匹配/歧义的
 snapshot 行保持 match_id、matched_identity 为 null，全部14行仍保留；只有已匹配行写 sfc_issue_matches。
 旧手工 T07 默认行为保留。审计 sfc_unmatched.csv 按期号/序号/fixture/reason/candidates 去重，保留首次原件哈希。

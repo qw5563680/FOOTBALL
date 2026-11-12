@@ -78,6 +78,7 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
     own_id = "c500:" + fixture.fixture_id
     own = session.get(Match, own_id)
     bridge = bridges.get(fixture.fixture_id)
+    missing_national_target = False
     evidence = {"basis": "exact_team_names"}
     linked = list(session.scalars(select(Match).where(Match.counterpart_id == own_id)))
     if own and own.counterpart_id:
@@ -92,6 +93,12 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
         ):
             raise ValueError(f"{own_id} ID对照主客球队或开球冲突")
         target = session.get(Match, bridge["jc_id"])
+        missing_national_target = target is None and fixture.league == NATIONS_LEAGUE
+        if missing_national_target and (
+            _league_key(bridge["league"]) != _league_key(fixture.league)
+            or datetime.fromisoformat(bridge["kickoff_utc"]) != fixture.kickoff_utc
+        ):
+            raise ValueError(f"{own_id} 失效欧国联ID对照与原始联赛或开球冲突")
         if own and own.counterpart_id and own.counterpart_id != bridge["jc_id"]:
             previous = session.get(Match, own.counterpart_id)
             if (
@@ -136,14 +143,22 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
         return match, "matched", [m.match_id for m in linked], evidence
     home_name = bridge["home"] if bridge else fixture.home
     away_name = bridge["away"] if bridge else fixture.away
-    if fixture.league == NATIONS_LEAGUE and not bridge:
-        home_name = sfc_team(fixture.home_id, home_name)
-        away_name = sfc_team(fixture.away_id, away_name)
+    national_fallback = fixture.league == NATIONS_LEAGUE and (not bridge or missing_national_target)
+    if national_fallback:
+        # A provider's JC number is not a database binding until its target exists.
+        # Retry the established national path using the original SFC identities;
+        # an existing target has already passed (or failed) the strict checks above.
+        home_name = sfc_team(fixture.home_id, fixture.home)
+        away_name = sfc_team(fixture.away_id, fixture.away)
         evidence = {
             "basis": "national_team_ids_and_exact_kickoff",
             "home_id": fixture.home_id,
             "away_id": fixture.away_id,
         }
+        if bridge:
+            evidence.update(
+                bridge=copy.deepcopy(bridge), bridge_fallback_reason="target_match_missing"
+            )
     home, away = _find_team(session, home_name), _find_team(session, away_name)
     # An earlier SFC-only record may retain the source's abbreviated names.
     # Check that original identity before considering the bridge's longer names;
@@ -162,7 +177,7 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
     if own and bridge and not mapped_only:
         own.counterpart_id = bridge["jc_id"]
     candidates = []
-    if home and away and not bridge:
+    if home and away and (not bridge or national_fallback):
         candidates = list(
             session.scalars(
                 select(Match).where(
@@ -405,6 +420,14 @@ def ingest_issue(
         successful = saved.get("basis") == "provider_fixture_and_team_ids"
         if saved.get("previous_bridge"):
             saved, successful = saved["previous_bridge"], True
+        elif (
+            saved.get("basis") == "national_team_ids_and_exact_kickoff"
+            and saved.get("bridge_fallback_reason") == "target_match_missing"
+            and saved.get("bridge")
+        ):
+            # Missing target rows do not invalidate the archived provider ID
+            # binding, including when the strict fallback is still unresolved.
+            saved, successful = saved["bridge"], True
         if not successful:
             saved = saved.get("bridge")
             if not saved:

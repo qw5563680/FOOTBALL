@@ -12,6 +12,8 @@ from zucai.digest_context import (
 )
 from zucai.digest_display import BEIJING, _instant, _link, _match, _number, _probabilities, _text
 from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time, same_collection_attempt
+from zucai.prediction_disclosure import prior_label
+from zucai.scoreboard.score import enrich_prior_disclosures
 
 SKIP_REASONS = {
     "match_status_not_selling": "比赛状态非 Selling",
@@ -73,8 +75,58 @@ def prediction_source_lines(run):
     return lines + ([""] if lines else [])
 
 
+def _known_unstarted_lines(day, now, repository, catalog, sfc_issues, *, shown_ids=()):
+    def upcoming(row):
+        return (
+            not row.get("source_ended")
+            and row.get("kickoff_basis") != "placeholder"
+            and kickoff_day(row) is not None
+            and kickoff_day(row).isoformat() == day
+            and _instant(row["kickoff_utc"]) > now
+        )
+
+    lines = []
+    jc_ids = {
+        row["match_id"]
+        for row in catalog or []
+        if row.get("captured_utc")
+        and _instant(row["captured_utc"]) <= now
+        and row["match_id"] not in shown_ids
+        and upcoming(row)
+    }
+    if jc_ids:
+        lines.append(f"竞彩目录有 {len(jc_ids)} 场未开球比赛，但本批未提供对应竞彩预测。")
+    for path, issue in sfc_issues or []:
+        if not issue.get("observed_utc") or _instant(issue["observed_utc"]) > now:
+            continue
+        rows = [
+            row
+            for row in issue["snapshot"]
+            if row.get("match_id") not in shown_ids and upcoming(row)
+        ]
+        if not rows:
+            continue
+        matched = sum(row.get("mapping") == "matched" and bool(row.get("match_id")) for row in rows)
+        lines.append(
+            f"原始胜负彩期次快照有 {len(rows)} 场未开球比赛"
+            f"（{_text(issue['issue_no'])} 期：未映射 {len(rows) - matched} 场、"
+            f"已映射 {matched} 场；来源：{_link(path, repository)}）。"
+            "本批竞彩表未展示这些比赛；最新映射与胜负彩专用冻结预测见下方 14 场胜负彩。"
+        )
+    return lines + ([""] if lines else [])
+
+
 def forecast_sections(
-    batches, today, repository, *, now=None, matches=None, displayed_ids=None, runs=None
+    batches,
+    today,
+    repository,
+    *,
+    now=None,
+    matches=None,
+    displayed_ids=None,
+    runs=None,
+    catalog=None,
+    sfc_issues=None,
 ):
     now = now or datetime.combine(today, time.min, BEIJING)
     matches = matches or {}
@@ -84,7 +136,8 @@ def forecast_sections(
         choices = [entry for entry in batches if entry[0] == day]
         lines.extend([f"### {label} {day}", ""])
         if not choices:
-            lines.extend(["尚无冻结预测。", ""])
+            known = _known_unstarted_lines(day, now, repository, catalog, sfc_issues)
+            lines.extend(["尚无竞彩冻结预测。" if known else "尚无冻结预测。", "", *known])
             continue
         _, path, batch = max(
             choices, key=lambda e: (_instant(e[2]["generated_utc"]), e[2]["batch_id"])
@@ -115,7 +168,10 @@ def forecast_sections(
             if row.get("kickoff_utc") and _instant(row["kickoff_utc"]) > now
         ]
         if not rows:
-            lines.extend(["该批次无未开球比赛；已开球场次见复盘。", ""])
+            lines.extend(
+                _known_unstarted_lines(day, now, repository, catalog, sfc_issues)
+                or ["该批次无未开球比赛；已开球场次见复盘。", ""]
+            )
             continue
         lines.extend(
             [
@@ -144,12 +200,25 @@ def forecast_sections(
                 or "未提供"
             )
             status = "ready" if row.get("p2_ready") is True else "experimental"
+            disclosure = prior_label(row)
+            if disclosure:
+                status += "；" + _text(disclosure)
             lines.append(
                 f"{head} | {_probabilities(row)} | {_text(row['model_name'])} / "
                 f"{_text(row['model_version'])} | {status} | {scores} | "
                 f"{odds_time(row, checked_at=checked_at)} |"
             )
         lines.append("")
+        lines.extend(
+            _known_unstarted_lines(
+                day,
+                now,
+                repository,
+                catalog,
+                sfc_issues,
+                shown_ids={row["match_id"] for row in rows},
+            )
+        )
     return lines
 
 
@@ -225,6 +294,9 @@ def review_sections(
             else "未计分"
         )
         probability = _probabilities(frozen) if frozen else "无可查的赛前预测"
+        disclosure = prior_label(frozen) if frozen else ""
+        if disclosure:
+            probability += "；" + _text(disclosure)
         lines.append(
             f"| {_text(row.get('jc_num'))} | {_local(row['kickoff_utc'])} / {_match(row)} | "
             f"{probability} | {actual} | {hit} | {_text(frozen['batch_id']) if frozen else '—'} | "
@@ -232,6 +304,26 @@ def review_sections(
         )
     if not rows:
         lines.append("| 尚无本周已开球记录 | — | — | — | — | — | — |")
+    enriched = enrich_prior_disclosures(settled, latest.values(), as_of=now)
+    lines.extend(
+        [
+            "",
+            "### 默认实力分层",
+            "",
+            "沿用上表相同 active_keys 与原赛果；旧记录只关联同一冻结批次和模型版本。",
+            "",
+            "| 预测依据 | 已结 | 猜对 | 猜错 |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+    )
+    for label, used in (
+        ("使用默认实力", True),
+        ("双方均已知", False),
+        ("是否使用默认实力未记录", None),
+    ):
+        group = [r for r in enriched if r["prior_disclosure"]["used"] is used]
+        correct = sum(max("hda", key=r["model_probabilities"].get) == r["actual"] for r in group)
+        lines.append(f"| {label} | {len(group)} | {correct} | {len(group) - correct} |")
     lines.extend(["", "### 竞彩完整清单逐号核对", ""])
     displayed = set(latest) if displayed_ids is None else displayed_ids | (set(rows) & set(latest))
     window = window or prediction_window([], now)

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from zucai.cloud_feeds import digest
 from zucai.forecast_archive import verify_forecasts
+from zucai.prediction_disclosure import prior_disclosure
 from zucai.report.render import load_batch
 from zucai.sources.sporttery import BEIJING
 
@@ -196,6 +197,7 @@ def score_forecasts(forecasts, results, existing, as_of, *, experimental=False):
                 "forecast_sha256": row.get("forecast_sha256"),
                 "p2_label": row.get("p2_label", "P2 实验"),
                 "p2_ready": row.get("p2_ready", False),
+                "prior_disclosure": prior_disclosure(row),
                 "available_utc": result["available_utc"],
                 "available_source": result["available_source"],
                 "home_goals": result["home_goals"],
@@ -286,7 +288,42 @@ def _drift(rows, as_of):
     }
 
 
-def summarize_scores(scored, as_of, *, active_keys=None):
+def enrich_prior_disclosures(scored, forecast_rows, *, as_of=None):
+    """Join old scores to their exact frozen evidence in memory, never rewrite rows."""
+    fields = ("match_id", "batch_id", "model_name", "model_version")
+    originals = defaultdict(list)
+    for forecast in forecast_rows or []:
+        key = tuple(forecast.get(k) for k in fields)
+        if not all(key) or not forecast.get("generated_utc"):
+            continue
+        if as_of is not None and instant(forecast["generated_utc"]) > instant(as_of):
+            continue
+        originals[key].append(forecast)
+    enriched = []
+    for row in scored:
+        detail = prior_disclosure(row)
+        if detail["used"] is None:
+            evidence = []
+            for forecast in originals.get(tuple(row.get(k) for k in fields), []):
+                if any(
+                    row.get(k) is not None and row[k] != forecast.get(k)
+                    for k in (
+                        "forecast_path",
+                        "forecast_sha256",
+                        "generated_utc",
+                        "kickoff_utc",
+                        "model_probabilities",
+                    )
+                ):
+                    continue
+                evidence.append(prior_disclosure(forecast))
+            if evidence and all(item == evidence[0] for item in evidence):
+                detail = evidence[0]
+        enriched.append({**row, "prior_disclosure": detail})
+    return enriched
+
+
+def summarize_scores(scored, as_of, *, active_keys=None, forecast_rows=None):
     selected = set(active_keys) if active_keys is not None else None
     latest = {}
     for row in sorted(scored, key=lambda r: (instant(r["generated_utc"]), r["batch_id"])):
@@ -295,6 +332,7 @@ def summarize_scores(scored, as_of, *, active_keys=None):
         ):
             latest[row["match_id"]] = row
     rows = sorted(latest.values(), key=lambda r: (instant(r["kickoff_utc"]), r["match_id"]))
+    prior_rows = enrich_prior_disclosures(rows, forecast_rows, as_of=as_of)
     leagues, versions, months = defaultdict(list), defaultdict(list), defaultdict(list)
     model_leagues = defaultdict(list)
     for row in rows:
@@ -307,6 +345,14 @@ def summarize_scores(scored, as_of, *, active_keys=None):
         "leagues": {},
         "league_versions": [],
         "months": {k: _aggregate(v) for k, v in sorted(months.items())},
+        "prior_strata": {
+            name: _aggregate([r for r in prior_rows if r["prior_disclosure"]["used"] is used])
+            for name, used in (
+                ("default_strength", True),
+                ("known_teams", False),
+                ("unrecorded", None),
+            )
+        },
         "model_leagues": [
             dict(model_name=name, league=league, **_aggregate(v))
             for (name, league), v in sorted(model_leagues.items())

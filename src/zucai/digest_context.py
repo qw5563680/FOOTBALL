@@ -37,6 +37,17 @@ def archived_matches(archive, feed):
     return matches
 
 
+def archived_sfc_issues(archive, feed, now):
+    """Only source snapshots observed by the digest cutoff establish fixture presence."""
+    states = []
+    for name in sorted(feed["files"]):
+        if name.startswith("state/sfc/"):
+            issue = json.loads(_path(archive, name).read_bytes())["issue"]
+            if issue.get("observed_utc") and instant(issue["observed_utc"]) <= instant(now):
+                states.append((name, issue))
+    return states
+
+
 def audit_rows(archive, feed, name, now, *, all_shards=False):
     now = instant(now)
     start = week_start(now).astimezone(UTC).date()
@@ -64,13 +75,15 @@ def audit_rows(archive, feed, name, now, *, all_shards=False):
     return [row for row in rows if row.get("captured_utc") and instant(row["captured_utc"]) <= now]
 
 
-def frozen_rows(batches, matches, now):
+def frozen_rows(batches, matches, now, *, forecast_hashes=None):
     rows = []
     for _, path, batch in batches:
         for prediction in batch["predictions"]:
             row = {**matches.get(prediction["match_id"], {}), **prediction}
             row.update({k: batch[k] for k in ("batch_id", "generated_utc", "as_of_utc", "mode")})
             row["forecast_path"] = path
+            if path in (forecast_hashes or {}):
+                row["forecast_sha256"] = forecast_hashes[path]
             rows.append(row)
     latest = {row["match_id"]: row for row in prematch_rows(rows, now)}
     observations = {

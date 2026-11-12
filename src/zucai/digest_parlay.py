@@ -1,10 +1,15 @@
 """Display frozen paper groups and F receipts; never select groups in the daily report."""
 
+import copy
+import hashlib
+import json
 from datetime import timedelta
 
 from zucai.digest_display import _link, _match, _number, _text
+from zucai.forecast_archive import _path
 from zucai.parlay.archive import load_documents
 from zucai.parlay.paper import read_ledger, render
+from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
 from zucai.scoreboard.score import instant
 from zucai.sources.sporttery import BEIJING
 
@@ -32,6 +37,7 @@ REASONS = {
     "match_not_scheduled": "比赛已结束、取消或状态变化",
     "not_jc": "不是竞彩比赛",
     "not_jc_or_missing_kickoff": "不是竞彩比赛或缺开球时间",
+    "unknown_team_prior": "使用默认实力，仅保留研究概率，不进入主候选",
 }
 
 
@@ -162,6 +168,69 @@ def _reference(group):
     )
 
 
+def _prior_group(group):
+    return any(
+        leg.get("probability_source") != "MARKET" and uses_unknown_team_prior(leg)
+        for leg in (group["single"], group["double"])
+    )
+
+
+def _disclosed_document(archive, manifest, document):
+    """Enrich a display copy from its exact original evidence, never ledger input."""
+    doc = copy.deepcopy(document)
+    originals = {}
+    for source in (doc.get("sources") or {}).values():
+        if not source:
+            continue
+        path, expected = source["path"], source["sha256"]
+        raw = _path(archive, path).read_bytes()
+        if (manifest or {}).get("files", {}).get(path) != expected or (
+            hashlib.sha256(raw).hexdigest() != expected
+        ):
+            raise ValueError("二串一默认实力披露的原预测 SHA256 不符")
+        batch = json.loads(raw)
+        if batch.get("batch_id") != doc["batch_id"]:
+            raise ValueError("二串一默认实力披露的原预测批次不符")
+        for row in batch.get("predictions", []):
+            key = tuple(row.get(k) for k in ("match_id", "model_name", "model_version"))
+            originals[key] = row
+    notes = {}
+
+    def visit(value):
+        if isinstance(value, list):
+            for child in value:
+                visit(child)
+        elif isinstance(value, dict):
+            if value.get("probability_source") in {"TEAM", "EXPERIMENTAL"}:
+                key = tuple(value.get(k) for k in ("match_id", "model_name", "model_version"))
+                original = originals.get(key)
+                if original:
+                    if any(
+                        value.get(k) != original.get(k)
+                        for k in ("source", "league", "home", "away", "kickoff_utc")
+                    ):
+                        raise ValueError("二串一默认实力披露的原预测身份不符")
+                    detail = prior_disclosure(original)
+                    if detail["used"] is True or "prior_disclosure" not in value:
+                        value["prior_disclosure"] = detail
+                if uses_unknown_team_prior(value):
+                    notes[key] = dict(
+                        match_id=value["match_id"],
+                        reasons=["unknown_team_prior"],
+                        prior_disclosure=prior_disclosure(value),
+                        prior_label=prior_label(value),
+                        model_probabilities=value["model_probabilities"],
+                    )
+            for child in value.values():
+                if isinstance(child, (list, dict)):
+                    visit(child)
+
+    visit(doc)
+    disclosed = {row["match_id"] for row in doc["diagnostics"] if row.get("prior_label")}
+    doc["diagnostics"].extend(row for row in notes.values() if row["match_id"] not in disclosed)
+    return doc
+
+
 def section(archive, manifest, summary, now, repository, *, matches, previous=None):
     latest = {doc["day"]: doc for doc in load_documents(archive, manifest, now)}
     latest_batches = {}
@@ -191,6 +260,7 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
     for day, doc in sorted(latest.items()):
         if day not in wanted:
             continue
+        doc = _disclosed_document(archive, manifest, doc)
         versions[doc["batch_id"]] = doc["sha256"]
         lines += [
             f"冻结来源：{_link(doc['path'], repository)}；批次 {_text(doc['batch_id'])}；"
@@ -199,6 +269,9 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
             "",
         ]
         for group in doc["groups"]:
+            if _prior_group(group):
+                lines.append("含默认实力的旧冻结组移出当前主候选，原票与复盘保留。")
+                continue
             if not _current(group, matches, now):
                 lines.append("已开球或状态变化的组移出当前候选，原票与复盘保留。")
                 continue
@@ -219,19 +292,21 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
             scope = board["scope"]
             name = LEVEL.get(board["name"], board["name"])
             lines.append(
-                f"{_text(name)}：枚举 {scope['enumerated']} 种，"
+                f"{_text(name)}冻结时统计：枚举 {scope['enumerated']} 种，"
                 f"资格过滤后 {scope['eligible']} 种，参考 {scope['reference_only']} 种。"
                 "按覆盖排序贪心筛选，不保证全局最优。"
             )
+            if any(uses_unknown_team_prior(row) for row in board["matches"]):
+                lines.append("默认实力场次仅留研究诊断；本版展示过滤，不重排原冻结组。")
             for key, label in (
                 ("highest_coverage", "覆盖最高"),
                 ("highest_profit", "盈利概率最高"),
             ):
                 best = board[key]
-                if best and _current(best, matches, now):
+                if best and not _prior_group(best) and _current(best, matches, now):
                     lines += [f"本等级整组{label}（另列比较，不是额外一组）：", _reference(best)]
             for group in board["reference_groups"]:
-                if _current(group, matches, now):
+                if not _prior_group(group) and _current(group, matches, now):
                     lines += [
                         "仅供参考：" + "、".join(map(_reason, group["reference_reasons"])),
                         _reference(group),
@@ -245,7 +320,7 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
                 groups = [
                     g
                     for g in board["groups"] + board["reference_groups"]
-                    if _current(g, matches, now)
+                    if not _prior_group(g) and _current(g, matches, now)
                 ]
                 name = LEVEL.get(board["name"], board["name"])
                 lines.append(f"{_text(name)}：{len(groups)} 组参考，未进入 F 账本。")
@@ -255,6 +330,12 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
                 "诊断："
                 + "；".join(
                     f"{_text(r['match_id'])}：{_text('、'.join(map(_reason, r['reasons'])))}"
+                    + (
+                        f"；{_text(r['prior_label'])}；研究胜/平/负 "
+                        f"{_probabilities(r['model_probabilities'])}"
+                        if r.get("prior_label") and r.get("model_probabilities")
+                        else ""
+                    )
                     for r in doc["diagnostics"]
                 )
             )

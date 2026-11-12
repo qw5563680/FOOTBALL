@@ -82,6 +82,21 @@ def render_scoreboard(summary):
             + ("前瞻已验证" if value["prospective_verified"] else "仅历史证据")
         )
         lines.append(_quality_row(label, value))
+    if "prior_strata" in quality:
+        lines += [
+            "",
+            "### 默认实力分层",
+            "",
+            "沿用相同有效预测和原评分；未记录不能视为双方均已知，不改变原总分或验证门槛。",
+            "",
+            *_quality_table(),
+        ]
+        for key, label in (
+            ("default_strength", "使用默认实力"),
+            ("known_teams", "双方均已知"),
+            ("unrecorded", "是否使用默认实力未记录"),
+        ):
+            lines.append(_quality_row(label, quality["prior_strata"][key]))
     lines += ["", "## 虚拟账户 · 默认 1.05", "", *_accounts(accounts["1.05"]), ""]
     for league, value in quality["leagues"].items():
         if value["drift"]["warning"]:
@@ -112,6 +127,7 @@ def render_scoreboard(summary):
         "no_frozen_sp": "没有完整冻结 SP",
         "model_not_p2_ready": "模型为 P2 实验，不下注",
         "result_already_known": "生成时已有赛果",
+        "unknown_team_prior": "使用默认实力，移出串关主候选",
     }
     for reason, count in audit["paper_skips"].items():
         lines.append(f"- {_md(reasons.get(reason, reason))}：{count} 条记录。")

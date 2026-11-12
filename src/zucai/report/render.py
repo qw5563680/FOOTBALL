@@ -12,6 +12,7 @@ from pathlib import Path
 
 from zucai.predict.base import model_sources
 from zucai.predict.pooled import model_targets
+from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
 
 BEIJING = timezone(timedelta(hours=8))
 EXPORT_FILES = ("forecast.json", "report.md", "report.csv")
@@ -309,6 +310,8 @@ def _markdown(batch: dict) -> str:
                 "前瞻已验证" if prediction["prospective_verified"] else "仅历史证据"
             )
         metadata = prediction.get("metadata") or {}
+        if prediction["status"] == "predicted" and uses_unknown_team_prior(prediction):
+            values[3] += " · " + _md(prior_label(prediction))
         if prediction["status"] == "predicted" and metadata.get("rho_clipped") is True:
             values[3] += (
                 " · 低比分修正受限（rho "
@@ -410,6 +413,11 @@ def _csv_bytes(batch: dict) -> bytes:
         columns.extend(["p2_ready", "p2_label", "unknown_team_prior"])
     if "prospective_evidence" in batch:
         columns.extend(["prospective_verified", "prospective_n"])
+    disclose_prior = any(uses_unknown_team_prior(row) for row in batch["predictions"])
+    if disclose_prior:
+        columns.extend(
+            ["home_unknown_team", "away_unknown_team", "prior_method", "prior_disclosure"]
+        )
     writer = csv.DictWriter(stream, fieldnames=columns)
     writer.writeheader()
     for prediction in batch["predictions"]:
@@ -447,6 +455,14 @@ def _csv_bytes(batch: dict) -> bytes:
         if "prospective_evidence" in batch:
             row.update(
                 {key: prediction.get(key) for key in ("prospective_verified", "prospective_n")}
+            )
+        if disclose_prior:
+            detail = prior_disclosure(prediction)
+            row.update(
+                home_unknown_team=detail["home"],
+                away_unknown_team=detail["away"],
+                prior_method=detail["method"],
+                prior_disclosure=prior_label(prediction),
             )
         writer.writerow({key: _csv_cell(value) for key, value in row.items()})
     return stream.getvalue().encode("utf-8-sig")

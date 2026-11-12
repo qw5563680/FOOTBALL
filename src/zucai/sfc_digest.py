@@ -1,11 +1,10 @@
 """Read-only SFC section for the daily digest."""
 
-import json
-
-from zucai.forecast_archive import _path
+from zucai.digest_context import archived_sfc_issues
+from zucai.prediction_disclosure import prior_label
 from zucai.report.render import _beijing, _md, _percent, _timestamp
-from zucai.report.sfc import OPTIONS, pick_nine_lines
-from zucai.scoreboard.sfc import read_settled
+from zucai.report.sfc import OPTIONS, disclosed_rows, pick_nine_lines
+from zucai.scoreboard.sfc import prior_group_text, read_settled
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
 from zucai.sfc_reports import read_reports
 
@@ -15,12 +14,7 @@ def section(archive, feed, summary, now, link):
         archive, read_reports(archive, include_unconfirmed=True), now=now
     )
     settled, _ = read_settled(archive, summary)
-    states = []
-    for name in sorted(feed["files"]):
-        if name.startswith("state/sfc/"):
-            issue = json.loads(_path(archive, name).read_bytes())["issue"]
-            if issue.get("observed_utc") and _timestamp(issue["observed_utc"]) <= now:
-                states.append((name, issue))
+    states = archived_sfc_issues(archive, feed, now)
     lines = ["## 14 场胜负彩", ""]
     collected = feed.get("collection", {}).get("sfc")
     if collected:
@@ -62,7 +56,7 @@ def _fixture_list(rows):
 def _issue_lines(name, issue, reports, settled, now, link):
     number = issue["issue_no"]
     choices = [
-        (path, r)
+        (path, dict(r))
         for path, r in reports
         if r["issue_no"] == number and _timestamp(r["generated_utc"]) <= now
     ]
@@ -114,11 +108,14 @@ def _issue_lines(name, issue, reports, settled, now, link):
             else ["| 序号 | 对阵 | 北京开球 | 状态 |", "| --- | --- | --- | --- |"]
         ),
     ]
-    rows = report["rows"] if report else issue["snapshot"]
+    rows = disclosed_rows(report) if report else issue["snapshot"]
     for row in sorted(rows, key=lambda r: r["seq"]):
         p = row.get("probabilities") or {}
         selection = row.get("selection") or (list("hda") if not p else [])
         reason = row.get("reason") or ("模型诊断" if p else "尚无冻结概率")
+        note = prior_label(row)
+        if note:
+            reason += f"；{note}"
         if not p:
             if row.get("match_id") is None:
                 if not reason.startswith("未映射："):
@@ -174,6 +171,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
             f"（有模型 {last['single_evaluated']} 场）"
             + (f"；复式诊断：{combo_hit}。" if eligible else "。")
         ]
+        lines.append(prior_group_text(last.get("prior_groups")))
     else:
         lines += ["上一期命中数：尚无已结算记录。"]
     return lines + [
