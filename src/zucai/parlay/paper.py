@@ -363,3 +363,27 @@ def render(summary):
     if summary["settlement_corrections"]:
         lines.append("已结赛果后来变化：保留原结算，需人工核对。")
     return "\n".join(lines) + "\n"
+
+
+def publication_view(documents, results, ledger, at):
+    """Keep old F receipts frozen while excluding unpublished groups from statistics."""
+    documents = [doc for doc in documents if doc.get("published_utc")]
+    eligible = {
+        (doc["batch_id"], group["group_id"])
+        for doc in documents
+        for group in doc["groups"]
+        if instant(doc["published_utc"]) <= instant(at)
+        and all(
+            instant(leg["kickoff_utc"]) > instant(doc["published_utc"])
+            for leg in (group["single"], group["double"])
+        )
+    }
+    excluded = [
+        r
+        for r in ledger
+        if r["record_type"] == "group" and (r["batch_id"], r["group_id"]) not in eligible
+    ]
+    return (
+        advance_ledger(documents, results, [], at) if excluded else ledger,
+        {"excluded_groups": len(excluded), "reselected_in_memory": bool(excluded)},
+    )

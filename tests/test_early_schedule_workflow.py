@@ -157,8 +157,8 @@ def test_sporttery_originals_remain_in_source_artifact_with_separate_recovery_bu
 def test_publication_confirmation_requires_successful_push_and_remote_history():
     job = jobs()["predict"]
     publish = step("Publish frozen models and forecasts", job)
-    confirm = step("Confirm SFC publication", job)
-    backfill = step("Publish confirmed SFC publication evidence", job)
+    confirm = step("Confirm forecast and SFC publication", job)
+    backfill = step("Publish confirmed forecast and SFC publication evidence", job)
     assert "id: publish_forecasts" in publish
     assert job.index(publish) < job.index(confirm) < job.index(backfill)
     assert "fetch-depth: 0" in job
@@ -176,7 +176,7 @@ def test_publication_confirmation_requires_successful_push_and_remote_history():
 
 @pytest.mark.parametrize("fetch_status", ["0", "1"])
 def test_publication_confirmation_never_reads_an_unverified_local_commit(tmp_path, fetch_status):
-    confirm = step("Confirm SFC publication", jobs()["predict"])
+    confirm = step("Confirm forecast and SFC publication", jobs()["predict"])
     for name, text in {
         "git": '#!/bin/bash\nprintf "%s\\n" "$@" > "$FETCH_ARGS"\nexit "$FETCH_STATUS"\n',
         "python": '#!/bin/bash\nprintf "%s\\n" "$@" > "$CONFIRM_ARGS"\n',

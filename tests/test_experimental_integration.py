@@ -54,6 +54,9 @@ def test_append_experimental_scores_preserves_original_scores_ledger_and_repeat_
                 predictions=predictions,
             )
         attach_experiments(archive, docs, run_id)
+    from forecast_publication_support import confirm_fixture
+
+    confirm_fixture(archive)
     second = run(archive, as_of=NOW)
     assert first["probability"] == second["probability"]
     assert (archive / "scoreboard/ledger.jsonl").read_bytes() == ledger

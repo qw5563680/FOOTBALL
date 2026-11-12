@@ -48,6 +48,10 @@ def attach_fixtures(archive):
             archive, docs, run_id, clock=lambda stamp=info["generated_utc"]: instant(stamp)
         )
 
+    from forecast_publication_support import confirm_fixture
+
+    confirm_fixture(archive)
+
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
 def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(

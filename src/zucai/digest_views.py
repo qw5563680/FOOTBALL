@@ -106,12 +106,10 @@ def _known_unstarted_lines(day, now, repository, catalog, sfc_issues, *, shown_i
         ]
         if not rows:
             continue
-        matched = sum(row.get("mapping") == "matched" and bool(row.get("match_id")) for row in rows)
         lines.append(
-            f"原始胜负彩期次快照有 {len(rows)} 场未开球比赛"
-            f"（{_text(issue['issue_no'])} 期：未映射 {len(rows) - matched} 场、"
-            f"已映射 {matched} 场；来源：{_link(path, repository)}）。"
-            "本批竞彩表未展示这些比赛；最新映射与胜负彩专用冻结预测见下方 14 场胜负彩。"
+            f"胜负彩 {_text(issue['issue_no'])} 期有 {len(rows)} 场未开球比赛未在本表展示"
+            f"（来源：{_link(path, repository)}）。"
+            "最新映射与胜负彩专用冻结预测见下方 14 场胜负彩。"
         )
     return lines + ([""] if lines else [])
 

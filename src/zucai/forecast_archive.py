@@ -193,6 +193,8 @@ def publish_forecasts(archive: Path, stage: Path, run: dict, *, before_commit=No
     """Copy a new immutable run, then replace indexes; undo only this run on error."""
     old = verify_forecasts(archive)
     run_id = run["run_id"]
+    for forecast in run["forecasts"].values():
+        forecast["publication_required"] = True
     files = _run_files(run_id, run)
     if old and run_id in old["runs"]:
         raise ValueError(f"run ID 已存在：{run_id}")

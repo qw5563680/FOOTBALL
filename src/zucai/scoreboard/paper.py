@@ -304,6 +304,21 @@ def advance_ledger(forecasts, results, existing, as_of):
     return ledger
 
 
+def publication_view(forecasts, results, ledger, as_of):
+    """Re-evaluate invalid legacy decisions in memory; their stored bytes stay frozen."""
+    eligible = {(r["match_id"], r["batch_id"]) for r in prematch_rows(forecasts, as_of)}
+    excluded = [
+        r
+        for r in ledger
+        if r["record_type"] == "ticket"
+        and any((leg.get("match_id"), leg.get("batch_id")) not in eligible for leg in r["legs"])
+    ]
+    return (
+        advance_ledger(forecasts, results, [], as_of) if excluded else ledger,
+        {"excluded_tickets": len(excluded), "reselected_in_memory": bool(excluded)},
+    )
+
+
 # Public statistics entry points live separately from the decision/settlement engine.
 from zucai.scoreboard.statistics import account_statistics as account_statistics  # noqa: E402
 from zucai.scoreboard.statistics import profit_evidence as profit_evidence  # noqa: E402

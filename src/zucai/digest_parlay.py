@@ -8,7 +8,7 @@ from datetime import timedelta
 from zucai.digest_display import _link, _match, _number, _text
 from zucai.forecast_archive import _path
 from zucai.parlay.archive import load_documents
-from zucai.parlay.paper import read_ledger, render
+from zucai.parlay.paper import publication_view, read_ledger, render, summarize
 from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
 from zucai.scoreboard.score import instant
 from zucai.sources.sporttery import BEIJING
@@ -232,7 +232,8 @@ def _disclosed_document(archive, manifest, document):
 
 
 def section(archive, manifest, summary, now, repository, *, matches, previous=None):
-    latest = {doc["day"]: doc for doc in load_documents(archive, manifest, now)}
+    documents = load_documents(archive, manifest, now)
+    latest = {doc["day"]: doc for doc in documents}
     latest_batches = {}
     for run in (manifest or {}).get("runs", {}).values():
         for day, entry in run["forecasts"].items():
@@ -362,8 +363,15 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
                 f"被替换组 {_text(','.join(doc['replaced_groups']) or '无')}，旧版仍保留。"
             )
     lines += ["", f"本版合格主候选 {displayed} 组；不足不凑数。", ""]
-    ledger = read_ledger(archive, summary)
-    lines += render((summary or {}).get("parlay_sd")).splitlines()
+    from zucai.digest_context import observed_results
+
+    ledger, publication_audit = publication_view(
+        documents, observed_results(matches), read_ledger(archive, summary), now
+    )
+    account_summary = (summary or {}).get("parlay_sd")
+    if publication_audit["reselected_in_memory"]:
+        account_summary = summarize(ledger, observed_results(matches), now)
+    lines += render(account_summary).splitlines()
     records = {r["record_id"]: r for r in ledger if r["record_type"] == "group"}
     pending = []
     for row in records.values():

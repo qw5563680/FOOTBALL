@@ -12,6 +12,7 @@ from zucai.db import get_engine
 from zucai.digest_context import audit_rows
 from zucai.features.injuries import InjuryFeatures
 from zucai.forecast_archive import MANIFEST, _path, verify_forecasts
+from zucai.forecast_publication import publication_times
 from zucai.models import Match, Team
 from zucai.parlay.single_double import RULE, SUPPORTED_RULES, Config, build
 from zucai.report.render import load_batch
@@ -79,24 +80,30 @@ def _identities(database):
         engine.dispose()
 
 
-def load_documents(archive, manifest, as_of):
+def load_documents(archive, manifest, as_of, *, publications=None):
+    publications = publication_times(archive, manifest) if publications is None else publications
     documents = []
     for run in (manifest or {}).get("runs", {}).values():
         for day, entry in run["forecasts"].items():
             name = entry.get("parlay_path")
-            if not name or instant(entry["parlay_published_utc"]) > instant(as_of):
+            formal = publications.get(entry["path"] + "/forecast.json")
+            attachment = publications.get(name)
+            if not name or not formal or not attachment:
+                continue
+            published = max(instant(formal["published_utc"]), instant(attachment["published_utc"]))
+            if published > instant(as_of):
                 continue
             doc = json.loads(_path(archive, name).read_bytes())
             if doc.get("rule") not in SUPPORTED_RULES or doc.get("batch_id") != entry["batch_id"]:
                 raise ValueError("复式冻结文件与批次不符")
-            if instant(doc["generated_utc"]) > instant(entry["parlay_published_utc"]):
+            if instant(doc["generated_utc"]) > published:
                 raise ValueError("复式生成时间晚于归档时间")
             documents.append(
                 {
                     **doc,
                     "path": name,
                     "sha256": manifest["files"][name],
-                    "published_utc": entry["parlay_published_utc"],
+                    "published_utc": published.isoformat(),
                     "day": day,
                 }
             )

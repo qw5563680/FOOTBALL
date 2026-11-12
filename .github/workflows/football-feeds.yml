@@ -408,12 +408,13 @@ jobs:
         id: publish_forecasts
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
-      - name: Confirm SFC publication from the published data branch
+      - name: Confirm forecast and SFC publication from the published data branch
         if: ${{ success() && steps.publish_forecasts.outcome == 'success' }}
         run: |
           git -C cloud-data fetch origin refs/heads/data/football-feeds:refs/remotes/origin/data/football-feeds
+          python -m zucai.forecast_publication --archive cloud-data --published-ref refs/remotes/origin/data/football-feeds
           python -m zucai.sfc_reports --archive cloud-data --confirm-publication --published-ref refs/remotes/origin/data/football-feeds --summary "$GITHUB_STEP_SUMMARY"
-      - name: Publish confirmed SFC publication evidence
+      - name: Publish confirmed forecast and SFC publication evidence
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
       - name: Keep frozen evidence even on publish conflict

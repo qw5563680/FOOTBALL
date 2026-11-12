@@ -101,6 +101,9 @@ def scoreboard_archive(tmp_path, request):
             "forecasts": forecasts,
         }
         publish_forecasts(archive, stage, run)
+    from forecast_publication_support import confirm_fixture
+
+    confirm_fixture(archive)
     return archive
 
 

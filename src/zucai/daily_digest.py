@@ -336,11 +336,37 @@ def generate(
         for row in catalog:
             if row["match_id"] in matches:
                 matches[row["match_id"]].setdefault("business_date", row["business_date"])
+    from zucai.forecast_publication import publication_times
+
+    publications = publication_times(archive, manifest)
     latest, observations = frozen_rows(
-        batches, matches, at, forecast_hashes=(manifest or {}).get("files", {})
+        batches,
+        matches,
+        at,
+        forecast_hashes=(manifest or {}).get("files", {}),
+        publications=publications,
     )
     from zucai.digest_context import prediction_window
+    from zucai.scoreboard.score import published_score_keys, summarize_scores
 
+    if summary:
+        summary = dict(summary, audit=dict(summary["audit"]))
+        previous_active = set(summary["audit"]["active_keys"])
+        eligible_keys = published_score_keys(scored, list(latest.values()), at)
+        summary["audit"]["active_keys"] = [
+            key for key in summary["audit"]["active_keys"] if key in eligible_keys
+        ]
+        if set(summary["audit"]["active_keys"]) != previous_active:
+            summary["probability"] = summarize_scores(
+                scored, at, active_keys=summary["audit"]["active_keys"]
+            )
+            summary["gates"] = dict(
+                summary.get("gates", {}),
+                prospective_verified=any(
+                    value["prospective_verified"]
+                    for value in summary["probability"]["leagues"].values()
+                ),
+            )
     window = prediction_window(batches, at)
     inputs = {
         **source_hashes(archive),
@@ -353,6 +379,27 @@ def generate(
     previous, update, version_id = version_context(
         archive, out, today, at, run_id, inputs, require_notified=require_notified_history
     )
+    from zucai.digest_context import observed_results
+    from zucai.scoreboard.paper import account_statistics, profit_evidence, publication_view
+
+    paper_forecasts = [
+        {
+            **row,
+            **{key: batch[key] for key in ("batch_id", "generated_utc", "as_of_utc", "mode")},
+            "published_utc": publications.get(path, {}).get("published_utc"),
+            "forecast_path": path,
+            "forecast_sha256": (manifest or {}).get("files", {}).get(path),
+        }
+        for _, path, batch in batches
+        for row in batch["predictions"]
+    ]
+    ledger, paper_audit = publication_view(paper_forecasts, observed_results(matches), ledger, at)
+    if summary and paper_audit["reselected_in_memory"]:
+        summary["accounts"] = account_statistics(ledger, at)
+        summary["gates"] = dict(
+            summary.get("gates", {}),
+            simulated_profit_evidence=profit_evidence(summary["accounts"]["1.05"]["A"]),
+        )
     pending = pending_tickets(ledger, at)
     from zucai.digest_parlay import section as parlay_section
 
