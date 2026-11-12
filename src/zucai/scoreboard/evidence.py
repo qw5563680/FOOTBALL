@@ -3,7 +3,13 @@
 import math
 
 from zucai.cloud_feeds import digest
-from zucai.scoreboard.score import instant, summarize_scores
+from zucai.scoreboard.score import (
+    instant,
+    load_forecasts,
+    prematch_rows,
+    record_key,
+    summarize_scores,
+)
 
 
 def read_evidence(archive, as_of):
@@ -14,9 +20,10 @@ def read_evidence(archive, as_of):
         instant(summary[k]) > instant(as_of) for k in ("generated_utc", "as_of_utc")
     ):
         return None
-    probability = summarize_scores(
-        scored, summary["as_of_utc"], active_keys=summary["audit"]["active_keys"]
-    )
+    forecasts = load_forecasts(archive, summary["as_of_utc"])
+    latest = {r["match_id"]: r for r in prematch_rows(forecasts, summary["as_of_utc"])}
+    active = [record_key(r["match_id"], r["batch_id"]) for r in latest.values()]
+    probability = summarize_scores(scored, summary["as_of_utc"], active_keys=active)
     return {
         "summary_sha256": digest(archive / "scoreboard/summary.json"),
         "as_of_utc": summary["as_of_utc"],

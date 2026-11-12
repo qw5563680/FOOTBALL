@@ -112,6 +112,7 @@ def test_weekly_review_strata_use_only_active_exact_batch_scores():
         {},
         now,
         forecast_hashes={"f/forecast.json": "a" * 64},
+        publications={"f/forecast.json": {"published_utc": batch["generated_utc"]}},
     )
     row = next(iter(latest.values()))
     score = {

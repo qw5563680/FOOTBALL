@@ -8,6 +8,7 @@ from datetime import date, datetime
 
 import pytest
 
+from forecast_publication_support import confirm_fixture
 from test_parlay_paper import AFTER, BEFORE, results
 from test_parlay_single_double import FIX
 from zucai.cloud_feeds import export_feeds
@@ -92,12 +93,16 @@ def archive_setup(tmp_path):
         },
         RUN,
     )
+    # These isolated archives explicitly model successful publication; no real
+    # push or historical publication time is inferred from generation in production.
+    confirm_fixture(archive, published=STAMP)
     return archive, database, sample
 
 
 def frozen_doc(archive_setup):
     archive, db, sample = archive_setup
     run = freeze(archive, db, RUN, injuries=sample["injuries"], clock=lambda: instant(STAMP))
+    confirm_fixture(archive, published=STAMP)
     manifest = verify_forecasts(archive)
     doc = load_documents(archive, manifest, BEFORE)[0]
     return run, doc
@@ -169,6 +174,7 @@ def test_old_v1_freeze_is_readable_and_new_code_cannot_rewrite_it(archive_setup)
         (archive / name).write_bytes(legacy)
         manifest["files"][name] = sha
     (archive / "forecast_manifest.json").write_bytes(raw_json(manifest))
+    confirm_fixture(archive, published=STAMP)
     before = files(archive)
     docs = load_documents(archive, verify_forecasts(archive), BEFORE)
     assert docs[0]["rule"] == "single_plus_double_v1"
@@ -311,6 +317,48 @@ def test_daily_f_previous_pending_and_covered_loss_are_distinct(archive_setup):
     assert "亏损" in text and "组覆盖率" in text and "组盈利率" in text
 
 
+@pytest.mark.parametrize("case", ["legacy_summary", "unknown_duplicate", "all_unknown"])
+def test_daily_dedup_and_pending_use_the_same_publication_filtered_ledger(archive_setup, case):
+    from zucai.digest_parlay import section
+
+    archive, _, _ = archive_setup
+    _, doc = frozen_doc(archive_setup)
+    documents = [doc]
+    if case == "unknown_duplicate":
+        # A frozen historical batch whose publication proof is no longer present.
+        unknown = copy.deepcopy(doc)
+        unknown["batch_id"] += "-unknown"
+        documents.append(unknown)
+    ledger = advance_ledger(documents, {}, [], BEFORE)
+    target = archive / LEDGER
+    target.parent.mkdir(exist_ok=True)
+    raw = b"".join(raw_json(row).replace(b"\n", b" ").strip() + b"\n" for row in ledger)
+    target.write_bytes(raw)
+    stats = summarize(ledger, {}, BEFORE)
+    stats.pop("deduplication")  # A saved summary from before T56.
+    stats["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+    summary = {"parlay_sd": stats}
+    (target.parent / "summary.json").write_bytes(raw_json(summary))
+    if case == "all_unknown":
+        manifest_path = archive / "forecast_manifest.json"
+        manifest = json.loads(manifest_path.read_bytes())
+        entry = manifest["runs"][RUN]["forecasts"][DAY]
+        entry.pop("parlay_publication_evidence")
+        entry.pop("parlay_published_utc")
+        manifest_path.write_bytes(raw_json(manifest))
+    manifest = verify_forecasts(archive)
+    before = files(archive)
+
+    lines, pending, _ = section(archive, manifest, summary, BEFORE, None, matches={})
+    text = "\n".join(lines)
+    expected = 0 if case == "all_unknown" else len(doc["groups"])
+    assert f"机会计数：{expected} 组 / {expected} 种不同组合；重复出现 0 组" in text
+    assert f"| 按首次出现去重 | {expected} | 0 | {expected} |" in text
+    assert "出现 2 次" not in text
+    assert len(pending) == expected
+    assert files(archive) == before
+
+
 def test_ledger_and_summary_publication_roll_back_together(archive_setup, monkeypatch):
     from pathlib import Path
 
@@ -375,6 +423,7 @@ def test_latest_forecast_without_parlay_cannot_fall_back_to_earlier_candidates(
             path=directory, batch_id=batch["batch_id"], generated_utc=batch["generated_utc"]
         )
     publish_forecasts(archive, stage, run)
+    confirm_fixture(archive)
     report = generate(archive, tmp_path / "daily", now=instant("2026-11-06T02:15:00Z")).read_text()
     assert "本版合格主候选 0 组" in report
     assert "### 球队" not in report
@@ -387,7 +436,7 @@ def test_daily_main_groups_do_not_repeat_teams_across_today_and_tomorrow(tmp_pat
     sample = json.loads((FIX / "input.json").read_bytes())
     sample["batch"]["predictions"] = sample["batch"]["predictions"][:4]
     original = build(**sample)
-    first = dict(original, day=DAY, path="first.json", sha256="a" * 64)
+    first = dict(original, day=DAY, path="first.json", sha256="a" * 64, published_utc=STAMP)
     second = copy.deepcopy(first)
     second.update(day="2026-11-07", batch_id="tomorrow", path="second.json", sha256="b" * 64)
     for group in second["groups"]:

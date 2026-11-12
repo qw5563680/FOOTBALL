@@ -108,7 +108,7 @@ def render_scoreboard(summary):
         "",
         "## 口径与未完成项",
         "",
-        "只计开球前最后一批真实冻结预测；赛果须在预测生成之后被实际观察到。"
+        "只计开球前已经发布的最后一批真实冻结预测；赛果须在预测生成之后被实际观察到。"
         "假设时间、事后生成、身份变化及未知赛果不计前瞻样本。"
         "市场指标只覆盖有完整冻结 SP 的场次；同场模型对照另见 summary.json。",
         "评分的原始追加记录不改写；后到的更新批次在汇总中按比赛去重。纸面账户每场/每天首次有效注单冻结，后续批次不替换，因此与最后一批概率评分的口径不同。",
@@ -120,6 +120,15 @@ def render_scoreboard(summary):
         f"赛果更正待复核 {len(audit['result_corrections'])}；"
         f"已结注单比分更正待复核 {len(audit['settlement_corrections'])}。"
     )
+    lines.append(
+        f"- 发布不早于开球而排除：{audit['excluded'].get('published_after_kickoff', 0)} 条记录；"
+        f"发布时间未知而排除：{audit['excluded'].get('publication_unknown', 0)} 条记录。"
+    )
+    if audit.get("paper_publication", {}).get("filtered_in_memory"):
+        lines.append(
+            "- 旧纸面账本含未能证实赛前发布的注单；本表只剔除不合格注单，"
+            "其余冻结注单和前瞻/回放标记原样保留。"
+        )
     reasons = {
         "insufficient_candidates": "串关候选不足",
         "insufficient_cash": "可用资金或凯利上下限不满足",

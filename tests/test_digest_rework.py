@@ -78,7 +78,9 @@ def test_latest_valid_prematch_survives_post_kickoff_exclusion_and_review_counts
     )
     batches = [("2026-11-03", f"{b['batch_id']}/forecast.json", b) for b in (early, late, after)]
     now = _instant("2026-11-03T14:00:00Z")
-    latest, observations = frozen_rows(batches, {}, now)
+    # Explicit synthetic publication evidence for this version-selection fixture.
+    publications = {name: {"published_utc": b["generated_utc"]} for _, name, b in batches}
+    latest, observations = frozen_rows(batches, {}, now, publications=publications)
     row = next(iter(latest.values()))
     assert row["batch_id"] == "last-valid"
     future = "\n".join(forecast_sections(batches, now.date(), None, now=now))

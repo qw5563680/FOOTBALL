@@ -19,7 +19,11 @@ def samples():
     for batch in batches:
         for row in batch["predictions"]:
             rows.append(
-                {**row, **{k: batch[k] for k in ("batch_id", "generated_utc", "as_of_utc", "mode")}}
+                {
+                    **row,
+                    **{k: batch[k] for k in ("batch_id", "generated_utc", "as_of_utc", "mode")},
+                    "published_utc": batch["generated_utc"],
+                }
             )
     results = {}
     with (FIXTURES / "results.csv").open() as stream:

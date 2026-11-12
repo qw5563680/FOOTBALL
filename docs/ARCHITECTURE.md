@@ -982,6 +982,49 @@ T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，
 失败时仍能结算旧批次，取消则停止。托管机 30 分钟，共用写回锁，artifact 90 天，Actions 贴前 60 行。
 漂移仅提示：四个连续完整且有样本的北京周平局偏差绝对值均>5个百分点，或最近100场LL高于等概率；不自动 tune。
 
+## T55 预测发布时间与读取时重新选版
+
+`forecast_publication.py` 维护发布证据，不改变数据库或冻结 `forecast.json` / 实验 / 复式文件。
+新批次的 `forecast_manifest.json` 每个 `runs[*].forecasts[day]` 写入 `publication_required=true`；
+未确认时不回退为生成时间，也不回退为本地提交时间。预测 job 的首次 publish 成功后，先 fetch
+`refs/remotes/origin/data/football-feeds`，核对远程可达历史中的路径和原件 SHA256，再采样当前 UTC 写
+`published_utc` 与 `publication_evidence`，最后第二次 push 清单。证据含 method、candidate_path、
+candidate_sha256、commit、ref、published_utc。第二次 push 失败时新批次保持未知，后续可再次确认；
+已确认的首次时间不改写。没有推送的本地提交不能提供证据。
+
+正式批次、`experimental_` 与 `parlay_` 附件各保留对应 receipt；历史附件原有的
+`experimental_published_utc` / `parlay_published_utc` 是本地归档时刻，不能单独证明远程发布。
+旧批次无新 marker/receipt 时，只读完整、非 shallow 的远程数据分支历史，以首次加入文件的提交
+**committer** 时间作为历史回退。该时间是任务允许的历史近似，不声称恢复了真实 push 完成时刻。
+首次加入的 blob、当前原件与清单 SHA256 必须完全一致；若文件后来改写，不采纳更晚版本替代冻结证据。
+导不出、SHA 不同、早于生成（Git 秒级精度的同秒截断除外）、坏 receipt 或没有历史，均为未知。
+离线解压副本可显式提供只读 Git 仓库，仍逐文件验证固定快照字节；不 fetch、不改索引、不回填旧清单。
+
+有效行共同要求 `as_of_utc <= generated_utc < kickoff_utc`、`published_utc < kickoff_utc`，
+且生成/发布都不晚于读取截点。同场在有效行中沿用原生成时间和 batch_id 排序，不改概率或模型。
+`published_after_kickoff`（含恰好开球）、`publication_unknown` 与 `publication_not_yet_available`
+分别审计。记分板展示前两类排除数。实验同场同批配对必须满足正式与实验双方发布门槛，F 账户
+同时核对正式文件和复式附件，采用两者较晚的发布时间。
+
+`scored.jsonl` 旧行保持原始字节，新增有效版可追加，汇总 active_keys 在读取时重选；
+`evidence.py` 不信任旧 summary 中尚未重选的 active_keys。A–E / F 旧账本如含不合格注单，
+先验证冻结字段，再只在统计视图中剔除不合格记录。A–E 剔除含不合格预测腿的 ticket；
+F 按 `(batch_id, group_id)` 同时剔除不合格 group 及关联 ticket，保留其他批次同 group_id 的记录。
+其余原始行、batch/skip 标记、注额、cash_before、created_utc、replayed 和 settlement 全部保留。
+此校正不调用从空账本开始的 `advance_ledger`，不生成替代票据，也不向账本追加校正记录；
+`filtered_in_memory` 和排除计数仅描述读取视图。账户统计重新聚合剩余的原注单，不重算每张票的冻结字段。
+正常新批次开票、现金约束和待结票结算仍由原 `advance_ledger` 处理原账本，不受统计筛选改写。
+日报的资金及待结明细使用同一原注单子集，不把旧 summary/ledger 中的不合格记录重新计入。
+
+日报 active_keys 同时包含已评分和待结预测；只有已评分键集合实际变化才重算概率汇总，
+待结键不触发重算。必要重算传入完整 frozen forecast_rows（包括非竞彩展示范围）恢复旧评分的默认实力披露，
+保留已有零样本联赛行，并将新变成零样本的联赛置零。无评分变更时沿用原 probability 全部字段，
+包括 prior_strata、model_leagues 和零样本联赛。缺失旧赔率时间不阻断摘要，冻结票据原 SP 不被重新取值。
+
+T52 附项：欧国联期次刷新时，只有 JC/APIF 的明确 counterpart 链接、相同联赛、球队 ID/主客方向及
+精确开球时间均成立，才允许既有 APIF↔后到 JC 视为同一场；不按简称或相近时间推断。
+日报未展示期次提醒不再引用原始快照的 mapped/unmapped 计数。
+
 ## T53 默认实力披露与候选隔离
 
 `prediction_disclosure.py` 只读冻结行的 `metadata`，统一返回是否使用先验、主客缺失方、

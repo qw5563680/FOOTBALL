@@ -78,9 +78,26 @@ def add_forecasts(archive, stage, run_id, generated, *, empty=False):
         },
     )
 
+    from forecast_publication_support import confirm_fixture
+
+    confirm_fixture(archive)
+
 
 @pytest.fixture
-def digest_archive(tmp_path):
+def digest_archive(tmp_path, monkeypatch):
+    # These are presentation-only score/ledger fixtures with no source forecast.
+    # Publication selection is exercised end to end in test_forecast_publication;
+    # keep this fixture focused on verbatim rendering of supplied eligible evidence.
+    from zucai.scoreboard import paper, score
+
+    monkeypatch.setattr(
+        score, "published_score_keys", lambda rows, *_: {r["record_id"] for r in rows}
+    )
+    monkeypatch.setattr(
+        paper,
+        "publication_view",
+        lambda _f, _r, ledger, _at: (ledger, {"filtered_in_memory": False}),
+    )
     archive = tmp_path / "archive"
     database = tmp_path / "empty.db"
     engine = get_engine(database)

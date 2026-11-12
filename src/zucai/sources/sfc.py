@@ -325,6 +325,24 @@ def _snapshot_rows(session, issue, bridge_map, *, mapped_only, bridge_conflicts=
     return snapshot
 
 
+def _same_national_counterpart(session, archived_id, candidate_id):
+    """Permit only an explicit, identity-consistent APIF/JC transition."""
+    archived, candidate = (session.get(Match, key) for key in (archived_id, candidate_id))
+    return bool(
+        archived
+        and candidate
+        and {archived.source, candidate.source} == {"apif", "jc"}
+        and (
+            archived.counterpart_id == candidate.match_id
+            or candidate.counterpart_id == archived.match_id
+        )
+        and (archived.league, archived.home_team_id, archived.away_team_id)
+        == (candidate.league, candidate.home_team_id, candidate.away_team_id)
+        and datetime.fromisoformat(archived.kickoff_utc)
+        == datetime.fromisoformat(candidate.kickoff_utc)
+    )
+
+
 def refresh_snapshot(session, issue):
     """Retry unresolved rows against the current DB, without writing any source state."""
     rows = copy.deepcopy(issue.snapshot)
@@ -370,6 +388,9 @@ def refresh_snapshot(session, issue):
                     row["match_id"]
                     and candidate["match_id"]
                     and row["match_id"] != candidate["match_id"]
+                    and not _same_national_counterpart(
+                        session, row["match_id"], candidate["match_id"]
+                    )
                 )
             ):
                 candidate.update(

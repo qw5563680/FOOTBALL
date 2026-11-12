@@ -4,6 +4,7 @@ import json
 import math
 from collections import Counter
 
+from zucai.forecast_publication import publication_times
 from zucai.predict.experiments.metrics import paired, summarize
 from zucai.predict.experiments.parallel import NAMES, specifications
 from zucai.scoreboard.score import instant, prematch_rows, record_key
@@ -34,7 +35,7 @@ def _invalid_json_constant(value):
     raise ValueError(f"实验 JSON 含非法数值：{value}")
 
 
-def _load_experiment_file(archive, manifest, forecast, at):
+def _load_experiment_file(archive, manifest, forecast, at, publications):
     """Validate the whole attachment before making any of its rows available."""
     path = forecast["experimental_path"]
     doc = json.loads((archive / path).read_bytes(), parse_constant=_invalid_json_constant)
@@ -48,10 +49,11 @@ def _load_experiment_file(archive, manifest, forecast, at):
     ):
         raise ValueError("实验冻结格式或批次无效")
     instant(doc["as_of_utc"])
-    stamp = max(
-        instant(doc["generated_utc"]),
-        instant(forecast.get("experimental_published_utc", doc["generated_utc"])),
-    )
+    stamp = instant(doc["generated_utc"])
+    evidence = publications.get(path)
+    published = instant(evidence["published_utc"]) if evidence else None
+    if published is not None and published < stamp:
+        published = None
     if stamp > instant(at):
         return []
     original = json.loads((archive / forecast["path"] / "forecast.json").read_bytes())
@@ -104,19 +106,23 @@ def _load_experiment_file(archive, manifest, forecast, at):
                 raise ValueError("实验概率无效")
         elif p is not None:
             raise ValueError("实验空缺不得携带回退概率")
-        if stamp >= instant(row["kickoff_utc"]):
+        if published is None or published >= instant(row["kickoff_utc"]):
             row = dict(
                 row,
                 status="missing",
                 model_probabilities=None,
                 top_score=None,
-                fallback_reason="published_after_kickoff",
+                fallback_reason="publication_unknown"
+                if published is None
+                else "published_after_kickoff",
             )
         rows.append(
             dict(
                 row,
                 batch_id=doc["batch_id"],
                 generated_utc=stamp.isoformat(),
+                published_utc=published.isoformat() if published else None,
+                publication_evidence=evidence,
                 as_of_utc=doc["as_of_utc"],
                 mode=doc["mode"],
                 forecast_path=path,
@@ -126,7 +132,8 @@ def _load_experiment_file(archive, manifest, forecast, at):
     return rows
 
 
-def load_experiments(archive, manifest, at):
+def load_experiments(archive, manifest, at, *, publications=None):
+    publications = publication_times(archive, manifest) if publications is None else publications
     rows, audit = [], []
     for run in (manifest or {}).get("runs", {}).values():
         for forecast in run["forecasts"].values():
@@ -134,7 +141,7 @@ def load_experiments(archive, manifest, at):
             if not path:
                 continue
             try:
-                loaded = _load_experiment_file(archive, manifest, forecast, at)
+                loaded = _load_experiment_file(archive, manifest, forecast, at, publications)
             except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
                 audit.append(
                     dict(
@@ -157,6 +164,7 @@ def select_latest(rows, at):
             and instant(row["as_of_utc"]) <= instant(row["generated_utc"])
             and instant(row["as_of_utc"]) < instant(row["kickoff_utc"])
             and instant(row["generated_utc"]) <= instant(at)
+            and (not row.get("published_utc") or instant(row["published_utc"]) <= instant(at))
         ):
             selected[row["match_id"], row["model_name"]] = row
     return selected
@@ -355,6 +363,7 @@ def render_experiments(summary):
             "unsupported_league": "不在本实验范围",
             "already_started": "实验生成时已开赛",
             "published_after_kickoff": "实验发布迟于开球",
+            "publication_unknown": "实验发布时间未知",
             "fit_failed": "拟合失败",
             "prediction_failed": "计算失败",
             "experiment_failed": "实验数据或计算失败",

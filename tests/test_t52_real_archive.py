@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.orm import Session
@@ -138,3 +139,68 @@ def test_archive_fixture_hashes_and_real_sale_filter_evidence():
         assert all(row["sellStatus"] == "2" and row["retained"] == "0" for row in rows)
         if name == "jc_skipped":
             assert all(row["reason"] == "sell_status_not_1" for row in rows)
+
+
+def test_actual_26163_digest_reminder_has_no_stale_mapping_counts(real_issue):
+    from zucai.digest_views import _known_unstarted_lines
+
+    _, issue = real_issue
+    original = copy.deepcopy(issue.snapshot)
+    text = "\n".join(
+        _known_unstarted_lines(
+            "2026-11-13",
+            CUTOFF,
+            None,
+            [],
+            [
+                (
+                    "state/sfc/26163.json",
+                    {
+                        "issue_no": issue.issue_no,
+                        "observed_utc": issue.observed_utc,
+                        "snapshot": issue.snapshot,
+                    },
+                )
+            ],
+        )
+    )
+    assert "胜负彩 26163 期有 6 场未开球比赛未在本表展示" in text
+    assert "已映射" not in text and "未映射" not in text
+    assert "胜负彩专用冻结预测见下方 14 场胜负彩" in text
+    assert issue.snapshot == original
+
+
+def test_actual_26163_keeps_six_correct_late_counterparts_without_issue_reingest(real_issue):
+    session, issue = real_issue
+    original = copy.deepcopy(issue.snapshot)
+    saved_fallback = refresh_snapshot(session, issue)
+    frozen = copy.deepcopy(saved_fallback)
+    expected = []
+    for row in saved_fallback[:6]:
+        archived = session.get(Match, row["match_id"])
+        candidate_id = row["mapping_evidence"]["bridge"]["jc_id"]
+        expected.append(candidate_id)
+        session.add(
+            Match(
+                match_id=candidate_id,
+                source="jc",
+                league=archived.league,
+                home_team_id=archived.home_team_id,
+                away_team_id=archived.away_team_id,
+                kickoff_utc=archived.kickoff_utc,
+                status="scheduled",
+                counterpart_id=archived.match_id,
+            )
+        )
+    session.flush()
+    session.expire_all()
+    refreshed = refresh_snapshot(
+        session,
+        SimpleNamespace(
+            issue_no=issue.issue_no, date_basis=issue.date_basis, snapshot=saved_fallback
+        ),
+    )
+    assert [row["match_id"] for row in refreshed[:6]] == expected
+    assert all(row["mapping"] == "matched" for row in refreshed)
+    assert saved_fallback == frozen
+    assert issue.snapshot == original

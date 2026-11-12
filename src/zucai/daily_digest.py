@@ -317,14 +317,30 @@ def generate(
     # Experimental scores share the append-only score file but never the original
     # yesterday totals, paper ledger or production evidence gates.
     scored = [r for r in scored if r.get("validation_status") != "experimental_unadopted"]
+    from zucai.forecast_publication import publication_times
     from zucai.scoreboard.experimental import render_experiments
 
-    batches = []
+    publications = publication_times(archive, manifest)
+    batches, forecast_rows = [], []
     for run in (manifest or {}).get("runs", {}).values():
         for day, entry in run["forecasts"].items():
             if _instant(entry["generated_utc"]) <= at:
                 path = entry["path"] + "/forecast.json"
-                batch = jc_digest_batch(load_batch(archive / path, allow_unknown_odds_time=True))
+                batch = load_batch(archive / path, allow_unknown_odds_time=True)
+                forecast_rows.extend(
+                    {
+                        **row,
+                        **{
+                            key: batch[key]
+                            for key in ("batch_id", "generated_utc", "as_of_utc", "mode")
+                        },
+                        "published_utc": publications.get(path, {}).get("published_utc"),
+                        "forecast_path": path,
+                        "forecast_sha256": manifest["files"][path],
+                    }
+                    for row in batch["predictions"]
+                )
+                batch = jc_digest_batch(batch)
                 if batch is not None:
                     batches.append((day, path, batch))
     matches = archived_matches(archive, feed)
@@ -341,10 +357,60 @@ def generate(
             if row["match_id"] in matches:
                 matches[row["match_id"]].setdefault("business_date", row["business_date"])
     latest, observations = frozen_rows(
-        batches, matches, at, forecast_hashes=(manifest or {}).get("files", {})
+        batches,
+        matches,
+        at,
+        forecast_hashes=(manifest or {}).get("files", {}),
+        publications=publications,
     )
     from zucai.digest_context import prediction_window
+    from zucai.scoreboard.score import published_score_keys, summarize_scores
 
+    if summary:
+        summary = dict(summary, audit=dict(summary["audit"]))
+        scored_keys = {row["record_id"] for row in scored}
+        previous_scored = set(summary["audit"]["active_keys"]) & scored_keys
+        eligible_keys = published_score_keys(scored, forecast_rows, at)
+        summary["audit"]["active_keys"] = [
+            key
+            for key in summary["audit"]["active_keys"]
+            if key not in scored_keys or key in eligible_keys
+        ]
+        if set(summary["audit"]["active_keys"]) & scored_keys != previous_scored:
+            probability = summarize_scores(
+                scored,
+                at,
+                active_keys=summary["audit"]["active_keys"],
+                forecast_rows=forecast_rows,
+            )
+            # A publication correction can remove scores, never the tracked league.
+            # Preserve the original zero-sample rows and reset any newly empty one.
+            empty = summarize_scores([], at)["total"]
+            for league, values in summary["probability"]["leagues"].items():
+                probability["leagues"].setdefault(
+                    league,
+                    values
+                    if values["n"] == 0
+                    else {
+                        **values,
+                        **empty,
+                        "prospective_verified": False,
+                        "drift": {
+                            "warning": False,
+                            "four_weeks_draw_bias": False,
+                            "last_100_log_loss": False,
+                            "weeks": [],
+                        },
+                    },
+                )
+            summary["probability"] = probability
+            summary["gates"] = dict(
+                summary.get("gates", {}),
+                prospective_verified=any(
+                    value["prospective_verified"]
+                    for value in summary["probability"]["leagues"].values()
+                ),
+            )
     window = prediction_window(batches, at)
     inputs = {
         **source_hashes(archive),
@@ -357,6 +423,27 @@ def generate(
     previous, update, version_id = version_context(
         archive, out, today, at, run_id, inputs, require_notified=require_notified_history
     )
+    from zucai.digest_context import observed_results
+    from zucai.scoreboard.paper import account_statistics, profit_evidence, publication_view
+
+    paper_forecasts = [
+        {
+            **row,
+            **{key: batch[key] for key in ("batch_id", "generated_utc", "as_of_utc", "mode")},
+            "published_utc": publications.get(path, {}).get("published_utc"),
+            "forecast_path": path,
+            "forecast_sha256": (manifest or {}).get("files", {}).get(path),
+        }
+        for _, path, batch in batches
+        for row in batch["predictions"]
+    ]
+    ledger, paper_audit = publication_view(paper_forecasts, observed_results(matches), ledger, at)
+    if summary and paper_audit["filtered_in_memory"]:
+        summary["accounts"] = account_statistics(ledger, at)
+        summary["gates"] = dict(
+            summary.get("gates", {}),
+            simulated_profit_evidence=profit_evidence(summary["accounts"]["1.05"]["A"]),
+        )
     pending = pending_tickets(ledger, at)
     from zucai.digest_parlay import section as parlay_section
 

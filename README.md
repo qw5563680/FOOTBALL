@@ -126,6 +126,7 @@ zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶�
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
 python -m zucai.cloud_feeds apis --archive ../cloud-data --days 3 --run-id manual  # 在全新隔离目录运行
 python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/params.json --run-id manual-1
+python -m zucai.forecast_publication --archive ../cloud-data  # 仅成功推送并 fetch 数据分支后确认发布时间
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
 python -m zucai.cloud_stats backfill --archive ../cloud-data --run-id stats-1 --endpoints index,fd,statistics --leagues 39 --seasons 2025 --max-requests 7000 --resume  # 仅审查者在 Actions
 python -m zucai.cloud_stats daily --archive ../cloud-data --run-id stats-daily-1 --max-requests 300  # 复用晚班已恢复数据库和 fixtures 原件
@@ -549,11 +550,19 @@ python -m zucai.cloud_stats daily --archive ../cloud-data --endpoints fd --max-r
 **非购买建议 · BET 禁用 · 虚拟资金模拟 · 竞彩含抽水**
 
 记分板读取数据分支中经过哈希校验的 `forecast.json` 和恢复出的赛果库，不抓新数据、不重新预测。
-同场只给开球前最后一批 `prematch` / `predicted` 预测打分；生成时刻严格早于开球，赛果可知时刻
+同场只给开球前已发布的最后一批 `prematch` / `predicted` 预测打分；生成和发布时间都严格早于开球，赛果可知时刻
 严格晚于生成且不晚于记分板截点，身份和常规时间比分必须完整。事后生成的 `historical_replay`、
 假设可知时间 `assumed`、缺时间或身份变动的结果不算真实前瞻证据。
 三列指标分别为纯模型、等概率与预测时 SP 去水后的市场参照；不读取后来的赔率或收盘价。
 缺 SP 仍计模型评分，市场 n 单列；相同市场覆盖样本上的模型指标也写入 JSON。
+
+T55 新批次在成功推送并核验远程分支原件后记录 `published_utc`；本地生成和入库时间不代表发布。
+历史批次只读完整数据分支历史，以首次加入该冻结文件的提交时间作回退依据，并核对原件 SHA256；
+没有完整历史、原件不符或时间未知就不算赛前已发布。记分板分别显示发布晚于开球和发布时间未知的排除数。
+正式、实验配对和纸面账户共用该门槛；旧评分保留，账户统计仅剔除发布时间不合格的冻结注单。
+其余注单的注额、原决定时资金、结算及前瞻/回放标记原样保留，不从零重放，不补造历史票据。
+新批次开票和正常结算仍沿用原账本规则；统计筛选不回写旧账本。
+
 
 A–E 每档门槛各有五个账户，分别从 **10000 虚拟币**开始，共 15 份独立统计。
 A–E 五个账户只对冻结预测行 `p2_ready=true` 的「P2 可用」模型开新票；false 或缺失时记录「模型为 P2 实验，不下注」。

@@ -182,7 +182,8 @@ def test_dead_bridge_conflicting_source_identity_is_not_discarded(national_bridg
     assert row["mapping_evidence"]["bridge"] == bridge
 
 
-def test_dead_bridge_is_checked_again_if_target_later_appears(national_bridge):
+@pytest.mark.parametrize("linked", [False, True])
+def test_dead_bridge_is_checked_again_if_target_later_appears(national_bridge, linked):
     session, candidate, fixture, bridge = national_bridge
     row = snapshot_row(session, fixture, bridge)
     assert row["match_id"] == candidate.match_id
@@ -196,6 +197,7 @@ def test_dead_bridge_is_checked_again_if_target_later_appears(national_bridge):
             away_team_id=candidate.home_team_id,
             kickoff_utc=fixture.kickoff_utc,
             status="scheduled",
+            counterpart_id=candidate.match_id if linked else None,
         )
     )
     session.flush()
@@ -203,6 +205,65 @@ def test_dead_bridge_is_checked_again_if_target_later_appears(national_bridge):
     result = refresh_snapshot(session, issue)[0]
     assert result["match_id"] is None
     assert result["reason"] == "conflicting_identity"
+
+
+@pytest.mark.parametrize("pointer", ["candidate", "archived"])
+def test_dead_bridge_accepts_later_correct_counterpart_without_reingesting_issue(
+    national_bridge, pointer
+):
+    session, archived, fixture, bridge = national_bridge
+    row = snapshot_row(session, fixture, bridge)
+    issue = SimpleNamespace(issue_no="26163", date_basis="sale_end_year", snapshot=[row])
+    frozen = copy.deepcopy(issue.snapshot)
+    candidate = Match(
+        match_id=bridge["jc_id"],
+        source="jc",
+        league=archived.league,
+        home_team_id=archived.home_team_id,
+        away_team_id=archived.away_team_id,
+        kickoff_utc=fixture.kickoff_utc,
+        status="scheduled",
+        counterpart_id=archived.match_id if pointer == "candidate" else None,
+    )
+    if pointer == "archived":
+        archived.counterpart_id = candidate.match_id
+    session.add(candidate)
+    session.flush()
+    session.expire_all()
+
+    refreshed = refresh_snapshot(session, issue)[0]
+    assert refreshed["mapping"] == "matched"
+    assert refreshed["match_id"] == candidate.match_id
+    assert refreshed["matched_identity"]["source"] == "jc"
+    assert refreshed["mapping_evidence"]["basis"] == "provider_fixture_and_team_ids"
+    assert issue.snapshot == frozen
+
+
+@pytest.mark.parametrize("pointer", [None, "apif:another"])
+def test_dead_bridge_does_not_replace_frozen_identity_without_exact_counterpart(
+    national_bridge, pointer
+):
+    session, archived, fixture, bridge = national_bridge
+    row = snapshot_row(session, fixture, bridge)
+    issue = SimpleNamespace(issue_no="26163", date_basis="sale_end_year", snapshot=[row])
+    session.add(
+        Match(
+            match_id=bridge["jc_id"],
+            source="jc",
+            league=archived.league,
+            home_team_id=archived.home_team_id,
+            away_team_id=archived.away_team_id,
+            kickoff_utc=fixture.kickoff_utc,
+            status="scheduled",
+            counterpart_id=pointer,
+        )
+    )
+    session.flush()
+    session.expire_all()
+    refreshed = refresh_snapshot(session, issue)[0]
+    assert refreshed["mapping"] == "ambiguous"
+    assert refreshed["match_id"] is None
+    assert refreshed["reason"] == "期次原场次待复核"
 
 
 @pytest.mark.parametrize("mapping", ["matched", "unmatched", "ambiguous"])

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from zucai.cloud_feeds import digest
 from zucai.forecast_archive import verify_forecasts
+from zucai.forecast_publication import publication_times
 from zucai.prediction_disclosure import prior_disclosure
 from zucai.report.render import load_batch
 from zucai.sources.sporttery import BEIJING
@@ -28,7 +29,7 @@ def record_key(*values):
     return hashlib.sha256(json.dumps(values, ensure_ascii=False).encode()).hexdigest()
 
 
-def load_forecasts(archive: Path, as_of: datetime) -> list[dict]:
+def load_forecasts(archive: Path, as_of: datetime, *, publications=None) -> list[dict]:
     manifest = verify_forecasts(archive)
     expected = {
         name for name in (manifest or {}).get("files", {}) if name.endswith("/forecast.json")
@@ -36,6 +37,7 @@ def load_forecasts(archive: Path, as_of: datetime) -> list[dict]:
     found = {p.relative_to(archive).as_posix() for p in archive.glob("forecasts/*/*/forecast.json")}
     if found != expected:
         raise ValueError("冻结预测目录与清单不一致")
+    publications = publication_times(archive, manifest) if publications is None else publications
     rows = []
     for name in sorted(expected):
         batch = load_batch(archive / name)
@@ -46,6 +48,8 @@ def load_forecasts(archive: Path, as_of: datetime) -> list[dict]:
                 {
                     **prediction,
                     **{k: batch[k] for k in ("batch_id", "generated_utc", "as_of_utc", "mode")},
+                    "published_utc": publications.get(name, {}).get("published_utc"),
+                    "publication_evidence": publications.get(name),
                     "forecast_path": name,
                     "forecast_sha256": digest(archive / name),
                 }
@@ -66,13 +70,30 @@ def read_results(database: Path) -> dict:
         return {row["match_id"]: dict(row) for row in rows}
 
 
-def prematch_rows(forecasts, as_of, *, by_model=False):
+def publication_reason(row, as_of):
+    try:
+        published = instant(row.get("published_utc"))
+    except (ValueError, TypeError, OverflowError):
+        return "publication_unknown"
+    if published >= instant(row["kickoff_utc"]):
+        return "published_after_kickoff"
+    if published > instant(as_of):
+        return "publication_not_yet_available"
+    return None
+
+
+def prematch_rows(forecasts, as_of, *, by_model=False, excluded=None):
     seen = {}
     for row in forecasts:
         if row["status"] != "predicted" or row["mode"] != "prematch":
             continue
         generated, kickoff = instant(row["generated_utc"]), instant(row["kickoff_utc"])
         if not instant(row["as_of_utc"]) <= generated < kickoff or generated > instant(as_of):
+            continue
+        reason = publication_reason(row, as_of)
+        if reason:
+            if excluded is not None:
+                excluded[reason] += 1
             continue
         key = (
             record_key(row["match_id"], row["batch_id"], row["model_name"])
@@ -87,6 +108,16 @@ def prematch_rows(forecasts, as_of, *, by_model=False):
     )
 
 
+def published_score_keys(scored, forecasts, as_of):
+    """Revalidate saved score identities against the latest published frozen rows."""
+    latest = {row["match_id"]: row for row in prematch_rows(forecasts, as_of)}
+    return {
+        row["record_id"]
+        for row in scored
+        if row["match_id"] in latest and row["batch_id"] == latest[row["match_id"]]["batch_id"]
+    }
+
+
 def frozen_market(row):
     market = row.get("market")
     if not market:
@@ -96,7 +127,10 @@ def frozen_market(row):
         type(p) not in (int, float) or not math.isfinite(p) or p <= 1 for p in prices.values()
     ):
         return None
-    stamp = instant(market["snapshot_utc"])
+    try:
+        stamp = instant(market.get("snapshot_utc"))
+    except (ValueError, TypeError, OverflowError):
+        return None
     if not stamp <= instant(row["as_of_utc"]) <= instant(row["generated_utc"]) or stamp >= instant(
         row["kickoff_utc"]
     ):
@@ -147,9 +181,10 @@ def _loss(probabilities, actual):
 
 
 def score_forecasts(forecasts, results, existing, as_of, *, experimental=False):
+    excluded = Counter()
     latest = {
         (row["match_id"], row["model_name"]) if experimental else row["match_id"]: row
-        for row in prematch_rows(forecasts, as_of, by_model=experimental)
+        for row in prematch_rows(forecasts, as_of, by_model=experimental, excluded=excluded)
     }
 
     def identity(row):
@@ -163,7 +198,7 @@ def score_forecasts(forecasts, results, existing, as_of, *, experimental=False):
     known = {row["record_id"]: row for row in existing}
     if len(known) != len(existing):
         raise ValueError("已存评分含重复比赛/批次")
-    excluded, corrections = Counter(), set()
+    corrections = set()
     for row in latest.values():
         key = identity(row)
         result = results.get(row["match_id"])
