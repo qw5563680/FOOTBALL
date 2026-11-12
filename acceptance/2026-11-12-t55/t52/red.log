@@ -1,0 +1,188 @@
+.............FF.....FF......F......F                                     [100%]
+=================================== FAILURES ===================================
+_ test_dead_bridge_accepts_later_correct_counterpart_without_reingesting_issue[candidate] _
+
+national_bridge = (<sqlalchemy.orm.session.Session object at 0x7f4120989670>, <zucai.models.Match object at 0x7f41209895e0>, SfcFixture(...home_id='101', away_id='84'), {'fixture_id': '1398678', 'jc_id': 'jc:2042693', 'home_id': '101', 'away_id': '84', ...})
+pointer = 'candidate'
+
+    @pytest.mark.parametrize("pointer", ["candidate", "archived"])
+    def test_dead_bridge_accepts_later_correct_counterpart_without_reingesting_issue(
+        national_bridge, pointer
+    ):
+        session, archived, fixture, bridge = national_bridge
+        row = snapshot_row(session, fixture, bridge)
+        issue = SimpleNamespace(issue_no="26163", date_basis="sale_end_year", snapshot=[row])
+        frozen = copy.deepcopy(issue.snapshot)
+        candidate = Match(
+            match_id=bridge["jc_id"],
+            source="jc",
+            league=archived.league,
+            home_team_id=archived.home_team_id,
+            away_team_id=archived.away_team_id,
+            kickoff_utc=fixture.kickoff_utc,
+            status="scheduled",
+            counterpart_id=archived.match_id if pointer == "candidate" else None,
+        )
+        if pointer == "archived":
+            archived.counterpart_id = candidate.match_id
+        session.add(candidate)
+        session.flush()
+        session.expire_all()
+    
+        refreshed = refresh_snapshot(session, issue)[0]
+>       assert refreshed["mapping"] == "matched"
+E       AssertionError: assert 'ambiguous' == 'matched'
+E         
+E         - matched
+E         + ambiguous
+
+tests/test_t52_sfc_bridge.py:235: AssertionError
+_ test_dead_bridge_accepts_later_correct_counterpart_without_reingesting_issue[archived] _
+
+national_bridge = (<sqlalchemy.orm.session.Session object at 0x7f4120988140>, <zucai.models.Match object at 0x7f4120b19520>, SfcFixture(...home_id='101', away_id='84'), {'fixture_id': '1398678', 'jc_id': 'jc:2042693', 'home_id': '101', 'away_id': '84', ...})
+pointer = 'archived'
+
+    @pytest.mark.parametrize("pointer", ["candidate", "archived"])
+    def test_dead_bridge_accepts_later_correct_counterpart_without_reingesting_issue(
+        national_bridge, pointer
+    ):
+        session, archived, fixture, bridge = national_bridge
+        row = snapshot_row(session, fixture, bridge)
+        issue = SimpleNamespace(issue_no="26163", date_basis="sale_end_year", snapshot=[row])
+        frozen = copy.deepcopy(issue.snapshot)
+        candidate = Match(
+            match_id=bridge["jc_id"],
+            source="jc",
+            league=archived.league,
+            home_team_id=archived.home_team_id,
+            away_team_id=archived.away_team_id,
+            kickoff_utc=fixture.kickoff_utc,
+            status="scheduled",
+            counterpart_id=archived.match_id if pointer == "candidate" else None,
+        )
+        if pointer == "archived":
+            archived.counterpart_id = candidate.match_id
+        session.add(candidate)
+        session.flush()
+        session.expire_all()
+    
+        refreshed = refresh_snapshot(session, issue)[0]
+>       assert refreshed["mapping"] == "matched"
+E       AssertionError: assert 'ambiguous' == 'matched'
+E         
+E         - matched
+E         + ambiguous
+
+tests/test_t52_sfc_bridge.py:235: AssertionError
+_ test_empty_jc_day_discloses_known_sfc_fixtures_without_rewriting_frozen_inputs[False] _
+
+digest_archive = PosixPath('/tmp/pytest-of-agent/pytest-45/test_empty_jc_day_discloses_kn0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-45/test_empty_jc_day_discloses_kn0')
+mapped = False
+
+    @pytest.mark.parametrize("mapped", [False, True])
+    def test_empty_jc_day_discloses_known_sfc_fixtures_without_rewriting_frozen_inputs(
+        digest_archive, tmp_path, mapped
+    ):
+        _install_state(
+            digest_archive,
+            mapping="matched" if mapped else "unmatched",
+            match_id="apif:t52-synthetic" if mapped else None,
+        )
+        before = snapshot(digest_archive)
+        text = generate(digest_archive, tmp_path / "daily", now=NOW).read_text()
+        tomorrow = text.split("### 明日 2026-11-04", 1)[1].split("## 14 场胜负彩", 1)[0]
+>       assert "胜负彩 26163 期有 1 场未开球比赛未在本表展示" in tomorrow
+E       AssertionError: assert '胜负彩 26163 期有 1 场未开球比赛未在本表展示' in '\n\n来源：[forecasts/2026-11-04/digest-late/forecast.json](../forecasts/2026-11-04/digest-late/forecast.json)；批次 digest-...6163 期：未映射 1 场、已映射 0 场；来源：[state/sfc/26163.json](../state/sfc/26163.json)）。本批竞彩表未展示这些比赛；最新映射与胜负彩专用冻结预测见下方 14 场胜负彩。\n\n'
+
+tests/test_t52_digest.py:57: AssertionError
+_ test_empty_jc_day_discloses_known_sfc_fixtures_without_rewriting_frozen_inputs[True] _
+
+digest_archive = PosixPath('/tmp/pytest-of-agent/pytest-45/test_empty_jc_day_discloses_kn1/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-45/test_empty_jc_day_discloses_kn1')
+mapped = True
+
+    @pytest.mark.parametrize("mapped", [False, True])
+    def test_empty_jc_day_discloses_known_sfc_fixtures_without_rewriting_frozen_inputs(
+        digest_archive, tmp_path, mapped
+    ):
+        _install_state(
+            digest_archive,
+            mapping="matched" if mapped else "unmatched",
+            match_id="apif:t52-synthetic" if mapped else None,
+        )
+        before = snapshot(digest_archive)
+        text = generate(digest_archive, tmp_path / "daily", now=NOW).read_text()
+        tomorrow = text.split("### 明日 2026-11-04", 1)[1].split("## 14 场胜负彩", 1)[0]
+>       assert "胜负彩 26163 期有 1 场未开球比赛未在本表展示" in tomorrow
+E       AssertionError: assert '胜负彩 26163 期有 1 场未开球比赛未在本表展示' in '\n\n来源：[forecasts/2026-11-04/digest-late/forecast.json](../forecasts/2026-11-04/digest-late/forecast.json)；批次 digest-...6163 期：未映射 0 场、已映射 1 场；来源：[state/sfc/26163.json](../state/sfc/26163.json)）。本批竞彩表未展示这些比赛；最新映射与胜负彩专用冻结预测见下方 14 场胜负彩。\n\n'
+
+tests/test_t52_digest.py:57: AssertionError
+_ test_partial_day_retains_probabilities_and_reports_only_undisplayed_fixtures _
+
+    def test_partial_day_retains_probabilities_and_reports_only_undisplayed_fixtures():
+        from test_digest_rework import _batch
+    
+        batch = _batch()
+        batch["predictions"] = batch["predictions"][:1]
+        shown = batch["predictions"][0]
+        issue = {
+            "issue_no": "26163",
+            "observed_utc": "2026-11-03T09:00:00Z",
+            "snapshot": [
+                {**shown, "mapping": "matched"},
+                {**shown, "match_id": None, "mapping": "unmatched"},
+            ],
+        }
+        catalog = [
+            {**shown, "captured_utc": "2026-11-03T09:00:00Z"},
+            {**shown, "match_id": "jc:missing", "captured_utc": "2026-11-03T09:00:00Z"},
+        ]
+        original = deepcopy(batch)
+        text = "\n".join(
+            forecast_sections(
+                [("2026-11-03", "partial/forecast.json", batch)],
+                NOW.date(),
+                None,
+                now=NOW,
+                catalog=catalog,
+                sfc_issues=[("state/sfc/26163.json", issue)],
+            )
+        )
+        assert "竞彩目录有 1 场未开球比赛，但本批未提供对应竞彩预测" in text
+>       assert "胜负彩 26163 期有 1 场未开球比赛未在本表展示" in text
+E       AssertionError: assert '胜负彩 26163 期有 1 场未开球比赛未在本表展示' in '## 今日与明日预测（仅发报时未开球）\n\n### 今日 2026-11-03\n\n来源：[partial/forecast.json](../partial/forecast.json)；批次 digest-late；生成 UT...te/sfc/26163.json](../state/sfc/26163.json)）。本批竞彩表未展示这些比赛；最新映射与胜负彩专用冻结预测见下方 14 场胜负彩。\n\n### 明日 2026-11-04\n\n尚无冻结预测。\n'
+
+tests/test_t52_digest.py:142: AssertionError
+________ test_actual_26163_digest_reminder_has_no_stale_mapping_counts _________
+
+real_issue = (<sqlalchemy.orm.session.Session object at 0x7f4151c2b3b0>, <zucai.models.SfcIssue object at 0x7f4120a89640>)
+
+    def test_actual_26163_digest_reminder_has_no_stale_mapping_counts(real_issue):
+        from zucai.digest_views import _known_unstarted_lines
+    
+        _, issue = real_issue
+        original = copy.deepcopy(issue.snapshot)
+        text = "\n".join(
+            _known_unstarted_lines(
+                "2026-11-13",
+                CUTOFF,
+                None,
+                [],
+                [("state/sfc/26163.json", {"issue_no": issue.issue_no,
+                                         "observed_utc": issue.observed_utc,
+                                         "snapshot": issue.snapshot})],
+            )
+        )
+>       assert "胜负彩 26163 期有 6 场未开球比赛未在本表展示" in text
+E       AssertionError: assert '胜负彩 26163 期有 6 场未开球比赛未在本表展示' in '原始胜负彩期次快照有 6 场未开球比赛（26163 期：未映射 6 场、已映射 0 场；来源：[state/sfc/26163.json](../state/sfc/26163.json)）。本批竞彩表未展示这些比赛；最新映射与胜负彩专用冻结预测见下方 14 场胜负彩。\n'
+
+tests/test_t52_real_archive.py:159: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t52_sfc_bridge.py::test_dead_bridge_accepts_later_correct_counterpart_without_reingesting_issue[candidate]
+FAILED tests/test_t52_sfc_bridge.py::test_dead_bridge_accepts_later_correct_counterpart_without_reingesting_issue[archived]
+FAILED tests/test_t52_digest.py::test_empty_jc_day_discloses_known_sfc_fixtures_without_rewriting_frozen_inputs[False]
+FAILED tests/test_t52_digest.py::test_empty_jc_day_discloses_known_sfc_fixtures_without_rewriting_frozen_inputs[True]
+FAILED tests/test_t52_digest.py::test_partial_day_retains_probabilities_and_reports_only_undisplayed_fixtures
+FAILED tests/test_t52_real_archive.py::test_actual_26163_digest_reminder_has_no_stale_mapping_counts
+6 failed, 30 passed in 3.81s

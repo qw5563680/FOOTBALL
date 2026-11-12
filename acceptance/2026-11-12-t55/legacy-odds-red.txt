@@ -1,0 +1,40 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_legacy_unknown_odds_time_remains_readable_during_paper_reselection ____
+
+    def test_legacy_unknown_odds_time_remains_readable_during_paper_reselection():
+        from zucai.scoreboard.paper import advance_ledger, publication_view
+    
+        rows, results = samples()
+        rows = [r for r in rows if r['match_id'] == 'jc:one' and r['batch_id'] in {'early', 'late'}]
+        original = advance_ledger(rows, results, [], NOW)
+        rows[0]['published_utc'] = rows[0]['kickoff_utc']
+        rows[1]['market']['snapshot_utc'] = None
+>       view, audit = publication_view(rows, results, original, NOW)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_forecast_publication.py:241: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/scoreboard/paper.py:317: in publication_view
+    advance_ledger(forecasts, results, [], as_of) if excluded else ledger,
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/scoreboard/paper.py:223: in advance_ledger
+    market = frozen_market(row)
+             ^^^^^^^^^^^^^^^^^^
+src/zucai/scoreboard/score.py:130: in frozen_market
+    stamp = instant(market["snapshot_utc"])
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = None
+
+    def instant(value):
+        stamp = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if not isinstance(stamp, datetime) or stamp.utcoffset() is None:
+>           raise ValueError("记分板时间必须包含时区")
+E           ValueError: 记分板时间必须包含时区
+
+src/zucai/scoreboard/score.py:24: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_forecast_publication.py::test_legacy_unknown_odds_time_remains_readable_during_paper_reselection
+1 failed in 1.08s

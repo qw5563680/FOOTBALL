@@ -1,0 +1,42 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_new_receipts_do_not_use_git_second_tolerance_or_overflow[2026-11-01T01:00:00Z] _
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-91/test_new_receipts_do_not_use_g0/archive')
+published = '2026-11-01T01:00:00Z'
+
+    @pytest.mark.parametrize('published', ['2026-11-01T01:00:00Z', '9999-12-31T23:59:59-01:00'])
+    def test_new_receipts_do_not_use_git_second_tolerance_or_overflow(scoreboard_archive, published):
+        from zucai.forecast_publication import publication_times
+    
+        manifest = json.loads((scoreboard_archive / 'forecast_manifest.json').read_bytes())
+        entry = manifest['runs']['early']['forecasts']['2026-11-01']
+        entry['generated_utc'] = '2026-11-01T01:00:00.900000Z'
+        entry['published_utc'] = entry['publication_evidence']['published_utc'] = published
+>       assert entry['path'] + '/forecast.json' not in publication_times(scoreboard_archive, manifest)
+E       AssertionError: assert ('forecasts/2026-11-01/early' + '/forecast.json') not in {'forecasts/2026-11-01/early/forecast.json': {'method': 'post_push_confirmation', 'candidate_path': 'forecasts/2026-11...'059073a446cda9cb35d2c79db6c70e15f473db20edc1f705a153febb741082cc', 'published_utc': '2026-11-01T09:00:00Z', ...}, ...}
+E        +  where {'forecasts/2026-11-01/early/forecast.json': {'method': 'post_push_confirmation', 'candidate_path': 'forecasts/2026-11...'059073a446cda9cb35d2c79db6c70e15f473db20edc1f705a153febb741082cc', 'published_utc': '2026-11-01T09:00:00Z', ...}, ...} = <function publication_times at 0x7fcaccf547c0>(PosixPath('/tmp/pytest-of-agent/pytest-91/test_new_receipts_do_not_use_g0/archive'), {'version': 1, 'algorithm': 'sha256', 'generated_utc': '2026-11-01T13:00:00Z', 'runs': {'early': {'run_id': 'early', '...koff/测试联赛.train.json', 'sha256': '56164b1c188ef2be28a3bba7499f8d85fa99db22aea09bde4b1ae85c0b58d572', ...}}, ...}}, ...})
+
+tests/test_forecast_publication.py:255: AssertionError
+_ test_new_receipts_do_not_use_git_second_tolerance_or_overflow[9999-12-31T23:59:59-01:00] _
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-91/test_new_receipts_do_not_use_g1/archive')
+published = '9999-12-31T23:59:59-01:00'
+
+    @pytest.mark.parametrize('published', ['2026-11-01T01:00:00Z', '9999-12-31T23:59:59-01:00'])
+    def test_new_receipts_do_not_use_git_second_tolerance_or_overflow(scoreboard_archive, published):
+        from zucai.forecast_publication import publication_times
+    
+        manifest = json.loads((scoreboard_archive / 'forecast_manifest.json').read_bytes())
+        entry = manifest['runs']['early']['forecasts']['2026-11-01']
+        entry['generated_utc'] = '2026-11-01T01:00:00.900000Z'
+        entry['published_utc'] = entry['publication_evidence']['published_utc'] = published
+>       assert entry['path'] + '/forecast.json' not in publication_times(scoreboard_archive, manifest)
+E       AssertionError: assert ('forecasts/2026-11-01/early' + '/forecast.json') not in {'forecasts/2026-11-01/early/forecast.json': {'method': 'post_push_confirmation', 'candidate_path': 'forecasts/2026-11...'059073a446cda9cb35d2c79db6c70e15f473db20edc1f705a153febb741082cc', 'published_utc': '2026-11-01T09:00:00Z', ...}, ...}
+E        +  where {'forecasts/2026-11-01/early/forecast.json': {'method': 'post_push_confirmation', 'candidate_path': 'forecasts/2026-11...'059073a446cda9cb35d2c79db6c70e15f473db20edc1f705a153febb741082cc', 'published_utc': '2026-11-01T09:00:00Z', ...}, ...} = <function publication_times at 0x7fcaccf547c0>(PosixPath('/tmp/pytest-of-agent/pytest-91/test_new_receipts_do_not_use_g1/archive'), {'version': 1, 'algorithm': 'sha256', 'generated_utc': '2026-11-01T13:00:00Z', 'runs': {'early': {'run_id': 'early', '...koff/测试联赛.train.json', 'sha256': '56164b1c188ef2be28a3bba7499f8d85fa99db22aea09bde4b1ae85c0b58d572', ...}}, ...}}, ...})
+
+tests/test_forecast_publication.py:255: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_forecast_publication.py::test_new_receipts_do_not_use_git_second_tolerance_or_overflow[2026-11-01T01:00:00Z]
+FAILED tests/test_forecast_publication.py::test_new_receipts_do_not_use_git_second_tolerance_or_overflow[9999-12-31T23:59:59-01:00]
+2 failed in 0.94s

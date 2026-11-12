@@ -1,0 +1,59 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_legacy_exclusion_still_persists_new_future_tickets_once _________
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-93/test_legacy_exclusion_still_pe0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-93/test_legacy_exclusion_still_pe0')
+
+    def test_legacy_exclusion_still_persists_new_future_tickets_once(scoreboard_archive, tmp_path):
+        from forecast_publication_support import confirm_fixture
+        from zucai.forecast_archive import publish_forecasts
+        from zucai.report.render import write_report
+        from zucai.scoreboard.command import read_state, run
+    
+        archive = scoreboard_archive
+        run(archive, as_of=NOW)
+        original_raw = (archive / 'scoreboard/ledger.jsonl').read_bytes()
+        path = archive / 'forecast_manifest.json'
+        manifest = json.loads(path.read_bytes())
+        for info in manifest['runs'].values():
+            for entry in info['forecasts'].values():
+                entry['published_utc'] = '2026-11-09T00:00:00Z'
+                entry['publication_evidence']['published_utc'] = entry['published_utc']
+        path.write_text(json.dumps(manifest))
+        source = manifest['runs']['late']
+        info = deepcopy(source)
+        info['run_id'] = 'future'
+        info['generated_utc'] = '2026-11-02T06:00:00Z'
+        info['forecasts'] = {}
+        stage = tmp_path / 'future-stage'
+        for league in info['leagues'].values():
+            for field in ('model_path', 'training_json_path'):
+                old = league[field]
+                league[field] = old.replace('/late/', '/future/')
+                target = stage / league[field]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((archive / old).read_bytes())
+        for day in ('2026-11-03', '2026-11-04'):
+            batch = json.loads((archive / source['forecasts']['2026-11-01']['path'] / 'forecast.json').read_bytes())
+            batch.update(batch_id='future-' + day, generated_utc=info['generated_utc'], as_of_utc=info['generated_utc'])
+            row = dict(batch['predictions'][0], match_id='jc:new-future', kickoff_utc='2026-11-03T12:00:00Z')
+            batch['predictions'] = [row] if day == '2026-11-03' else []
+            directory = 'forecasts/' + day + '/future'
+            write_report(batch, stage / directory)
+            info['forecasts'][day] = dict(path=directory, batch_id=batch['batch_id'], generated_utc=batch['generated_utc'])
+        publish_forecasts(archive, stage, info)
+        confirm_fixture(archive)
+        first = run(archive, as_of=instant('2026-11-02T08:00:00Z'))
+        persisted = (archive / 'scoreboard/ledger.jsonl').read_bytes()
+>       assert persisted.startswith(original_raw) and len(persisted) > len(original_raw)
+E       assert (True and 98170 > 98170)
+E        +  where True = <built-in method startswith of bytes object at 0x17456bb0>(b'{"account": "A", "batch_id": "early", "reason": "no_frozen_sp", "record_id": "952f51e5684d9cd401229a7398ed8badce419c...processed", "record_id": "244d98332051753c0a581a2157ff78eccc2cfcbb621dbfa82c3cfad39cd5e864", "record_type": "batch"}\n')
+E        +    where <built-in method startswith of bytes object at 0x17456bb0> = b'{"account": "A", "batch_id": "early", "reason": "no_frozen_sp", "record_id": "952f51e5684d9cd401229a7398ed8badce419c...processed", "record_id": "244d98332051753c0a581a2157ff78eccc2cfcbb621dbfa82c3cfad39cd5e864", "record_type": "batch"}\n'.startswith
+E        +  and   98170 = len(b'{"account": "A", "batch_id": "early", "reason": "no_frozen_sp", "record_id": "952f51e5684d9cd401229a7398ed8badce419c...processed", "record_id": "244d98332051753c0a581a2157ff78eccc2cfcbb621dbfa82c3cfad39cd5e864", "record_type": "batch"}\n')
+E        +  and   98170 = len(b'{"account": "A", "batch_id": "early", "reason": "no_frozen_sp", "record_id": "952f51e5684d9cd401229a7398ed8badce419c...processed", "record_id": "244d98332051753c0a581a2157ff78eccc2cfcbb621dbfa82c3cfad39cd5e864", "record_type": "batch"}\n')
+
+tests/test_forecast_publication.py:299: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_forecast_publication.py::test_legacy_exclusion_still_persists_new_future_tickets_once
+1 failed in 1.00s

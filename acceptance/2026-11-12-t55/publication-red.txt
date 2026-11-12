@@ -1,0 +1,94 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+_________ test_late_and_unknown_publications_are_excluded_and_counted __________
+
+    def test_late_and_unknown_publications_are_excluded_and_counted():
+        forecasts, results = samples()
+        rows = [deepcopy(r) for r in forecasts if r['batch_id'] == 'early' and r['match_id'] in {'jc:one', 'jc:two'}]
+        rows[0]['published_utc'] = rows[0]['kickoff_utc']
+        rows[1]['published_utc'] = None
+        scored, audit = score_forecasts(rows, results, [], NOW)
+>       assert scored == []
+E       AssertionError: assert [{'match_id':...00:00Z', ...}] == []
+E         
+E         Left contains 2 more items, first extra item: {'match_id': 'jc:one', 'batch_id': 'early', 'generated_utc': '2026-11-01T06:00:00Z', 'kickoff_utc': '2026-11-01T12:00:00Z', ...}
+E         Use -v to get more diff
+
+tests/test_forecast_publication.py:21: AssertionError
+_____ test_late_latest_version_falls_back_without_changing_previous_bytes ______
+
+    def test_late_latest_version_falls_back_without_changing_previous_bytes():
+        forecasts, results = samples()
+        rows = [deepcopy(r) for r in forecasts if r['match_id'] == 'jc:one' and r['batch_id'] in {'early', 'late'}]
+        for row in rows:
+            row['published_utc'] = row['generated_utc']
+        expected, _ = score_forecasts(rows[:1], results, [], NOW)
+        rows[1]['published_utc'] = rows[1]['kickoff_utc']
+        actual, audit = score_forecasts(rows, results, [], NOW)
+>       assert json.dumps(actual, sort_keys=True).encode() == json.dumps(expected, sort_keys=True).encode()
+E       assert b'[{"actual":...333333333}}}]' == b'[{"actual":...333333333}}}]'
+E         
+E         At index 120 diff: b'l' != b'e'
+E         Use -v to get more diff
+
+tests/test_forecast_publication.py:33: AssertionError
+_____________ test_publication_after_replay_cutoff_is_not_visible ______________
+
+    def test_publication_after_replay_cutoff_is_not_visible():
+        row = samples()[0][0]
+        row['published_utc'] = '2026-11-01T11:00:00Z'
+>       assert prematch_rows([row], '2026-11-01T10:00:00Z') == []
+E       AssertionError: assert [{'match_id':... 'one主', ...}] == []
+E         
+E         Left contains one more item: {'match_id': 'jc:one', 'source': 'jc', 'league': '测试联赛', 'home': 'one主', ...}
+E         Use -v to get more diff
+
+tests/test_forecast_publication.py:41: AssertionError
+_________ test_historical_first_remote_commit_exact_bytes_and_readonly _________
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-47/test_historical_first_remote_c0/archive')
+
+    def test_historical_first_remote_commit_exact_bytes_and_readonly(scoreboard_archive):
+>       from zucai.forecast_publication import publication_times
+E       ModuleNotFoundError: No module named 'zucai.forecast_publication'
+
+tests/test_forecast_publication.py:56: ModuleNotFoundError
+_________________ test_no_git_or_only_local_commit_is_unknown __________________
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-47/test_no_git_or_only_local_comm0/archive')
+
+    def test_no_git_or_only_local_commit_is_unknown(scoreboard_archive):
+>       from zucai.forecast_publication import publication_times
+E       ModuleNotFoundError: No module named 'zucai.forecast_publication'
+
+tests/test_forecast_publication.py:75: ModuleNotFoundError
+_____ test_confirmation_uses_after_push_clock_and_never_local_commit_date ______
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-47/test_confirmation_uses_after_p0/archive')
+
+    def test_confirmation_uses_after_push_clock_and_never_local_commit_date(scoreboard_archive):
+>       from zucai.forecast_publication import confirm_publication, publication_times
+E       ModuleNotFoundError: No module named 'zucai.forecast_publication'
+
+tests/test_forecast_publication.py:86: ModuleNotFoundError
+__________ test_workflow_confirms_formal_publication_only_after_push ___________
+
+    def test_workflow_confirms_formal_publication_only_after_push():
+        from pathlib import Path
+    
+        workflow = (Path(__file__).parents[1] / '.github/workflows/football-feeds.yml').read_text()
+        first = workflow.index('id: publish_forecasts')
+>       confirm = workflow.index('python -m zucai.forecast_publication')
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       ValueError: substring not found
+
+tests/test_forecast_publication.py:113: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_forecast_publication.py::test_late_and_unknown_publications_are_excluded_and_counted
+FAILED tests/test_forecast_publication.py::test_late_latest_version_falls_back_without_changing_previous_bytes
+FAILED tests/test_forecast_publication.py::test_publication_after_replay_cutoff_is_not_visible
+FAILED tests/test_forecast_publication.py::test_historical_first_remote_commit_exact_bytes_and_readonly
+FAILED tests/test_forecast_publication.py::test_no_git_or_only_local_commit_is_unknown
+FAILED tests/test_forecast_publication.py::test_confirmation_uses_after_push_clock_and_never_local_commit_date
+FAILED tests/test_forecast_publication.py::test_workflow_confirms_formal_publication_only_after_push
+7 failed in 1.34s

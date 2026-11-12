@@ -1,0 +1,78 @@
+.........FFFF                                                            [100%]
+=================================== FAILURES ===================================
+_________________ test_incomplete_receipt_fails_closed[commit] _________________
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-60/test_incomplete_receipt_fails_0/archive')
+removed = 'commit'
+
+    @pytest.mark.parametrize('removed', ['commit', 'ref'])
+    def test_incomplete_receipt_fails_closed(scoreboard_archive, removed):
+        from zucai.forecast_publication import publication_times
+    
+        manifest = json.loads((scoreboard_archive / 'forecast_manifest.json').read_bytes())
+        entry = manifest['runs']['early']['forecasts']['2026-11-01']
+        entry['publication_evidence'].pop(removed)
+>       assert entry['path'] + '/forecast.json' not in publication_times(scoreboard_archive, manifest)
+E       AssertionError: assert ('forecasts/2026-11-01/early' + '/forecast.json') not in {'forecasts/2026-11-01/early/forecast.json': {'method': 'post_push_confirmation', 'candidate_path': 'forecasts/2026-11...'059073a446cda9cb35d2c79db6c70e15f473db20edc1f705a153febb741082cc', 'published_utc': '2026-11-01T09:00:00Z', ...}, ...}
+E        +  where {'forecasts/2026-11-01/early/forecast.json': {'method': 'post_push_confirmation', 'candidate_path': 'forecasts/2026-11...'059073a446cda9cb35d2c79db6c70e15f473db20edc1f705a153febb741082cc', 'published_utc': '2026-11-01T09:00:00Z', ...}, ...} = <function publication_times at 0x7f165b9f9da0>(PosixPath('/tmp/pytest-of-agent/pytest-60/test_incomplete_receipt_fails_0/archive'), {'version': 1, 'algorithm': 'sha256', 'generated_utc': '2026-11-01T13:00:00Z', 'runs': {'early': {'run_id': 'early', '...koff/测试联赛.train.json', 'sha256': '56164b1c188ef2be28a3bba7499f8d85fa99db22aea09bde4b1ae85c0b58d572', ...}}, ...}}, ...})
+
+tests/test_forecast_publication.py:152: AssertionError
+__________________ test_incomplete_receipt_fails_closed[ref] ___________________
+
+scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-60/test_incomplete_receipt_fails_1/archive')
+removed = 'ref'
+
+    @pytest.mark.parametrize('removed', ['commit', 'ref'])
+    def test_incomplete_receipt_fails_closed(scoreboard_archive, removed):
+        from zucai.forecast_publication import publication_times
+    
+        manifest = json.loads((scoreboard_archive / 'forecast_manifest.json').read_bytes())
+        entry = manifest['runs']['early']['forecasts']['2026-11-01']
+        entry['publication_evidence'].pop(removed)
+>       assert entry['path'] + '/forecast.json' not in publication_times(scoreboard_archive, manifest)
+E       AssertionError: assert ('forecasts/2026-11-01/early' + '/forecast.json') not in {'forecasts/2026-11-01/early/forecast.json': {'method': 'post_push_confirmation', 'candidate_path': 'forecasts/2026-11...'059073a446cda9cb35d2c79db6c70e15f473db20edc1f705a153febb741082cc', 'published_utc': '2026-11-01T09:00:00Z', ...}, ...}
+E        +  where {'forecasts/2026-11-01/early/forecast.json': {'method': 'post_push_confirmation', 'candidate_path': 'forecasts/2026-11...'059073a446cda9cb35d2c79db6c70e15f473db20edc1f705a153febb741082cc', 'published_utc': '2026-11-01T09:00:00Z', ...}, ...} = <function publication_times at 0x7f165b9f9da0>(PosixPath('/tmp/pytest-of-agent/pytest-60/test_incomplete_receipt_fails_1/archive'), {'version': 1, 'algorithm': 'sha256', 'generated_utc': '2026-11-01T13:00:00Z', 'runs': {'early': {'run_id': 'early', '...koff/测试联赛.train.json', 'sha256': '56164b1c188ef2be28a3bba7499f8d85fa99db22aea09bde4b1ae85c0b58d572', ...}}, ...}}, ...})
+
+tests/test_forecast_publication.py:152: AssertionError
+___________________ test_overflowing_publication_is_unknown ____________________
+
+    def test_overflowing_publication_is_unknown():
+        from zucai.scoreboard.score import publication_reason
+    
+        row = samples()[0][0]
+        row['published_utc'] = '0001-01-01T00:00:00+01:00'
+>       assert publication_reason(row, NOW) == 'publication_unknown'
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_forecast_publication.py:160: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/scoreboard/score.py:75: in publication_reason
+    published = instant(row.get("published_utc"))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = '0001-01-01T00:00:00+01:00'
+
+    def instant(value):
+        stamp = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if not isinstance(stamp, datetime) or stamp.utcoffset() is None:
+            raise ValueError("记分板时间必须包含时区")
+>       return stamp.astimezone(UTC)
+               ^^^^^^^^^^^^^^^^^^^^^
+E       OverflowError: date value out of range
+
+src/zucai/scoreboard/score.py:25: OverflowError
+_________ test_f_view_excludes_old_unpublished_groups_without_mutation _________
+
+    def test_f_view_excludes_old_unpublished_groups_without_mutation():
+        from test_parlay_paper import AFTER, document, results
+>       from zucai.parlay.paper import advance_ledger, publication_view
+E       ImportError: cannot import name 'publication_view' from 'zucai.parlay.paper' (/workspace/work/football-t55/src/zucai/parlay/paper.py)
+
+tests/test_forecast_publication.py:165: ImportError
+=========================== short test summary info ============================
+FAILED tests/test_forecast_publication.py::test_incomplete_receipt_fails_closed[commit]
+FAILED tests/test_forecast_publication.py::test_incomplete_receipt_fails_closed[ref]
+FAILED tests/test_forecast_publication.py::test_overflowing_publication_is_unknown
+FAILED tests/test_forecast_publication.py::test_f_view_excludes_old_unpublished_groups_without_mutation
+4 failed, 9 passed in 1.39s
