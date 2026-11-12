@@ -110,5 +110,15 @@ ruff format --check src tests
 Ruff、格式和差异检查全部通过；完整日志与JUnit XML在修订证据目录，既有NumPy弃用提示保留。
 独立复核另有59项相关测试通过。
 
-`SHA256SUMS` 的 `repository/` 指当前代码，`evidence/` 指本次修订证据目录；
+`SHA256SUMS` 的 `repository/` 指审查修订代码 `baeaedc`（本次合入main之前），`evidence/` 指本次修订证据目录；
 `prior-repository/` 指初版代码 `2710059`，`prior-evidence/` 指11-12初版证据目录，旧证据不覆盖。
+
+## 合入已含 T56 的 main（2026-11-13）
+
+以普通 merge 将 main `5f87712ce15f9071864b0c0fe5949d53fba6756e` 合入 T55，未rebase或强推。
+`digest_parlay.py` 同时保留发布筛选、短披露和去重展示；组数、去重命中、重复清单与待结列表使用同一份筛选后账本。
+新增三个不打桩门槛的归档回归：旧汇总缺去重字段、重复批次缺发布证明、全部发布证明缺失；均核对原文件字节不变。
+
+全量 `pytest -q`：**2783 passed，0 failed（129.29s）**；40项定向检查、Ruff和格式检查通过。
+[本次合并验证日志及父提交记录](https://github.com/qw5563680/FOOTBALL/tree/data/t55-scoreboard-publication-acceptance-20261112/acceptance/2026-11-13-t55-main-merge)。
+清单中新加的 `merge-evidence/` 指该目录，`merge-repository/` 指本次合并后的代码；原修订证据及哈希保持不变。

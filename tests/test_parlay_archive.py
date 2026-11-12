@@ -317,6 +317,48 @@ def test_daily_f_previous_pending_and_covered_loss_are_distinct(archive_setup):
     assert "亏损" in text and "组覆盖率" in text and "组盈利率" in text
 
 
+@pytest.mark.parametrize("case", ["legacy_summary", "unknown_duplicate", "all_unknown"])
+def test_daily_dedup_and_pending_use_the_same_publication_filtered_ledger(archive_setup, case):
+    from zucai.digest_parlay import section
+
+    archive, _, _ = archive_setup
+    _, doc = frozen_doc(archive_setup)
+    documents = [doc]
+    if case == "unknown_duplicate":
+        # A frozen historical batch whose publication proof is no longer present.
+        unknown = copy.deepcopy(doc)
+        unknown["batch_id"] += "-unknown"
+        documents.append(unknown)
+    ledger = advance_ledger(documents, {}, [], BEFORE)
+    target = archive / LEDGER
+    target.parent.mkdir(exist_ok=True)
+    raw = b"".join(raw_json(row).replace(b"\n", b" ").strip() + b"\n" for row in ledger)
+    target.write_bytes(raw)
+    stats = summarize(ledger, {}, BEFORE)
+    stats.pop("deduplication")  # A saved summary from before T56.
+    stats["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
+    summary = {"parlay_sd": stats}
+    (target.parent / "summary.json").write_bytes(raw_json(summary))
+    if case == "all_unknown":
+        manifest_path = archive / "forecast_manifest.json"
+        manifest = json.loads(manifest_path.read_bytes())
+        entry = manifest["runs"][RUN]["forecasts"][DAY]
+        entry.pop("parlay_publication_evidence")
+        entry.pop("parlay_published_utc")
+        manifest_path.write_bytes(raw_json(manifest))
+    manifest = verify_forecasts(archive)
+    before = files(archive)
+
+    lines, pending, _ = section(archive, manifest, summary, BEFORE, None, matches={})
+    text = "\n".join(lines)
+    expected = 0 if case == "all_unknown" else len(doc["groups"])
+    assert f"机会计数：{expected} 组 / {expected} 种不同组合；重复出现 0 组" in text
+    assert f"| 按首次出现去重 | {expected} | 0 | {expected} |" in text
+    assert "出现 2 次" not in text
+    assert len(pending) == expected
+    assert files(archive) == before
+
+
 def test_ledger_and_summary_publication_roll_back_together(archive_setup, monkeypatch):
     from pathlib import Path
 

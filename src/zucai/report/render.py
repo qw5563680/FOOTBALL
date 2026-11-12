@@ -12,7 +12,13 @@ from pathlib import Path
 
 from zucai.predict.base import model_sources
 from zucai.predict.pooled import model_targets
-from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
+from zucai.prediction_disclosure import (
+    prior_disclosure,
+    prior_export_label,
+    prior_footnote,
+    prior_label,
+    uses_unknown_team_prior,
+)
 
 BEIJING = timezone(timedelta(hours=8))
 EXPORT_FILES = ("forecast.json", "report.md", "report.csv")
@@ -318,6 +324,8 @@ def _markdown(batch: dict) -> str:
                 f"{metadata['rho_before']:.17g} → {metadata['rho_after']:.17g}）"
             )
         lines.append("| " + " | ".join(values) + " |")
+    if note := prior_footnote(batch["predictions"]):
+        lines.extend(["", _md(note)])
     lines.extend(["", "## 比分前五与快照", ""])
     for prediction in batch["predictions"]:
         if prediction["status"] != "predicted":
@@ -462,7 +470,7 @@ def _csv_bytes(batch: dict) -> bytes:
                 home_unknown_team=detail["home"],
                 away_unknown_team=detail["away"],
                 prior_method=detail["method"],
-                prior_disclosure=prior_label(prediction),
+                prior_disclosure=prior_export_label(prediction),
             )
         writer.writerow({key: _csv_cell(value) for key, value in row.items()})
     return stream.getvalue().encode("utf-8-sig")
