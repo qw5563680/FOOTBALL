@@ -1158,6 +1158,15 @@ T39 云端带 `--require-notified-history`，仅从已成功更新同日评论�
 
 ## T26 14 场胜负彩每日诊断
 
+T54 在竞彩输入端增加赛事内明确别名表 `data/team_aliases/sporttery.json`，赛程和官方赛果
+均先按批准缩写解析规范球队。未知新名称独立建队并保留待审证据
+`state/alias_candidates/jc.json`；该文件纳入原 feeds 清单、SHA256 与恢复校验。
+不新增数据库表。已存在的重复身份经手动 `cloud_feeds reconcile` 校正：仅批准证据列出的
+竞彩比赛可重绑球队，要求来源绑定、主客方向、赛事、准确开球和唯一 counterpart 一致；
+保留旧 Team 行，不批量改名。`collection.jc_identity` 单独保存校正结果，
+`state/audit/jc_identity_merges.csv` 与 `jc_relink.csv` 跟随事务记录身份与关联变更。
+映射与预测仍由原 SFC 逻辑产生，历史重放写独立输出，冻结文件不回写。
+
 `sources.sfc.collect_current_sfc` 仅在 sync 自建 runner 路径运行：复用 C500Sfc 的静态页面解析，
 每班无参数 `/sfc/` 与 `/jczq/` 根页各 GET 一次，共用无重试 session 与至少1秒间隔，拒绝重定向。
 `C500FixtureBridge` 解析出的 bridges 连同原URL/读取UTC/原件哈希传入 `ingest_issue(mapped_only=True)`；

@@ -15,10 +15,10 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
-from zucai.db import get_engine, init_db, session_scope, upsert_match
+from zucai.db import get_engine, init_db, upsert_match
 from zucai.models import Match, Odds
 from zucai.sources.base import RateLimiter, RawStore, Source, _atomic_write, make_session
-from zucai.sources.teams import upsert_team
+from zucai.sources.sporttery_aliases import candidate_transaction, load_aliases, resolve_teams
 
 LOGGER = logging.getLogger(__name__)
 BEIJING = timezone(timedelta(hours=8))
@@ -372,7 +372,15 @@ def append_market(
     return session.execute(insert(Odds.__table__).values(rows)).rowcount
 
 
-def save_schedule(session: Session, fixtures: list[JcMatch], captured: datetime) -> tuple[int, int]:
+def save_schedule(
+    session: Session,
+    fixtures: list[JcMatch],
+    captured: datetime,
+    *,
+    aliases=None,
+    alias_candidates=None,
+) -> tuple[int, int]:
+    aliases = load_aliases() if aliases is None else aliases
     matches = quotes = 0
     for item in fixtures:
         if item.kickoff_utc <= captured:
@@ -391,8 +399,9 @@ def save_schedule(session: Session, fixtures: list[JcMatch], captured: datetime)
             select(func.max(Odds.snapshot_utc)).where(Odds.match_id == item.match_id)
         )
         if newest is None or datetime.fromisoformat(newest) <= captured:
-            home = upsert_team(session, item.home, "jc")
-            away = upsert_team(session, item.away, "jc")
+            home, away = resolve_teams(
+                session, item, captured, aliases=aliases, candidates=alias_candidates
+            )
             if current and (home.id, away.id) != (current.home_team_id, current.away_team_id):
                 raise ValueError(f"{item.match_id} 在售场次与原有主客队身份不符")
             upsert_match(
@@ -429,9 +438,8 @@ def fetch_schedule(
     try:
         save_schedule_audit(Path(engine.url.database).parent / "state/audit", feed)
         init_db(engine)
-        with session_scope(engine) as session:
-            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-            matches, quotes = save_schedule(session, games, captured)
+        with candidate_transaction(engine) as (session, candidates):
+            matches, quotes = save_schedule(session, games, captured, alias_candidates=candidates)
     finally:
         engine.dispose()
     if metadata is not None:

@@ -134,7 +134,7 @@ python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id cups-el-ec
 python -m zucai.cloud_feeds probe --probe-kind stats --archive ../cloud-data --run-id stats-1 --source apif --leagues 3,848 --seasons 2024 --per-scope 2  # 仅审查者在 Actions 探测技术数据，不入库
 python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --run-id fd-links-1  # 仅审查者在 Actions 手动补链，不联网
 python -m zucai.cloud_feeds backfill --relink-jc --archive ../cloud-data --run-id jc-links-1  # 仅审查者在 Actions 手动补 API 先到、竞彩后到的链接，不联网
-python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 合并已核验的 APIF/FDORG 存量身份，不联网
+python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 校正已核验的 APIF/FDORG 与显式批准的竞彩身份，不联网
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases proposals --scope cups-history --archive ../cloud-data --out docs/aliases/2026-11-04-apif-cups-history.md  # 第二批历史清单，只读、不覆盖
 zucai aliases propagate --archive ../cloud-data  # 只读归档，将已生效同源 ID 写入有临时历史的联赛正式别名；提交审查后再 reconcile
@@ -300,6 +300,11 @@ fd 名称合并只读取正式别名文件中所有者批准的条目（原 PR #
 jc 比赛 ID、UTC 时间差追加到 `state/alias_candidates/fdorg.json` 和 `apif.json`。
 候选不参与后续自动导入；审查方定期核对证据后另开 PR 合入 main 的正式别名文件。
 
+T54 竞彩赛程及赛果建队前先查 `data/team_aliases/sporttery.json` 的赛事内明确批准别名。
+未命中的新名称独立建队并登记到 `state/alias_candidates/jc.json`，随 feeds 哈希导出与恢复；
+不会按前缀或相似程度合并。已产生的重复身份只由手动 `reconcile` 根据批准条目的具体比赛证据校正，
+不会批量重命名历史球队或改写已冻结预测。离线验收见 [T54 记录](reports/t54-jc-short-name/README.md)。
+
 T22 权限探测由 Claude 在 **Actions → Football cloud feeds → Run workflow** 选择 PR 分支执行：
 `operation=probe source=apif leagues=3,848 seasons=2021-2026`。
 九个既有联赛另跑 `leagues=98,292,188,113,103,244,119,253,169 seasons=2025,2026`。
@@ -393,7 +398,7 @@ T30 的 `probe_kind=stats` 只在手动 Actions 中探测逐场技术统计、�
   不采集、不注入 key、不训练、不运行记分板或日报；沿用写锁、竞彩水位、归档恢复和冻结预测校验。
   `collection.jc`、步骤摘要及 `state/audit/jc_relink.csv` 保存补链数、已链接数、跳过原因和逐对清单。
   后续 API 入库对同样的唯一后到竞彩记 `linked_late_jc`，竞彩赛果优先；联合训练仅排除已核验链接的 API 行，未链接重叠仍拒绝。
-- `operation=reconcile`：仅手动运行 APIF/FDORG 存量身份合并，不触发采集、预测或记分板；
+- `operation=reconcile`：仅手动运行 APIF/FDORG 存量身份合并及显式批准的竞彩比赛身份校正，不触发采集、预测或记分板；
   复用写回锁，保持竞彩水位，归档恢复及冻结预测哈希校验后发布。
 - `operation=backfill`：**一次性历史回填，不定时**。只在 `apis` 托管机运行（60 分钟上限），
   `sporttery` 与 `predict` 跳过；沿用写回锁和发布脚本。
