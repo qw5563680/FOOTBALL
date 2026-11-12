@@ -85,6 +85,7 @@ def test_old_sfc_report_discloses_prior_and_pick_nine_excludes_it_without_mutati
     order = next(line for line in rendered.splitlines() if "单场最高项置信度顺序" in line)
     assert "：2、3、4、5、6、7、8、9、10、11、12、13、14。" in order
     assert "默认实力" in rendered and "客队" in rendered and METHOD in rendered.replace(r"\_", "_")
+    assert rendered.count("默认实力说明：") == 1
     rows = list(csv.DictReader(io.StringIO(_csv(report).decode("utf-8-sig"))))
     assert rows[0]["p_home"] == "0.5"
     assert "默认实力" in rows[0]["reason"] and METHOD in rows[0]["reason"]
@@ -99,6 +100,7 @@ def test_pick_nine_diagnoses_insufficient_known_team_rows(complete_issue):
     assert "只有 8 场" in lines
     assert "默认实力" in lines and METHOD in lines.replace(r"\_", "_")
     assert "| 原场号 |" not in lines
+    assert _markdown(report).decode().count("默认实力说明：") == 1
 
 
 def test_known_sfc_probabilities_and_pick_nine_eligibility_are_unchanged(complete_issue):

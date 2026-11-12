@@ -39,7 +39,8 @@ def test_explicit_sides_are_disclosed_without_mutating_the_prediction(home, away
     assert uses_unknown_team_prior(row) is (home or away)
     text = prior_label(row)
     if home or away:
-        assert "默认实力" in text and METHOD in text
+        assert "默认实力" in text and METHOD not in text
+        assert detail["method"] == METHOD
         assert ("主队甲" in text) is home
         assert ("客队乙" in text) is away
     else:
@@ -86,7 +87,7 @@ def test_incomplete_or_inconsistent_sides_cannot_bypass_affirmative_prior(metada
     assert detail["home"] is detail["away"] is None
     assert uses_unknown_team_prior(row)
     assert "缺失方未记录" in prior_label(row)
-    assert "先验方法未记录" in prior_label(row)
+    assert detail["method"] is None
 
 
 def test_explicit_missing_side_cannot_be_hidden_by_false_aggregate_flag():

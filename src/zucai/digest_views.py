@@ -12,7 +12,7 @@ from zucai.digest_context import (
 )
 from zucai.digest_display import BEIJING, _instant, _link, _match, _number, _probabilities, _text
 from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time, same_collection_attempt
-from zucai.prediction_disclosure import prior_label
+from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.scoreboard.score import enrich_prior_disclosures
 
 SKIP_REASONS = {
@@ -180,6 +180,9 @@ def forecast_sections(
                 "| --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
+        versions = {}
+        score_notes = []
+        compact = any(prior_label(row) for row in rows)
         for row in sorted(rows, key=_order):
             head = (
                 f"| {_text(row.get('jc_num'))} | {_local(row['kickoff_utc'])} | "
@@ -200,14 +203,31 @@ def forecast_sections(
                 or "未提供"
             )
             status = "ready" if row.get("p2_ready") is True else "experimental"
+            if compact:
+                status = "可用" if row.get("p2_ready") is True else "实验"
             disclosure = prior_label(row)
             if disclosure:
                 status += "；" + _text(disclosure)
+            reference = f"{_text(row['model_name'])} / {_text(row['model_version'])}"
+            score_reference = scores
+            if compact:
+                version = (row["model_name"], row["model_version"])
+                reference = versions.setdefault(version, f"M{len(versions) + 1}")
+                score_reference = f"S{len(score_notes) + 1}"
+                score_notes.append(f"比分 {score_reference}：{scores}。")
             lines.append(
-                f"{head} | {_probabilities(row)} | {_text(row['model_name'])} / "
-                f"{_text(row['model_version'])} | {status} | {scores} | "
+                f"{head} | {_probabilities(row)} | {reference} | {status} | {score_reference} | "
                 f"{odds_time(row, checked_at=checked_at)} |"
             )
+        if compact:
+            lines.append("")
+        if note := prior_footnote(rows):
+            lines.extend([_text(note), ""])
+        lines.extend(
+            f"模型 {reference}：{_text(name)} / {_text(version)}。"
+            for (name, version), reference in versions.items()
+        )
+        lines.extend(score_notes)
         lines.append("")
         lines.extend(
             _known_unstarted_lines(
@@ -304,6 +324,8 @@ def review_sections(
         )
     if not rows:
         lines.append("| 尚无本周已开球记录 | — | — | — | — | — | — |")
+    if note := prior_footnote(latest[key] for key in rows if key in latest):
+        lines.extend(["", _text(note)])
     enriched = enrich_prior_disclosures(settled, latest.values(), as_of=now)
     lines.extend(
         [

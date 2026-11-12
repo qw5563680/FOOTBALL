@@ -48,7 +48,9 @@ def test_actual_ac_milan_research_probability_is_retained_in_single_match_report
     text = _markdown(batch)
     line = next(line for line in text.splitlines() if "jc:2042523" in line and "AC米兰" in line)
     assert "默认实力" in line and "费伦茨" in line
-    assert "weakest_quartile_half_shrinkage" in line.replace("\\_", "_")
+    assert "weakest_quartile_half_shrinkage" not in line.replace("\\_", "_")
+    assert "weakest_quartile_half_shrinkage" in text.replace("\\_", "_")
+    assert text.count("默认实力说明：") == 1
     assert "96.29%" in line
     assert canonical(batch) == before
 

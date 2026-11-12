@@ -16,7 +16,13 @@ from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, Team
 from zucai.predict.base import model_sources
 from zucai.predict.pooled import model_targets
-from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
+from zucai.prediction_disclosure import (
+    prior_disclosure,
+    prior_export_label,
+    prior_footnote,
+    prior_label,
+    uses_unknown_team_prior,
+)
 from zucai.report.render import (
     _beijing,
     _csv_cell,
@@ -270,29 +276,29 @@ def disclosed_rows(report):
     return rows
 
 
-def _prior_diagnostics(rows):
+def _prior_diagnostics(rows, *, explain=True):
     affected = [row for row in rows if uses_unknown_team_prior(row)]
     if not affected:
         return []
     lines = ["### 默认实力诊断", ""]
     for row in affected:
-        lines.append(
-            f"- 第 {row['seq']} 场：{_md(prior_label(row))}；不进入任九模型单选或最高项排序。"
-        )
+        lines.append(f"- 第 {row['seq']} 场：{_md(prior_label(row))}。")
+    if explain:
+        lines.extend(["", _md(prior_footnote(affected))])
     return lines + [""]
 
 
-def _row_reason(row, default):
+def _row_reason(row, default, *, export=False):
     reason = row.get("reason") or default
-    note = prior_label(row)
+    note = prior_export_label(row) if export else prior_label(row)
     return "；".join(part for part in (reason, note) if part)
 
 
-def pick_nine_lines(report):
+def pick_nine_lines(report, *, prior_explained=False):
     """Render one single-choice ticket from verified, frozen match probabilities."""
     lines = ["### 任九 · 模型单选", ""]
     rows = disclosed_rows(report) if report else []
-    lines += _prior_diagnostics(rows)
+    lines += _prior_diagnostics(rows, explain=not prior_explained)
     if not report or report.get("sale_state") != "published_before_deadline":
         return lines + ["未确认报告在截止前发布，本期不展示任九方案。", ""]
     if report.get("mode") != "prematch":
@@ -376,6 +382,8 @@ def _markdown(report):
             _row_reason(r, "P2 实验"),
         ]
         lines.append("|" + "|".join(_md(c) for c in columns) + "|")
+    if note := prior_footnote(rows):
+        lines.extend(["", _md(note)])
     eligible_sequences = {r["seq"] for r in rows if not uses_unknown_team_prior(r)}
     confidence_order = [seq for seq in report["confidence_order"] if seq in eligible_sequences]
     lines += [
@@ -385,7 +393,7 @@ def _markdown(report):
         + "。",
         "",
     ]
-    lines += pick_nine_lines(report)
+    lines += pick_nine_lines(report, prior_explained=True)
     combo = report["combo"]
     if combo:
         lines += [
@@ -441,7 +449,8 @@ def _unconfirmed_markdown(report):
         "|序号|赛事/对阵|北京时间|状态|",
         "|---|---|---|---|",
     ]
-    for row in disclosed_rows(report):
+    rows = disclosed_rows(report)
+    for row in rows:
         kickoff = _beijing(row["kickoff_utc"])
         if row.get("kickoff_basis") == "placeholder":
             kickoff += "（占位开球时间，待核实）"
@@ -452,6 +461,8 @@ def _unconfirmed_markdown(report):
             _row_reason({**row, "reason": "无冻结概率"}, ""),
         ]
         lines.append("|" + "|".join(_md(value) for value in values) + "|")
+    if note := prior_footnote(rows):
+        lines.extend(["", _md(note)])
     lines += [
         "",
         "原始计算与引用预测证据保存在 sfc.json；未确认停售前存好，不作冻结概率展示。",
@@ -517,7 +528,7 @@ def _csv(report):
                     *[p.get(k) for k in "hda"],
                     OPTIONS.get(r["top_outcome"]),
                     "+".join(OPTIONS[k] for k in r["selection"]) if r["selection"] else None,
-                    _row_reason(r, "") or None,
+                    _row_reason(r, "", export=True) or None,
                     r.get("model_version"),
                     report["mode"],
                     report["probability_type"],
@@ -572,7 +583,7 @@ def _unconfirmed_csv(report):
                     row["home"],
                     row["away"],
                     _beijing(row["kickoff_utc"]),
-                    _row_reason({**row, "reason": "无冻结概率"}, ""),
+                    _row_reason({**row, "reason": "无冻结概率"}, "", export=True),
                     report["generated_utc"],
                     report["published_utc"],
                     report["sale_end_utc"],

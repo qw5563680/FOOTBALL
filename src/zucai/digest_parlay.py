@@ -7,9 +7,15 @@ from datetime import timedelta
 
 from zucai.digest_display import _link, _match, _number, _text
 from zucai.forecast_archive import _path
+from zucai.parlay import dedup
 from zucai.parlay.archive import load_documents
 from zucai.parlay.paper import read_ledger, render
-from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
+from zucai.prediction_disclosure import (
+    prior_disclosure,
+    prior_footnote,
+    prior_label,
+    uses_unknown_team_prior,
+)
 from zucai.scoreboard.score import instant
 from zucai.sources.sporttery import BEIJING
 
@@ -37,7 +43,7 @@ REASONS = {
     "match_not_scheduled": "比赛已结束、取消或状态变化",
     "not_jc": "不是竞彩比赛",
     "not_jc_or_missing_kickoff": "不是竞彩比赛或缺开球时间",
-    "unknown_team_prior": "使用默认实力，仅保留研究概率，不进入主候选",
+    "unknown_team_prior": "默认实力",
 }
 
 
@@ -216,6 +222,8 @@ def _disclosed_document(archive, manifest, document):
                 if uses_unknown_team_prior(value):
                     notes[key] = dict(
                         match_id=value["match_id"],
+                        home=value.get("home"),
+                        away=value.get("away"),
                         reasons=["unknown_team_prior"],
                         prior_disclosure=prior_disclosure(value),
                         prior_label=prior_label(value),
@@ -226,6 +234,13 @@ def _disclosed_document(archive, manifest, document):
                     visit(child)
 
     visit(doc)
+    for row in doc["diagnostics"]:
+        original = next(
+            (note for note in notes.values() if note["match_id"] == row["match_id"]), None
+        )
+        if original and row.get("prior_label"):
+            for key in ("home", "away", "prior_disclosure", "prior_label"):
+                row[key] = original[key]
     disclosed = {row["match_id"] for row in doc["diagnostics"] if row.get("prior_label")}
     doc["diagnostics"].extend(row for row in notes.values() if row["match_id"] not in disclosed)
     return doc
@@ -339,6 +354,8 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
                     for r in doc["diagnostics"]
                 )
             )
+            if note := prior_footnote(doc["diagnostics"]):
+                lines.extend(["", _text(note)])
         impact = doc.get("legacy_filter_diagnostic")
         if impact:
             lines += [
@@ -363,7 +380,8 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
             )
     lines += ["", f"本版合格主候选 {displayed} 组；不足不凑数。", ""]
     ledger = read_ledger(archive, summary)
-    lines += render((summary or {}).get("parlay_sd")).splitlines()
+    if parlay_summary := (summary or {}).get("parlay_sd"):
+        lines += render({**parlay_summary, "deduplication": dedup.summarize(ledger)}).splitlines()
     records = {r["record_id"]: r for r in ledger if r["record_type"] == "group"}
     pending = []
     for row in records.values():
