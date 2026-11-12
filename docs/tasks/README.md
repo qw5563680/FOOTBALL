@@ -56,3 +56,5 @@
 | T52 | [失效编号对照阻断国家队映射，当日预测与任九被静默清空](T52-dead-bridge-national-mapping.md) | T50；最高优先级 |
 | T53 | [未知球队默认实力须在日报标明并移出主候选](T53-unknown-team-prior-disclosure.md) | T45、T50；排在 T52 之后 |
 | T54 | [竞彩缩写队名造成重复球队，阻断国家队映射](T54-jc-short-name-duplicate-team.md) | T50、T52 |
+| T55 | [复盘按发布时间选版本；T52 两条遗留小修](T55-scoreboard-publication-time.md) | T45、T52；复核问题 3 |
+| T56 | [二串一去重计数；T53/T54 遗留小修](T56-parlay-dedup-and-display-fixes.md) | T45、T53、T54；复核问题 4 |
