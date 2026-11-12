@@ -1,0 +1,95 @@
+FFFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_______ test_cross_batch_duplicates_keep_cash_and_count_first_group_once _______
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+
+    def test_cross_batch_duplicates_keep_cash_and_count_first_group_once(document):
+        second = deepcopy(document)
+        second["batch_id"] += "-repeat"
+        second["generated_utc"] = "2026-11-06T02:01:00+00:00"
+        ledger = advance_ledger([document, second], results(), [], AFTER)
+        before = raw_json(ledger)
+        summary = summarize(ledger, results(), AFTER)
+        assert summary["totals"]["groups"] == 2
+        assert summary["totals"]["covered_groups"] == 2
+        assert summary["totals"]["paper_invested"] == 8
+        assert summary["totals"]["profit"] == -0.8
+>       dedup = summary["deduplication"]
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'deduplication'
+
+tests/test_t56_parlay_dedup.py:22: KeyError
+___ test_key_keeps_leg_roles_and_options_but_ignores_price_and_double_order ____
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+
+    def test_key_keeps_leg_roles_and_options_but_ignores_price_and_double_order(document):
+        second = deepcopy(document)
+        second["batch_id"] += "-other"
+        frozen = second["groups"][0]
+        frozen["double_selections"].reverse()
+        frozen["single"]["market"]["prices"]["h"] = 99
+        ledger = advance_ledger([document, second], {}, [], BEFORE)
+>       assert summarize(ledger, {}, BEFORE)["deduplication"]["unique_combinations"] == 1
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'deduplication'
+
+tests/test_t56_parlay_dedup.py:43: KeyError
+___________ test_first_occurrence_does_not_borrow_a_later_settlement ___________
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+
+    def test_first_occurrence_does_not_borrow_a_later_settlement(document):
+        ledger = advance_ledger([document], {}, [], BEFORE)
+        second = deepcopy(document)
+        second["batch_id"] += "-repeat"
+        second["generated_utc"] = "2026-11-06T02:04:00+00:00"
+        later = advance_ledger([second], results(), [], AFTER)
+        summary = summarize([*later, *ledger], {}, AFTER)
+        assert summary["totals"]["settled_groups"] == 1
+>       assert summary["deduplication"]["first_occurrence"]["settled_groups"] == 0
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'deduplication'
+
+tests/test_t56_parlay_dedup.py:60: KeyError
+_______________ test_empty_ledger_has_no_repeated_opportunities ________________
+
+    def test_empty_ledger_has_no_repeated_opportunities():
+>       dedup = summarize([], {}, BEFORE)["deduplication"]
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'deduplication'
+
+tests/test_t56_parlay_dedup.py:66: KeyError
+_____ test_real_daily_row_is_at_most_half_original_and_keeps_all_evidence ______
+
+    def test_real_daily_row_is_at_most_half_original_and_keeps_all_evidence():
+        batch = real_batch()
+        now = datetime.fromisoformat("2026-11-05T16:05:00+00:00")
+        text = "\n".join(forecast_sections([("2026-11-06", "fixture/forecast.json", batch)], now.date(), None, now=now))
+        line = next(line for line in text.splitlines() if line.startswith("|") and "AC米兰" in line)
+>       assert len(line) <= 160  # Baseline T53 daily rendering is exactly 320 characters.
+        ^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert 320 <= 160
+E        +  where 320 = len('| 周四006 | 2026-11-06 01:45:00 | 欧罗巴 / AC米兰 VS 费伦茨 | 96.29% / 3.07% / 0.64% | dixon-coles / 9d09bd903a6089434403585566...ile\\_half\\_shrinkage）；仅保留研究概率，不进入主候选 | 4:0 14.70%；3:0 14.02%；5:0 12.32%；2:0 10.03%；6:0 8.61% | 2026-11-05 18:43:39 |')
+
+tests/test_t56_prior_display.py:21: AssertionError
+__________ test_short_label_and_csv_preserve_original_long_disclosure __________
+
+    def test_short_label_and_csv_preserve_original_long_disclosure():
+        batch = real_batch()
+        row = next(row for row in batch["predictions"] if row["match_id"] == "jc:2042523")
+>       assert prior_label(row) == "默认实力：客队 费伦茨"
+E       AssertionError: assert '使用默认实力（客队 费伦...保留研究概率，不进入主候选' == '默认实力：客队 费伦茨'
+E         
+E         - 默认实力：客队 费伦茨
+E         + 使用默认实力（客队 费伦茨；先验方法：weakest_quartile_half_shrinkage）；仅保留研究概率，不进入主候选
+
+tests/test_t56_prior_display.py:33: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t56_parlay_dedup.py::test_cross_batch_duplicates_keep_cash_and_count_first_group_once
+FAILED tests/test_t56_parlay_dedup.py::test_key_keeps_leg_roles_and_options_but_ignores_price_and_double_order
+FAILED tests/test_t56_parlay_dedup.py::test_first_occurrence_does_not_borrow_a_later_settlement
+FAILED tests/test_t56_parlay_dedup.py::test_empty_ledger_has_no_repeated_opportunities
+FAILED tests/test_t56_prior_display.py::test_real_daily_row_is_at_most_half_original_and_keeps_all_evidence
+FAILED tests/test_t56_prior_display.py::test_short_label_and_csv_preserve_original_long_disclosure

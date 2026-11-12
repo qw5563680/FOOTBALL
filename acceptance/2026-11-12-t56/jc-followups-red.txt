@@ -1,0 +1,146 @@
+FFFF.FF.F..F                                                             [100%]
+=================================== FAILURES ===================================
+_ test_approved_national_short_name_does_not_reuse_old_duplicate[\u53cb\u8c0a\u8d5b] _
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-48/test_approved_national_short_n0/isolated/feeds.db)
+league = '友谊赛'
+
+    @pytest.mark.parametrize("league", ["友谊赛", "世预赛", "欧洲杯", "世界杯", "欧国联"])
+    def test_approved_national_short_name_does_not_reuse_old_duplicate(database, league):
+        with session_scope(database) as session:
+            session.add(Team(id=1156, name="阿尔巴尼", aliases=[]))
+        with session_scope(database) as session:
+            save_schedule(session, [schedule(league=league)], CAPTURED)
+>           assert session.get(Match, "jc:2042694").home_team_id == 1149
+E           AssertionError: assert 1156 == 1149
+E            +  where 1156 = <zucai.models.Match object at 0x7f57de2c9a60>.home_team_id
+E            +    where <zucai.models.Match object at 0x7f57de2c9a60> = get(Match, 'jc:2042694')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7f57deb19b20>.get
+
+/workspace/work/football-t56/tests/test_t56_jc_followups.py:26: AssertionError
+_ test_approved_national_short_name_does_not_reuse_old_duplicate[\u4e16\u9884\u8d5b] _
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-48/test_approved_national_short_n1/isolated/feeds.db)
+league = '世预赛'
+
+    @pytest.mark.parametrize("league", ["友谊赛", "世预赛", "欧洲杯", "世界杯", "欧国联"])
+    def test_approved_national_short_name_does_not_reuse_old_duplicate(database, league):
+        with session_scope(database) as session:
+            session.add(Team(id=1156, name="阿尔巴尼", aliases=[]))
+        with session_scope(database) as session:
+            save_schedule(session, [schedule(league=league)], CAPTURED)
+>           assert session.get(Match, "jc:2042694").home_team_id == 1149
+E           AssertionError: assert 1156 == 1149
+E            +  where 1156 = <zucai.models.Match object at 0x7f57de109130>.home_team_id
+E            +    where <zucai.models.Match object at 0x7f57de109130> = get(Match, 'jc:2042694')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7f57de2ca420>.get
+
+/workspace/work/football-t56/tests/test_t56_jc_followups.py:26: AssertionError
+_ test_approved_national_short_name_does_not_reuse_old_duplicate[\u6b27\u6d32\u676f] _
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-48/test_approved_national_short_n2/isolated/feeds.db)
+league = '欧洲杯'
+
+    @pytest.mark.parametrize("league", ["友谊赛", "世预赛", "欧洲杯", "世界杯", "欧国联"])
+    def test_approved_national_short_name_does_not_reuse_old_duplicate(database, league):
+        with session_scope(database) as session:
+            session.add(Team(id=1156, name="阿尔巴尼", aliases=[]))
+        with session_scope(database) as session:
+            save_schedule(session, [schedule(league=league)], CAPTURED)
+>           assert session.get(Match, "jc:2042694").home_team_id == 1149
+E           AssertionError: assert 1156 == 1149
+E            +  where 1156 = <zucai.models.Match object at 0x7f57de1381d0>.home_team_id
+E            +    where <zucai.models.Match object at 0x7f57de1381d0> = get(Match, 'jc:2042694')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7f57de108dd0>.get
+
+/workspace/work/football-t56/tests/test_t56_jc_followups.py:26: AssertionError
+_ test_approved_national_short_name_does_not_reuse_old_duplicate[\u4e16\u754c\u676f] _
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-48/test_approved_national_short_n3/isolated/feeds.db)
+league = '世界杯'
+
+    @pytest.mark.parametrize("league", ["友谊赛", "世预赛", "欧洲杯", "世界杯", "欧国联"])
+    def test_approved_national_short_name_does_not_reuse_old_duplicate(database, league):
+        with session_scope(database) as session:
+            session.add(Team(id=1156, name="阿尔巴尼", aliases=[]))
+        with session_scope(database) as session:
+            save_schedule(session, [schedule(league=league)], CAPTURED)
+>           assert session.get(Match, "jc:2042694").home_team_id == 1149
+E           AssertionError: assert 1156 == 1149
+E            +  where 1156 = <zucai.models.Match object at 0x7f57de13b980>.home_team_id
+E            +    where <zucai.models.Match object at 0x7f57de13b980> = get(Match, 'jc:2042694')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7f57de138b90>.get
+
+/workspace/work/football-t56/tests/test_t56_jc_followups.py:26: AssertionError
+_________ test_national_short_name_also_resolves_for_official_results __________
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-48/test_national_short_name_also_0/isolated/feeds.db)
+
+    def test_national_short_name_also_resolves_for_official_results(database):
+        from test_t54_jc_aliases import SEEN, result
+    
+        with session_scope(database) as session:
+            session.add(Team(id=1156, name="阿尔巴尼", aliases=[]))
+        with session_scope(database) as session:
+            apply_result(session, replace(result(), league="世预赛"), SEEN)
+>           assert session.get(Match, "jc:2042694").home_team_id == 1149
+E           AssertionError: assert 1156 == 1149
+E            +  where 1156 = <zucai.models.Match object at 0x7f57de19bb90>.home_team_id
+E            +    where <zucai.models.Match object at 0x7f57de19bb90> = get(Match, 'jc:2042694')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7f57de138a70>.get
+
+/workspace/work/football-t56/tests/test_t56_jc_followups.py:38: AssertionError
+____________ test_conflicting_approved_national_aliases_fail_closed ____________
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-48/test_conflicting_approved_nati0/isolated/feeds.db)
+
+    def test_conflicting_approved_national_aliases_fail_closed(database):
+        aliases = deepcopy(load_aliases())
+        aliases["友谊赛"] = {"阿尔巴尼": {"canonical": "另一国家", "status": "approved"}}
+>       with pytest.raises(ValueError, match="冲突"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+/workspace/work/football-t56/tests/test_t56_jc_followups.py:44: Failed
+________ test_daily_shows_pending_name_league_and_first_observed_match _________
+
+digest_archive = PosixPath('/tmp/pytest-of-agent/pytest-48/test_daily_shows_pending_name_0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-48/test_daily_shows_pending_name_0')
+
+    def test_daily_shows_pending_name_league_and_first_observed_match(digest_archive, tmp_path):
+        entry = candidate("jc:later")
+        entry["evidence"].append(
+            {"match_id": "jc:first", "captured_utc": "2026-11-02T10:00:00Z"}
+        )
+        install_candidates(digest_archive, {"友谊赛": {"待核甲队": entry}})
+        before = snapshot(digest_archive)
+        text = generate(digest_archive, tmp_path / "daily", now=NOW).read_text()
+>       line = next(line for line in text.splitlines() if "竞彩待核新队名" in line)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       StopIteration
+
+tests/test_t56_jc_followups.py:93: StopIteration
+_______ test_daily_bounds_pending_names_and_excludes_future_observations _______
+
+digest_archive = PosixPath('/tmp/pytest-of-agent/pytest-48/test_daily_bounds_pending_name0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-48/test_daily_bounds_pending_name0')
+
+    def test_daily_bounds_pending_names_and_excludes_future_observations(digest_archive, tmp_path):
+        entries = {f"待核{i}": candidate(f"jc:pending-{i}") for i in range(7)}
+        entries["未来"] = candidate("jc:future", captured="2026-11-04T10:00:00Z")
+        install_candidates(digest_archive, {"世预赛": entries})
+        text = generate(digest_archive, tmp_path / "daily", now=NOW).read_text()
+>       line = next(line for line in text.splitlines() if "竞彩待核新队名" in line)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       StopIteration
+
+tests/test_t56_jc_followups.py:113: StopIteration
+=========================== short test summary info ============================
+FAILED tests/test_t56_jc_followups.py::test_approved_national_short_name_does_not_reuse_old_duplicate[\u53cb\u8c0a\u8d5b]
+FAILED tests/test_t56_jc_followups.py::test_approved_national_short_name_does_not_reuse_old_duplicate[\u4e16\u9884\u8d5b]
+FAILED tests/test_t56_jc_followups.py::test_approved_national_short_name_does_not_reuse_old_duplicate[\u6b27\u6d32\u676f]
+FAILED tests/test_t56_jc_followups.py::test_approved_national_short_name_does_not_reuse_old_duplicate[\u4e16\u754c\u676f]
+FAILED tests/test_t56_jc_followups.py::test_national_short_name_also_resolves_for_official_results
+FAILED tests/test_t56_jc_followups.py::test_conflicting_approved_national_aliases_fail_closed
+FAILED tests/test_t56_jc_followups.py::test_daily_shows_pending_name_league_and_first_observed_match
+FAILED tests/test_t56_jc_followups.py::test_daily_bounds_pending_names_and_excludes_future_observations
