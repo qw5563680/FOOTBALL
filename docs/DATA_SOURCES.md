@@ -973,3 +973,27 @@ T06 不能将这些无时间戳价格当作执行SP。收盘价是赛前最后�
 ### 男子欧国联（T50）
 
 使用原有 API-Football v3 fixtures 路径、密钥保护与配额保留规则。2026-11-09 北京时间的账号实测返回 2018、2020、2022、2024、2026 五届，共 824 条赛程及赛果。当前届数据每日刷新一次。正式采集保留每届响应的哈希、采集日期、正常与冲突行数。期次队名缩写仅按这次核实的 500 球队编号和名称展开，再核对两队、联赛与准确开球时刻。[接口原始运行记录](https://github.com/qw5563680/FOOTBALL/actions/runs/42526632355)
+
+### 国家队历史参考补充（T51，2026-11-10 北京时间核对）
+
+数据为 [martj42/international_results](https://github.com/martj42/international_results)，
+固定提交 `b0948cb558c927c357db4067eac5b37b96d0e4bb`，CSV实际取回于
+`2026-11-09T21:22:19.049977+00:00`。[数据许可CC0-1.0](https://github.com/martj42/international_results/blob/b0948cb558c927c357db4067eac5b37b96d0e4bb/LICENSE)。
+T51不增加抓取器，不访问体育API、使用正式key或新增自动抓取；仅复用已经保存的CSV。
+本次人工查看官方页面核实身份/时段/时间；没有将页面内容或PDF整份再分发。
+robots核查：UEFA的公开规则未禁止本次newsfiles/news路径；raw.githubusercontent.com/robots.txt
+返回404，FFF与EnglandFootball的robots通过本次浏览工具未能读取，不据此宣称可自动采集。
+程序始终只读本地原件，没有绕过访问限制或对这些站点实施自动抓取。
+
+审核计划 `data/history/international-results-t51-plan.json` 固定主分支基线 `fa7f7ec`、
+数据归档基线 `67ffe55`（6份月度CSV及其哈希）与19场事实清单。
+3场新增欧洲杯记录均为中立场、90分钟比分；[葡萄牙—法国](https://www.uefa.com/newsfiles/EURO/2024/2036206_FR.pdf)
+为0:0，点球3:5另列；[西班牙—法国](https://www.uefa.com/newsfiles/EURO/2024/2036209_FR.pdf)
+及[西班牙—英格兰](https://www.uefa.com/newsfiles/EURO/2024/2036211_FR.pdf)均为2:1。
+开球时间交叉核对法国足协的21h与英格兰足协的20h BST，再用Europe/Paris、Europe/London
+夏令时换算到19:00UTC；不能把UEFA PDF打印的21.00CET一律按UTC+1处理。
+逐场足协链接和实际核对时间都在审核计划。
+
+原库没有准确开球时刻、常规/加时比分分栏或技术统计。本样本西班牙—荷兰原库3:3含加时，
+正式档的90分钟2:2正确且保留。未审核别名、友谊赛、原库其他行一律不导入。
+新资料仅作历史参考，不填造历史可知时间，不进入正式训练、预测、日报或账本。
