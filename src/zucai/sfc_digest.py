@@ -9,9 +9,12 @@ from zucai.sfc_publication import deadline_message, deadline_status, resolve_pub
 from zucai.sfc_reports import read_reports
 
 
-def section(archive, feed, summary, now, link):
+def section(archive, feed, summary, now, link, *, pending_history=None):
     reports = resolve_publications(
-        archive, read_reports(archive, include_unconfirmed=True), now=now
+        archive,
+        read_reports(archive, include_unconfirmed=True),
+        now=now,
+        pending_history=pending_history,
     )
     settled, _ = read_settled(archive, summary)
     states = archived_sfc_issues(archive, feed, now)

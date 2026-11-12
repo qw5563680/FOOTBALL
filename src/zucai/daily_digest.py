@@ -320,7 +320,8 @@ def generate(
     from zucai.forecast_publication import publication_times
     from zucai.scoreboard.experimental import render_experiments
 
-    publications = publication_times(archive, manifest)
+    pending_history = {}
+    publications = publication_times(archive, manifest, pending=pending_history)
     batches, forecast_rows = [], []
     for run in (manifest or {}).get("runs", {}).values():
         for day, entry in run["forecasts"].items():
@@ -412,8 +413,24 @@ def generate(
                 ),
             )
     window = prediction_window(batches, at)
+    from zucai.publication_history import publication_updates
+
+    sfc_lines = sfc_section(
+        archive,
+        feed,
+        summary,
+        at,
+        lambda path: _link(path, repository),
+        pending_history=pending_history,
+    )
+    history_updates = publication_updates(archive, pending_history)
+    input_hashes = source_hashes(archive)
+    if archive / "feed_manifest.json" in history_updates:
+        input_hashes["feed_manifest.json"] = hashlib.sha256(
+            history_updates[archive / "feed_manifest.json"]
+        ).hexdigest()
     inputs = {
-        **source_hashes(archive),
+        **input_hashes,
         "jc_sync_status": jc_sync_status,
         "jc_sync_run_id": jc_sync_run_id,
         "jc_publish_status": jc_publish_status,
@@ -506,7 +523,7 @@ def generate(
             catalog=catalog,
             sfc_issues=archived_sfc_issues(archive, feed, at),
         ),
-        *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
+        *sfc_lines,
         *parlay_lines,
         *review_sections(
             latest,
@@ -566,6 +583,7 @@ def generate(
     for path in (version_markdown, version_json):
         if path.exists() and path.read_bytes() != content[path]:
             raise ValueError("不可覆盖已有日报版本")
+    content.update(history_updates)
     paths = list(content)
     backups = {path: path.read_bytes() if path.exists() else None for path in paths}
     directory_existed = version_path.parent.exists()

@@ -318,8 +318,10 @@ def test_missing_remote_or_shallow_history_cannot_establish_first_publication(
         git(archive, "update-ref", "-d", REF)
     else:
         (archive / ".git/shallow").write_text(first + "\n")
-    assert confirm_publication(archive, published_ref=REF) == []
-    assert "无法确认赶上停售" in digest(archive)
+    with pytest.raises(ValueError, match="数据分支历史不可用"):
+        confirm_publication(archive, published_ref=REF)
+    with pytest.raises(ValueError, match="数据分支历史不可用"):
+        digest(archive)
 
 
 def test_failed_confirmation_restores_current_and_preserves_candidates(
@@ -423,3 +425,47 @@ def test_legacy_digest_uses_git_without_rewriting_historical_reports(
         assert text.count("无冻结概率") == 14
         assert "复式" not in text and "3+1+0" not in text
     assert files(archive) == before
+
+
+@pytest.mark.parametrize("failure", ["missing_git", "missing_ref", "shallow"])
+def test_t57_sfc_history_is_saved_transactionally_and_reused(publication_archive, failure):
+    import shutil
+
+    from test_t57_publication_history import files as archive_files
+    from zucai.daily_digest import generate
+
+    archive = publication_archive
+    publish_reports(archive, now=GENERATED)
+    first = commit_report(archive, "2026-11-02T09:29:30+00:00")
+    generate(archive, archive / "daily", now=NOW, run_id="t57-sfc")
+    state = archive / "state/publication/sfc_history.json"
+    assert json.loads(state.read_bytes())["entries"]
+    before = archive_files(archive)
+    if failure == "missing_git":
+        shutil.rmtree(archive / ".git")
+    elif failure == "missing_ref":
+        git(archive, "update-ref", "-d", REF)
+    else:
+        (archive / ".git/shallow").write_text(first + "\n")
+    generate(archive, archive / "daily", now=NOW, run_id="t57-sfc")
+    assert archive_files(archive) == before
+
+
+def test_t57_confirmed_sfc_receipt_covers_its_original_without_git(publication_archive):
+    import shutil
+
+    from test_t57_publication_history import files as archive_files
+    from zucai.daily_digest import generate
+    from zucai.sfc_reports import confirm_publication
+
+    archive = publication_archive
+    publish_reports(archive, now=GENERATED)
+    commit_report(archive, "2026-11-02T09:29:30+00:00")
+    assert confirm_publication(archive, published_ref=REF)
+    expected = digest(archive)
+    shutil.rmtree(archive / ".git")
+    before = archive_files(archive)
+    assert digest(archive) == expected
+    generate(archive, archive / "daily", now=NOW, run_id="t57-receipt")
+    assert all(archive_files(archive)[k] == v for k, v in before.items())
+    assert not (archive / "state/publication/sfc_history.json").exists()

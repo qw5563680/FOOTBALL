@@ -9,8 +9,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from zucai.forecast_archive import MANIFEST, _write, verify_forecasts
+from zucai.publication_history import (
+    PublicationHistoryError,
+    check_history,
+    git_read,
+    resolve_history,
+)
 from zucai.report.render import _timestamp
-from zucai.sfc_publication import PUBLISHED_REF, _precedes_calculation
+from zucai.sfc_publication import PUBLISHED_REF
 from zucai.sources.base import _atomic_write
 
 LOG = logging.getLogger(__name__)
@@ -37,23 +43,12 @@ def git_evidence(archive, paths, *, published_ref=PUBLISHED_REF, repository=None
     root = Path(repository or archive).resolve()
 
     def git(*args, input=None):
-        return subprocess.run(
-            ["git", "-C", str(root), *args],
-            input=input,
-            capture_output=True,
-            check=True,
-            timeout=30,
-        ).stdout
+        return git_read(root, *args, input=input)
 
     if not paths:
         return {}
     try:
-        if Path(git("rev-parse", "--show-toplevel").decode().strip()).resolve() != root:
-            return {}
-        if git("rev-parse", "--is-shallow-repository").strip() != b"false":
-            return {}
-        git("show-ref", "--verify", published_ref)
-        git("config", "--get", "remote." + published_ref.split("/")[2] + ".url")
+        check_history(root, published_ref)
         history = git(
             "log",
             "--reverse",
@@ -82,7 +77,7 @@ def git_evidence(archive, paths, *, published_ref=PUBLISHED_REF, repository=None
             newline = raw.index(b"\n", offset)
             header = raw[offset:newline].split()
             if len(header) != 3 or header[1] != b"blob":
-                return {}
+                raise PublicationHistoryError("数据分支历史不可用：Git blob 响应无效")
             size = int(header[2])
             offset = newline + 1
             sha = hashlib.sha256(raw[offset : offset + size]).hexdigest()
@@ -102,11 +97,16 @@ def git_evidence(archive, paths, *, published_ref=PUBLISHED_REF, repository=None
             )
         return evidence
     except (OSError, subprocess.SubprocessError, ValueError, UnicodeError) as exc:
-        LOG.warning("预测发布时间无法从数据分支确认：%s", type(exc).__name__)
-        return {}
+        if isinstance(exc, PublicationHistoryError):
+            raise
+        raise PublicationHistoryError(
+            "数据分支历史不可用：Git 历史或原件读取失败（" + type(exc).__name__ + "）"
+        ) from exc
 
 
-def publication_times(archive, manifest, *, published_ref=PUBLISHED_REF, repository=None):
+def publication_times(
+    archive, manifest, *, published_ref=PUBLISHED_REF, repository=None, pending=None
+):
     """New batches require receipts; old batches alone may use commit timestamps."""
     resolved, legacy = {}, {}
     entries = list(candidates(manifest))
@@ -121,6 +121,8 @@ def publication_times(archive, manifest, *, published_ref=PUBLISHED_REF, reposit
                     and re.fullmatch(r"refs/remotes/[^/]+/data/football-feeds", receipt["ref"])
                     and receipt["candidate_path"] == path
                     and receipt["candidate_sha256"] == manifest["files"][path]
+                    and hashlib.sha256((Path(archive) / path).read_bytes()).hexdigest()
+                    == manifest["files"][path]
                     and receipt["published_utc"] == published
                     and _timestamp(published).astimezone(UTC)
                     >= _timestamp(entry["generated_utc"]).astimezone(UTC)
@@ -130,14 +132,18 @@ def publication_times(archive, manifest, *, published_ref=PUBLISHED_REF, reposit
             if valid:
                 resolved[path] = receipt
         elif not entry.get("publication_required"):
-            legacy[path] = manifest["files"][path]
-    historical = git_evidence(archive, legacy, published_ref=published_ref, repository=repository)
-    for entry, path, _ in entries:
-        evidence = historical.get(path)
-        if evidence and not _precedes_calculation(
-            evidence["published_utc"], entry["generated_utc"]
-        ):
-            resolved[path] = evidence
+            legacy[path] = (manifest["files"][path], entry["generated_utc"])
+    resolved.update(
+        resolve_history(
+            archive,
+            "forecast",
+            legacy,
+            lambda paths: git_evidence(
+                archive, paths, published_ref=published_ref, repository=repository
+            ),
+            pending=pending,
+        )
+    )
     return resolved
 
 
