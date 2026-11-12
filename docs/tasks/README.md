@@ -54,3 +54,4 @@
 | T48 | [历史 fd 射正统计附着、保留多来源关联及固定原件离线重放](T48-fd-stats-linkage.md) | T31, T32；T47 排查见 PR #98 |
 | T52 | [失效编号对照阻断国家队映射，当日预测与任九被静默清空](T52-dead-bridge-national-mapping.md) | T50；最高优先级 |
 | T53 | [未知球队默认实力须在日报标明并移出主候选](T53-unknown-team-prior-disclosure.md) | T45、T50；排在 T52 之后 |
+| T54 | [竞彩缩写队名造成重复球队，阻断国家队映射](T54-jc-short-name-duplicate-team.md) | T50、T52 |
