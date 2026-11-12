@@ -55,3 +55,4 @@
 | T51 | [带校验的国家队历史资料补充](T51-international-history-supplement.md) | T50；只读旧赛果、单独保存历史参考 |
 | T52 | [失效编号对照阻断国家队映射，当日预测与任九被静默清空](T52-dead-bridge-national-mapping.md) | T50；最高优先级 |
 | T53 | [未知球队默认实力须在日报标明并移出主候选](T53-unknown-team-prior-disclosure.md) | T45、T50；排在 T52 之后 |
+| T54 | [竞彩缩写队名造成重复球队，阻断国家队映射](T54-jc-short-name-duplicate-team.md) | T50、T52 |
