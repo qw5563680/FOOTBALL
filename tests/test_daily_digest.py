@@ -96,7 +96,7 @@ def digest_archive(tmp_path, monkeypatch):
     monkeypatch.setattr(
         paper,
         "publication_view",
-        lambda _f, _r, ledger, _at: (ledger, {"reselected_in_memory": False}),
+        lambda _f, _r, ledger, _at: (ledger, {"filtered_in_memory": False}),
     )
     archive = tmp_path / "archive"
     database = tmp_path / "empty.db"

@@ -369,7 +369,7 @@ def section(archive, manifest, summary, now, repository, *, matches, previous=No
         documents, observed_results(matches), read_ledger(archive, summary), now
     )
     account_summary = (summary or {}).get("parlay_sd")
-    if publication_audit["reselected_in_memory"]:
+    if publication_audit["filtered_in_memory"]:
         account_summary = summarize(ledger, observed_results(matches), now)
     lines += render(account_summary).splitlines()
     records = {r["record_id"]: r for r in ledger if r["record_type"] == "group"}

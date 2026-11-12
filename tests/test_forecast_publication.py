@@ -139,19 +139,31 @@ def test_workflow_confirms_formal_publication_only_after_push():
     assert "steps.publish_forecasts.outcome == 'success'" in workflow[first:confirm]
 
 
-def test_paper_publication_view_reselects_without_mutating_legacy_decisions():
+def test_paper_publication_view_filters_only_invalid_frozen_tickets():
     from zucai.scoreboard.paper import advance_ledger, publication_view
 
     forecasts, results = samples()
     rows = [
-        r for r in forecasts if r["match_id"] == "jc:one" and r["batch_id"] in {"early", "late"}
+        r for r in forecasts if r["batch_id"] == "early" and r["match_id"] in {"jc:one", "jc:two"}
     ]
-    old = advance_ledger(rows, results, [], NOW)
+    pending = advance_ledger(rows, {}, [], instant("2026-11-01T10:00:00Z"))
+    old = advance_ledger(rows, results, pending, NOW)
     frozen = json.dumps(old, sort_keys=True).encode()
-    rows[0]["published_utc"] = rows[0]["kickoff_utc"]
+    rows[0]["published_utc"] = None
+    excluded = {
+        r["record_id"]
+        for r in old
+        if r["record_type"] == "ticket"
+        and any(leg["match_id"] == rows[0]["match_id"] for leg in r["legs"])
+    }
     eligible, audit = publication_view(rows, results, old, NOW)
-    assert {r["batch_id"] for r in eligible if r["record_type"] == "ticket"} == {"late"}
-    assert audit["excluded_tickets"] > 0
+    expected = [r for r in old if r["record_id"] not in excluded]
+    assert (
+        json.dumps(eligible, sort_keys=True).encode()
+        == json.dumps(expected, sort_keys=True).encode()
+    )
+    assert all(not r["replayed"] for r in eligible if r["record_type"] == "ticket")
+    assert audit["excluded_tickets"] == len(excluded) > 0
     assert json.dumps(old, sort_keys=True).encode() == frozen
 
 
@@ -195,7 +207,7 @@ def test_f_view_excludes_old_unpublished_groups_without_mutation():
     ledger = advance_ledger([doc], results(), [], AFTER)
     frozen = json.dumps(ledger, sort_keys=True).encode()
     view, audit = publication_view([], results(), ledger, AFTER)
-    assert view == []
+    assert view == [r for r in ledger if r["record_type"] == "batch"]
     assert audit["excluded_groups"] > 0
     assert json.dumps(ledger, sort_keys=True).encode() == frozen
 
@@ -230,7 +242,7 @@ def test_stored_late_scores_and_tickets_are_not_active_and_keep_original_bytes(
     assert "已结 0 场、猜对 0 场、猜错 0 场" in digest
 
 
-def test_legacy_unknown_odds_time_remains_readable_during_paper_reselection():
+def test_publication_filter_preserves_frozen_sp_when_source_odds_time_is_unknown():
     from zucai.scoreboard.paper import advance_ledger, publication_view
 
     rows, results = samples()
@@ -239,9 +251,14 @@ def test_legacy_unknown_odds_time_remains_readable_during_paper_reselection():
     rows[0]["published_utc"] = rows[0]["kickoff_utc"]
     rows[1]["market"]["snapshot_utc"] = None
     view, audit = publication_view(rows, results, original, NOW)
-    assert audit["reselected_in_memory"]
-    assert not any(r["record_type"] == "ticket" for r in view)
-    assert any(r.get("reason") == "no_frozen_sp" for r in view)
+    assert audit["filtered_in_memory"]
+    expected = [
+        r
+        for r in original
+        if r["record_type"] != "ticket" or all(leg["batch_id"] != "early" for leg in r["legs"])
+    ]
+    assert view == expected
+    assert any(r["record_type"] == "ticket" for r in view)
 
 
 @pytest.mark.parametrize("published", ["2026-11-01T01:00:00Z", "9999-12-31T23:59:59-01:00"])
@@ -312,8 +329,42 @@ def test_legacy_exclusion_still_persists_new_future_tickets_once(scoreboard_arch
         for r in read_state(archive)[1]
         if r["record_type"] == "ticket" and r["batch_id"].startswith("future-")
     ]
-    assert future and all(r["cash_before"] == 10000 for r in future)
+    from zucai.scoreboard.paper import advance_ledger
+    from zucai.scoreboard.score import load_forecasts
+
+    expected = advance_ledger(
+        load_forecasts(archive, instant("2026-11-02T08:00:00Z")),
+        samples()[1],
+        [json.loads(line) for line in original_raw.splitlines()],
+        instant("2026-11-02T08:00:00Z"),
+    )
+    expected_future = [
+        r for r in expected if r["record_type"] == "ticket" and r["batch_id"].startswith("future-")
+    ]
+    assert future == expected_future
     second = run(archive, as_of=instant("2026-11-02T09:00:00Z"))
     assert first["accounts"] == second["accounts"]
     assert (archive / "scoreboard/ledger.jsonl").read_bytes() == persisted
     assert len({r["record_id"] for r in read_state(archive)[1]}) == len(read_state(archive)[1])
+
+
+def test_f_publication_filter_preserves_other_group_tickets_and_prospective_flags():
+    from test_parlay_paper import AFTER, BEFORE, document, results
+    from zucai.parlay.paper import advance_ledger, publication_view
+
+    first = document.__wrapped__()
+    second = deepcopy(first)
+    second["batch_id"] += "-second"
+    pending = advance_ledger([first, second], {}, [], BEFORE)
+    ledger = advance_ledger([first, second], results(), pending, AFTER)
+    frozen = json.dumps(ledger, sort_keys=True).encode()
+    view, audit = publication_view([second], results(), ledger, AFTER)
+    expected = [
+        r for r in ledger if r["record_type"] == "batch" or r["batch_id"] == second["batch_id"]
+    ]
+    assert (
+        json.dumps(view, sort_keys=True).encode() == json.dumps(expected, sort_keys=True).encode()
+    )
+    assert all(not r["replayed"] for r in view if r["record_type"] != "batch")
+    assert audit["excluded_groups"] == 1
+    assert json.dumps(ledger, sort_keys=True).encode() == frozen

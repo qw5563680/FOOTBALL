@@ -378,12 +378,21 @@ def publication_view(documents, results, ledger, at):
             for leg in (group["single"], group["double"])
         )
     }
-    excluded = [
-        r
-        for r in ledger
-        if r["record_type"] == "group" and (r["batch_id"], r["group_id"]) not in eligible
-    ]
+    excluded = {
+        row["record_id"]
+        for row in ledger
+        if row["record_type"] in {"group", "ticket"}
+        and (row["batch_id"], row["group_id"]) not in eligible
+    }
     return (
-        advance_ledger(documents, results, [], at) if excluded else ledger,
-        {"excluded_groups": len(excluded), "reselected_in_memory": bool(excluded)},
+        [row for row in ledger if row["record_id"] not in excluded],
+        {
+            "excluded_groups": sum(
+                row["record_type"] == "group" and row["record_id"] in excluded for row in ledger
+            ),
+            "excluded_tickets": sum(
+                row["record_type"] == "ticket" and row["record_id"] in excluded for row in ledger
+            ),
+            "filtered_in_memory": bool(excluded),
+        },
     )

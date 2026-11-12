@@ -305,17 +305,17 @@ def advance_ledger(forecasts, results, existing, as_of):
 
 
 def publication_view(forecasts, results, ledger, as_of):
-    """Re-evaluate invalid legacy decisions in memory; their stored bytes stay frozen."""
+    """Exclude only ineligible frozen tickets; never recreate decisions or settlements."""
     eligible = {(r["match_id"], r["batch_id"]) for r in prematch_rows(forecasts, as_of)}
-    excluded = [
-        r
+    excluded = {
+        r["record_id"]
         for r in ledger
         if r["record_type"] == "ticket"
         and any((leg.get("match_id"), leg.get("batch_id")) not in eligible for leg in r["legs"])
-    ]
+    }
     return (
-        advance_ledger(forecasts, results, [], as_of) if excluded else ledger,
-        {"excluded_tickets": len(excluded), "reselected_in_memory": bool(excluded)},
+        [row for row in ledger if row["record_id"] not in excluded],
+        {"excluded_tickets": len(excluded), "filtered_in_memory": bool(excluded)},
     )
 
 

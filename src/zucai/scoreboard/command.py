@@ -55,16 +55,6 @@ def _jsonl(rows):
     )
 
 
-def _append_ledger_view(original, rows):
-    """Retain old receipts byte-for-byte and persist newly eligible identities once."""
-    known = {json.loads(line)["record_id"] for line in original.splitlines()}
-    added = [row for row in rows if row["record_id"] not in known]
-    if not added:
-        return original
-    separator = b"\n" if original and not original.endswith(b"\n") else b""
-    return original + separator + _jsonl(added)
-
-
 def read_state(archive):
     paths = {name: _path(archive, "scoreboard/" + name) for name in FILES}
     if not paths["summary.json"].exists():
@@ -171,9 +161,6 @@ def run(archive: Path, *, as_of=None, replay_days=None):
             experiment_selected, results, experiment_existing, at, experimental=True
         )
         experiment_audit["invalid_files"] = experiment_file_audit
-        original_ledger_raw = (
-            (archive / "scoreboard/ledger.jsonl").read_bytes() if previous else None
-        )
         ledger = advance_ledger(selected, results, ledger, at)
         account_ledger, paper_publication_audit = paper_accounts.publication_view(
             forecasts, results, ledger, at
@@ -184,11 +171,6 @@ def run(archive: Path, *, as_of=None, replay_days=None):
             if replay_days is None
             or instant(d["generated_utc"]) >= at - timedelta(days=replay_days)
         ]
-        original_parlay_raw = (
-            (archive / parlay_paper.LEDGER).read_bytes()
-            if (archive / parlay_paper.LEDGER).exists()
-            else None
-        )
         parlay_ledger = parlay_paper.advance_ledger(parlay_selected, results, parlay_ledger, at)
         parlay_view, parlay_publication_audit = parlay_paper.publication_view(
             parlay_documents, results, parlay_ledger, at
@@ -273,15 +255,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
             "simulated_profit_evidence": profit_evidence(accounts["1.05"]["A"]),
         },
     }
-    parlay_raw = (
-        (
-            _append_ledger_view(original_parlay_raw, parlay_view)
-            if original_parlay_raw is not None and parlay_publication_audit["reselected_in_memory"]
-            else _jsonl(parlay_ledger)
-        )
-        if has_parlays
-        else None
-    )
+    parlay_raw = _jsonl(parlay_ledger) if has_parlays else None
     if has_parlays:
         summary["parlay_sd"] = parlay_paper.summarize(parlay_view, results, at)
         summary["parlay_sd"]["publication_audit"] = parlay_publication_audit
@@ -296,9 +270,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         "scored.jsonl": scored_raw
         + _jsonl(scored[len(production_existing) :])
         + _jsonl(experiment_scored[len(experiment_existing) :]),
-        "ledger.jsonl": _append_ledger_view(original_ledger_raw, account_ledger)
-        if original_ledger_raw is not None and paper_publication_audit["reselected_in_memory"]
-        else _jsonl(ledger),
+        "ledger.jsonl": _jsonl(ledger),
         "scoreboard.md": markdown.encode(),
     }
     summary["files"] = {name: hashlib.sha256(raw).hexdigest() for name, raw in contents.items()}
