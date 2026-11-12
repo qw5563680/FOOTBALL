@@ -164,7 +164,9 @@ def run(archive: Path, *, as_of=None, replay_days=None):
             raise ValueError("记分板计算改变了恢复库")
     latest = {r["match_id"]: r for r in prematch_rows(forecasts, at)}
     audit["active_keys"] = [record_key(r["match_id"], r["batch_id"]) for r in latest.values()]
-    probability = summarize_scores(scored, at, active_keys=audit["active_keys"])
+    probability = summarize_scores(
+        scored, at, active_keys=audit["active_keys"], forecast_rows=forecasts
+    )
     starts = [
         instant(r["training_cutoff_utc"])
         for r in (forecast_manifest or {}).get("runs", {}).values()

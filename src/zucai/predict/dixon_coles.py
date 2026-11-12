@@ -219,6 +219,8 @@ class DixonColes(Model):
                 self, "calibration_skipped_training_rows", 0
             ),
             "unknown_team_prior": unknown,
+            "home_unknown_team": home not in self.teams,
+            "away_unknown_team": away not in self.teams,
             "prior_method": self.prior_parameters["method"] if unknown else None,
             "prior_rho_clipped": unknown and guard["rho_clipped"],
             **guard,

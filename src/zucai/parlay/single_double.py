@@ -8,6 +8,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from itertools import combinations, permutations
 
 from zucai.parlay.evidence import injury_evidence, legacy_filter_diagnostic
+from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
 from zucai.scoreboard.score import OUTCOMES, frozen_market, instant, record_key
 
 RULE = "single_plus_double_v2"
@@ -231,6 +232,12 @@ def _prepare(row, p, batch, identity, injury, catalog, at, config, *, independen
         single_reasons.append("independent_direction_disagrees")
     injuries = injury_evidence(injury, batch["as_of_utc"]) if kind != "MARKET" else None
     qualification = eligibility(row, identity, catalog, at)
+    prior = kind != "MARKET" and uses_unknown_team_prior(row)
+    if prior:
+        single_reasons.append("unknown_team_prior")
+        qualification = dict(
+            status="excluded", reasons=[*qualification["reasons"], "unknown_team_prior"]
+        )
     if injuries and injuries["research_invalidation"]:
         single_reasons.append("research_invalidated")
         qualification = dict(
@@ -250,7 +257,7 @@ def _prepare(row, p, batch, identity, injury, catalog, at, config, *, independen
     ]
     best = dict(
         best,
-        eligible=market is not None,
+        eligible=market is not None and not prior,
         numerical_tie=len(tied) > 1,
         tied_selections=tied,
         tie_break="数值并列时按胜+平、胜+负、平+负顺序；顺序不表示更可靠",
@@ -275,6 +282,7 @@ def _prepare(row, p, batch, identity, injury, catalog, at, config, *, independen
         team_ids=[(identity or {}).get(s + "_team_id") for s in ("home", "away")],
         probabilities=dict(p),
         probability_source=kind,
+        **({"prior_disclosure": prior_disclosure(row)} if prior else {}),
         original_direction=order[0] if gap else None,
         model_probabilities=dict(p) if kind != "MARKET" else None,
         market=market,
@@ -499,7 +507,21 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
             reasons = prepared["single"]["reasons"] + prepared["eligibility"]["reasons"]
             reasons += injury_reasons(injuries.get(mid), batch["as_of_utc"])
             if reasons:
-                diagnostics.append(dict(match_id=mid, reasons=reasons))
+                diagnostics.append(
+                    dict(
+                        match_id=mid,
+                        reasons=list(dict.fromkeys(reasons)),
+                        **(
+                            dict(
+                                prior_disclosure=prior_disclosure(row),
+                                prior_label=prior_label(row),
+                                model_probabilities=dict(p),
+                            )
+                            if uses_unknown_team_prior(row)
+                            else {}
+                        ),
+                    )
+                )
         else:
             diagnostics.append(dict(match_id=mid, reasons=["model_probabilities_unavailable"]))
         market = _market(row, batch)
@@ -520,6 +542,8 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
             item = {
                 **row,
                 **{k: extra.get(k) for k in ("model_name", "model_version", "model_probabilities")},
+                "metadata": extra.get("metadata") or {},
+                "prior_disclosure": extra.get("prior_disclosure"),
                 "p2_ready": False,
                 "p2_label": "P2 实验",
             }
