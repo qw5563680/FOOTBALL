@@ -12,6 +12,7 @@ from statistics import fmean
 from zucai.cloud_feeds import archive_info
 from zucai.digest_context import (
     archived_matches,
+    archived_sfc_issues,
     audit_rows,
     frozen_rows,
     jc_digest_batch,
@@ -392,6 +393,8 @@ def generate(
             matches=matches,
             displayed_ids=displayed_ids,
             runs=(manifest or {}).get("runs", {}),
+            catalog=catalog,
+            sfc_issues=archived_sfc_issues(archive, feed, at),
         ),
         *sfc_section(archive, feed, summary, at, lambda path: _link(path, repository)),
         *parlay_lines,
