@@ -1,0 +1,157 @@
+F.FFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_schedule_reuses_approved_canonical_and_does_not_attach_global_short_alias _
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-25/test_schedule_reuses_approved_0/isolated/feeds.db)
+
+    def test_schedule_reuses_approved_canonical_and_does_not_attach_global_short_alias(database):
+        with session_scope(database) as session:
+            save_schedule(session, [schedule()], CAPTURED)
+>           assert session.get(Match, "jc:2042694").home_team_id == 1149
+E           AssertionError: assert 1150 == 1149
+E            +  where 1150 = <zucai.models.Match object at 0x7f644e68fbf0>.home_team_id
+E            +    where <zucai.models.Match object at 0x7f644e68fbf0> = get(Match, 'jc:2042694')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7f644e7667b0>.get
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:66: AssertionError
+_ test_unknown_schedule_team_is_distinct_and_candidate_is_persisted_idempotently _
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-25/test_unknown_schedule_team_is_0/isolated/feeds.db)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f644e68cc80>
+
+    def test_unknown_schedule_team_is_distinct_and_candidate_is_persisted_idempotently(
+        database, monkeypatch
+    ):
+        save = RawStore.save_response
+        monkeypatch.setattr(
+            RawStore, "save_response", lambda self, *a: save(self, *a, captured_at=CAPTURED)
+        )
+        with responses.RequestsMock() as api:
+            api.add(responses.GET, API + "getMatchCalculatorV1.qry", json=schedule_body("阿尔巴"))
+            assert fetch_schedule()[0] == 1
+            path = candidate_file(database)
+>           assert path.exists(), "A newly created JC name must be queued beside its database"
+E           AssertionError: A newly created JC name must be queued beside its database
+E           assert False
+E            +  where False = exists()
+E            +    where exists = PosixPath('/tmp/pytest-of-agent/pytest-25/test_unknown_schedule_team_is_0/isolated/state/alias_candidates/jc.json').exists
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:106: AssertionError
+_________ test_existing_jc_identity_conflict_requires_explicit_repair __________
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-25/test_existing_jc_identity_conf0/isolated/feeds.db)
+
+    def test_existing_jc_identity_conflict_requires_explicit_repair(database):
+        with session_scope(database) as session:
+            session.add(Team(id=1156, name="阿尔巴尼", aliases=[]))
+            session.flush()
+            upsert_match(
+                session, match_id="jc:2042694", source="jc", league="欧国联",
+                home_team_id=1156, away_team_id=1148, kickoff_utc=KICKOFF, status="scheduled",
+            )
+>       with pytest.raises(ValueError, match="身份"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:135: Failed
+___ test_result_uses_approved_canonical_even_when_old_short_team_is_retained ___
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-25/test_result_uses_approved_cano0/isolated/feeds.db)
+
+    def test_result_uses_approved_canonical_even_when_old_short_team_is_retained(database):
+        with session_scope(database) as session:
+            session.add(Team(id=1156, name="阿尔巴尼", aliases=[]))
+            upsert_match(
+                session, match_id="jc:2042694", source="jc", league="欧国联",
+                home_team_id=1149, away_team_id=1148, kickoff_utc=KICKOFF, status="scheduled",
+            )
+        with session_scope(database) as session:
+>           assert apply_result(session, result(), SEEN) == "captured"
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:148: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+session = <sqlalchemy.orm.session.Session object at 0x7f644e512660>
+game = GameResult(match_id='jc:2042694', league='欧国联', jc_num='周四003', home='阿尔巴尼', away='芬兰', play_date=datetime.date(2026, ...time.datetime(2026, 11, 12, 19, 45, tzinfo=datetime.timezone.utc), official_id=None, team_ids=None, published_utc=None)
+seen = datetime.datetime(2026, 11, 13, 3, 30, tzinfo=datetime.timezone.utc)
+assume = None
+
+    def apply_result(
+        session: Session, game: GameResult, seen: datetime, assume: timedelta | None = None
+    ) -> str:
+        if game.kickoff_utc is None:
+            raise ValueError(f"{game.match_id} 缺少已核实开球时间")
+        if game.status == "finished" and seen <= game.kickoff_utc:
+            raise ValueError(f"{game.match_id} 完赛比分的采集不晚于开球")
+        provider = game.match_id.split(":")[0]
+        home = upsert_team(session, game.home, provider)
+        away = upsert_team(session, game.away, provider)
+        sid = game.match_id
+        if provider == "jc":
+            reconcile_backup(session, game, home.id, away.id)
+        if provider == "c500" and game.official_id:
+            linked = session.get(Match, game.official_id)
+            if (
+                linked
+                and (linked.home_team_id, linked.away_team_id, linked.jc_num)
+                == (home.id, away.id, game.jc_num)
+                and datetime.fromisoformat(linked.kickoff_utc) == game.kickoff_utc
+            ):
+                sid = linked.match_id
+        match = session.get(Match, sid)
+        if (
+            match
+            and match.status == "scheduled"
+            and match.result_checked_utc
+            and game.status == "cancelled"
+            and game.kickoff_utc < datetime.fromisoformat(match.kickoff_utc)
+        ):
+            return "unchanged"  # the old date's void notice does not void a verified later re-listing
+        last_seen = (
+            datetime.fromisoformat(match.result_checked_utc)
+            if match and match.result_checked_utc
+            else None
+        )
+        if match and (
+            (provider == "c500" and match.result_provider == "jc") or (last_seen and seen < last_seen)
+        ):
+            return "unchanged"
+        if match and (match.home_team_id, match.away_team_id) != (home.id, away.id):
+>           raise ValueError(f"{sid} 原有场次与新赛果的球队身份或主客不一致")
+E           ValueError: jc:2042694 原有场次与新赛果的球队身份或主客不一致
+
+/workspace/work/football-t54/src/zucai/sources/results.py:307: ValueError
+___ test_unknown_results_team_candidate_is_committed_but_rejected_row_is_not ___
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-25/test_unknown_results_team_cand0/isolated/feeds.db)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f644e513e00>
+
+    def test_unknown_results_team_candidate_is_committed_but_rejected_row_is_not(
+        database, monkeypatch
+    ):
+        # Bypass only the network reader; exercise parsing-independent result import,
+        # per-row savepoints, identity checks and on-disk candidate persistence.
+        games = [result("阿尔巴", "jc:accepted"), replace(result("坏队", "jc:rejected"), full=None)]
+        monkeypatch.setattr(SportteryResults, "day_results", lambda self, day: [(g, SEEN) for g in games])
+        with pytest.raises(ResultRowsRejected):
+            fetch_results(KICKOFF.date(), KICKOFF.date())
+        with session_scope(database) as session:
+            match = session.get(Match, "jc:accepted")
+            assert match.home_team_id != 1149
+            assert session.get(Match, "jc:rejected") is None
+            assert session.scalar(select(Team).where(Team.name == "坏队")) is None
+        path = candidate_file(database)
+>       assert path.exists(), "Successful result rows must persist new-name candidates"
+E       AssertionError: Successful result rows must persist new-name candidates
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('/tmp/pytest-of-agent/pytest-25/test_unknown_results_team_cand0/isolated/state/alias_candidates/jc.json').exists
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:169: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t54_jc_aliases.py::test_schedule_reuses_approved_canonical_and_does_not_attach_global_short_alias
+FAILED tests/test_t54_jc_aliases.py::test_unknown_schedule_team_is_distinct_and_candidate_is_persisted_idempotently
+FAILED tests/test_t54_jc_aliases.py::test_existing_jc_identity_conflict_requires_explicit_repair
+FAILED tests/test_t54_jc_aliases.py::test_result_uses_approved_canonical_even_when_old_short_team_is_retained
+FAILED tests/test_t54_jc_aliases.py::test_unknown_results_team_candidate_is_committed_but_rejected_row_is_not

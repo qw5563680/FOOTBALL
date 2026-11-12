@@ -1,0 +1,116 @@
+.............FF                                                          [100%]
+=================================== FAILURES ===================================
+_______ test_candidate_and_team_creation_roll_back_together[late_write] ________
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-42/test_candidate_and_team_creati3/isolated/feeds.db)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0f51e50dd0>
+failure = 'late_write'
+
+    @pytest.mark.parametrize(
+        "failure", ["disk", "candidate_identity", "commit", "late_write", "late_write_absent"]
+    )
+    def test_candidate_and_team_creation_roll_back_together(database, monkeypatch, failure):
+        from zucai.sources import sporttery_aliases
+    
+        path = candidate_file(database)
+        path.parent.mkdir(parents=True)
+        original = b"{}\n"
+        if failure == "candidate_identity":
+            original = json.dumps({"欧国联": {"阿尔巴": {"team_id": 1, "evidence": []}}}).encode()
+        if failure != "late_write_absent":
+            path.write_bytes(original)
+    
+        def fail(*args, **kwargs):
+            raise OSError("injected commit or candidate write failure")
+    
+        if failure == "disk":
+            monkeypatch.setattr(sporttery_aliases, "_atomic_write", fail)
+        elif failure.startswith("late_write"):
+            write = sporttery_aliases.save_candidates
+    
+            def write_then_fail(*args):
+                write(*args)
+                fail()
+    
+            monkeypatch.setattr(sporttery_aliases, "save_candidates", write_then_fail)
+        elif failure == "commit":
+            event.listen(Session, "before_commit", fail)
+        save = RawStore.save_response
+        monkeypatch.setattr(
+            RawStore, "save_response", lambda self, *a: save(self, *a, captured_at=CAPTURED)
+        )
+        try:
+            with responses.RequestsMock() as api:
+                api.add(responses.GET, API + "getMatchCalculatorV1.qry", json=schedule_body("阿尔巴"))
+                with pytest.raises(ValueError if failure == "candidate_identity" else OSError):
+                    fetch_schedule()
+        finally:
+            if failure == "commit":
+                event.remove(Session, "before_commit", fail)
+        if failure == "late_write_absent":
+            assert not path.exists()
+        else:
+>           assert path.read_bytes() == original
+E           assert b'{\n  "\xe6\...  }\n  }\n}\n' == b'{}\n'
+E             
+E             At index 1 diff: b'\n' != b'}'
+E             Use -v to get more diff
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:298: AssertionError
+____ test_candidate_and_team_creation_roll_back_together[late_write_absent] ____
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-42/test_candidate_and_team_creati4/isolated/feeds.db)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f0f51e50320>
+failure = 'late_write_absent'
+
+    @pytest.mark.parametrize(
+        "failure", ["disk", "candidate_identity", "commit", "late_write", "late_write_absent"]
+    )
+    def test_candidate_and_team_creation_roll_back_together(database, monkeypatch, failure):
+        from zucai.sources import sporttery_aliases
+    
+        path = candidate_file(database)
+        path.parent.mkdir(parents=True)
+        original = b"{}\n"
+        if failure == "candidate_identity":
+            original = json.dumps({"欧国联": {"阿尔巴": {"team_id": 1, "evidence": []}}}).encode()
+        if failure != "late_write_absent":
+            path.write_bytes(original)
+    
+        def fail(*args, **kwargs):
+            raise OSError("injected commit or candidate write failure")
+    
+        if failure == "disk":
+            monkeypatch.setattr(sporttery_aliases, "_atomic_write", fail)
+        elif failure.startswith("late_write"):
+            write = sporttery_aliases.save_candidates
+    
+            def write_then_fail(*args):
+                write(*args)
+                fail()
+    
+            monkeypatch.setattr(sporttery_aliases, "save_candidates", write_then_fail)
+        elif failure == "commit":
+            event.listen(Session, "before_commit", fail)
+        save = RawStore.save_response
+        monkeypatch.setattr(
+            RawStore, "save_response", lambda self, *a: save(self, *a, captured_at=CAPTURED)
+        )
+        try:
+            with responses.RequestsMock() as api:
+                api.add(responses.GET, API + "getMatchCalculatorV1.qry", json=schedule_body("阿尔巴"))
+                with pytest.raises(ValueError if failure == "candidate_identity" else OSError):
+                    fetch_schedule()
+        finally:
+            if failure == "commit":
+                event.remove(Session, "before_commit", fail)
+        if failure == "late_write_absent":
+>           assert not path.exists()
+E           AssertionError: assert not True
+E            +  where True = exists()
+E            +    where exists = PosixPath('/tmp/pytest-of-agent/pytest-42/test_candidate_and_team_creati4/isolated/state/alias_candidates/jc.json').exists
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:296: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t54_jc_aliases.py::test_candidate_and_team_creation_roll_back_together[late_write]
+FAILED tests/test_t54_jc_aliases.py::test_candidate_and_team_creation_roll_back_together[late_write_absent]

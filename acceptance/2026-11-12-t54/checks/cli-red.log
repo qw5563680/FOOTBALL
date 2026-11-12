@@ -1,0 +1,50 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_manual_reconcile_publishes_verified_jc_binding_and_repeat_is_noop ____
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-34/test_manual_reconcile_publishe0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f3aba566fc0>
+
+    def test_manual_reconcile_publishes_verified_jc_binding_and_repeat_is_noop(tmp_path, monkeypatch):
+        from zucai.cloud_feeds import main
+    
+        fixture = Path(__file__).parents[1] / "data/fixtures/t54"
+        database = tmp_path / "seed/football.db"
+        engine = get_engine(database)
+        init_db(engine)
+        with session_scope(engine) as session:
+            for table, cls, wanted in (
+                ("teams", Team, {1148, 1149, 1156}),
+                ("matches", Match, {"jc:2042694", "apif:1528963"}),
+            ):
+                for line in (fixture / f"{table}.jsonl").read_text().splitlines():
+                    values = json.loads(line)
+                    if values[0] not in wanted:
+                        continue
+                    row = dict(zip(TABLES[table], values, strict=True))
+                    if table == "teams":
+                        row["aliases"] = json.loads(row["aliases"])
+                    session.add(cls(**row))
+                session.flush()
+        engine.dispose()
+        archive = tmp_path / "archive"
+        export_feeds(database, archive, date(2026, 11, 12), "seed")
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+        for index in range(2):
+            work = tmp_path / f"run-{index}"
+            work.mkdir()
+            monkeypatch.chdir(work)
+            monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(work / "summary.md"))
+            monkeypatch.setattr(
+                sys, "argv", ["feeds", "reconcile", "--archive", str(archive), "--run-id", str(index)]
+            )
+            main()
+            manifest = archive_info(archive)
+>           assert manifest["collection"]["jc_identity"]["rekeyed_matches"] == (1 if index == 0 else 0)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'jc_identity'
+
+/workspace/work/football-t54/tests/test_t54_archive.py:95: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_t54_archive.py::test_manual_reconcile_publishes_verified_jc_binding_and_repeat_is_noop

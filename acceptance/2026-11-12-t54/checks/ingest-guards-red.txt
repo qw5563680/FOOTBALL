@@ -1,0 +1,16 @@
+.......F..                                                               [100%]
+=================================== FAILURES ===================================
+_____ test_approved_canonical_with_conflicting_existing_alias_is_rejected ______
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-30/test_approved_canonical_with_c0/isolated/feeds.db)
+
+    def test_approved_canonical_with_conflicting_existing_alias_is_rejected(database):
+        with session_scope(database) as session:
+            session.add(Team(name="另一球队", aliases=["阿尔巴尼亚"]))
+>       with pytest.raises(ValueError, match="身份"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:185: Failed
+=========================== short test summary info ============================
+FAILED tests/test_t54_jc_aliases.py::test_approved_canonical_with_conflicting_existing_alias_is_rejected

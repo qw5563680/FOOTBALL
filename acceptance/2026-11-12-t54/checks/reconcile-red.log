@@ -1,0 +1,2124 @@
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFF                                            [100%]
+=================================== FAILURES ===================================
+_______ test_approved_rebind_preserves_evidence_history_and_repeat_bytes _______
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_approved_rebind_preserves0/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_approved_rebind_preserves0/sporttery.json'))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4c877ccd70>
+
+    def test_approved_rebind_preserves_evidence_history_and_repeat_bytes(sample, monkeypatch):
+        db, _aliases = sample
+        before = evidence(db)
+        shared = Mock(wraps=jc_counterpart.late_jc_candidate)
+        monkeypatch.setattr(jc_counterpart, "late_jc_candidate", shared)
+>       report = reconcile(sample)
+                 ^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:152: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+___ test_identity_and_counterpart_conflicts_do_not_mutate_database[reverse] ____
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_0/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_0/sporttery.json'))
+kind = 'reverse'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[other_opponent] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_1/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_1/sporttery.json'))
+kind = 'other_opponent'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_identity_and_counterpart_conflicts_do_not_mutate_database[jc_league] ___
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_2/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_2/sporttery.json'))
+kind = 'jc_league'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_identity_and_counterpart_conflicts_do_not_mutate_database[api_league] __
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_3/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_3/sporttery.json'))
+kind = 'api_league'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+___ test_identity_and_counterpart_conflicts_do_not_mutate_database[jc_time] ____
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_4/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_4/sporttery.json'))
+kind = 'jc_time'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+___ test_identity_and_counterpart_conflicts_do_not_mutate_database[api_time] ___
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_5/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_5/sporttery.json'))
+kind = 'api_time'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[multiple_jc] __
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_6/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_6/sporttery.json'))
+kind = 'multiple_jc'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[multiple_api] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_7/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_7/sporttery.json'))
+kind = 'multiple_api'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_identity_and_counterpart_conflicts_do_not_mutate_database[jc_linked] ___
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_8/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_8/sporttery.json'))
+kind = 'jc_linked'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_identity_and_counterpart_conflicts_do_not_mutate_database[api_linked] __
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_9/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_9/sporttery.json'))
+kind = 'api_linked'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_identity_and_counterpart_conflicts_do_not_mutate_database[jc_claimed] __
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_10/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_10/sporttery.json'))
+kind = 'jc_claimed'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[api_claimed] __
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_11/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_11/sporttery.json'))
+kind = 'api_claimed'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_identity_and_counterpart_conflicts_do_not_mutate_database[raw_alias] ___
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_12/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_12/sporttery.json'))
+kind = 'raw_alias'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+___ test_identity_and_counterpart_conflicts_do_not_mutate_database[raw_name] ___
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_13/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_13/sporttery.json'))
+kind = 'raw_name'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[canonical_name] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_14/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_14/sporttery.json'))
+kind = 'canonical_name'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[canonical_alias_owner] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_15/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_15/sporttery.json'))
+kind = 'canonical_alias_owner'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[binding_owner] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_16/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_16/sporttery.json'))
+kind = 'binding_owner'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[binding_missing] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_17/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_17/sporttery.json'))
+kind = 'binding_missing'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[binding_conflict] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_18/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_18/sporttery.json'))
+kind = 'binding_conflict'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[canonical_provisional] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_19/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_19/sporttery.json'))
+kind = 'canonical_provisional'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[fd_conflict] __
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_20/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_counterpart_20/sporttery.json'))
+kind = 'fd_conflict'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse", "other_opponent", "jc_league", "api_league", "jc_time", "api_time",
+            "multiple_jc", "multiple_api", "jc_linked", "api_linked", "jc_claimed", "api_claimed",
+            "raw_alias", "raw_name", "canonical_name", "canonical_alias_owner", "binding_owner",
+            "binding_missing", "binding_conflict", "canonical_provisional", "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session, jc, "fd:claim", kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                session.get(Team, 1156).aliases.append("some-binding")
+            elif kind == "raw_name":
+                session.get(Team, 1156).name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                session.get(Team, 1200).aliases.append("阿尔巴尼亚")
+            elif kind == "binding_owner":
+                session.get(Team, 1200).aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+>       report = reconcile(sample, kind)
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__________ test_only_explicit_approved_evidence_is_repaired[proposed] __________
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_only_explicit_approved_ev0/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_only_explicit_approved_ev0/sporttery.json'))
+kind = 'proposed'
+
+    @pytest.mark.parametrize("kind", ["proposed", "unlisted", "no_evidence"])
+    def test_only_explicit_approved_evidence_is_repaired(sample, kind):
+        db, path = sample
+        aliases = deepcopy(APPROVED)
+        if kind == "proposed":
+            aliases["欧国联"]["阿尔巴尼"]["status"] = "proposed"
+        elif kind == "unlisted":
+            aliases = {}
+        else:
+            aliases["欧国联"]["阿尔巴尼"]["evidence"] = []
+        path.write_text(json.dumps(aliases, ensure_ascii=False), encoding="utf-8")
+        before = inventory(db)
+>       report = reconcile(sample)
+                 ^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:264: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__________ test_only_explicit_approved_evidence_is_repaired[unlisted] __________
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_only_explicit_approved_ev1/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_only_explicit_approved_ev1/sporttery.json'))
+kind = 'unlisted'
+
+    @pytest.mark.parametrize("kind", ["proposed", "unlisted", "no_evidence"])
+    def test_only_explicit_approved_evidence_is_repaired(sample, kind):
+        db, path = sample
+        aliases = deepcopy(APPROVED)
+        if kind == "proposed":
+            aliases["欧国联"]["阿尔巴尼"]["status"] = "proposed"
+        elif kind == "unlisted":
+            aliases = {}
+        else:
+            aliases["欧国联"]["阿尔巴尼"]["evidence"] = []
+        path.write_text(json.dumps(aliases, ensure_ascii=False), encoding="utf-8")
+        before = inventory(db)
+>       report = reconcile(sample)
+                 ^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:264: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+________ test_only_explicit_approved_evidence_is_repaired[no_evidence] _________
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_only_explicit_approved_ev2/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_only_explicit_approved_ev2/sporttery.json'))
+kind = 'no_evidence'
+
+    @pytest.mark.parametrize("kind", ["proposed", "unlisted", "no_evidence"])
+    def test_only_explicit_approved_evidence_is_repaired(sample, kind):
+        db, path = sample
+        aliases = deepcopy(APPROVED)
+        if kind == "proposed":
+            aliases["欧国联"]["阿尔巴尼"]["status"] = "proposed"
+        elif kind == "unlisted":
+            aliases = {}
+        else:
+            aliases["欧国联"]["阿尔巴尼"]["evidence"] = []
+        path.write_text(json.dumps(aliases, ensure_ascii=False), encoding="utf-8")
+        before = inventory(db)
+>       report = reconcile(sample)
+                 ^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:264: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t54_jc_reconcile.py:109: in reconcile
+    module = importlib.import_module("zucai.sources.jc_identity")
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_____ test_identity_and_link_audit_roll_back_with_transaction[False-audit] _____
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_link_audit_r0/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_link_audit_r0/sporttery.json'))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4c875b0aa0>
+failure = 'audit', existing_audits = False
+
+    @pytest.mark.parametrize("failure", ["audit", "commit"])
+    @pytest.mark.parametrize("existing_audits", [False, True])
+    def test_identity_and_link_audit_roll_back_with_transaction(
+        sample, monkeypatch, failure, existing_audits
+    ):
+>       module = importlib.import_module("zucai.sources.jc_identity")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:274: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+____ test_identity_and_link_audit_roll_back_with_transaction[False-commit] _____
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_link_audit_r1/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_link_audit_r1/sporttery.json'))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4c876dba40>
+failure = 'commit', existing_audits = False
+
+    @pytest.mark.parametrize("failure", ["audit", "commit"])
+    @pytest.mark.parametrize("existing_audits", [False, True])
+    def test_identity_and_link_audit_roll_back_with_transaction(
+        sample, monkeypatch, failure, existing_audits
+    ):
+>       module = importlib.import_module("zucai.sources.jc_identity")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:274: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_____ test_identity_and_link_audit_roll_back_with_transaction[True-audit] ______
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_link_audit_r2/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_link_audit_r2/sporttery.json'))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4c874c2e40>
+failure = 'audit', existing_audits = True
+
+    @pytest.mark.parametrize("failure", ["audit", "commit"])
+    @pytest.mark.parametrize("existing_audits", [False, True])
+    def test_identity_and_link_audit_roll_back_with_transaction(
+        sample, monkeypatch, failure, existing_audits
+    ):
+>       module = importlib.import_module("zucai.sources.jc_identity")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:274: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_____ test_identity_and_link_audit_roll_back_with_transaction[True-commit] _____
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_link_audit_r3/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-24/test_identity_and_link_audit_r3/sporttery.json'))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4c874c2360>
+failure = 'commit', existing_audits = True
+
+    @pytest.mark.parametrize("failure", ["audit", "commit"])
+    @pytest.mark.parametrize("existing_audits", [False, True])
+    def test_identity_and_link_audit_roll_back_with_transaction(
+        sample, monkeypatch, failure, existing_audits
+    ):
+>       module = importlib.import_module("zucai.sources.jc_identity")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t54_jc_reconcile.py:274: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'zucai.sources.jc_identity'
+import_ = <function _gcd_import at 0x7f4c89dc40e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'zucai.sources.jc_identity'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+=========================== short test summary info ============================
+FAILED tests/test_t54_jc_reconcile.py::test_approved_rebind_preserves_evidence_history_and_repeat_bytes
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[reverse]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[other_opponent]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[jc_league]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[api_league]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[jc_time]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[api_time]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[multiple_jc]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[multiple_api]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[jc_linked]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[api_linked]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[jc_claimed]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[api_claimed]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[raw_alias]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[raw_name]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[canonical_name]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[canonical_alias_owner]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[binding_owner]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[binding_missing]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[binding_conflict]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[canonical_provisional]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[fd_conflict]
+FAILED tests/test_t54_jc_reconcile.py::test_only_explicit_approved_evidence_is_repaired[proposed]
+FAILED tests/test_t54_jc_reconcile.py::test_only_explicit_approved_evidence_is_repaired[unlisted]
+FAILED tests/test_t54_jc_reconcile.py::test_only_explicit_approved_evidence_is_repaired[no_evidence]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_link_audit_roll_back_with_transaction[False-audit]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_link_audit_roll_back_with_transaction[False-commit]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_link_audit_roll_back_with_transaction[True-audit]
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_link_audit_roll_back_with_transaction[True-commit]
+29 failed in 1.42s

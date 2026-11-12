@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_jc_alias_candidates_roundtrip_and_hash_guard _______________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-22/test_jc_alias_candidates_round0')
+
+    def test_jc_alias_candidates_roundtrip_and_hash_guard(tmp_path):
+        database = tmp_path / "source/football.db"
+        engine = get_engine(database)
+        init_db(engine)
+        engine.dispose()
+        name = "state/alias_candidates/jc.json"
+        pending = database.parent / name
+        pending.parent.mkdir(parents=True)
+        original = '{"source":"jc","candidates":[{"raw_name":"未知缩写","status":"pending"}]}\n'.encode()
+        pending.write_bytes(original)
+        archive = tmp_path / "archive"
+        export_feeds(database, archive, date(2026, 11, 12), "t54-test")
+>       assert name in archive_info(archive)["files"]
+E       AssertionError: assert 'state/alias_candidates/jc.json' in {'state/apif_fixture_index.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'state/closing_...b934ca495991b7852b855', 'state/results.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t54_archive.py:23: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t54_archive.py::test_jc_alias_candidates_roundtrip_and_hash_guard

@@ -1,0 +1,100 @@
+.................F.................                                      [100%]
+=================================== FAILURES ===================================
+_ test_identity_and_counterpart_conflicts_do_not_mutate_database[raw_alias_owner] _
+
+sample = (PosixPath('/tmp/pytest-of-agent/pytest-33/test_identity_and_counterpart_16/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-33/test_identity_and_counterpart_16/sporttery.json'))
+kind = 'raw_alias_owner'
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "reverse",
+            "other_opponent",
+            "jc_league",
+            "api_league",
+            "jc_time",
+            "api_time",
+            "multiple_jc",
+            "multiple_api",
+            "jc_linked",
+            "api_linked",
+            "jc_claimed",
+            "api_claimed",
+            "raw_alias",
+            "raw_name",
+            "canonical_name",
+            "canonical_alias_owner",
+            "raw_alias_owner",
+            "binding_owner",
+            "binding_missing",
+            "binding_conflict",
+            "canonical_provisional",
+            "fd_conflict",
+        ],
+    )
+    def test_identity_and_counterpart_conflicts_do_not_mutate_database(sample, kind):
+        db, _aliases = sample
+        engine = get_engine(db)
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:2042694")
+            api = session.get(Match, "apif:1528963")
+            canonical = session.get(Team, 1149)
+            raw_team = session.get(Team, 1156)
+            other_team = session.get(Team, 1200)
+            if kind == "reverse":
+                jc.home_team_id, jc.away_team_id = jc.away_team_id, jc.home_team_id
+            elif kind == "other_opponent":
+                jc.away_team_id = 1200
+            elif kind in {"jc_league", "api_league"}:
+                (jc if kind == "jc_league" else api).league = "欧洲杯"
+            elif kind in {"jc_time", "api_time"}:
+                (jc if kind == "jc_time" else api).kickoff_utc = datetime.fromisoformat(
+                    KICKOFF
+                ) + timedelta(seconds=1)
+            elif kind == "multiple_jc":
+                add_copy(session, jc, "jc:other")
+            elif kind == "multiple_api":
+                add_copy(session, api, "apif:other")
+            elif kind == "fd_conflict":
+                add_copy(session, api, "fd:other")
+            elif kind in {"jc_linked", "api_linked"}:
+                (jc if kind == "jc_linked" else api).counterpart_id = "fd:elsewhere"
+            elif kind in {"jc_claimed", "api_claimed"}:
+                add_copy(
+                    session,
+                    jc,
+                    "fd:claim",
+                    kickoff_utc="2020-01-01T12:00:00Z",
+                    counterpart_id=jc.match_id if kind == "jc_claimed" else api.match_id,
+                )
+            elif kind == "raw_alias":
+                raw_team.aliases.append("some-binding")
+            elif kind == "raw_name":
+                raw_team.name = "并非阿尔巴尼"
+            elif kind == "canonical_name":
+                canonical.name = "并非阿尔巴尼亚"
+            elif kind == "canonical_alias_owner":
+                other_team.aliases.append("阿尔巴尼亚")
+            elif kind == "raw_alias_owner":
+                other_team.aliases.append("阿尔巴尼")
+            elif kind == "binding_owner":
+                other_team.aliases.append(BINDING)
+            elif kind == "binding_missing":
+                canonical.aliases = []
+            elif kind == "binding_conflict":
+                canonical.aliases.append("apif:欧国联:team:999")
+            elif kind == "canonical_provisional":
+                session.get(Team, 1148).name = "apif:team:1099"
+        engine.dispose()
+        before = db.read_bytes()
+        report = reconcile(sample, kind)
+>       assert report["status"] == "partial"
+E       AssertionError: assert 'complete' == 'partial'
+E         
+E         - partial
+E         + complete
+
+tests/test_t54_jc_reconcile.py:267: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t54_jc_reconcile.py::test_identity_and_counterpart_conflicts_do_not_mutate_database[raw_alias_owner]
+1 failed, 34 passed in 1.10s

@@ -1,0 +1,59 @@
+.FF                                                                      [100%]
+=================================== FAILURES ===================================
+_ test_restore_older_snapshot_removes_later_jc_identity_state[state/alias_candidates/jc.json] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-26/test_restore_older_snapshot_re0')
+name = 'state/alias_candidates/jc.json'
+
+    @pytest.mark.parametrize(
+        "name", ["state/alias_candidates/jc.json", "state/audit/jc_identity_merges.csv"]
+    )
+    def test_restore_older_snapshot_removes_later_jc_identity_state(tmp_path, name):
+        database = tmp_path / "source/football.db"
+        engine = get_engine(database)
+        init_db(engine)
+        engine.dispose()
+        archive = tmp_path / "old-archive"
+        export_feeds(database, archive, date(2026, 11, 12), "before-t54")
+        restored = tmp_path / "restored/football.db"
+        restore_feeds(archive, restored)
+        later = restored.parent / name
+        later.parent.mkdir(parents=True, exist_ok=True)
+        later.write_bytes(b"later evidence for another database state\n")
+        restore_feeds(archive, restored)
+>       assert not later.exists()
+E       AssertionError: assert not True
+E        +  where True = exists()
+E        +    where exists = PosixPath('/tmp/pytest-of-agent/pytest-26/test_restore_older_snapshot_re0/restored/state/alias_candidates/jc.json').exists
+
+tests/test_t54_archive.py:46: AssertionError
+_ test_restore_older_snapshot_removes_later_jc_identity_state[state/audit/jc_identity_merges.csv] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-26/test_restore_older_snapshot_re1')
+name = 'state/audit/jc_identity_merges.csv'
+
+    @pytest.mark.parametrize(
+        "name", ["state/alias_candidates/jc.json", "state/audit/jc_identity_merges.csv"]
+    )
+    def test_restore_older_snapshot_removes_later_jc_identity_state(tmp_path, name):
+        database = tmp_path / "source/football.db"
+        engine = get_engine(database)
+        init_db(engine)
+        engine.dispose()
+        archive = tmp_path / "old-archive"
+        export_feeds(database, archive, date(2026, 11, 12), "before-t54")
+        restored = tmp_path / "restored/football.db"
+        restore_feeds(archive, restored)
+        later = restored.parent / name
+        later.parent.mkdir(parents=True, exist_ok=True)
+        later.write_bytes(b"later evidence for another database state\n")
+        restore_feeds(archive, restored)
+>       assert not later.exists()
+E       AssertionError: assert not True
+E        +  where True = exists()
+E        +    where exists = PosixPath('/tmp/pytest-of-agent/pytest-26/test_restore_older_snapshot_re1/restored/state/audit/jc_identity_merges.csv').exists
+
+tests/test_t54_archive.py:46: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t54_archive.py::test_restore_older_snapshot_removes_later_jc_identity_state[state/alias_candidates/jc.json]
+FAILED tests/test_t54_archive.py::test_restore_older_snapshot_removes_later_jc_identity_state[state/audit/jc_identity_merges.csv]

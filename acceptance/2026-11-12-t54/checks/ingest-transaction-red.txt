@@ -1,0 +1,106 @@
+.......F..FF.                                                            [100%]
+=================================== FAILURES ===================================
+_____ test_approved_canonical_with_conflicting_existing_alias_is_rejected ______
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-35/test_approved_canonical_with_c0/isolated/feeds.db)
+
+    def test_approved_canonical_with_conflicting_existing_alias_is_rejected(database):
+        with session_scope(database) as session:
+            session.add(Team(name="另一球队", aliases=["阿尔巴尼亚"]))
+>       with pytest.raises(ValueError, match="身份"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:186: Failed
+__________ test_candidate_and_team_creation_roll_back_together[disk] ___________
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-35/test_candidate_and_team_creati0/isolated/feeds.db)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe019d550a0>
+failure = 'disk'
+
+    @pytest.mark.parametrize("failure", ["disk", "candidate_identity", "commit"])
+    def test_candidate_and_team_creation_roll_back_together(database, monkeypatch, failure):
+        from zucai.sources import sporttery_aliases
+    
+        path = candidate_file(database)
+        path.parent.mkdir(parents=True)
+        original = b'{}\n'
+        if failure == "candidate_identity":
+            original = json.dumps({"欧国联": {"阿尔巴": {"team_id": 1, "evidence": []}}}).encode()
+        path.write_bytes(original)
+    
+        def fail(*args, **kwargs):
+            raise OSError("injected commit or candidate write failure")
+    
+        if failure == "disk":
+            monkeypatch.setattr(sporttery_aliases, "_atomic_write", fail)
+        elif failure == "commit":
+            event.listen(Session, "before_commit", fail)
+        save = RawStore.save_response
+        monkeypatch.setattr(
+            RawStore, "save_response", lambda self, *a: save(self, *a, captured_at=CAPTURED)
+        )
+        try:
+            with responses.RequestsMock() as api:
+                api.add(responses.GET, API + "getMatchCalculatorV1.qry", json=schedule_body("阿尔巴"))
+                with pytest.raises(ValueError if failure == "candidate_identity" else OSError):
+                    fetch_schedule()
+        finally:
+            if failure == "commit":
+                event.remove(Session, "before_commit", fail)
+        assert path.read_bytes() == original
+        with session_scope(database) as session:
+>           assert session.get(Match, "jc:2042694") is None
+E           AssertionError: assert <zucai.models.Match object at 0x7fe019811340> is None
+E            +  where <zucai.models.Match object at 0x7fe019811340> = get(Match, 'jc:2042694')
+E            +    where get = <sqlalchemy.orm.session.Session object at 0x7fe019812ba0>.get
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:254: AssertionError
+___ test_candidate_and_team_creation_roll_back_together[candidate_identity] ____
+
+database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-35/test_candidate_and_team_creati1/isolated/feeds.db)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe0198115b0>
+failure = 'candidate_identity'
+
+    @pytest.mark.parametrize("failure", ["disk", "candidate_identity", "commit"])
+    def test_candidate_and_team_creation_roll_back_together(database, monkeypatch, failure):
+        from zucai.sources import sporttery_aliases
+    
+        path = candidate_file(database)
+        path.parent.mkdir(parents=True)
+        original = b'{}\n'
+        if failure == "candidate_identity":
+            original = json.dumps({"欧国联": {"阿尔巴": {"team_id": 1, "evidence": []}}}).encode()
+        path.write_bytes(original)
+    
+        def fail(*args, **kwargs):
+            raise OSError("injected commit or candidate write failure")
+    
+        if failure == "disk":
+            monkeypatch.setattr(sporttery_aliases, "_atomic_write", fail)
+        elif failure == "commit":
+            event.listen(Session, "before_commit", fail)
+        save = RawStore.save_response
+        monkeypatch.setattr(
+            RawStore, "save_response", lambda self, *a: save(self, *a, captured_at=CAPTURED)
+        )
+        try:
+            with responses.RequestsMock() as api:
+                api.add(responses.GET, API + "getMatchCalculatorV1.qry", json=schedule_body("阿尔巴"))
+                with pytest.raises(ValueError if failure == "candidate_identity" else OSError):
+                    fetch_schedule()
+        finally:
+            if failure == "commit":
+                event.remove(Session, "before_commit", fail)
+        assert path.read_bytes() == original
+        with session_scope(database) as session:
+>           assert session.get(Match, "jc:2042694") is None
+E           AssertionError: assert <zucai.models.Match object at 0x7fe019809ca0> is None
+E            +  where <zucai.models.Match object at 0x7fe019809ca0> = get(Match, 'jc:2042694')
+E            +    where get = <sqlalchemy.orm.session.Session object at 0x7fe01a444770>.get
+
+/workspace/work/football-t54/tests/test_t54_jc_aliases.py:254: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t54_jc_aliases.py::test_approved_canonical_with_conflicting_existing_alias_is_rejected
+FAILED tests/test_t54_jc_aliases.py::test_candidate_and_team_creation_roll_back_together[disk]
+FAILED tests/test_t54_jc_aliases.py::test_candidate_and_team_creation_roll_back_together[candidate_identity]
