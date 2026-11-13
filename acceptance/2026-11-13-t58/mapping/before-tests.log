@@ -1,0 +1,100 @@
+F...FFF                                                                  [100%]
+=================================== FAILURES ===================================
+______ test_exact_three_gaps_close_and_other_eleven_rows_remain_identical ______
+
+real_26164 = (<sqlalchemy.orm.session.Session object at 0x7fb5ec57d400>, <zucai.models.SfcIssue object at 0x7fb5eca23050>)
+
+    def test_exact_three_gaps_close_and_other_eleven_rows_remain_identical(real_26164):
+        session, issue = real_26164
+        original = copy.deepcopy(issue.snapshot)
+        actual = refresh_snapshot(session, issue)
+        for before, after in zip(original, actual, strict=True):
+            if before["seq"] in EXPECTED:
+                assert before["mapping"] == "unmatched"
+>               assert after["mapping"] == "matched"
+E               AssertionError: assert 'unmatched' == 'matched'
+E                 
+E                 - matched
+E                 + unmatched
+E                 ? ++
+
+tests/test_t58_sfc_names.py:47: AssertionError
+___________ test_wrong_identity_still_rejected[unknown_full_name_id] ___________
+
+real_26164 = (<sqlalchemy.orm.session.Session object at 0x7fb5eabf3c20>, <zucai.models.SfcIssue object at 0x7fb5eabf2ea0>)
+wrong = 'unknown_full_name_id'
+
+    @pytest.mark.parametrize("wrong", ["orientation", "clock", "unknown_id", "unknown_full_name_id"])
+    def test_wrong_identity_still_rejected(real_26164, wrong):
+        session, issue = real_26164
+        rows = copy.deepcopy(issue.snapshot)
+        row = rows[1]
+        if wrong == "orientation":
+            for home, away in (("home", "away"), ("provider_home_id", "provider_away_id")):
+                row[home], row[away] = row[away], row[home]
+        elif wrong == "clock":
+            row["source_kickoff_utc"] = (
+                datetime.fromisoformat(row["source_kickoff_utc"]) + timedelta(minutes=1)
+            ).isoformat()
+        else:
+            row["provider_home_id"] = "99999999"
+            if wrong == "unknown_full_name_id":
+                row["home"] = "格鲁吉亚"
+        issue.snapshot = rows
+        actual = refresh_snapshot(session, issue)[1]
+>       assert actual["match_id"] is None
+E       AssertionError: assert 'apif:1528973' is None
+
+tests/test_t58_sfc_names.py:73: AssertionError
+_______ test_fixture_bytes_and_each_approved_entry_have_source_evidence ________
+
+    def test_fixture_bytes_and_each_approved_entry_have_source_evidence():
+        from zucai.nations import identities
+    
+        provenance = json.loads((FIXTURE / "provenance.json").read_text())
+        for name, meta in provenance["files"].items():
+            assert hashlib.sha256((FIXTURE / name).read_bytes()).hexdigest() == meta["sha256"]
+>       aliases = json.loads((FIXTURE.parents[1] / "team_aliases/sfc.json").read_text())["欧国联"]
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t58_sfc_names.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/workspace/work/football-t58/data/team_aliases/sfc.json')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/workspace/work/football-t58/data/team_aliases/sfc.json'
+
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/pathlib.py:1013: FileNotFoundError
+______________ test_unapproved_or_wrong_scope_alias_cannot_match _______________
+
+real_26164 = (<sqlalchemy.orm.session.Session object at 0x7fb5eac12990>, <zucai.models.SfcIssue object at 0x7fb5eac126c0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb5eaa6e780>
+
+    def test_unapproved_or_wrong_scope_alias_cannot_match(real_26164, monkeypatch):
+        from zucai import nations
+    
+>       original = copy.deepcopy(nations.sfc_aliases())
+                                 ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'zucai.nations' has no attribute 'sfc_aliases'
+
+tests/test_t58_sfc_names.py:110: AttributeError
+=========================== short test summary info ============================
+FAILED tests/test_t58_sfc_names.py::test_exact_three_gaps_close_and_other_eleven_rows_remain_identical
+FAILED tests/test_t58_sfc_names.py::test_wrong_identity_still_rejected[unknown_full_name_id]
+FAILED tests/test_t58_sfc_names.py::test_fixture_bytes_and_each_approved_entry_have_source_evidence
+FAILED tests/test_t58_sfc_names.py::test_unapproved_or_wrong_scope_alias_cannot_match

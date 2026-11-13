@@ -1,0 +1,923 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="16" skipped="0" tests="18" time="5.814" timestamp="2026-11-13T11:29:58.296151+00:00" hostname="5e80b6da1ed3"><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[broken_json]" time="0.272"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au0/archive')
+case = {'name': 'broken_json', 'raw': '{"predictions":['}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[not_object]" time="0.267"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au1/archive')
+case = {'name': 'not_object', 'document': []}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[missing_timestamp]" time="0.254"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au2/archive')
+case = {'name': 'missing_timestamp', 'remove': 'as_of_utc'}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[invalid_timestamp]" time="0.255"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au3/archive')
+case = {'name': 'invalid_timestamp', 'document_fields': {'as_of_utc': 'not-a-time'}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[wrong_batch]" time="0.250"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au4/archive')
+case = {'name': 'wrong_batch', 'document_fields': {'batch_id': 'wrong-batch'}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[wrong_collection]" time="0.259"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au5/archive')
+case = {'name': 'wrong_collection', 'document_fields': {'predictions': {}}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[bad_last_row]" time="0.329"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au6/archive')
+case = {'name': 'bad_last_row', 'row_fields': {'p2_ready': True}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[missing_model]" time="0.261"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au7/archive')
+case = {'name': 'missing_model', 'row_fields': {'model_name': None}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[invalid_probability]" time="0.280"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au8/archive')
+case = {'name': 'invalid_probability', 'row_fields': {'status': 'predicted', 'model_probabilities': {'h': -0.2, 'd': 0.5, 'a': 0.7}}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[invalid_reason]" time="0.278"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au9/archive')
+case = {'name': 'invalid_reason', 'row_fields': {'fallback_reason': {'invalid': 'type'}}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[missing_reason]" time="0.257"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au10/archive')
+case = {'name': 'missing_reason', 'row_fields': {'status': 'missing', 'model_probabilities': None}, 'remove_row': 'fallback_reason'}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[null_reason]" time="0.260"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au11/archive')
+case = {'name': 'null_reason', 'row_fields': {'status': 'missing', 'model_probabilities': None, 'fallback_reason': None}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[duplicate_prediction]" time="0.271"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au12/archive')
+case = {'name': 'duplicate_prediction', 'duplicate_prediction': True}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[invalid_market]" time="0.264"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au13/archive')
+case = {'name': 'invalid_market', 'row_fields': {'market': 'invalid'}}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_isolation" name="test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard[invalid_label]" time="0.265"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_bad_experiment_file_is_au14/archive')
+case = {'name': 'invalid_label', 'row_nan': 'p2_label'}
+
+    @pytest.mark.parametrize("case", CASES, ids=lambda c: c["name"])
+    def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
+        scoreboard_archive, case
+    ):
+        archive = scoreboard_archive
+        before = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        attach_fixtures(archive)
+        manifest = verify_forecasts(archive)
+        good_rows, audit = load_experiments(archive, manifest, NOW)
+        assert audit == [] and good_rows
+        path = good_rows[0]["forecast_path"]
+        document = json.loads((archive / path).read_bytes())
+        assert len(document["predictions"]) &gt; 1
+        if "remove" in case:
+            document.pop(case["remove"])
+        document.update(case.get("document_fields", {}))
+        if "row_fields" in case:
+            # Valid rows preceding a bad row must not partially enter the batch.
+            document["predictions"][-1].update(case["row_fields"])
+        if "remove_row" in case:
+            document["predictions"][-1].pop(case["remove_row"])
+        if "row_nan" in case:
+            document["predictions"][-1][case["row_nan"]] = float("nan")
+        if case.get("duplicate_prediction"):
+            document["predictions"].append(
+                dict(document["predictions"][0], model_probabilities={"h": 0.2, "d": 0.3, "a": 0.5})
+            )
+        raw = (
+            case["raw"].encode()
+            if "raw" in case
+            else json.dumps(case.get("document", document)).encode()
+        )
+        (archive / path).write_bytes(raw)
+        manifest["files"][path] = hashlib.sha256(raw).hexdigest()
+        (archive / "forecast_manifest.json").write_text(json.dumps(manifest))
+        verify_forecasts(archive)  # Test a malformed producer file, not a hash-integrity bypass.
+        loaded, audit = load_experiments(archive, manifest, NOW)
+        assert loaded == [r for r in good_rows if r["forecast_path"] != path]
+        assert loaded
+        assert len(audit) == 1
+        assert audit[0]["forecast_path"] == path
+        assert audit[0]["reason"] == "invalid_experimental_file"
+        after = run(archive, as_of=NOW)
+        assert after["experimental_audit"]["invalid_files"] == audit
+&gt;       assert after["probability"] == before["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_isolation.py:102: AssertionError</failure></testcase><testcase classname="tests.test_experimental_integration" name="test_append_experimental_scores_preserves_original_scores_ledger_and_repeat_bytes" time="0.249"><failure message="AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}&#10;  &#10;  Differing items:&#10;[+4 more lines; full report in element text]">scoreboard_archive = PosixPath('/tmp/pytest-of-agent/pytest-131/test_append_experimental_score0/archive')
+
+    def test_append_experimental_scores_preserves_original_scores_ledger_and_repeat_bytes(
+        scoreboard_archive,
+    ):
+        archive = scoreboard_archive
+        first = run(archive, as_of=NOW)
+        ledger = (archive / "scoreboard/ledger.jsonl").read_bytes()
+        original_scores = (archive / "scoreboard/scored.jsonl").read_bytes()
+        manifest = verify_forecasts(archive)
+        for run_id, info in manifest["runs"].items():
+            docs = {}
+            for day, forecast in info["forecasts"].items():
+                batch = json.loads((archive / forecast["path"] / "forecast.json").read_bytes())
+                predictions = []
+                for original in batch["predictions"]:
+                    row = dict(
+                        original,
+                        model_name="dc-sot-v1",
+                        model_version="fixture-experiment",
+                        validation_status="experimental_unadopted",
+                        availability_mode="strict",
+                        p2_ready=False,
+                        fallback_reason=None
+                        if original["status"] == "predicted"
+                        else original["reason"],
+                    )
+                    row.pop("market", None)
+                    predictions.append(row)
+                docs[day] = dict(
+                    schema_version=1,
+                    batch_id=batch["batch_id"],
+                    as_of_utc=batch["as_of_utc"],
+                    generated_utc=batch["generated_utc"],
+                    mode=batch["mode"],
+                    availability_mode="strict",
+                    predictions=predictions,
+                )
+            attach_experiments(archive, docs, run_id)
+        from forecast_publication_support import confirm_fixture
+    
+        confirm_fixture(archive)
+        second = run(archive, as_of=NOW)
+&gt;       assert first["probability"] == second["probability"]
+E       AssertionError: assert {'total': {'n...}, ...}}, ...} == {'total': {'n...}, ...}}, ...}
+E         
+E         Differing items:
+E         {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}} != {'total': {'n': 4, 'model': {'n': 4, 'log_loss': 1.0251912825062557, 'brier': 0.61885, 'draw_mean': 0.3000000000000000...t': {'n': 3, 'log_loss': 1.0473166283856088, 'brier': 0.6293999475936762, 'draw_mean': 0.32710280373831774, ...}, ...}}
+E         {'prior_strata': {'default_strength': {'n': 0, 'model': {'n': 0, 'log_loss':...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_experimental_integration.py:61: AssertionError</failure></testcase><testcase classname="tests.test_experimental_integration" name="test_utc_week_paired_bootstrap_is_reproducible" time="0.005" /><testcase classname="tests.test_experimental_integration" name="test_scoreboard_and_digest_do_not_require_model_extra" time="0.715" /></testsuite></testsuites>

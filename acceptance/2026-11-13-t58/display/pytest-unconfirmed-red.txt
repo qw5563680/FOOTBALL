@@ -1,0 +1,62 @@
+........F                                                                [100%]
+=================================== FAILURES ===================================
+_ test_report_discloses_mapping_gap_without_changing_snapshot_or_probabilities _
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-136/test_report_discloses_mapping_0/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fb034b9f4a0>
+
+    def test_report_discloses_mapping_gap_without_changing_snapshot_or_probabilities(
+        complete_issue, monkeypatch
+    ):
+        engine, issue, batch = complete_issue
+        original_batch, original_snapshot = deepcopy(batch), deepcopy(issue.snapshot)
+        rows = deepcopy(issue.snapshot)
+        rows[0].update(
+            match_id=None,
+            matched_identity=None,
+            mapping="unmatched",
+            reason="unmatched",
+            mapping_evidence={"basis": "national_team_name_missing"},
+        )
+        monkeypatch.setattr("zucai.report.sfc.refresh_snapshot", lambda *_: deepcopy(rows))
+        report = build(engine, issue, batch, allow_missing=True)
+        assert report["rows"][0]["reason"] == "未映射：队名对照表缺该队"
+        assert report["rows"][0]["probabilities"] is None
+        assert report["rows"][0]["selection"] == list("hda")
+        for row, prediction in zip(report["rows"][1:], batch["predictions"][1:], strict=True):
+            assert row["probabilities"] == prediction["model_probabilities"]
+            assert row["reason"] is None
+        assert batch == original_batch
+        assert issue.snapshot == original_snapshot
+    
+        from zucai.report.sfc import _csv, _markdown
+        from zucai.sfc_digest import _issue_lines
+    
+        report.update(
+            publication_schema=1,
+            published_utc=None,
+            publication_commit=None,
+            sale_end_utc=issue.sale_end_utc,
+            sale_state="deadline_unconfirmed",
+        )
+        digest = "\n".join(
+            _issue_lines(
+                "state/sfc/26156.json",
+                {
+                    "issue_no": issue.issue_no,
+                    "sale_end_utc": issue.sale_end_utc,
+                    "snapshot": rows,
+                },
+                [("sfc/26156", report)],
+                [],
+                NOW,
+                lambda path: path,
+            )
+        )
+        for text in (_markdown(report).decode(), _csv(report).decode("utf-8-sig"), digest):
+>           assert "无冻结概率；未映射：队名对照表缺该队" in text
+E           AssertionError: assert '无冻结概率；未映射：队名对照表缺该队' in '# 第26156期 · 14场胜负彩诊断\n\n**P2 未验证模型，BET 禁用；不构成购买建议。**\n\n无法确认赶上停售（算完 23:00，存好时间未知）。\n算完时间：2026-11-01 23:00:00；存好时间：未知；...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`；期次原件 SHA256：`bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`。\n'
+
+/workspace/work/football-t58/tests/test_sfc_mapping_disclosure.py:104: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_sfc_mapping_disclosure.py::test_report_discloses_mapping_gap_without_changing_snapshot_or_probabilities
