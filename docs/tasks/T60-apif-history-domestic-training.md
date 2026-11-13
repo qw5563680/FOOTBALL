@@ -18,20 +18,24 @@
   2. `src/zucai/predict/backtest.py::read_history`：`linked_representatives` 只对欧战池与 `欧国联` 启用；
   3. `data/model/params.json` 没有这些联赛的条目，于是 `report/batch.py:221` 找不到模型。
 
-## 一、范围（主项）：韩职、澳超、中超、丹超用 `sources=["apif","jc"]` 训练并进入每日预测
+## 一、范围（主项）：韩职、澳超用 `sources=["apif","jc"]` 训练并进入每日预测
+
+中超、丹超不建单联赛模型：所有者提供的 2024–2026 名单
+（`docs/research/2026-11-14-jc-sfc-competition-master-table.md`）显示竞彩与 14 场三年都没开售过这两个联赛。
+它们的历史照常回填，留给亚冠、欧战等池模型当训练范围用。
 
 1. 来源白名单：新增一份显式、入库的「APIF 历史训练联赛」清单（代码常量或 `data/model/` 下的配置），
    清单内联赛允许且仅允许 `{jc, apif}`。不得从 `leagues.json` 自动推断；`identity_only` 的七个联赛、
    既有 15 个 `{jc, fd}` 联赛、欧战池、欧国联的规则一个字都不变。
 2. 去重：清单内联赛在 `read_history` 同样走 `linked_representatives`（同一场 jc 与 apif 已链接时只留 jc）。
    未链接的跨来源重叠继续由 `reject_cross_source_overlaps`（含 `apif_guard`）拒绝，不放宽、不模糊匹配。
-3. 赛季口径：`predict/seasons.py` 补四联赛（韩职、中超单年；澳超、丹超跨年），以归档实际日期核对。
-4. 参数：`params.json` 新增四联赛条目，半衰期按既有协议在回填后的归档上选
+3. 赛季口径：`predict/seasons.py` 补两联赛（韩职单年；澳超跨年），以归档实际日期核对。
+4. 参数：`params.json` 新增韩职、澳超两个条目，半衰期按既有协议在回填后的归档上选
    （season-S walk-forward 最小 Log Loss，平手取短）；若某联赛完整赛季数不够跑该协议，
    用固定 365 天并在 `selection_basis` 写明「未调参」。`p2_ready=false`，沿用现有 gate，报告标「P2 实验」。
    选参与训练只用赛果，不读赔率。
 5. 新队、升降级沿用既有 `unknown_team_prior`，不另造先验。
-6. 确认四联赛已在每日 APIF 采集范围内（赛果持续入库）；若有缺口在 PR 写明，不在本单扩采集。
+6. 确认韩职、澳超已在每日 APIF 采集范围内（赛果持续入库）；若有缺口在 PR 写明，不在本单扩采集。
 
 历史回填由审查者触发，不在实现者环境联网：
 `operation=backfill source=apif leagues=292,188,169,119 options={"from_season":2022,"to_season":2024}`。
@@ -49,7 +53,7 @@
 
 1. 逐字节不变：对同一归档副本，改动前后既有 15 联赛、欧战、欧国联的模型文件哈希、
    `training_json`、预测概率完全一致（列出对比方法与哈希）。
-2. 离线回放：用含四联赛历史的归档副本跑每日预测，韩职、澳超竞彩场次状态为 `predicted`，
+2. 离线回放：用含回填历史的归档副本跑每日预测，韩职、澳超竞彩场次状态为 `predicted`，
    `sources=["apif","jc"]`，标签「P2 实验」；训练行里同一场不出现 jc 与 apif 两行。
 3. 泄漏：训练截点之后才可知的赛果不进训练（沿用 `available_utc` 规则）；新增测试覆盖
    「已链接去重」「未链接重叠被拒」「清单外联赛写 `apif` 被拒」「identity_only 联赛被拒」。
