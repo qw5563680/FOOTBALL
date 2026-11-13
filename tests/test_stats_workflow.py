@@ -114,6 +114,7 @@ def test_all_dispatch_operation_job_conditions(operation):
         "scoreboard": operation in {"predict", "scoreboard"},
         "digest": operation in {"predict", "scoreboard", "digest"},
         "stats-backfill": operation == "stats-backfill",
+        "candidate-review": False,
     }
     assert {
         name: bool(evaluate(condition(job), **{"inputs.operation": operation}))

@@ -108,6 +108,8 @@ python -m zucai.predict.experiments.injury_command --db data/zucai.db --out work
 python -m zucai.history_supplement --plan data/history/international-results-t51-plan.json --source work/history/results.csv --archive work/history/archive --registry data/api_football/nations.json --output work/history/supplement  # T51：固定19场离线校验，只另存3场历史参考；不接入训练
 python -m zucai.jc_candidate_review inspect --db work/review/feeds.db --out work/jc-inspection.json  # T58：只读恢复副本的完整身份与待核证据
 python -m zucai.jc_candidate_review apply --db work/review/feeds.db --plan work/jc-review-plan.json --audit work/jc-review-evidence  # 显式核验计划；只处置副本队列，不合并球队
+# T59：先进入归档外的新工作目录；本地等价验收只指向副本，不发布
+python -m zucai.cloud_candidate_review --archive /path/to/archive-copy --plan /path/to/FOOTBALL/data/jc_candidate_reviews/2026-11-13-first-five.json --run-id offline-review-1
 zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
 zucai stats ingest-apif --db data/zucai.db --endpoint statistics --raw-file work/statistics.json --fixture-file work/fixtures.json
 # 以下 API 采集命令由审查者在 Actions 执行，正式凭据只取 Secrets；开发测试用离线 fixtures
@@ -199,13 +201,14 @@ gate 对其他操作不生效。原来的三条 cron 均保留，不保证准点
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
 | `digest` | `ubuntu-latest`，15 分钟上限 | 等待 `scoreboard`，把冻结数字写成每日摘要并推送到当月 Issue；另支持手动 `operation=digest` |
 | `stats-backfill` | `ubuntu-latest`，300 分钟上限 | 只在手动 `operation=stats-backfill` 时运行；独立恢复数据库、按范围续跑技术数据，与其他 job 共用写锁 |
+| `candidate-review` | `ubuntu-latest`，15 分钟上限 | 审查者手动选择已提交的核验计划；只恢复归档、处置待核队列和发布审计，不采集、训练、记账或发日报 |
 
 定时五个 job 依赖顺序为 `apis → sporttery → predict → scoreboard → digest`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
 daily 沿用相同顺序与失败处理：apis 失败则不预测，预测失败仍可结算旧批次并发日报；竞彩 job 的真实状态传给预测与日报。
 daily 各 job 的 Actions 摘要首行是「手动整条链（gate=true/false）」。feed 清单保留原字符串 `run`，
 另记 `event_name` / `operation`；forecast 清单每条 `runs` 也记录这两个字段。定时为 `schedule` / null，
 补跑为 `workflow_dispatch` / `daily`，旧清单仍可恢复。同一天补跑时日报的更新次数沿用原有计数。
-写回前先 fetch 再 rebase；发布最多尝试 3 轮，fetch / push 遇远端 5xx 或临时网络错误均间隔 30 秒重试。
+普通操作写回前先 fetch 再 rebase；发布最多尝试 3 轮，fetch / push 遇远端 5xx 或临时网络错误均间隔 30 秒重试。
 权限错误和 rebase 冲突立即失败，不强推、不重新采集；远端有新提交仍先 rebase。摘要记录失败阶段、次数和错误。
 竞彩在首次联网前另保存本次提交的增量 Git 恢复包，上传 `sporttery-recovery-<run>-<attempt>` artifact（90天）；
 原始响应仍在 `sporttery-source-<run>-<attempt>`。附件上传也可能失败，须核对上传步骤；自建 runner 的
@@ -317,6 +320,22 @@ T58 提供离线候选处置：先 `inspect` 核对固定库的完整身份和�
 这不批准通用别名，也不证明球队模型已适用。导出/恢复沿用原 feeds 哈希机制；
 生产处置须另按当时最新库制定计划，不能直接把本次旧副本推回正式数据。
 首批核验及胜负彩修复见 [T58 验收](reports/t58-sfc-name-table-and-small-fixes/README.md)。
+
+T59 增加正式处置入口，由审查者在 **Actions → Football cloud feeds → Run workflow**
+选择含本通道及计划的已审查代码分支，设置 `operation=candidate-review`、
+`options={"plan":"data/jc_candidate_reviews/2026-11-13-first-five.json"}`，其余输入保持默认。
+计划必须已经提交，运行时文件字节必须等于所选提交；恢复最新归档后再核对队列和完整身份清单哈希。
+本地验收用上方等价命令，在归档外的新工作目录执行；只修改所指向的副本。
+任一哈希变化就停止，须对最新归档重新 `inspect`、核对证据、提交新计划，不照搬旧副本。
+
+通过后仅发布队列、`feed_manifest.json` 和
+`state/audit/jc_candidate_reviews/<run-id>/{plan,identity_inventory,review,operation}.json`；
+其他归档文件保持原字节，旧截点的日报仍显示当时待核状态。
+发布脚本使用 `PUBLISH_EXPECTED_BASE` 检查数据分支仍是核验基线；远端前进即失败，
+不能用普通 rebase 或恢复包跳过重新核验。运行证据留在 `candidate-review-<run>-<attempt>` artifact（90 天），
+先看发布步骤结果，不能把“处置准备完成”当作正式发布成功。
+首批计划目标为四个国家队 `cleared`、湘南海洋继续 pending；开发验收与正式运行分记，
+线上处置及下一份日报是否从 5 变为 1 仍须审查者触发后核对。
 
 T22 权限探测由 Claude 在 **Actions → Football cloud feeds → Run workflow** 选择 PR 分支执行：
 `operation=probe source=apif leagues=3,848 seasons=2021-2026`。
@@ -1076,6 +1095,9 @@ zucai report sfc --issue 26156 --batch reports/26156-model/forecast.json --max-l
 
 `fetch sfc` 不指定期号时取500页面当前期；`report sfc` 仅在库中恰有一期时可以省略期号。
 `--db` 指定独立数据库；CSV和报告均拒绝覆盖已有文件/目录。普通 `report --batch ... --out ...` 保持原用法。
+T59 起，手工抓取遇未核准的国家队编号也只将该行标为 unmatched，保存
+`national_team_name_missing` 和缺表明细，整期 14 行照常归档；已知编号与名称冲突仍拒绝。
+`--matches-out` 仅导出有比赛 ID 的行并记录导出/缺身份数量，例如一行缺编号时快照保留 14 行、CSV 为 13 行。
 
 优先用已归档的比赛对照或500当前竞彩页的比赛/主客球队ID连接已有竞彩记录，再核对联赛与开球时间；
 没有可靠ID对照时才按已知队名/别名、主客、联赛和时间精确匹配。仅接受已核实的“瑞典超/瑞超”名称对照。

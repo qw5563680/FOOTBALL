@@ -5,24 +5,25 @@ set -euo pipefail
 git config user.name 'github-actions[bot]'
 git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 # Frozen hashes cover exact bytes, including T06 CSV CRLF on Windows checkouts.
-if [[ -e forecast_manifest.json ]]; then
+# A pinned candidate review must not migrate any unrelated archive attributes.
+if [[ -z "${PUBLISH_EXPECTED_BASE:-}" && -e forecast_manifest.json ]]; then
   for rule in 'models/** -text' 'forecasts/** -text whitespace=cr-at-eol' 'forecast_manifest.json -text'; do
     if ! sed 's/\r$//' .gitattributes 2>/dev/null | grep -Fxq -- "$rule"; then
       printf '\n%s\n' "$rule" >> .gitattributes
     fi
   done
 fi
-if [[ -d scoreboard ]]; then
+if [[ -z "${PUBLISH_EXPECTED_BASE:-}" && -d scoreboard ]]; then
   if ! sed 's/\r$//' .gitattributes 2>/dev/null | grep -Fxq -- 'scoreboard/** -text'; then
     printf '\n%s\n' 'scoreboard/** -text' >> .gitattributes
   fi
 fi
-if [[ -d daily ]]; then
+if [[ -z "${PUBLISH_EXPECTED_BASE:-}" && -d daily ]]; then
   if ! sed 's/\r$//' .gitattributes 2>/dev/null | grep -Fxq -- 'daily/** -text'; then
     printf '\n%s\n' 'daily/** -text' >> .gitattributes
   fi
 fi
-if [[ -d sfc ]]; then
+if [[ -z "${PUBLISH_EXPECTED_BASE:-}" && -d sfc ]]; then
   if ! sed 's/\r$//' .gitattributes 2>/dev/null | grep -Fxq -- 'sfc/** -text whitespace=cr-at-eol'; then
     printf '\n%s\n' 'sfc/** -text whitespace=cr-at-eol' >> .gitattributes
   fi
@@ -89,7 +90,15 @@ for attempt in 1 2 3; do
     sleep 30
     continue
   fi
-  if git rebase FETCH_HEAD >"$push_errors" 2>&1; then
+  # A reviewed queue is approved only for its restored snapshot. Never rebase
+  # that decision over data the reviewer has not inspected, even without conflicts.
+  if [[ -n "${PUBLISH_EXPECTED_BASE:-}" ]]; then
+    if [[ "$(git rev-parse FETCH_HEAD)" != "$PUBLISH_EXPECTED_BASE" ]]; then
+      printf '核验基线已变化，须重新 inspect 和核验计划；本次不发布。\n' > "$push_errors"
+      failed_attempt 核验基线
+      failed_publication 1
+    fi
+  elif git rebase FETCH_HEAD >"$push_errors" 2>&1; then
     cat "$push_errors"
   else
     rebase_status=$?

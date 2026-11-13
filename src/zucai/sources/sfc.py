@@ -42,6 +42,44 @@ def _find_team(session, name):
     return candidates[0] if candidates else None
 
 
+def _national_team_names(session, fixture, match=None, *, original_names=False):
+    """Check known metadata and sides before downgrading missing national identities."""
+    own_id = "c500:" + fixture.fixture_id
+    conflict = (
+        f"已有比赛{own_id}身份冲突，须人工核对"
+        if original_names
+        else f"{own_id} 欧国联的球队、主客或原始开球时间不一致"
+    )
+    if match and (
+        match.league != fixture.league
+        or datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc
+    ):
+        raise ValueError(conflict)
+    names, missing = [], []
+    for side, provider_id, label in (
+        ("home", fixture.home_id, fixture.home),
+        ("away", fixture.away_id, fixture.away),
+    ):
+        try:
+            name = sfc_team(provider_id, label)
+        except UnknownSfcTeam as exc:
+            missing.append(exc)
+            continue
+        names.append(name)
+        if match:
+            team = _find_team(session, name)
+            if original_names:
+                # Existing manual records may still use the exact printed short name.
+                team = _find_team(session, label) or team
+            if team is None or team.id != getattr(match, side + "_team_id"):
+                raise ValueError(conflict)
+    if missing:
+        error = missing[0]
+        error.missing_teams = [team for exc in missing for team in exc.missing_teams]
+        raise error
+    return names
+
+
 def _preferred_candidate(candidates):
     """Collapse proven same-fixture rows; never break a source-priority tie."""
     if not candidates:
@@ -124,18 +162,7 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
             and _league_key(bridge["league"]) == _league_key(fixture.league)
         )
         if fixture.league == NATIONS_LEAGUE:
-            names = (
-                sfc_team(fixture.home_id, fixture.home),
-                sfc_team(fixture.away_id, fixture.away),
-            )
-            teams = [_find_team(session, name) for name in names]
-            if (
-                match.league != NATIONS_LEAGUE
-                or datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc
-                or [team.id if team else None for team in teams]
-                != [match.home_team_id, match.away_team_id]
-            ):
-                raise ValueError(f"{own_id} 欧国联的球队、主客或原始开球时间不一致")
+            _national_team_names(session, fixture, match)
         if (
             _league_key(match.league) != _league_key(fixture.league) and not source_league_confirmed
         ) or (not mapped_only and datetime.fromisoformat(match.kickoff_utc) != fixture.kickoff_utc):
@@ -148,8 +175,7 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
         # A provider's JC number is not a database binding until its target exists.
         # Retry the established national path using the original SFC identities;
         # an existing target has already passed (or failed) the strict checks above.
-        home_name = sfc_team(fixture.home_id, fixture.home)
-        away_name = sfc_team(fixture.away_id, fixture.away)
+        home_name, away_name = _national_team_names(session, fixture, own, original_names=True)
         evidence = {
             "basis": "national_team_ids_and_exact_kickoff",
             "home_id": fixture.home_id,
@@ -272,8 +298,7 @@ def _snapshot_rows(session, issue, bridge_map, *, mapped_only, bridge_conflicts=
                 session, fixture, bridge_map, mapped_only=mapped_only
             )
         except UnknownSfcTeam as exc:
-            if not mapped_only:
-                raise
+            # An unreviewed identity leaves one row unresolved, including manual imports.
             match, mapping, candidates = None, "unmatched", []
             evidence = dict(
                 basis="national_team_name_missing",
@@ -551,7 +576,13 @@ def fetch_sfc(issue=None, *, db=None, matches_out=None):
                     writer.writerows(
                         dict(match_id=r["match_id"], **r["matched_identity"])
                         for r in record.snapshot
+                        if r["match_id"] is not None
                     )
+        if output is not None:
+            exported = sum(r["match_id"] is not None for r in record.snapshot)
+            LOG.info(
+                "已导出%d场比赛清单；未解析身份%d场", exported, len(record.snapshot) - exported
+            )
         LOG.info(
             "已保存14场期次%s；严格匹配%d/14；原件%s",
             record.issue_no,

@@ -68,6 +68,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/parlay/` / `digest_parlay.py` | T45 同批单选＋双选枚举、独立 F 账本与冻结视图；不训练、不读取后续价格 |
 | `zucai/daily_digest.py` / `digest_notify.py` | 只读冻结归档生成 daily Markdown；仅在 Actions 用 GITHUB_TOKEN 更新每月 Issue |
 | `zucai/cloud_aliases.py` | 复用 T09/T10 离线身份图，只追加带证据的待审候选 |
+| `zucai/cloud_candidate_review.py` | 手动核验计划与最新归档双哈希校验，复用 T58 处置规则，仅更新队列、审计和清单 |
 | `zucai/sources/fd_verify.py` | 离线复核当前赛季与 jc 的身份图、候选时区和覆盖缺口 |
 | `zucai/features/` | `build_features(session, match_ids=None, as_of=None, *, strict_availability=False) -> DataFrame`；43个球队字段，市场/元信息分离 |
 | `zucai/predict/base.py` | `Model` 抽象类：`fit(df)`、`predict_score_matrix(row) -> ndarray[10,10]`、`save/load` |
@@ -98,6 +99,14 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 
 T45 不加数据库表：比赛与球队身份仍取 `matches` 的主外键。新 F 决策与结算独立保存在
 `scoreboard/parlay_sd_ledger.jsonl`，结构与冻结文件见「T45」节；原 A–E 账本和表结构不变。
+
+T59 不加数据库表。新增可选的归档目录
+`state/audit/jc_candidate_reviews/<run-id>/`，每次包含 `plan.json`（原计划字节）、
+`identity_inventory.json`（本次完整球队身份清单）、`review.json`（T58 逐项处置及相关比赛证据）、
+`operation.json`（运行、操作者、代码提交、前后哈希、UTC/北京时间与零体育请求记录）。
+四文件纳入 `feed_manifest.json.files` 的 SHA256，随 `export_feeds` / `restore_feeds` 保留；
+旧归档可不含此目录。只接受规定的运行目录和四个文件名，拒绝符号链接；恢复前验证清单哈希，
+不从未列入清单的额外文件恢复审计。处置不能覆盖已存在的同名运行目录。
 
 ### T31 技术数据附属表
 
@@ -1285,6 +1294,23 @@ T58 `jc_candidate_review` 通过显式计划处置恢复副本的候选队列。
 核验时间之后的日报才隐藏 cleared；旧截点仍显示当时 pending，不倒填历史。
 状态沿用 `state/alias_candidates/jc.json` 的导出/恢复，不增表、不改原 reconcile 校验。
 
+T59 在此基础上增加独立的 `candidate-review` dispatch job，仍由审查者触发。
+`options.plan` 只接受 `data/jc_candidate_reviews/<名称>.json` 中已提交的原字节，
+核验计划内的 `inventory_sha256` / `queue_sha256` 必须与当次恢复的最新归档相符。
+本地等价入口为 `python -m zucai.cloud_candidate_review --archive <副本> --plan <计划> --run-id <新ID>`，
+须在归档外的新工作目录执行，选择记录与失败摘要不写进归档。
+通道恢复临时数据库、调用原 `review_candidates`，再检查数据库字节未变化；
+只原位更新队列、新审计和清单，清单最后写入，写入失败回滚，不重新导出其他归档。
+计划哈希不符、归档损坏、同名审计已存在或核验期间归档变化均拒绝处置。
+
+job 与原流程共用 `write-football-feed-data` 写锁，发布仍调用 `publish-football-feeds.sh`；
+新增 `PUBLISH_EXPECTED_BASE` 固定核验开始时的数据分支提交，发布前 fetch 发现远端已前进就停止，
+不把旧计划自动 rebase 到新队列，也不顺带迁移旧归档的 `.gitattributes`。
+其他调用未设置该变量时保留原发布行为。
+失败证据与 Git 恢复包留在 Actions artifact；恢复包也不能代替对最新归档重新核验。
+新操作不进入采集、预测、记分板或日报 job；原 cron 和原流程保持不变。
+线上首批处置及后续日报由审查者另留运行记录，本地副本验收不代表已经正式发布。
+
 `sources.sfc.collect_current_sfc` 仅在 sync 自建 runner 路径运行：复用 C500Sfc 的静态页面解析，
 每班无参数 `/sfc/` 与 `/jczq/` 根页各 GET 一次，共用无重试 session 与至少1秒间隔，拒绝重定向。
 `C500FixtureBridge` 解析出的 bridges 连同原URL/读取UTC/原件哈希传入 `ingest_issue(mapped_only=True)`；
@@ -1311,7 +1337,11 @@ T58：`state/nations_league.json` 是 `nations.collect_editions` 写出的每届
 缺桥接不据此声称“竞彩未开售”。CSV 字段不变，旧冻结报告不重写。
 不创建或修改 Team/Match。未匹配/歧义的
 snapshot 行保持 match_id、matched_identity 为 null，全部14行仍保留；只有已匹配行写 sfc_issue_matches。
-旧手工 T07 默认行为保留。审计 sfc_unmatched.csv 按期号/序号/fixture/reason/candidates 去重，保留首次原件哈希。
+T59 将手工 `fetch_sfc` 的未核准编号同样按行降级，不再因该项缺表中止整期；
+保留 `national_team_name_missing` / `missing_teams`。已知编号与名称冲突仍抛错并回滚，
+其他手工身份、桥接及时间校验不变。CSV 只导出 `match_id` 非空的行，并记导出/缺身份数量，
+完整 snapshot 始终保留 14 行；不为缺表行创建球队或比赛。
+审计 sfc_unmatched.csv 按期号/序号/fixture/reason/candidates 去重，保留首次原件哈希。
 T35 补 provider_home_id、provider_away_id、conflicting_identities 列；`conflicting_identity` 保存
 来源双方 ID/名称、桥接双方 ID/体彩 ID、候选库内双方身份及冲突原因。下一次 sync 使用新桥接重试，
 旧失败证据不等于已生效绑定；已有成功桥接与新桥接相冲突时仍拒绝该行并保留前后证据。
