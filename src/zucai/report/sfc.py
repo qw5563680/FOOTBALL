@@ -41,6 +41,33 @@ LOG = logging.getLogger(__name__)
 OPTIONS = {"h": "3", "d": "1", "a": "0"}
 
 
+def _unmapped_reason(row, mapping_reason):
+    """Describe mapping evidence only; missing a binding does not prove sale status."""
+    basis = (row.get("mapping_evidence") or {}).get("basis")
+    if basis == "conflicting_identity" or mapping_reason == "conflicting_identity":
+        return "比赛身份依据冲突，待核实"
+    if mapping_reason == "ambiguous":
+        return "存在多个候选比赛，待核实"
+    reasons = []
+    if row.get("league") == "友谊赛":
+        reasons.append("赛事不在采集范围（友谊赛）")
+    if row.get("kickoff_basis") == "placeholder":
+        reasons.append("开球时间为占位，待核实")
+    if basis == "national_team_name_missing":
+        reasons.append("队名对照表缺该队")
+    if reasons:
+        return "；".join(reasons)
+    if basis == "national_team_ids_and_exact_kickoff":
+        return "国家队编号与开球时间未找到唯一比赛，待核实"
+    if basis == "provider_fixture_and_team_ids":
+        return "已有来源编号，待场次桥接（竞彩开售状态未核实）"
+    if basis == "exact_team_names":
+        return "队名精确匹配未找到对应比赛，待场次桥接（竞彩开售状态未核实）"
+    if mapping_reason not in {"unmatched", "matched", None}:
+        return mapping_reason
+    return "尚无已核验的比赛对应关系"
+
+
 def _budget(max_lines):
     if type(max_lines) is not int or not 1 <= max_lines <= 3**14:
         raise ValueError("注数上限须为1至4782969的整数")
@@ -117,7 +144,7 @@ def build_sfc_report(
         match = session.get(Match, row["match_id"]) if row["match_id"] else None
         if not match:
             row["reason"] = "未映射：" + (
-                "映射比赛不在数据库中" if row["match_id"] else mapping_reason
+                "映射比赛不在数据库中" if row["match_id"] else _unmapped_reason(row, mapping_reason)
             )
             continue
         identity = row["matched_identity"]
@@ -294,6 +321,12 @@ def _row_reason(row, default, *, export=False):
     return "；".join(part for part in (reason, note) if part)
 
 
+def unconfirmed_mapping_status(row):
+    """Keep a disclosed mapping gap visible without exposing unpublished probabilities."""
+    reason = row.get("reason") or ""
+    return "无冻结概率" + ("；" + reason if reason.startswith("未映射：") else "")
+
+
 def pick_nine_lines(report, *, prior_explained=False):
     """Render one single-choice ticket from verified, frozen match probabilities."""
     lines = ["### 任九 · 模型单选", ""]
@@ -458,7 +491,7 @@ def _unconfirmed_markdown(report):
             row["seq"],
             f"{row['league']} {row['home']}—{row['away']}",
             kickoff,
-            _row_reason({**row, "reason": "无冻结概率"}, ""),
+            _row_reason({**row, "reason": unconfirmed_mapping_status(row)}, ""),
         ]
         lines.append("|" + "|".join(_md(value) for value in values) + "|")
     if note := prior_footnote(rows):
@@ -583,7 +616,9 @@ def _unconfirmed_csv(report):
                     row["home"],
                     row["away"],
                     _beijing(row["kickoff_utc"]),
-                    _row_reason({**row, "reason": "无冻结概率"}, "", export=True),
+                    _row_reason(
+                        {**row, "reason": unconfirmed_mapping_status(row)}, "", export=True
+                    ),
                     report["generated_utc"],
                     report["published_utc"],
                     report["sale_end_utc"],

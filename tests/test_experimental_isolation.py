@@ -3,10 +3,12 @@
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 import pytest
 
+from scoreboard_summary_support import assert_same_summary
 from test_scoreboard_command import scoreboard_archive  # noqa: F401
 from test_scoreboard_score import NOW
 from zucai.forecast_archive import attach_experiments, verify_forecasts
@@ -99,7 +101,7 @@ def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
     assert audit[0]["reason"] == "invalid_experimental_file"
     after = run(archive, as_of=NOW)
     assert after["experimental_audit"]["invalid_files"] == audit
-    assert after["probability"] == before["probability"]
+    assert_same_summary(after["probability"], before["probability"])
     assert after["accounts"] == before["accounts"]
     assert (archive / "scoreboard/ledger.jsonl").read_bytes() == ledger
     scored = (archive / "scoreboard/scored.jsonl").read_bytes()
@@ -107,3 +109,20 @@ def test_bad_experiment_file_is_audited_without_blocking_formal_scoreboard(
     run(archive, as_of=NOW)
     assert (archive / "scoreboard/scored.jsonl").read_bytes() == scored
     assert (archive / path).read_bytes() == raw
+
+
+def test_summary_tolerance_accepts_only_last_bit_float_drift():
+    expected = {"model": "team", "n": 2, "ready": True, "bins": [0.3, None]}
+    assert_same_summary(dict(expected, bins=[math.nextafter(0.3, 1.0), None]), expected)
+    changes = [
+        dict(expected, bins=[0.300001, None]),
+        dict(expected, n=3),
+        dict(expected, n=2.0),
+        dict(expected, ready=1),
+        dict(expected, model="market"),
+        dict(expected, bins=[None, 0.3]),
+        {key: value for key, value in expected.items() if key != "ready"},
+    ]
+    for changed in changes:
+        with pytest.raises(AssertionError):
+            assert_same_summary(changed, expected)

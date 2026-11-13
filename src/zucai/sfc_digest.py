@@ -3,7 +3,7 @@
 from zucai.digest_context import archived_sfc_issues
 from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.report.render import _beijing, _md, _percent, _timestamp
-from zucai.report.sfc import OPTIONS, disclosed_rows, pick_nine_lines
+from zucai.report.sfc import OPTIONS, disclosed_rows, pick_nine_lines, unconfirmed_mapping_status
 from zucai.scoreboard.sfc import prior_group_text, read_settled
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
 from zucai.sfc_reports import read_reports
@@ -140,7 +140,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
                     reason,
                 ]
                 if eligible
-                else ["无冻结概率"]
+                else [unconfirmed_mapping_status(row)]
             ),
         ]
         lines.append("| " + " | ".join(_md(value) for value in values) + " |")

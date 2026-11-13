@@ -1277,6 +1277,14 @@ T56 采用已批准国家队缩写按球队复用方案。仅将已核实的“�
 按待核原名/赛事计数，选择截点前最早 `captured_utc` 的比赛编号，最多列5项，其余计数；
 无待核条目则不显示，不自动批准或修改候选。
 
+T58 `jc_candidate_review` 通过显式计划处置恢复副本的候选队列。只读全部 Team 与 Match，
+固定身份/比赛清单及原队列 SHA256，校验候选原比赛、方向、赛事、时间和精确名称。
+`distinct` 只表示本次固定库核验无重复，写 `cleared`；`duplicate` / `unresolved`
+仍 pending，前者标记 `T54_reconcile_required`，本工具从不合并球队或改比赛。
+完整计划、身份清单、逐条核验和 UTC/北京时间另存新审计目录；队列留审计哈希与核验时间。
+核验时间之后的日报才隐藏 cleared；旧截点仍显示当时 pending，不倒填历史。
+状态沿用 `state/alias_candidates/jc.json` 的导出/恢复，不增表、不改原 reconcile 校验。
+
 `sources.sfc.collect_current_sfc` 仅在 sync 自建 runner 路径运行：复用 C500Sfc 的静态页面解析，
 每班无参数 `/sfc/` 与 `/jczq/` 根页各 GET 一次，共用无重试 session 与至少1秒间隔，拒绝重定向。
 `C500FixtureBridge` 解析出的 bridges 连同原URL/读取UTC/原件哈希传入 `ingest_issue(mapped_only=True)`；
@@ -1289,6 +1297,18 @@ T35：云端已由 ID 桥接/counterpart 确认的场次采用库内开球时间
 T52：欧国联桥接目标在 `Match` 中不存在时，沿用国家队来源 ID 与精确开球匹配已有比赛，
 新映射证据记录 `bridge_fallback_reason=target_match_missing` 并完整保留 `bridge`。
 已存在目标仍走严格冲突核验，不因匹配失败而降级；后续刷新会重新检查保留的原对照。
+T58：`state/nations_league.json` 是 `nations.collect_editions` 写出的每届采集进度，
+保存 day/raw_sha256/accepted/rejected/conflicts；它不生成或提供队名。
+`nations.identities()` 读取人工核准的 `data/api_football/nations.json`，其中 `sfc`
+映射 500 球队编号/原标签到规范名，`teams` 映射 API-Football 国家队身份。
+新增 `data/team_aliases/sfc.json` 仅在欧国联按精确编号读取 `approved + national_team`
+条目，必须附证据并与国家队 APIF 身份表一致，再严格核对原标签或规范名。
+本次仅核准固定 26164 期有证据的 14 个缺失编号（含原先靠全名回退成功的球队），
+未声称覆盖所有参赛国。无核准编号不再靠同名回退；生成 `national_team_name_missing`
+和 `missing_teams` 证据后保留 unmatched。已知编号与名称冲突仍按冲突拒绝。
+不修改原 Team/Match，仍要求联赛、主客顺序和准确开球全部一致。
+新报告只根据该证据、冲突和占位状态展示原因；未发布版本保留“无冻结概率”且不显示概率。
+缺桥接不据此声称“竞彩未开售”。CSV 字段不变，旧冻结报告不重写。
 不创建或修改 Team/Match。未匹配/歧义的
 snapshot 行保持 match_id、matched_identity 为 null，全部14行仍保留；只有已匹配行写 sfc_issue_matches。
 旧手工 T07 默认行为保留。审计 sfc_unmatched.csv 按期号/序号/fixture/reason/candidates 去重，保留首次原件哈希。
