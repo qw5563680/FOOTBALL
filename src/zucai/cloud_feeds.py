@@ -66,11 +66,18 @@ TABLES = {
 }
 MANIFEST = "feed_manifest.json"
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
+CANDIDATE_REVIEW_DIR = "state/audit/jc_candidate_reviews"
+CANDIDATE_REVIEW_RUN_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}"
+CANDIDATE_REVIEW_FILE = (
+    rf"{CANDIDATE_REVIEW_DIR}/{CANDIDATE_REVIEW_RUN_ID}/"
+    r"(?:plan|identity_inventory|review|operation)\.json"
+)
 STATE_FILE = (
     r"state/(?:(?:api_football_quota|nations_league)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif|jc)\.json|publication/(?:forecast|sfc)_history\.json)"
+    rf"|{CANDIDATE_REVIEW_FILE}"
 )
 VIEW = """
 WITH triples AS (
@@ -96,6 +103,36 @@ ORDER BY m.kickoff_utc,m.match_id
 def digest(path: Path) -> str:
     with path.open("rb") as f:
         return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def _candidate_review_files(root: Path) -> list[Path]:
+    """Find only owned review evidence, rejecting symlinks before any state changes."""
+    folder = root
+    for part in CANDIDATE_REVIEW_DIR.split("/"):
+        folder /= part
+        if folder.is_symlink():
+            raise ValueError("竞彩候选核验审计不允许符号链接")
+        if not folder.exists():
+            return []
+        if not folder.is_dir():
+            raise ValueError("竞彩候选核验审计目录无效")
+    files = []
+    for run in sorted(folder.iterdir()):
+        if not re.fullmatch(CANDIDATE_REVIEW_RUN_ID, run.name):
+            continue
+        if run.is_symlink():
+            raise ValueError("竞彩候选核验审计不允许符号链接")
+        if not run.is_dir():
+            raise ValueError("竞彩候选核验审计目录无效")
+        for path in sorted(run.iterdir()):
+            if not re.fullmatch(CANDIDATE_REVIEW_FILE, path.relative_to(root).as_posix()):
+                continue
+            if path.is_symlink():
+                raise ValueError("竞彩候选核验审计不允许符号链接")
+            if not path.is_file():
+                raise ValueError("竞彩候选核验审计文件无效")
+            files.append(path)
+    return files
 
 
 def dump_rows(path: Path, rows) -> None:
@@ -188,6 +225,8 @@ def export_feeds(
 ) -> dict:
     if not source.is_file():
         raise ValueError("采集数据库缺失")
+    _candidate_review_files(source.parent)
+    _candidate_review_files(archive)
     pending = pending_results(source)
     archive.mkdir(parents=True, exist_ok=True)
     previous = set(archive_info(archive)["files"]) if (archive / MANIFEST).is_file() else set()
@@ -320,6 +359,7 @@ def archive_info(archive: Path) -> dict:
     meta = json.loads((archive / MANIFEST).read_text(encoding="utf-8"))
     if meta["version"] not in (1, 2):
         raise ValueError("不支持的云端归档版本")
+    _candidate_review_files(archive)
     for key, want in meta["files"].items():
         if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
             rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
@@ -346,6 +386,7 @@ def archive_info(archive: Path) -> dict:
 
 def restore_feeds(archive: Path, dest: Path) -> dict:
     meta = archive_info(archive)
+    previous_reviews = _candidate_review_files(dest.parent)
     dest.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=dest.parent) as temporary:
         dbfile = Path(temporary) / "feeds.db"
@@ -418,6 +459,9 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                     raise ValueError("竞彩审计分片路径超出恢复目录")
                 if path.relative_to(dest.parent).as_posix() not in meta["files"]:
                     path.unlink()
+        for path in previous_reviews:
+            if path.relative_to(dest.parent).as_posix() not in meta["files"]:
+                path.unlink()
         for name in ("unmatched_teams.csv", "rejected_results.csv"):
             if f"state/{name}" in meta["files"]:
                 (dest.parent / name).write_bytes((archive / f"state/{name}").read_bytes())

@@ -9,7 +9,7 @@ on:
       operation:
         description: 'daily 整条每日链，apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，digest 每日摘要推送，probe 权限探测，identity 身份核验，reconcile 合并已核验存量身份，relink-fdorg 补 fd/fdorg 链接，relink-jc 补后到竞彩链接，stats-backfill 技术数据回填'
         type: choice
-        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, daily]
+        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, candidate-review, daily]
         default: verify
       source:
         description: 'backfill 来源；probe / identity 固定使用 apif'
@@ -25,7 +25,7 @@ on:
         type: string
         default: ''
       options:
-        description: 'JSON 选项：from_season、to_season、probe_kind（默认 seasons）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）'
+        description: 'JSON 选项：from_season、to_season、probe_kind（默认 seasons）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
         type: string
         default: '{}'
       endpoints:
@@ -104,7 +104,7 @@ jobs:
 
   apis:
     needs: [schedule-gate]
-    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -364,6 +364,60 @@ jobs:
           retention-days: 90
           if-no-files-found: ignore
 
+  candidate-review:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'candidate-review' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WORK_DIR: work-candidate-review-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project for candidate review
+        run: python -m pip install -e ./app
+      - name: Record archive revision before review
+        id: archive_base
+        working-directory: cloud-data
+        run: |
+          archive_head=$(git rev-parse --verify HEAD)
+          printf 'head=%s\n' "$archive_head" >> "$GITHUB_OUTPUT"
+      - name: Restore and apply approved candidate review
+        env:
+          DISPATCH_OPTIONS: ${{ inputs.options }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_candidate_review --archive ../cloud-data --dispatch-options "$DISPATCH_OPTIONS" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Publish reviewed queue and audit
+        working-directory: cloud-data
+        env:
+          PUBLISH_EXPECTED_BASE: ${{ steps.archive_base.outputs.head }}
+        run: PUBLISH_RECOVERY_DIR="../$WORK_DIR/publication-recovery" bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep candidate review evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORK_DIR }}/approved-plan.json
+            ${{ env.WORK_DIR }}/summary.md
+            ${{ env.WORK_DIR }}/publication-recovery
+            cloud-data/state/audit/jc_candidate_reviews
+            cloud-data/state/alias_candidates/jc.json
+            cloud-data/feed_manifest.json
+          retention-days: 90
+          if-no-files-found: ignore
+
   predict:
     needs: [schedule-gate, apis, sporttery]
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict'))) }}
@@ -535,7 +589,7 @@ jobs:
     outputs:
       publish_status: ${{ steps.publish_jc.outcome }}
     needs: [schedule-gate, apis]
-    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
     timeout-minutes: 60
     env:

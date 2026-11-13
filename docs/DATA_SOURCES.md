@@ -1032,6 +1032,19 @@ T06 不能将这些无时间戳价格当作执行SP。收盘价是赛前最后�
 无重复身份；湘南海洋与既有 Shonan Bellmare 存在疑点，继续 pending，待补足 T54 配对证据。
 详细清单、实际处置时刻和恢复验证见 [T58 验收](../reports/t58-sfc-name-table-and-small-fixes/README.md)。
 
+#### T59 候选处置与手工降级（2026-11-13，北京时间）
+
+本次不增加数据来源、采集端点、请求频率或正式 key 使用；只读取既有归档与离线 fixtures，
+没有请求体育站点或重读 robots，沿用上文已核验的访问边界。
+`candidate-review` 是核验结果的归档发布操作，先恢复当时最新数据再严格核对已提交计划中的
+身份清单/队列哈希，不将 T58 旧副本覆盖正式库。处置审计与实际 UTC/北京时间一起保存，
+旧截点不会使用之后的处置结论。正式首批运行由审查者触发并留 Actions 证据；
+离线结果不能当作线上已发布，也不表示模型已适用。
+
+手工 `fetch_sfc` 对未核准国家队编号改为保存 unmatched 和 `national_team_name_missing`，
+完整 14 行仍归档，CSV 仅含有比赛 ID 的行；已知编号与名称冲突继续拒绝。
+验证复用 T07 页面和明确标为合成的未核准编号，不声称新增真实页面验证。
+
 ### 国家队历史参考补充（T51，2026-11-10 北京时间核对）
 
 数据为 [martj42/international_results](https://github.com/martj42/international_results)，

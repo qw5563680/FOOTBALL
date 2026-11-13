@@ -59,7 +59,8 @@ def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
     assert "group: write-football-feed-data" in text
     assert (
         "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
-        "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, daily]" in text
+        "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, "
+        "candidate-review, daily]" in text
     )
 
 
@@ -96,7 +97,8 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
     text = WORKFLOW.read_text()
     assert (
         "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
-        "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, daily]" in text
+        "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, "
+        "candidate-review, daily]" in text
     )
     jobs = dict(
         re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
