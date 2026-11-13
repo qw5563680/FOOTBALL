@@ -12,7 +12,7 @@ from sqlalchemy import delete, select
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
-from zucai.nations import sfc_team
+from zucai.nations import UnknownSfcTeam, sfc_team
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
 from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
@@ -271,6 +271,18 @@ def _snapshot_rows(session, issue, bridge_map, *, mapped_only, bridge_conflicts=
             match, mapping, candidates, evidence = _map_fixture(
                 session, fixture, bridge_map, mapped_only=mapped_only
             )
+        except UnknownSfcTeam as exc:
+            if not mapped_only:
+                raise
+            match, mapping, candidates = None, "unmatched", []
+            evidence = dict(
+                basis="national_team_name_missing",
+                home_id=fixture.home_id,
+                away_id=fixture.away_id,
+                missing_teams=exc.missing_teams,
+            )
+            if fixture.fixture_id in bridge_map:
+                evidence["bridge"] = copy.deepcopy(bridge_map[fixture.fixture_id])
         except ValueError as exc:
             if not mapped_only:
                 raise

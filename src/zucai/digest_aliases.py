@@ -16,7 +16,10 @@ def pending_name_lines(archive, feed, now):
     pending = []
     for league, names in candidates.items():
         for name, entry in names.items():
-            if entry.get("status") != "pending":
+            reviewed = entry.get("review", {}).get("recorded_utc")
+            if entry.get("status") != "pending" and not (
+                reviewed and instant(reviewed) > instant(now)
+            ):
                 continue
             observations = [
                 row

@@ -106,6 +106,8 @@ zucai stats replay-fd --db work/isolated/feeds.db --plan work/fd-replay.json  # 
 zucai stats ingest-injuries --db data/zucai.db --league 39 --season 2024 --raw-file work/injuries.json  # 离线历史季页，须有 sidecar
 python -m zucai.predict.experiments.injury_command --db data/zucai.db --out work/t38-run --source-commit <数据分支SHA>  # 只读实验；全量归档走 Release
 python -m zucai.history_supplement --plan data/history/international-results-t51-plan.json --source work/history/results.csv --archive work/history/archive --registry data/api_football/nations.json --output work/history/supplement  # T51：固定19场离线校验，只另存3场历史参考；不接入训练
+python -m zucai.jc_candidate_review inspect --db work/review/feeds.db --out work/jc-inspection.json  # T58：只读恢复副本的完整身份与待核证据
+python -m zucai.jc_candidate_review apply --db work/review/feeds.db --plan work/jc-review-plan.json --audit work/jc-review-evidence  # 显式核验计划；只处置副本队列，不合并球队
 zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
 zucai stats ingest-apif --db data/zucai.db --endpoint statistics --raw-file work/statistics.json --fixture-file work/fixtures.json
 # 以下 API 采集命令由审查者在 Actions 执行，正式凭据只取 Secrets；开发测试用离线 fixtures
@@ -305,6 +307,16 @@ T54 竞彩赛程及赛果建队前先查 `data/team_aliases/sporttery.json` 的�
 未命中的新名称独立建队并登记到 `state/alias_candidates/jc.json`，随 feeds 哈希导出与恢复；
 不会按前缀或相似程度合并。已产生的重复身份只由手动 `reconcile` 根据批准条目的具体比赛证据校正，
 不会批量重命名历史球队或改写已冻结预测。离线验收见 [T54 记录](reports/t54-jc-short-name/README.md)。
+
+T58 提供离线候选处置：先 `inspect` 核对固定库的完整身份和比赛证据，再明确填写计划
+`version=1`、`reviewer`、`inventory_sha256`、`queue_sha256` 和 `decisions`。
+每条决定含 `league`、`raw_name`、`team_id`、`checked_names`（精确原名及已核实名称）、
+`conclusion`（`distinct` / `duplicate` / `unresolved`）与 `reason`。
+`apply` 校验队列、身份清单、原始比赛方向和时间；任一变化须重新核验。
+仅固定库内无重复的条目转为 `cleared`；确认或疑似重复继续 pending，按 T54 另做证据核准。
+这不批准通用别名，也不证明球队模型已适用。导出/恢复沿用原 feeds 哈希机制；
+生产处置须另按当时最新库制定计划，不能直接把本次旧副本推回正式数据。
+首批核验及胜负彩修复见 [T58 验收](reports/t58-sfc-name-table-and-small-fixes/README.md)。
 
 T22 权限探测由 Claude 在 **Actions → Football cloud feeds → Run workflow** 选择 PR 分支执行：
 `operation=probe source=apif leagues=3,848 seasons=2021-2026`。

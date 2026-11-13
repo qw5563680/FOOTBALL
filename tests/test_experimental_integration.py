@@ -8,6 +8,7 @@ import sys
 from copy import deepcopy
 from datetime import timedelta
 
+from scoreboard_summary_support import assert_same_summary
 from test_experimental_scoreboard import scores
 from test_scoreboard_command import scoreboard_archive  # noqa: F401
 from test_scoreboard_score import NOW
@@ -58,7 +59,7 @@ def test_append_experimental_scores_preserves_original_scores_ledger_and_repeat_
 
     confirm_fixture(archive)
     second = run(archive, as_of=NOW)
-    assert first["probability"] == second["probability"]
+    assert_same_summary(second["probability"], first["probability"])
     assert (archive / "scoreboard/ledger.jsonl").read_bytes() == ledger
     updated = (archive / "scoreboard/scored.jsonl").read_bytes()
     assert updated.startswith(original_scores) and len(updated) > len(original_scores)

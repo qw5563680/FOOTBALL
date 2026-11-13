@@ -15,13 +15,37 @@ def identities():
     return read_json(CONFIG_ROOT / "api_football/nations.json")
 
 
+@lru_cache(maxsize=1)
+def sfc_aliases():
+    return read_json(CONFIG_ROOT / "team_aliases/sfc.json")
+
+
+class UnknownSfcTeam(ValueError):
+    """The printed ID/name has no reviewed identity; it must not become a guess."""
+
+    def __init__(self, provider_id, label):
+        self.missing_teams = [{"provider_id": provider_id, "label": label}]
+        super().__init__("欧国联队名对照表缺该队")
+
+
 def sfc_team(provider_id, label):
     """An ID plus the original printed label must agree before expanding a short name."""
     entry = identities()["sfc"].get(provider_id)
     if entry is None:
+        candidate = sfc_aliases().get(LEAGUE, {}).get(provider_id, {})
+        if (
+            candidate.get("status") == "approved"
+            and candidate.get("scope") == "national_team"
+            and candidate.get("evidence")
+        ):
+            canonical = identities()["teams"].get(str(candidate.get("apif_id")), {})
+            if canonical.get("canonical") != candidate.get("canonical"):
+                raise ValueError("欧国联核准别名与标准国家队身份冲突")
+            entry = candidate
+    if entry is None:
         if provider_id and any(r["label"] == label for r in identities()["sfc"].values()):
             raise ValueError("欧国联期次球队名称与已核验编号冲突")
-        return label
+        raise UnknownSfcTeam(provider_id, label)
     if label not in (entry["label"], entry["canonical"]):
         raise ValueError("欧国联球队编号与期次原队名冲突")
     return entry["canonical"]

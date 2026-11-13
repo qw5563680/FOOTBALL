@@ -1004,6 +1004,34 @@ T06 不能将这些无时间戳价格当作执行SP。收盘价是赛前最后�
 
 使用原有 API-Football v3 fixtures 路径、密钥保护与配额保留规则。2026-11-09 北京时间的账号实测返回 2018、2020、2022、2024、2026 五届，共 824 条赛程及赛果。当前届数据每日刷新一次。正式采集保留每届响应的哈希、采集日期、正常与冲突行数。期次队名缩写仅按这次核实的 500 球队编号和名称展开，再核对两队、联赛与准确开球时刻。[接口原始运行记录](https://github.com/qw5563680/FOOTBALL/actions/runs/42526632355)
 
+#### T58 对照来源与补表（2026-11-13，北京时间）
+
+`state/nations_league.json` **不是队名表**。`src/zucai/nations.py:collect_editions`
+调用原 API-Football fixtures 采集函数，按 `data/api_football/leagues.json["5"]`
+列出的赛季归档计数/哈希/日期，用于同日跳过和冲突重试；不会从该状态生成球队对照。
+实际查表是人工核准的 `data/api_football/nations.json`，T58 另加赛事内核准表
+`data/team_aliases/sfc.json`，未核准 ID 即使碰巧与库内全名相同也不匹配。
+
+本次仅使用既有 `data/football-feeds@e901c14b2c3aac1496832cc98cb2ab7e3bd7aeb2`：
+`state/sfc/26164.json`（原页 `https://trade.500.com/sfc/`；实际读取
+2026-11-13 18:10:36.997461 北京时间 / 10:10:36.997461 UTC）、`state/teams.jsonl`
+与 `state/matches.jsonl`。裁剪原行及完整来源文件哈希见 `data/fixtures/t58/provenance.json`。
+新增表每条记录同时保存 500 编号/原标签、规范名、APIF 队伍编号、对应比赛/主客方向、
+准确开球时间、归档提交及来源哈希；批准只限欧国联，禁止模糊或前缀匹配。
+14 个补充编号为 77、55、31、62、53、21、20、3、26、37、27、80、157、19。
+其中实际恢复的是格鲁吉—匈牙利（apif:1528973）、罗马尼—波兰（apif:1528977）、
+芬兰—圣马力（apif:1528981）；其余补充编号用于保留本期原先可靠的完整名匹配。
+选择小范围核准表而非猜齐所有国家：当前归档不能证明所有未出现国家的 500 编号。
+
+本任务只读本地归档和离线 fixtures，没有请求体育页面、使用正式 key 或增加联网采集；
+既有 robots.txt 核查与请求限制不变。旧冻结报告/CSV、预测、模型和账本不改。
+新报告根据实际证据说明缺表/占位/冲突/待桥接；无法由缺桥接推出竞彩未开售。
+
+竞彩首批 5 个候选也只核验该固定库。处置结论是固定清单内的身份检查，
+不表示批准所有跨语言别名。哥伦比亚、巴拉圭、新加坡、阿根廷在已检查的名称与比赛证据中
+无重复身份；湘南海洋与既有 Shonan Bellmare 存在疑点，继续 pending，待补足 T54 配对证据。
+详细清单、实际处置时刻和恢复验证见 [T58 验收](../reports/t58-sfc-name-table-and-small-fixes/README.md)。
+
 ### 国家队历史参考补充（T51，2026-11-10 北京时间核对）
 
 数据为 [martj42/international_results](https://github.com/martj42/international_results)，
