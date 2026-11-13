@@ -1,0 +1,657 @@
+name: Football cloud feeds
+on:
+  schedule:
+    - cron: '40 2 * * *'
+    - cron: '40 7 * * *'
+    - cron: '40 9 * * *'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'daily 整条每日链，apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，digest 每日摘要推送，probe 权限探测，identity 身份核验，reconcile 合并已核验存量身份，relink-fdorg 补 fd/fdorg 链接，relink-jc 补后到竞彩链接，stats-backfill 技术数据回填'
+        type: choice
+        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, candidate-review, daily]
+        default: verify
+      source:
+        description: 'backfill 来源；probe / identity 固定使用 apif'
+        type: choice
+        options: [fd, fdorg, apif]
+        default: fd
+      leagues:
+        description: '赛事代码；probe 默认 3,848，身份核验默认七桥接；stats-backfill 可选 API ID 或 fd 九主联赛代码'
+        type: string
+        default: ''
+      seasons:
+        description: 'probe 年份；identity 默认 2025,2026；stats-backfill 默认 2022 起所有已开始赛季'
+        type: string
+        default: ''
+      options:
+        description: 'JSON 选项：from_season、to_season、probe_kind（默认 seasons）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
+        type: string
+        default: '{}'
+      endpoints:
+        description: '仅 stats-backfill：index,fd,statistics,events,lineups,players,injuries 的子集'
+        type: string
+        default: 'index,fd,statistics,events,lineups,players,injuries'
+      max_requests:
+        description: '仅 stats-backfill：本批 API 请求上限，不超过 7000'
+        type: number
+        default: 7000
+      resume:
+        description: '仅 stats-backfill：继续已归档游标'
+        type: boolean
+        default: true
+      days:
+        description: 'fdorg 前后各 N 个 UTC 日；sync 回看 N 个北京时间自然日'
+        type: number
+        default: 3
+      gate:
+        description: '仅 daily：先检查今明胜负彩停售期次；明确无期次时跳过整条链'
+        type: boolean
+        default: false
+  push:
+    tags: ['football-ingest-run-*', 'football-ingest-verify-*']
+
+permissions:
+  contents: write
+# One lock covers collection and prediction, including dispatches from different branches.
+concurrency:
+  group: write-football-feed-data
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ZUCAI_OPERATION: ${{ inputs.operation }}
+  ZUCAI_DAILY_GATE: ${{ inputs.gate && 'true' || 'false' }}
+  FEED_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') && 'apis' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-jc') && 'relink-jc' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'relink-fdorg') && 'relink-fdorg' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'reconcile') && 'reconcile' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'identity') && 'identity' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'probe') && 'probe' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'backfill') && 'backfill' || ((startsWith(github.ref_name, 'football-ingest-verify-') || inputs.operation == 'verify') && 'verify' || ((startsWith(github.ref_name, 'football-ingest-run-') || inputs.operation == 'sync') && 'sync' || 'apis')) }}
+
+jobs:
+  schedule-gate:
+    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '40 7 * * *') || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' && inputs.gate) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_early: ${{ steps.decide.outputs.run_early }}
+      scope: ${{ steps.decide.outputs.scope }}
+    steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        id: archive
+        continue-on-error: true
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          persist-credentials: false
+          sparse-checkout: /state/sfc/
+          sparse-checkout-cone-mode: false
+      - name: Check archived SFC deadlines before sports requests
+        id: decide
+        if: ${{ !cancelled() }}
+        env:
+          ARCHIVE_STATUS: ${{ steps.archive.outcome }}
+        run: |
+          python3 app/src/zucai/schedule_gate.py --archive cloud-data --archive-status "$ARCHIVE_STATUS"
+
+  apis:
+    needs: [schedule-gate]
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      slot: ${{ steps.collect.outputs.slot }}
+    env:
+      WORK_DIR: work-apis-${{ github.run_id }}-${{ github.run_attempt }}
+      ZUCAI_APIF_DAILY_CAP: ${{ vars.ZUCAI_APIF_DAILY_CAP }}
+    steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+        if: ${{ env.FEED_MODE != 'sync' }}
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - name: Validate dispatch options before collection
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation != 'daily' }}
+        env:
+          DISPATCH_OPTIONS: ${{ inputs.options }}
+        run: |
+          python - <<'PYOPTIONS'
+          import json
+          import os
+          options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot"}
+          if not isinstance(options, dict) or set(options) - allowed:
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot")
+          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats"}:
+              raise SystemExit("invalid probe_kind")
+          if options.get("slot", "auto") not in ("auto", "early", "late"):
+              raise SystemExit("slot must be auto, early or late")
+          count = options.get("per_scope", 1)
+          if type(count) is not int or count < 1:
+              raise SystemExit("per_scope must be a positive integer")
+          for key in ("from_season", "to_season"):
+              if key in options and not isinstance(options[key], (str, int)):
+                  raise SystemExit("season bounds must be strings or integers")
+          PYOPTIONS
+      - name: Install project with checked-in source configurations
+        if: ${{ env.FEED_MODE != 'sync' }}
+        run: python -m pip install -e ./app
+      - name: Restore and collect APIs or verify archive
+        id: collect
+        if: ${{ env.FEED_MODE != 'sync' && env.FEED_MODE != 'backfill' && env.FEED_MODE != 'probe' && env.FEED_MODE != 'identity' && env.FEED_MODE != 'reconcile' && env.FEED_MODE != 'relink-fdorg' && env.FEED_MODE != 'relink-jc' }}
+        env:
+          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          ZUCAI_NATIONS_LEAGUE: "1"
+          LOOKBACK: ${{ github.event_name == 'workflow_dispatch' && inputs.operation != 'daily' && format('{0}', inputs.days) || '3' }}
+          FEED_SLOT: ${{ (github.event_name == 'schedule' || inputs.operation == 'daily') && 'auto' || fromJSON(inputs.options || '{}').slot || 'auto' }}
+        run: |
+          slot="$FEED_SLOT"
+          if [[ "$slot" == auto ]]; then
+            if (( 10#$(date -u +%H) < 9 )); then slot=early; else slot=late; fi
+          fi
+          echo "slot=$slot" >> "$GITHUB_OUTPUT"
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds "$FEED_MODE" --archive ../cloud-data --days "$LOOKBACK" --slot "$FEED_SLOT" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Restore and backfill verified history once
+        if: ${{ env.FEED_MODE == 'backfill' }}
+        env:
+          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          BACKFILL_SOURCE: ${{ inputs.source }}
+          BACKFILL_LEAGUES: ${{ inputs.leagues }}
+          BACKFILL_FROM: ${{ fromJSON(inputs.options || '{}').from_season }}
+          BACKFILL_TO: ${{ fromJSON(inputs.options || '{}').to_season }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          args=(--source "${BACKFILL_SOURCE:-fd}")
+          if [[ -n "$BACKFILL_LEAGUES" ]]; then args+=(--leagues "$BACKFILL_LEAGUES"); fi
+          if [[ -n "$BACKFILL_FROM" ]]; then args+=(--from "$BACKFILL_FROM"); fi
+          if [[ -n "$BACKFILL_TO" ]]; then args+=(--to "$BACKFILL_TO"); fi
+          python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}"
+      - name: Probe API-Football permissions without importing matches
+        if: ${{ env.FEED_MODE == 'probe' }}
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          PROBE_LEAGUES: ${{ inputs.leagues }}
+          PROBE_SEASONS: ${{ inputs.seasons }}
+          PROBE_KIND: ${{ fromJSON(inputs.options || '{}').probe_kind || 'seasons' }}
+          PROBE_PER_SCOPE: ${{ fromJSON(inputs.options || '{}').per_scope || 1 }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          PROBE_SOURCE=apif
+          PROBE_KIND=${PROBE_KIND:-seasons}
+          if [[ "$PROBE_KIND" == stats ]]; then
+            args=(--probe-kind stats)
+            if [[ -n "$PROBE_LEAGUES" ]]; then args+=(--leagues "$PROBE_LEAGUES"); fi
+            if [[ -n "$PROBE_SEASONS" ]]; then args+=(--seasons "$PROBE_SEASONS"); fi
+            if [[ -n "${PROBE_PER_SCOPE:-}" ]]; then args+=(--per-scope "$PROBE_PER_SCOPE"); fi
+          elif [[ "$PROBE_KIND" == leagues ]]; then
+            PROBE_LEAGUES=${PROBE_LEAGUES:-39,140,135,78,61,88,94}
+            args=(--probe-kind leagues --leagues "$PROBE_LEAGUES")
+          else
+            PROBE_LEAGUES=${PROBE_LEAGUES:-3,848}
+            PROBE_SEASONS=${PROBE_SEASONS:-2021-2026}
+            args=(--leagues "$PROBE_LEAGUES" --seasons "$PROBE_SEASONS")
+          fi
+          python -m zucai.cloud_feeds probe --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source "$PROBE_SOURCE" "${args[@]}"
+      - name: Verify identity-only leagues without importing matches
+        if: ${{ env.FEED_MODE == 'identity' }}
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          IDENTITY_LEAGUES: ${{ inputs.leagues }}
+          IDENTITY_SEASONS: ${{ inputs.seasons }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          IDENTITY_LEAGUES=${IDENTITY_LEAGUES:-39,140,135,78,61,88,94}
+          IDENTITY_SEASONS=${IDENTITY_SEASONS:-2025,2026}
+          python -m zucai.cloud_feeds identity --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source apif --leagues "$IDENTITY_LEAGUES" --seasons "$IDENTITY_SEASONS"
+      - name: Reconcile verified APIF provisional identities without network
+        if: ${{ env.FEED_MODE == 'reconcile' }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Relink fdorg to existing fd without network
+        if: ${{ env.FEED_MODE == 'relink-fdorg' }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Relink existing APIs to late jc without network
+        if: ${{ env.FEED_MODE == 'relink-jc' }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds backfill --relink-jc --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Collect late technical data from linked fixtures
+        if: ${{ env.FEED_MODE == 'apis' && steps.collect.outputs.slot == 'late' }}
+        continue-on-error: true
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd "$WORK_DIR"
+          python -m zucai.cloud_stats daily --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --max-requests 300
+      - name: Preserve captured statistics from already downloaded fd files
+        if: ${{ env.FEED_MODE == 'apis' && steps.collect.outputs.slot == 'early' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd "$WORK_DIR"
+          if [[ -d data/raw/football-data-co-uk ]]; then
+            python -m zucai.cloud_stats daily --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --endpoints fd --max-requests 1
+          fi
+      - name: Publish verified data
+        if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' || env.FEED_MODE == 'reconcile' || env.FEED_MODE == 'relink-fdorg' || env.FEED_MODE == 'relink-jc' }}
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep collection originals and audit even on rebase conflict
+        if: ${{ !cancelled() && (env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' || env.FEED_MODE == 'reconcile' || env.FEED_MODE == 'relink-fdorg' || env.FEED_MODE == 'relink-jc') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: apis-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORK_DIR }}/data/raw
+            ${{ env.WORK_DIR }}/data/state
+            ${{ env.WORK_DIR }}/data/stats_assets
+            ${{ env.WORK_DIR }}/data/unmatched_teams.csv
+          retention-days: 90
+          if-no-files-found: ignore
+
+  stats-backfill:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'stats-backfill' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      WORK_DIR: work-stats-${{ github.run_id }}-${{ github.run_attempt }}
+      ZUCAI_APIF_DAILY_CAP: ${{ vars.ZUCAI_APIF_DAILY_CAP }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate dispatch options before collection
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          DISPATCH_OPTIONS: ${{ inputs.options }}
+        run: |
+          python - <<'PYOPTIONS'
+          import json
+          import os
+          options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot"}
+          if not isinstance(options, dict) or set(options) - allowed:
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot")
+          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats"}:
+              raise SystemExit("invalid probe_kind")
+          if options.get("slot", "auto") not in ("auto", "early", "late"):
+              raise SystemExit("slot must be auto, early or late")
+          count = options.get("per_scope", 1)
+          if type(count) is not int or count < 1:
+              raise SystemExit("per_scope must be a positive integer")
+          for key in ("from_season", "to_season"):
+              if key in options and not isinstance(options[key], (str, int)):
+                  raise SystemExit("season bounds must be strings or integers")
+          PYOPTIONS
+      - name: Install project for technical data backfill
+        run: python -m pip install -e ./app
+      - name: Restore and backfill selected technical data
+        id: collect_stats
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATS_ENDPOINTS: ${{ inputs.endpoints }}
+          STATS_LEAGUES: ${{ inputs.leagues }}
+          STATS_SEASONS: ${{ inputs.seasons }}
+          STATS_MAX_REQUESTS: ${{ inputs.max_requests }}
+          STATS_RESUME: ${{ inputs.resume }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          args=()
+          if [[ -n "$STATS_LEAGUES" ]]; then args+=(--leagues "$STATS_LEAGUES"); fi
+          if [[ -n "$STATS_SEASONS" ]]; then args+=(--seasons "$STATS_SEASONS"); fi
+          if [[ "$STATS_RESUME" == true ]]; then args+=(--resume); else args+=(--no-resume); fi
+          python -m zucai.cloud_stats backfill --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --endpoints "$STATS_ENDPOINTS" --max-requests "$STATS_MAX_REQUESTS" "${args[@]}"
+      - name: Publish verified technical index and audit
+        if: ${{ !cancelled() && (steps.collect_stats.outcome == 'success' || steps.collect_stats.outcome == 'failure') }}
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep technical originals and Release assets even on failure
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stats-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORK_DIR }}/data/raw
+            ${{ env.WORK_DIR }}/data/state
+            ${{ env.WORK_DIR }}/data/stats_assets
+          retention-days: 90
+          if-no-files-found: ignore
+
+  candidate-review:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'candidate-review' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WORK_DIR: work-candidate-review-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project for candidate review
+        run: python -m pip install -e ./app
+      - name: Record archive revision before review
+        id: archive_base
+        working-directory: cloud-data
+        run: |
+          archive_head=$(git rev-parse --verify HEAD)
+          printf 'head=%s\n' "$archive_head" >> "$GITHUB_OUTPUT"
+      - name: Restore and apply approved candidate review
+        env:
+          DISPATCH_OPTIONS: ${{ inputs.options }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_candidate_review --archive ../cloud-data --dispatch-options "$DISPATCH_OPTIONS" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Publish reviewed queue and audit
+        working-directory: cloud-data
+        env:
+          PUBLISH_EXPECTED_BASE: ${{ steps.archive_base.outputs.head }}
+        run: PUBLISH_RECOVERY_DIR="../$WORK_DIR/publication-recovery" bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep candidate review evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORK_DIR }}/approved-plan.json
+            ${{ env.WORK_DIR }}/summary.md
+            ${{ env.WORK_DIR }}/publication-recovery
+            cloud-data/state/audit/jc_candidate_reviews
+            cloud-data/state/alias_candidates/jc.json
+            cloud-data/feed_manifest.json
+          retention-days: 90
+          if-no-files-found: ignore
+
+  predict:
+    needs: [schedule-gate, apis, sporttery]
+    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      WORK_DIR: work-predict-${{ github.run_id }}-${{ github.run_attempt }}
+      ZUCAI_PARAMS: ${{ github.workspace }}/app/data/model/params.json
+    steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project and existing model extra
+        run: python -m pip install -e "./app[model]"
+      - name: Train configured leagues and freeze two Beijing days
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPORTTERY_STATUS: ${{ needs.sporttery.result }}
+          SPORTTERY_PUBLISH_STATUS: ${{ needs.sporttery.outputs.publish_status }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_predict run --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --sporttery-status "$SPORTTERY_STATUS" --feed-commit "$(git -C ../cloud-data rev-parse HEAD)"
+      - name: Freeze SFC14 diagnostics from today's model reports
+        continue-on-error: true
+        run: python -m zucai.sfc_reports --archive cloud-data --summary "$GITHUB_STEP_SUMMARY"
+      - name: Publish frozen models and forecasts
+        id: publish_forecasts
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Confirm forecast and SFC publication from the published data branch
+        if: ${{ success() && steps.publish_forecasts.outcome == 'success' }}
+        run: |
+          git -C cloud-data fetch origin refs/heads/data/football-feeds:refs/remotes/origin/data/football-feeds
+          python -m zucai.forecast_publication --archive cloud-data --published-ref refs/remotes/origin/data/football-feeds
+          python -m zucai.sfc_reports --archive cloud-data --confirm-publication --published-ref refs/remotes/origin/data/football-feeds --summary "$GITHUB_STEP_SUMMARY"
+      - name: Publish confirmed forecast and SFC publication evidence
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep frozen evidence even on publish conflict
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecasts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            cloud-data/models/${{ github.run_id }}-${{ github.run_attempt }}
+            cloud-data/models/latest.json
+            cloud-data/forecasts/*/${{ github.run_id }}-${{ github.run_attempt }}
+            cloud-data/forecast_manifest.json
+            cloud-data/sfc
+          retention-days: 90
+          if-no-files-found: ignore
+
+  scoreboard:
+    needs: [schedule-gate, predict]
+    # A skipped/failed prediction must not prevent settlement of earlier frozen batches.
+    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict' || inputs.operation == 'scoreboard'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project for offline scoring
+        run: python -m pip install -e ./app
+      - name: Restore, score frozen predictions and settle virtual accounts
+        run: python -m zucai.scoreboard run --archive cloud-data
+      - name: Publish scoreboard
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep scoreboard evidence even on publish conflict
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoreboard-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            cloud-data/scoreboard
+            cloud-data/sfc/settled.jsonl
+          retention-days: 90
+          if-no-files-found: ignore
+
+  digest:
+    permissions:
+      contents: write
+      issues: write
+    needs: [schedule-gate, scoreboard, sporttery]
+    # Report the available frozen state even if upstream work failed; never rescore here.
+    if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project for read-only digest
+        run: python -m pip install -e ./app
+      - name: Render daily digest from frozen archives
+        env:
+          SPORTTERY_STATUS: ${{ needs.sporttery.result }}
+          SPORTTERY_PUBLISH_STATUS: ${{ needs.sporttery.outputs.publish_status }}
+        run: python -m zucai.daily_digest --archive cloud-data --out cloud-data/daily --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --jc-sync-status "$SPORTTERY_STATUS" --jc-sync-run-id "$GITHUB_RUN_ID" --require-notified-history
+      - name: Publish daily Markdown
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Update monthly report Issue with today's exact Markdown
+        id: notify_digest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -m zucai.digest_notify --file cloud-data/daily/latest.md --history-root cloud-data/daily
+      - name: Publish successful notification receipts even after later cleanup failure
+        if: ${{ !cancelled() && (steps.notify_digest.outcome == 'success' || steps.notify_digest.outcome == 'failure') }}
+        working-directory: cloud-data
+        run: |
+          if [[ -n "$(git status --porcelain -- ':(glob)daily/*/*.notification.json')" ]]; then
+            bash ../app/scripts/publish-football-feeds.sh
+          fi
+      - name: Keep digest evidence even on publish or notification failure
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cloud-data/daily
+          retention-days: 90
+          if-no-files-found: ignore
+
+  sporttery:
+    outputs:
+      publish_status: ${{ steps.publish_jc.outcome }}
+    needs: [schedule-gate, apis]
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
+    timeout-minutes: 60
+    env:
+      WORK_DIR: work-sporttery-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Expose Git Bash to the bash steps below
+        # Windows runners only put the Git cmd folder on PATH; the runner resolves `shell: bash` from PATH.
+        shell: powershell
+        run: |
+          $git = (Get-Command git).Source
+          $bin = Join-Path (Split-Path (Split-Path $git -Parent) -Parent) 'bin'
+          if (-not (Test-Path (Join-Path $bin 'bash.exe'))) { throw "Git Bash not found under $bin" }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+      - name: Identify manual daily chain
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
+        shell: bash
+        run: |
+          printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install project
+        shell: bash
+        run: python -m pip install -e ./app
+      - name: Restore data, collect fixtures and reconcile official results
+        env:
+          LOOKBACK: ${{ (github.event_name == 'schedule' || inputs.operation == 'daily') && 3 || inputs.days || 3 }}
+        shell: bash
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds sync --archive ../cloud-data --days "$LOOKBACK" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Publish verified data
+        id: publish_jc
+        working-directory: cloud-data
+        shell: bash
+        run: PUBLISH_RECOVERY_DIR="../$WORK_DIR/publication-recovery" bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep committed collection recovery bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sporttery-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.WORK_DIR }}/publication-recovery
+          retention-days: 90
+          if-no-files-found: ignore
+      - name: Keep official originals and audit even on rebase conflict
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sporttery-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORK_DIR }}/data/raw
+            ${{ env.WORK_DIR }}/data/state
+            ${{ env.WORK_DIR }}/data/rejected_results.csv
+          retention-days: 90
+          if-no-files-found: ignore

@@ -1,0 +1,963 @@
+..............FFFFFFFFFFFFFFFF...                                        [100%]
+=================================== FAILURES ===================================
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[kickoff-own-manual] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity4')
+mapped_only = False, binding = 'own', conflict = 'kickoff'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+>           with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_sfc_manual.py:258: Failed
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[kickoff-own-cloud] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity5')
+mapped_only = True, binding = 'own', conflict = 'kickoff'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+            with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                with session_scope(engine) as session:
+                    ingest(session)
+        else:
+            with session_scope(engine) as session:
+                row = ingest(session).snapshot[-1]
+                assert row["match_id"] is None
+                assert row["matched_identity"] is None
+>               assert row["mapping"] == ("ambiguous" if conflict else "unmatched")
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:266: AssertionError
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[kickoff-counterpart-manual] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity6')
+mapped_only = False, binding = 'counterpart', conflict = 'kickoff'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+>           with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_sfc_manual.py:258: Failed
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[kickoff-counterpart-cloud] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity7')
+mapped_only = True, binding = 'counterpart', conflict = 'kickoff'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+            with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                with session_scope(engine) as session:
+                    ingest(session)
+        else:
+            with session_scope(engine) as session:
+                row = ingest(session).snapshot[-1]
+                assert row["match_id"] is None
+                assert row["matched_identity"] is None
+>               assert row["mapping"] == ("ambiguous" if conflict else "unmatched")
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:266: AssertionError
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[league-own-manual] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity8')
+mapped_only = False, binding = 'own', conflict = 'league'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+>           with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_sfc_manual.py:258: Failed
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[league-own-cloud] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity9')
+mapped_only = True, binding = 'own', conflict = 'league'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+            with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                with session_scope(engine) as session:
+                    ingest(session)
+        else:
+            with session_scope(engine) as session:
+                row = ingest(session).snapshot[-1]
+                assert row["match_id"] is None
+                assert row["matched_identity"] is None
+>               assert row["mapping"] == ("ambiguous" if conflict else "unmatched")
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:266: AssertionError
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[league-counterpart-manual] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity10')
+mapped_only = False, binding = 'counterpart', conflict = 'league'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+>           with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_sfc_manual.py:258: Failed
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[league-counterpart-cloud] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity11')
+mapped_only = True, binding = 'counterpart', conflict = 'league'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+            with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                with session_scope(engine) as session:
+                    ingest(session)
+        else:
+            with session_scope(engine) as session:
+                row = ingest(session).snapshot[-1]
+                assert row["match_id"] is None
+                assert row["matched_identity"] is None
+>               assert row["mapping"] == ("ambiguous" if conflict else "unmatched")
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:266: AssertionError
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-home-own-manual] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity12')
+mapped_only = False, binding = 'own', conflict = 'known-home'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+>           with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_sfc_manual.py:258: Failed
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-home-own-cloud] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity13')
+mapped_only = True, binding = 'own', conflict = 'known-home'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+            with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                with session_scope(engine) as session:
+                    ingest(session)
+        else:
+            with session_scope(engine) as session:
+                row = ingest(session).snapshot[-1]
+                assert row["match_id"] is None
+                assert row["matched_identity"] is None
+>               assert row["mapping"] == ("ambiguous" if conflict else "unmatched")
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:266: AssertionError
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-home-counterpart-manual] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity14')
+mapped_only = False, binding = 'counterpart', conflict = 'known-home'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+>           with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_sfc_manual.py:258: Failed
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-home-counterpart-cloud] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity15')
+mapped_only = True, binding = 'counterpart', conflict = 'known-home'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+            with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                with session_scope(engine) as session:
+                    ingest(session)
+        else:
+            with session_scope(engine) as session:
+                row = ingest(session).snapshot[-1]
+                assert row["match_id"] is None
+                assert row["matched_identity"] is None
+>               assert row["mapping"] == ("ambiguous" if conflict else "unmatched")
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:266: AssertionError
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-away-own-manual] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity16')
+mapped_only = False, binding = 'own', conflict = 'known-away'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+>           with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_sfc_manual.py:258: Failed
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-away-own-cloud] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity17')
+mapped_only = True, binding = 'own', conflict = 'known-away'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+            with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                with session_scope(engine) as session:
+                    ingest(session)
+        else:
+            with session_scope(engine) as session:
+                row = ingest(session).snapshot[-1]
+                assert row["match_id"] is None
+                assert row["matched_identity"] is None
+>               assert row["mapping"] == ("ambiguous" if conflict else "unmatched")
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:266: AssertionError
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-away-counterpart-manual] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity18')
+mapped_only = False, binding = 'counterpart', conflict = 'known-away'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+>           with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_sfc_manual.py:258: Failed
+_ test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-away-counterpart-cloud] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-185/test_unknown_national_identity19')
+mapped_only = True, binding = 'counterpart', conflict = 'known-away'
+
+    @pytest.mark.parametrize("mapped_only", [False, True], ids=["manual", "cloud"])
+    @pytest.mark.parametrize("binding", ["own", "counterpart"])
+    @pytest.mark.parametrize("conflict", [None, "kickoff", "league", "known-home", "known-away"])
+    def test_unknown_national_identity_does_not_hide_existing_match_conflicts(
+        tmp_path, mapped_only, binding, conflict
+    ):
+        raw = (
+            _national_page(home_id="77", away_id="88888888")
+            if conflict == "known-home"
+            else _national_page()
+        )
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "existing.db")
+        init_db(engine)
+        own = binding == "own"
+        with session_scope(engine) as session:
+            home, away, other = Team(name="格鲁吉亚"), Team(name="匈牙利"), Team(name="葡萄牙")
+            session.add_all([home, away, other])
+            session.flush()
+            session.add(
+                Match(
+                    match_id="c500:1398632" if own else "apif:1528973",
+                    source="c500" if own else "apif",
+                    league="友谊赛" if conflict == "league" else "欧国联",
+                    home_team_id=other.id if conflict == "known-home" else home.id,
+                    away_team_id=other.id if conflict == "known-away" else away.id,
+                    kickoff_utc=issue.fixtures[-1].kickoff_utc
+                    + timedelta(hours=1 if conflict == "kickoff" else 0),
+                    status="scheduled",
+                    counterpart_id=None if own else "c500:1398632",
+                )
+            )
+    
+        def ingest(session):
+            return ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=mapped_only,
+            )
+    
+        if conflict and not mapped_only:
+            with pytest.raises(ValueError, match="身份冲突|球队、主客或原始开球时间不一致"):
+                with session_scope(engine) as session:
+                    ingest(session)
+        else:
+            with session_scope(engine) as session:
+                row = ingest(session).snapshot[-1]
+                assert row["match_id"] is None
+                assert row["matched_identity"] is None
+>               assert row["mapping"] == ("ambiguous" if conflict else "unmatched")
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:266: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[kickoff-own-manual]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[kickoff-own-cloud]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[kickoff-counterpart-manual]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[kickoff-counterpart-cloud]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[league-own-manual]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[league-own-cloud]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[league-counterpart-manual]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[league-counterpart-cloud]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-home-own-manual]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-home-own-cloud]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-home-counterpart-manual]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-home-counterpart-cloud]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-away-own-manual]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-away-own-cloud]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-away-counterpart-manual]
+FAILED tests/test_t59_sfc_manual.py::test_unknown_national_identity_does_not_hide_existing_match_conflicts[known-away-counterpart-cloud]

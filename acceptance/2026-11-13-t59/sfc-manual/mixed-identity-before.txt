@@ -1,0 +1,286 @@
+...F.FFFFF..                                                             [100%]
+=================================== FAILURES ===================================
+_ test_manual_fetch_known_id_name_conflict_rolls_back_without_csv[unknown-home-away-conflict] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-178/test_manual_fetch_known_id_nam1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8ffbe40da0>
+identity = {'away': '错误队名'}
+
+    @pytest.mark.parametrize(
+        "identity",
+        [
+            {"home_id": "77", "home": "错误队名"},
+            {"away": "错误队名"},
+            {"home_id": "77", "home": "错误队名", "away_id": "88888888"},
+        ],
+        ids=["known-home-conflict", "unknown-home-away-conflict", "home-conflict-unknown-away"],
+    )
+    def test_manual_fetch_known_id_name_conflict_rolls_back_without_csv(
+        tmp_path, monkeypatch, identity
+    ):
+        monkeypatch.chdir(tmp_path)
+        db, output = tmp_path / "manual.db", tmp_path / "matches.csv"
+        with responses.RequestsMock() as http:
+            http.get(SFC_URL, body=_national_page(**identity))
+            http.get(BRIDGE_URL, body=b'<table id="betTbThead"></table>')
+>           with pytest.raises(ValueError, match="球队编号与期次原队名冲突"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+/workspace/work/football-t59/tests/test_t59_sfc_manual.py:131: Failed
+________ test_manual_fetch_keeps_evidence_for_both_unknown_national_ids ________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-178/test_manual_fetch_keeps_eviden0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8ffbb93200>
+
+    def test_manual_fetch_keeps_evidence_for_both_unknown_national_ids(tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        db, output = tmp_path / "manual.db", tmp_path / "matches.csv"
+        with responses.RequestsMock() as http:
+            http.get(SFC_URL, body=_national_page(away_id="88888888"))
+            http.get(BRIDGE_URL, body=b'<table id="betTbThead"></table>')
+            record = fetch_sfc("26156", db=db, matches_out=output)
+        row = record.snapshot[-1]
+        assert row["mapping"] == "unmatched"
+        assert row["match_id"] is None
+        assert row["matched_identity"] is None
+        assert row["mapping_evidence"]["basis"] == "national_team_name_missing"
+>       assert row["mapping_evidence"]["missing_teams"] == [
+            {"provider_id": "99999999", "label": "格鲁吉"},
+            {"provider_id": "88888888", "label": "匈牙利"},
+        ]
+E       AssertionError: assert [{'provider_i...abel': '格鲁吉'}] == [{'provider_i...abel': '匈牙利'}]
+E         
+E         Right contains one more item: {'provider_id': '88888888', 'label': '匈牙利'}
+E         Use -v to get more diff
+
+/workspace/work/football-t59/tests/test_t59_sfc_manual.py:151: AssertionError
+_ test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names[both-unknown-fallback] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-178/test_cloud_national_identity_c0')
+linked = False, conflict = False
+
+    @pytest.mark.parametrize("linked", [False, True], ids=["fallback", "counterpart"])
+    @pytest.mark.parametrize("conflict", [False, True], ids=["both-unknown", "away-conflict"])
+    def test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names(
+        tmp_path, linked, conflict
+    ):
+        raw = _national_page(away="错误队名") if conflict else _national_page(away_id="88888888")
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "cloud.db")
+        init_db(engine)
+        with session_scope(engine) as session:
+            if linked:
+                home, away = Team(name="格鲁吉亚"), Team(name="匈牙利")
+                session.add_all([home, away])
+                session.flush()
+                session.add(
+                    Match(
+                        match_id="apif:1528973",
+                        source="apif",
+                        league="欧国联",
+                        home_team_id=home.id,
+                        away_team_id=away.id,
+                        kickoff_utc=issue.fixtures[-1].kickoff_utc,
+                        status="scheduled",
+                        counterpart_id="c500:1398632",
+                    )
+                )
+                session.flush()
+            record = ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=True,
+            )
+            row = record.snapshot[-1]
+            assert row["match_id"] is None
+            assert row["matched_identity"] is None
+            if conflict:
+                assert row["mapping"] == "ambiguous"
+                assert row["mapping_evidence"]["basis"] == "conflicting_identity"
+                assert "球队编号与期次原队名冲突" in row["mapping_evidence"]["detail"]
+            else:
+                assert row["mapping"] == "unmatched"
+                assert row["mapping_evidence"]["basis"] == "national_team_name_missing"
+>               assert row["mapping_evidence"]["missing_teams"] == [
+                    {"provider_id": "99999999", "label": "格鲁吉"},
+                    {"provider_id": "88888888", "label": "匈牙利"},
+                ]
+E               AssertionError: assert [{'provider_i...abel': '格鲁吉'}] == [{'provider_i...abel': '匈牙利'}]
+E                 
+E                 Right contains one more item: {'provider_id': '88888888', 'label': '匈牙利'}
+E                 Use -v to get more diff
+
+tests/test_t59_sfc_manual.py:207: AssertionError
+_ test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names[both-unknown-counterpart] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-178/test_cloud_national_identity_c1')
+linked = True, conflict = False
+
+    @pytest.mark.parametrize("linked", [False, True], ids=["fallback", "counterpart"])
+    @pytest.mark.parametrize("conflict", [False, True], ids=["both-unknown", "away-conflict"])
+    def test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names(
+        tmp_path, linked, conflict
+    ):
+        raw = _national_page(away="错误队名") if conflict else _national_page(away_id="88888888")
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "cloud.db")
+        init_db(engine)
+        with session_scope(engine) as session:
+            if linked:
+                home, away = Team(name="格鲁吉亚"), Team(name="匈牙利")
+                session.add_all([home, away])
+                session.flush()
+                session.add(
+                    Match(
+                        match_id="apif:1528973",
+                        source="apif",
+                        league="欧国联",
+                        home_team_id=home.id,
+                        away_team_id=away.id,
+                        kickoff_utc=issue.fixtures[-1].kickoff_utc,
+                        status="scheduled",
+                        counterpart_id="c500:1398632",
+                    )
+                )
+                session.flush()
+            record = ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=True,
+            )
+            row = record.snapshot[-1]
+            assert row["match_id"] is None
+            assert row["matched_identity"] is None
+            if conflict:
+                assert row["mapping"] == "ambiguous"
+                assert row["mapping_evidence"]["basis"] == "conflicting_identity"
+                assert "球队编号与期次原队名冲突" in row["mapping_evidence"]["detail"]
+            else:
+                assert row["mapping"] == "unmatched"
+                assert row["mapping_evidence"]["basis"] == "national_team_name_missing"
+>               assert row["mapping_evidence"]["missing_teams"] == [
+                    {"provider_id": "99999999", "label": "格鲁吉"},
+                    {"provider_id": "88888888", "label": "匈牙利"},
+                ]
+E               AssertionError: assert [{'provider_i...abel': '格鲁吉'}] == [{'provider_i...abel': '匈牙利'}]
+E                 
+E                 Right contains one more item: {'provider_id': '88888888', 'label': '匈牙利'}
+E                 Use -v to get more diff
+
+tests/test_t59_sfc_manual.py:207: AssertionError
+_ test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names[away-conflict-fallback] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-178/test_cloud_national_identity_c2')
+linked = False, conflict = True
+
+    @pytest.mark.parametrize("linked", [False, True], ids=["fallback", "counterpart"])
+    @pytest.mark.parametrize("conflict", [False, True], ids=["both-unknown", "away-conflict"])
+    def test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names(
+        tmp_path, linked, conflict
+    ):
+        raw = _national_page(away="错误队名") if conflict else _national_page(away_id="88888888")
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "cloud.db")
+        init_db(engine)
+        with session_scope(engine) as session:
+            if linked:
+                home, away = Team(name="格鲁吉亚"), Team(name="匈牙利")
+                session.add_all([home, away])
+                session.flush()
+                session.add(
+                    Match(
+                        match_id="apif:1528973",
+                        source="apif",
+                        league="欧国联",
+                        home_team_id=home.id,
+                        away_team_id=away.id,
+                        kickoff_utc=issue.fixtures[-1].kickoff_utc,
+                        status="scheduled",
+                        counterpart_id="c500:1398632",
+                    )
+                )
+                session.flush()
+            record = ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=True,
+            )
+            row = record.snapshot[-1]
+            assert row["match_id"] is None
+            assert row["matched_identity"] is None
+            if conflict:
+>               assert row["mapping"] == "ambiguous"
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:201: AssertionError
+_ test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names[away-conflict-counterpart] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-178/test_cloud_national_identity_c3')
+linked = True, conflict = True
+
+    @pytest.mark.parametrize("linked", [False, True], ids=["fallback", "counterpart"])
+    @pytest.mark.parametrize("conflict", [False, True], ids=["both-unknown", "away-conflict"])
+    def test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names(
+        tmp_path, linked, conflict
+    ):
+        raw = _national_page(away="错误队名") if conflict else _national_page(away_id="88888888")
+        issue = C500Sfc().parse(raw)[0]
+        engine = get_engine(tmp_path / "cloud.db")
+        init_db(engine)
+        with session_scope(engine) as session:
+            if linked:
+                home, away = Team(name="格鲁吉亚"), Team(name="匈牙利")
+                session.add_all([home, away])
+                session.flush()
+                session.add(
+                    Match(
+                        match_id="apif:1528973",
+                        source="apif",
+                        league="欧国联",
+                        home_team_id=home.id,
+                        away_team_id=away.id,
+                        kickoff_utc=issue.fixtures[-1].kickoff_utc,
+                        status="scheduled",
+                        counterpart_id="c500:1398632",
+                    )
+                )
+                session.flush()
+            record = ingest_issue(
+                session,
+                issue,
+                observed=datetime.fromisoformat("2026-11-13T12:00:00+00:00"),
+                url=SFC_URL,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+                mapped_only=True,
+            )
+            row = record.snapshot[-1]
+            assert row["match_id"] is None
+            assert row["matched_identity"] is None
+            if conflict:
+>               assert row["mapping"] == "ambiguous"
+E               AssertionError: assert 'unmatched' == 'ambiguous'
+E                 
+E                 - ambiguous
+E                 + unmatched
+
+tests/test_t59_sfc_manual.py:201: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t59_sfc_manual.py::test_manual_fetch_known_id_name_conflict_rolls_back_without_csv[unknown-home-away-conflict]
+FAILED tests/test_t59_sfc_manual.py::test_manual_fetch_keeps_evidence_for_both_unknown_national_ids
+FAILED tests/test_t59_sfc_manual.py::test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names[both-unknown-fallback]
+FAILED tests/test_t59_sfc_manual.py::test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names[both-unknown-counterpart]
+FAILED tests/test_t59_sfc_manual.py::test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names[away-conflict-fallback]
+FAILED tests/test_t59_sfc_manual.py::test_cloud_national_identity_checks_keep_conflicts_distinct_from_missing_names[away-conflict-counterpart]

@@ -1,0 +1,445 @@
+FFFFFFFFF.......FFFFFFFFF.                                               [100%]
+=================================== FAILURES ===================================
+________ test_review_evidence_roundtrips_with_exact_bytes_and_hashes[0] ________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_evidence_roundtrip0')
+run_id = '0'
+
+    @pytest.mark.parametrize("run_id", ["0", "review-20261113_1", "a" * 100])
+    def test_review_evidence_roundtrips_with_exact_bytes_and_hashes(tmp_path, run_id):
+        database, archive, evidence, manifest = seed_archive(tmp_path, run_id)
+        for key, raw in evidence.items():
+>           assert manifest["files"].get(key) == hashlib.sha256(raw).hexdigest()
+E           assert None == '237ff17b449d0227022fd050019f2f65c1830dba75e1e81e4a5c8a2c29fa0948'
+E            +  where None = <built-in method get of dict object at 0x7f337a369980>('state/audit/jc_candidate_reviews/0/plan.json')
+E            +    where <built-in method get of dict object at 0x7f337a369980> = {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}.get
+E            +  and   '237ff17b449d0227022fd050019f2f65c1830dba75e1e81e4a5c8a2c29fa0948' = <built-in method hexdigest of _hashlib.HASH object at 0x7f337a45fd10>()
+E            +    where <built-in method hexdigest of _hashlib.HASH object at 0x7f337a45fd10> = <sha256 _hashlib.HASH object @ 0x7f337a45fd10>.hexdigest
+E            +      where <sha256 _hashlib.HASH object @ 0x7f337a45fd10> = <built-in function openssl_sha256>(b'{"evidence": "plan"}\n')
+E            +        where <built-in function openssl_sha256> = hashlib.sha256
+
+tests/test_t59_review_archive.py:47: AssertionError
+_ test_review_evidence_roundtrips_with_exact_bytes_and_hashes[review-20261113_1] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_evidence_roundtrip1')
+run_id = 'review-20261113_1'
+
+    @pytest.mark.parametrize("run_id", ["0", "review-20261113_1", "a" * 100])
+    def test_review_evidence_roundtrips_with_exact_bytes_and_hashes(tmp_path, run_id):
+        database, archive, evidence, manifest = seed_archive(tmp_path, run_id)
+        for key, raw in evidence.items():
+>           assert manifest["files"].get(key) == hashlib.sha256(raw).hexdigest()
+E           assert None == '237ff17b449d0227022fd050019f2f65c1830dba75e1e81e4a5c8a2c29fa0948'
+E            +  where None = <built-in method get of dict object at 0x7f335f1eacc0>('state/audit/jc_candidate_reviews/review-20261113_1/plan.json')
+E            +    where <built-in method get of dict object at 0x7f335f1eacc0> = {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}.get
+E            +  and   '237ff17b449d0227022fd050019f2f65c1830dba75e1e81e4a5c8a2c29fa0948' = <built-in method hexdigest of _hashlib.HASH object at 0x7f335f4ee410>()
+E            +    where <built-in method hexdigest of _hashlib.HASH object at 0x7f335f4ee410> = <sha256 _hashlib.HASH object @ 0x7f335f4ee410>.hexdigest
+E            +      where <sha256 _hashlib.HASH object @ 0x7f335f4ee410> = <built-in function openssl_sha256>(b'{"evidence": "plan"}\n')
+E            +        where <built-in function openssl_sha256> = hashlib.sha256
+
+tests/test_t59_review_archive.py:47: AssertionError
+_ test_review_evidence_roundtrips_with_exact_bytes_and_hashes[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_evidence_roundtrip2')
+run_id = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+
+    @pytest.mark.parametrize("run_id", ["0", "review-20261113_1", "a" * 100])
+    def test_review_evidence_roundtrips_with_exact_bytes_and_hashes(tmp_path, run_id):
+        database, archive, evidence, manifest = seed_archive(tmp_path, run_id)
+        for key, raw in evidence.items():
+>           assert manifest["files"].get(key) == hashlib.sha256(raw).hexdigest()
+E           assert None == '237ff17b449d0227022fd050019f2f65c1830dba75e1e81e4a5c8a2c29fa0948'
+E            +  where None = <built-in method get of dict object at 0x7f335f03c6c0>('state/audit/jc_candidate_reviews/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/plan.json')
+E            +    where <built-in method get of dict object at 0x7f335f03c6c0> = {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}.get
+E            +  and   '237ff17b449d0227022fd050019f2f65c1830dba75e1e81e4a5c8a2c29fa0948' = <built-in method hexdigest of _hashlib.HASH object at 0x7f335f4ee7f0>()
+E            +    where <built-in method hexdigest of _hashlib.HASH object at 0x7f335f4ee7f0> = <sha256 _hashlib.HASH object @ 0x7f335f4ee7f0>.hexdigest
+E            +      where <sha256 _hashlib.HASH object @ 0x7f335f4ee7f0> = <built-in function openssl_sha256>(b'{"evidence": "plan"}\n')
+E            +        where <built-in function openssl_sha256> = hashlib.sha256
+
+tests/test_t59_review_archive.py:47: AssertionError
+_________ test_restoring_older_snapshot_removes_later_review_evidence __________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_restoring_older_snapshot_0')
+
+    def test_restoring_older_snapshot_removes_later_review_evidence(tmp_path):
+        database, older, evidence, _ = seed_archive(tmp_path)
+        later_key = f"{AUDIT}/later-2/review.json"
+        write_bytes(database.parent, later_key, b'{"reviewed_utc":"later"}\n')
+        write_bytes(database.parent, QUEUE, b'{"snapshot":"later"}\n')
+        newer = tmp_path / "newer"
+        export_feeds(database, newer, date(2026, 11, 13), "later")
+        restored = tmp_path / "restored/zucai.db"
+        restore_feeds(newer, restored)
+>       assert (restored.parent / later_key).is_file()
+E       AssertionError: assert False
+E        +  where False = is_file()
+E        +    where is_file = (PosixPath('/tmp/pytest-of-agent/pytest-160/test_restoring_older_snapshot_0/restored') / 'state/audit/jc_candidate_reviews/later-2/review.json').is_file
+E        +      where PosixPath('/tmp/pytest-of-agent/pytest-160/test_restoring_older_snapshot_0/restored') = PosixPath('/tmp/pytest-of-agent/pytest-160/test_restoring_older_snapshot_0/restored/zucai.db').parent
+
+tests/test_t59_review_archive.py:69: AssertionError
+_____ test_restoring_pre_review_snapshot_removes_all_known_review_evidence _____
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_restoring_pre_review_snap0')
+
+    def test_restoring_pre_review_snapshot_removes_all_known_review_evidence(tmp_path):
+        database, newer, evidence, _ = seed_archive(tmp_path)
+        restored = tmp_path / "restored/zucai.db"
+        restore_feeds(newer, restored)
+>       assert all((restored.parent / key).is_file() for key in evidence)
+E       assert False
+E        +  where False = all(<generator object test_restoring_pre_review_snapshot_removes_all_known_review_evidence.<locals>.<genexpr> at 0x7f335f19adc0>)
+
+tests/test_t59_review_archive.py:86: AssertionError
+___ test_tampered_review_is_rejected_before_database_or_queue_changes[plan] ____
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_tampered_review_is_reject0')
+filename = 'plan'
+
+    @pytest.mark.parametrize("filename", REVIEW_FILES)
+    def test_tampered_review_is_rejected_before_database_or_queue_changes(tmp_path, filename):
+        _, archive, _, manifest = seed_archive(tmp_path)
+        key = f"{AUDIT}/review-20261113_1/{filename}.json"
+>       assert key in manifest["files"]
+E       AssertionError: assert 'state/audit/jc_candidate_reviews/review-20261113_1/plan.json' in {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t59_review_archive.py:99: AssertionError
+_ test_tampered_review_is_rejected_before_database_or_queue_changes[identity_inventory] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_tampered_review_is_reject1')
+filename = 'identity_inventory'
+
+    @pytest.mark.parametrize("filename", REVIEW_FILES)
+    def test_tampered_review_is_rejected_before_database_or_queue_changes(tmp_path, filename):
+        _, archive, _, manifest = seed_archive(tmp_path)
+        key = f"{AUDIT}/review-20261113_1/{filename}.json"
+>       assert key in manifest["files"]
+E       AssertionError: assert 'state/audit/jc_candidate_reviews/review-20261113_1/identity_inventory.json' in {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t59_review_archive.py:99: AssertionError
+__ test_tampered_review_is_rejected_before_database_or_queue_changes[review] ___
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_tampered_review_is_reject2')
+filename = 'review'
+
+    @pytest.mark.parametrize("filename", REVIEW_FILES)
+    def test_tampered_review_is_rejected_before_database_or_queue_changes(tmp_path, filename):
+        _, archive, _, manifest = seed_archive(tmp_path)
+        key = f"{AUDIT}/review-20261113_1/{filename}.json"
+>       assert key in manifest["files"]
+E       AssertionError: assert 'state/audit/jc_candidate_reviews/review-20261113_1/review.json' in {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t59_review_archive.py:99: AssertionError
+_ test_tampered_review_is_rejected_before_database_or_queue_changes[operation] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_tampered_review_is_reject3')
+filename = 'operation'
+
+    @pytest.mark.parametrize("filename", REVIEW_FILES)
+    def test_tampered_review_is_rejected_before_database_or_queue_changes(tmp_path, filename):
+        _, archive, _, manifest = seed_archive(tmp_path)
+        key = f"{AUDIT}/review-20261113_1/{filename}.json"
+>       assert key in manifest["files"]
+E       AssertionError: assert 'state/audit/jc_candidate_reviews/review-20261113_1/operation.json' in {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t59_review_archive.py:99: AssertionError
+_ test_review_symlinks_are_rejected_before_restored_state_changes[export-file] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec0')
+link_kind = 'file', stage = 'export'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+                assert key in manifest["files"]
+        relative = {
+            "file": key,
+            "run": f"{AUDIT}/review-20261113_1",
+            "directory": AUDIT,
+        }[link_kind]
+        linked = root / relative
+        target = root / "unrelated-link-target"
+        shutil.move(linked, target)
+        linked.symlink_to(target, target_is_directory=target.is_dir())
+        if stage == "export":
+>           with pytest.raises(ValueError, match="符号链接"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_review_archive.py:155: Failed
+_ test_review_symlinks_are_rejected_before_restored_state_changes[export-run] __
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec1')
+link_kind = 'run', stage = 'export'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+                assert key in manifest["files"]
+        relative = {
+            "file": key,
+            "run": f"{AUDIT}/review-20261113_1",
+            "directory": AUDIT,
+        }[link_kind]
+        linked = root / relative
+        target = root / "unrelated-link-target"
+        shutil.move(linked, target)
+        linked.symlink_to(target, target_is_directory=target.is_dir())
+        if stage == "export":
+>           with pytest.raises(ValueError, match="符号链接"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_review_archive.py:155: Failed
+_ test_review_symlinks_are_rejected_before_restored_state_changes[export-directory] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec2')
+link_kind = 'directory', stage = 'export'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+                assert key in manifest["files"]
+        relative = {
+            "file": key,
+            "run": f"{AUDIT}/review-20261113_1",
+            "directory": AUDIT,
+        }[link_kind]
+        linked = root / relative
+        target = root / "unrelated-link-target"
+        shutil.move(linked, target)
+        linked.symlink_to(target, target_is_directory=target.is_dir())
+        if stage == "export":
+>           with pytest.raises(ValueError, match="符号链接"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_review_archive.py:155: Failed
+_ test_review_symlinks_are_rejected_before_restored_state_changes[archive-file] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec3')
+link_kind = 'file', stage = 'archive'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+>               assert key in manifest["files"]
+E               AssertionError: assert 'state/audit/jc_candidate_reviews/review-20261113_1/review.json' in {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t59_review_archive.py:144: AssertionError
+_ test_review_symlinks_are_rejected_before_restored_state_changes[archive-run] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec4')
+link_kind = 'run', stage = 'archive'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+>               assert key in manifest["files"]
+E               AssertionError: assert 'state/audit/jc_candidate_reviews/review-20261113_1/review.json' in {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t59_review_archive.py:144: AssertionError
+_ test_review_symlinks_are_rejected_before_restored_state_changes[archive-directory] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec5')
+link_kind = 'directory', stage = 'archive'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+>               assert key in manifest["files"]
+E               AssertionError: assert 'state/audit/jc_candidate_reviews/review-20261113_1/review.json' in {'state/alias_candidates/jc.json': 'baa1017d8f3d72918aef937e2e0f5d2bec5da2373add8f2b79e89e1a8c596aa1', 'state/apif_fix...b934ca495991b7852b855', 'state/matches.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t59_review_archive.py:144: AssertionError
+_ test_review_symlinks_are_rejected_before_restored_state_changes[restore-file] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec6')
+link_kind = 'file', stage = 'restore'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+                assert key in manifest["files"]
+        relative = {
+            "file": key,
+            "run": f"{AUDIT}/review-20261113_1",
+            "directory": AUDIT,
+        }[link_kind]
+        linked = root / relative
+        target = root / "unrelated-link-target"
+        shutil.move(linked, target)
+        linked.symlink_to(target, target_is_directory=target.is_dir())
+        if stage == "export":
+            with pytest.raises(ValueError, match="符号链接"):
+                export_feeds(database, archive, date(2026, 11, 13), "bad")
+            assert json.loads((archive / "feed_manifest.json").read_bytes()) == manifest
+        else:
+>           with pytest.raises(ValueError, match="符号链接|校验失败"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_review_archive.py:159: Failed
+_ test_review_symlinks_are_rejected_before_restored_state_changes[restore-run] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec7')
+link_kind = 'run', stage = 'restore'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+                assert key in manifest["files"]
+        relative = {
+            "file": key,
+            "run": f"{AUDIT}/review-20261113_1",
+            "directory": AUDIT,
+        }[link_kind]
+        linked = root / relative
+        target = root / "unrelated-link-target"
+        shutil.move(linked, target)
+        linked.symlink_to(target, target_is_directory=target.is_dir())
+        if stage == "export":
+            with pytest.raises(ValueError, match="符号链接"):
+                export_feeds(database, archive, date(2026, 11, 13), "bad")
+            assert json.loads((archive / "feed_manifest.json").read_bytes()) == manifest
+        else:
+>           with pytest.raises(ValueError, match="符号链接|校验失败"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_review_archive.py:159: Failed
+_ test_review_symlinks_are_rejected_before_restored_state_changes[restore-directory] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-160/test_review_symlinks_are_rejec8')
+link_kind = 'directory', stage = 'restore'
+
+    @pytest.mark.parametrize("link_kind", ["file", "run", "directory"])
+    @pytest.mark.parametrize("stage", ["export", "archive", "restore"])
+    def test_review_symlinks_are_rejected_before_restored_state_changes(tmp_path, link_kind, stage):
+        database, archive, _, manifest = seed_archive(tmp_path)
+        destination = write_bytes(tmp_path, "destination/zucai.db", b"keep database")
+        queue = write_bytes(destination.parent, QUEUE, b"keep queue")
+        key = f"{AUDIT}/review-20261113_1/review.json"
+        if stage == "restore":
+            root = destination.parent
+            write_bytes(root, key, b"keep audit")
+        else:
+            root = database.parent if stage == "export" else archive
+            if stage == "archive":
+                assert key in manifest["files"]
+        relative = {
+            "file": key,
+            "run": f"{AUDIT}/review-20261113_1",
+            "directory": AUDIT,
+        }[link_kind]
+        linked = root / relative
+        target = root / "unrelated-link-target"
+        shutil.move(linked, target)
+        linked.symlink_to(target, target_is_directory=target.is_dir())
+        if stage == "export":
+            with pytest.raises(ValueError, match="符号链接"):
+                export_feeds(database, archive, date(2026, 11, 13), "bad")
+            assert json.loads((archive / "feed_manifest.json").read_bytes()) == manifest
+        else:
+>           with pytest.raises(ValueError, match="符号链接|校验失败"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t59_review_archive.py:159: Failed
+=========================== short test summary info ============================
+FAILED tests/test_t59_review_archive.py::test_review_evidence_roundtrips_with_exact_bytes_and_hashes[0]
+FAILED tests/test_t59_review_archive.py::test_review_evidence_roundtrips_with_exact_bytes_and_hashes[review-20261113_1]
+FAILED tests/test_t59_review_archive.py::test_review_evidence_roundtrips_with_exact_bytes_and_hashes[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
+FAILED tests/test_t59_review_archive.py::test_restoring_older_snapshot_removes_later_review_evidence
+FAILED tests/test_t59_review_archive.py::test_restoring_pre_review_snapshot_removes_all_known_review_evidence
+FAILED tests/test_t59_review_archive.py::test_tampered_review_is_rejected_before_database_or_queue_changes[plan]
+FAILED tests/test_t59_review_archive.py::test_tampered_review_is_rejected_before_database_or_queue_changes[identity_inventory]
+FAILED tests/test_t59_review_archive.py::test_tampered_review_is_rejected_before_database_or_queue_changes[review]
+FAILED tests/test_t59_review_archive.py::test_tampered_review_is_rejected_before_database_or_queue_changes[operation]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[export-file]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[export-run]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[export-directory]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[archive-file]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[archive-run]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[archive-directory]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[restore-file]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[restore-run]
+FAILED tests/test_t59_review_archive.py::test_review_symlinks_are_rejected_before_restored_state_changes[restore-directory]

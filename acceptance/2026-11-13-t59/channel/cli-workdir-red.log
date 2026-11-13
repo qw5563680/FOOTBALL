@@ -1,0 +1,35 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_cli_does_not_write_diagnostics_inside_archive ______________
+
+review_archive = (PosixPath('/tmp/pytest-of-agent/pytest-170/test_cli_does_not_write_diagno0/archive'), PosixPath('/tmp/pytest-of-agent/pytest-170/test_cli_does_not_write_diagno0/review.json'))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f5cf375d2b0>
+
+    def test_cli_does_not_write_diagnostics_inside_archive(review_archive, monkeypatch):
+        import sys
+    
+        from zucai.cloud_candidate_review import main
+    
+        archive, plan = review_archive
+        before = inventory(archive)
+        monkeypatch.chdir(archive)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "candidate-review",
+                "--archive",
+                str(archive),
+                "--plan",
+                str(plan),
+                "--run-id",
+                "bad-workdir",
+            ],
+        )
+>       with pytest.raises(ValueError, match="工作目录"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+/workspace/work/football-t59/tests/test_t59_candidate_operation.py:242: Failed
+=========================== short test summary info ============================
+FAILED tests/test_t59_candidate_operation.py::test_cli_does_not_write_diagnostics_inside_archive

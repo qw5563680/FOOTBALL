@@ -1,0 +1,312 @@
+FFFFFF................................................FFFFFFFFF          [100%]
+=================================== FAILURES ===================================
+_ test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[False-main] _
+
+ref = 'main', gate = False
+
+    @pytest.mark.parametrize("ref", REFS)
+    @pytest.mark.parametrize("gate", [False, True])
+    def test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags(ref, gate):
+>       assert enabled_jobs(
+            **{
+                "github.ref_name": ref,
+                "inputs.operation": "candidate-review",
+                "inputs.gate": gate,
+            }
+        ) == {"candidate-review"}
+E       AssertionError: assert set() == {'candidate-review'}
+E         
+E         Extra items in the right set:
+E         'candidate-review'
+E         Use -v to get more diff
+
+tests/test_t59_candidate_workflow.py:24: AssertionError
+_ test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[False-football-ingest-run-t59] _
+
+ref = 'football-ingest-run-t59', gate = False
+
+    @pytest.mark.parametrize("ref", REFS)
+    @pytest.mark.parametrize("gate", [False, True])
+    def test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags(ref, gate):
+>       assert enabled_jobs(
+            **{
+                "github.ref_name": ref,
+                "inputs.operation": "candidate-review",
+                "inputs.gate": gate,
+            }
+        ) == {"candidate-review"}
+E       AssertionError: assert {'sporttery'} == {'candidate-review'}
+E         
+E         Extra items in the left set:
+E         'sporttery'
+E         Extra items in the right set:
+E         'candidate-review'
+E         Use -v to get more diff
+
+tests/test_t59_candidate_workflow.py:24: AssertionError
+_ test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[False-football-ingest-verify-t59] _
+
+ref = 'football-ingest-verify-t59', gate = False
+
+    @pytest.mark.parametrize("ref", REFS)
+    @pytest.mark.parametrize("gate", [False, True])
+    def test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags(ref, gate):
+>       assert enabled_jobs(
+            **{
+                "github.ref_name": ref,
+                "inputs.operation": "candidate-review",
+                "inputs.gate": gate,
+            }
+        ) == {"candidate-review"}
+E       AssertionError: assert {'apis'} == {'candidate-review'}
+E         
+E         Extra items in the left set:
+E         'apis'
+E         Extra items in the right set:
+E         'candidate-review'
+E         Use -v to get more diff
+
+tests/test_t59_candidate_workflow.py:24: AssertionError
+_ test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[True-main] _
+
+ref = 'main', gate = True
+
+    @pytest.mark.parametrize("ref", REFS)
+    @pytest.mark.parametrize("gate", [False, True])
+    def test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags(ref, gate):
+>       assert enabled_jobs(
+            **{
+                "github.ref_name": ref,
+                "inputs.operation": "candidate-review",
+                "inputs.gate": gate,
+            }
+        ) == {"candidate-review"}
+E       AssertionError: assert set() == {'candidate-review'}
+E         
+E         Extra items in the right set:
+E         'candidate-review'
+E         Use -v to get more diff
+
+tests/test_t59_candidate_workflow.py:24: AssertionError
+_ test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[True-football-ingest-run-t59] _
+
+ref = 'football-ingest-run-t59', gate = True
+
+    @pytest.mark.parametrize("ref", REFS)
+    @pytest.mark.parametrize("gate", [False, True])
+    def test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags(ref, gate):
+>       assert enabled_jobs(
+            **{
+                "github.ref_name": ref,
+                "inputs.operation": "candidate-review",
+                "inputs.gate": gate,
+            }
+        ) == {"candidate-review"}
+E       AssertionError: assert {'sporttery'} == {'candidate-review'}
+E         
+E         Extra items in the left set:
+E         'sporttery'
+E         Extra items in the right set:
+E         'candidate-review'
+E         Use -v to get more diff
+
+tests/test_t59_candidate_workflow.py:24: AssertionError
+_ test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[True-football-ingest-verify-t59] _
+
+ref = 'football-ingest-verify-t59', gate = True
+
+    @pytest.mark.parametrize("ref", REFS)
+    @pytest.mark.parametrize("gate", [False, True])
+    def test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags(ref, gate):
+>       assert enabled_jobs(
+            **{
+                "github.ref_name": ref,
+                "inputs.operation": "candidate-review",
+                "inputs.gate": gate,
+            }
+        ) == {"candidate-review"}
+E       AssertionError: assert {'apis'} == {'candidate-review'}
+E         
+E         Extra items in the left set:
+E         'apis'
+E         Extra items in the right set:
+E         'candidate-review'
+E         Use -v to get more diff
+
+tests/test_t59_candidate_workflow.py:24: AssertionError
+__ test_review_uses_existing_input_budget_and_an_independent_secret_free_job ___
+
+    def test_review_uses_existing_input_budget_and_an_independent_secret_free_job():
+        workflow = WORKFLOW.read_text()
+        inputs = workflow.split("    inputs:\n", 1)[1].split("  push:", 1)[0]
+        assert len(re.findall(r"^      (\w+):", inputs, re.M)) == 10
+>       assert "stats-backfill, candidate-review, daily]" in inputs
+E       assert 'stats-backfill, candidate-review, daily]' in "      operation:\n        description: 'daily 整条每日链，apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记...n      gate:\n        description: '仅 daily：先检查今明胜负彩停售期次；明确无期次时跳过整条链'\n        type: boolean\n        default: false\n"
+
+tests/test_t59_candidate_workflow.py:86: AssertionError
+_ test_review_shell_preserves_untrusted_options_as_one_argument[{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-163/test_review_shell_preserves_un0')
+options = '{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}'
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            '{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}',
+            json.dumps({"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}),
+            '{"plan":"data/jc_candidate_reviews/quote\\\" and space.json"}',
+            "{}",
+            "[]",
+            "not JSON; $(touch injected)",
+        ],
+    )
+    def test_review_shell_preserves_untrusted_options_as_one_argument(tmp_path, options):
+>       review = step("Restore and apply approved candidate review", jobs()["candidate-review"])
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'candidate-review'
+
+tests/test_t59_candidate_workflow.py:115: KeyError
+_ test_review_shell_preserves_untrusted_options_as_one_argument[{"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-163/test_review_shell_preserves_un1')
+options = '{"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}'
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            '{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}',
+            json.dumps({"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}),
+            '{"plan":"data/jc_candidate_reviews/quote\\\" and space.json"}',
+            "{}",
+            "[]",
+            "not JSON; $(touch injected)",
+        ],
+    )
+    def test_review_shell_preserves_untrusted_options_as_one_argument(tmp_path, options):
+>       review = step("Restore and apply approved candidate review", jobs()["candidate-review"])
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'candidate-review'
+
+tests/test_t59_candidate_workflow.py:115: KeyError
+_ test_review_shell_preserves_untrusted_options_as_one_argument[{"plan":"data/jc_candidate_reviews/quote\\" and space.json"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-163/test_review_shell_preserves_un2')
+options = '{"plan":"data/jc_candidate_reviews/quote\\" and space.json"}'
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            '{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}',
+            json.dumps({"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}),
+            '{"plan":"data/jc_candidate_reviews/quote\\\" and space.json"}',
+            "{}",
+            "[]",
+            "not JSON; $(touch injected)",
+        ],
+    )
+    def test_review_shell_preserves_untrusted_options_as_one_argument(tmp_path, options):
+>       review = step("Restore and apply approved candidate review", jobs()["candidate-review"])
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'candidate-review'
+
+tests/test_t59_candidate_workflow.py:115: KeyError
+______ test_review_shell_preserves_untrusted_options_as_one_argument[{}] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-163/test_review_shell_preserves_un3')
+options = '{}'
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            '{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}',
+            json.dumps({"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}),
+            '{"plan":"data/jc_candidate_reviews/quote\\\" and space.json"}',
+            "{}",
+            "[]",
+            "not JSON; $(touch injected)",
+        ],
+    )
+    def test_review_shell_preserves_untrusted_options_as_one_argument(tmp_path, options):
+>       review = step("Restore and apply approved candidate review", jobs()["candidate-review"])
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'candidate-review'
+
+tests/test_t59_candidate_workflow.py:115: KeyError
+______ test_review_shell_preserves_untrusted_options_as_one_argument[[]] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-163/test_review_shell_preserves_un4')
+options = '[]'
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            '{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}',
+            json.dumps({"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}),
+            '{"plan":"data/jc_candidate_reviews/quote\\\" and space.json"}',
+            "{}",
+            "[]",
+            "not JSON; $(touch injected)",
+        ],
+    )
+    def test_review_shell_preserves_untrusted_options_as_one_argument(tmp_path, options):
+>       review = step("Restore and apply approved candidate review", jobs()["candidate-review"])
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'candidate-review'
+
+tests/test_t59_candidate_workflow.py:115: KeyError
+_ test_review_shell_preserves_untrusted_options_as_one_argument[not JSON; $(touch injected)] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-163/test_review_shell_preserves_un5')
+options = 'not JSON; $(touch injected)'
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            '{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}',
+            json.dumps({"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}),
+            '{"plan":"data/jc_candidate_reviews/quote\\\" and space.json"}',
+            "{}",
+            "[]",
+            "not JSON; $(touch injected)",
+        ],
+    )
+    def test_review_shell_preserves_untrusted_options_as_one_argument(tmp_path, options):
+>       review = step("Restore and apply approved candidate review", jobs()["candidate-review"])
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'candidate-review'
+
+tests/test_t59_candidate_workflow.py:115: KeyError
+__ test_recorded_archive_head_and_recovery_directory_reach_existing_publisher __
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-163/test_recorded_archive_head_and0')
+
+    def test_recorded_archive_head_and_recovery_directory_reach_existing_publisher(tmp_path):
+>       job = jobs()["candidate-review"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'candidate-review'
+
+tests/test_t59_candidate_workflow.py:142: KeyError
+_______ test_failure_artifact_keeps_only_review_and_publication_evidence _______
+
+    def test_failure_artifact_keeps_only_review_and_publication_evidence():
+>       job = jobs()["candidate-review"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'candidate-review'
+
+tests/test_t59_candidate_workflow.py:176: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_t59_candidate_workflow.py::test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[False-main]
+FAILED tests/test_t59_candidate_workflow.py::test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[False-football-ingest-run-t59]
+FAILED tests/test_t59_candidate_workflow.py::test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[False-football-ingest-verify-t59]
+FAILED tests/test_t59_candidate_workflow.py::test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[True-main]
+FAILED tests/test_t59_candidate_workflow.py::test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[True-football-ingest-run-t59]
+FAILED tests/test_t59_candidate_workflow.py::test_candidate_dispatch_never_runs_collection_or_followups_even_on_legacy_tags[True-football-ingest-verify-t59]
+FAILED tests/test_t59_candidate_workflow.py::test_review_uses_existing_input_budget_and_an_independent_secret_free_job
+FAILED tests/test_t59_candidate_workflow.py::test_review_shell_preserves_untrusted_options_as_one_argument[{"plan":"data/jc_candidate_reviews/2026-11-13-first.json"}]
+FAILED tests/test_t59_candidate_workflow.py::test_review_shell_preserves_untrusted_options_as_one_argument[{"plan": "data/jc_candidate_reviews/$(touch injected);`touch injected`.json"}]
+FAILED tests/test_t59_candidate_workflow.py::test_review_shell_preserves_untrusted_options_as_one_argument[{"plan":"data/jc_candidate_reviews/quote\\" and space.json"}]
+FAILED tests/test_t59_candidate_workflow.py::test_review_shell_preserves_untrusted_options_as_one_argument[{}]
+FAILED tests/test_t59_candidate_workflow.py::test_review_shell_preserves_untrusted_options_as_one_argument[[]]
+FAILED tests/test_t59_candidate_workflow.py::test_review_shell_preserves_untrusted_options_as_one_argument[not JSON; $(touch injected)]
+FAILED tests/test_t59_candidate_workflow.py::test_recorded_archive_head_and_recovery_directory_reach_existing_publisher
+FAILED tests/test_t59_candidate_workflow.py::test_failure_artifact_keeps_only_review_and_publication_evidence

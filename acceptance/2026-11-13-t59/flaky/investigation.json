@@ -1,0 +1,51 @@
+{
+  "status": "not_reproduced_root_cause_unconfirmed",
+  "repository_files_changed": [],
+  "baseline": {
+    "python": "3.12.14",
+    "selection": "single shallow case",
+    "passed": 1,
+    "log": "baseline.log"
+  },
+  "instrumented": {
+    "python": "3.12.14",
+    "selection": "tests/test_sfc_publication.py::test_t57_sfc_history_is_saved_transactionally_and_reused[shallow]",
+    "passed": 1,
+    "git_calls_after_shallow_marker": 0,
+    "log": "instrumented.log",
+    "trace": "trace-result.json"
+  },
+  "python311_file": {
+    "selection": "tests/test_sfc_publication.py",
+    "passed": 29,
+    "log": "python311.log",
+    "junit": "python311.xml"
+  },
+  "git_commit_headers_newest_first": [
+    {
+      "sha": "e9b4179a944bde05d2cdbf7ba708130262f8fb0e",
+      "headers": [
+        "tree 8fbc6742b906185405932179df22f97b0bcbd486",
+        "parent adf8e90ec0c7480a2dc163c25ba83f4bbb78b04a",
+        "author Offline fixture <offline@example.invalid> 1793611770 +0000",
+        "committer Offline fixture <offline@example.invalid> 1793611770 +0000"
+      ]
+    },
+    {
+      "sha": "adf8e90ec0c7480a2dc163c25ba83f4bbb78b04a",
+      "headers": [
+        "tree 2450a802e41ae0cdecf460449085af787236cd1a",
+        "author Offline fixture <offline@example.invalid> 1793611680 +0000",
+        "committer Offline fixture <offline@example.invalid> 1793611680 +0000"
+      ]
+    }
+  ],
+  "findings": [
+    "The reported shallow case writes .git/shallow directly; it does not clone a repository or race with a clone.",
+    "Git commands are synchronous subprocess.run calls; both fixture commits set fixed GIT_AUTHOR_DATE and GIT_COMMITTER_DATE.",
+    "First fixture commit is 2026-11-02 09:28 UTC; the SFC publication commit is 09:29:30 UTC, after generated_utc 09:29:00 UTC.",
+    "Publication Git traversal already uses --reverse --topo-order.",
+    "An instrumented run raised on any Git subprocess after .git/shallow existed. It passed with zero such subprocesses, demonstrating saved SFC history bypasses Git in this execution.",
+    "No source change, test change, retry, or skip was introduced. The reviewer failure traceback is not present in the task or review note; its exact failure remains unidentified."
+  ]
+}

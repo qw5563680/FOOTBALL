@@ -1,0 +1,44 @@
+.F...                                                                    [100%]
+=================================== FAILURES ===================================
+__ test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown[True] ___
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-156/test_manual_fetch_archives_all1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f23c19cb3b0>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7f23c1a3fdd0>
+export_csv = True
+
+    @pytest.mark.parametrize("export_csv", [False, True])
+    def test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown(
+        tmp_path, monkeypatch, caplog, export_csv
+    ):
+        monkeypatch.chdir(tmp_path)
+        db = tmp_path / "manual.db"
+        output = tmp_path / "inputs/matches.csv" if export_csv else None
+        raw = _national_page()
+        with responses.RequestsMock() as http:
+            http.get(SFC_URL, body=raw)
+            http.get(BRIDGE_URL, body=b'<table id="betTbThead"></table>')
+            with caplog.at_level("INFO", logger="zucai.sources.sfc"):
+>               record = fetch_sfc("26156", db=db, matches_out=output)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/football-t59/tests/test_t59_sfc_manual.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/work/football-t59/src/zucai/sources/sfc.py:549: in fetch_sfc
+    writer.writerows(
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/csv.py:167: in writerows
+    return self.writer.writerows(map(self._dict_to_list, rowdicts))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x7f23c194b8b0>
+
+    writer.writerows(
+>       dict(match_id=r["match_id"], **r["matched_identity"])
+        for r in record.snapshot
+    )
+E   TypeError: dict() argument after ** must be a mapping, not NoneType
+
+/workspace/work/football-t59/src/zucai/sources/sfc.py:550: TypeError
+=========================== short test summary info ============================
+FAILED tests/test_t59_sfc_manual.py::test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown[True]

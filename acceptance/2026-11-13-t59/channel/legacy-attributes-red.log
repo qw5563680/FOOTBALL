@@ -1,0 +1,52 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_review_publish_does_not_migrate_unrelated_archive_attributes _______
+
+publication = (PosixPath('/tmp/pytest-of-agent/pytest-177/test_review_publish_does_not_m0/remote.git'), PosixPath('/tmp/pytest-of-ag...summary.md'), {'PYTHONPATH': 'src', 'SHELL': '/bin/bash', 'COLORTERM': '', 'no_proxy': 'localhost,127.0.0.1,::1', ...})
+
+    def test_review_publish_does_not_migrate_unrelated_archive_attributes(publication):
+        remote, seed, run, _, env = publication
+        queue = "state/alias_candidates/jc.json"
+        for name in (
+            queue,
+            "forecast_manifest.json",
+            "models/old/model.json",
+            "forecasts/old/forecast.json",
+            "scoreboard/ledger.jsonl",
+            "daily/old.md",
+            "sfc/old.json",
+        ):
+            path = seed / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"old archive bytes\n")
+        (seed / ".gitattributes").write_text("state/** -text\n")
+        git(seed, "add", ".")
+        git(seed, "commit", "-m", "legacy archive with existing records")
+        subprocess.run(
+            [env["TEST_REAL_GIT"], "-C", str(seed), "push", "origin", "HEAD"],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        git(run, "restore", "state/teams.jsonl")
+        git(run, "fetch", "origin")
+        git(run, "merge", "--ff-only", "origin/data/football-feeds")
+        original = git(run, "rev-parse", "HEAD")
+        env["PUBLISH_EXPECTED_BASE"] = original
+        (run / queue).write_bytes(b"reviewed queue\n")
+    
+        result = execute(publication)
+    
+        assert result.returncode == 0, result.stderr
+>       assert git(remote, "diff", "--name-only", original, "data/football-feeds").splitlines() == [
+            queue
+        ]
+E       AssertionError: assert ['.gitattribu...ates/jc.json'] == ['state/alias...ates/jc.json']
+E         
+E         At index 0 diff: '.gitattributes' != 'state/alias_candidates/jc.json'
+E         Left contains one more item: 'state/alias_candidates/jc.json'
+E         Use -v to get more diff
+
+tests/test_t59_review_publish.py:82: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t59_review_publish.py::test_review_publish_does_not_migrate_unrelated_archive_attributes

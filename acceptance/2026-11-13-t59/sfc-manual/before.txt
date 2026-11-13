@@ -1,0 +1,180 @@
+FF..F                                                                    [100%]
+=================================== FAILURES ===================================
+__ test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown[False] __
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-155/test_manual_fetch_archives_all0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f42f1caaf60>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7f42f1ca8ad0>
+export_csv = False
+
+    @pytest.mark.parametrize("export_csv", [False, True])
+    def test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown(
+        tmp_path, monkeypatch, caplog, export_csv
+    ):
+        monkeypatch.chdir(tmp_path)
+        db = tmp_path / "manual.db"
+        output = tmp_path / "inputs/matches.csv" if export_csv else None
+        raw = _national_page()
+        with responses.RequestsMock() as http:
+            http.get(SFC_URL, body=raw)
+            http.get(BRIDGE_URL, body=b'<table id="betTbThead"></table>')
+            with caplog.at_level("INFO", logger="zucai.sources.sfc"):
+>               record = fetch_sfc("26156", db=db, matches_out=output)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/football-t59/tests/test_t59_sfc_manual.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/work/football-t59/src/zucai/sources/sfc.py:534: in fetch_sfc
+    record = ingest_issue(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:478: in ingest_issue
+    snapshot = _snapshot_rows(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:271: in _snapshot_rows
+    match, mapping, candidates, evidence = _map_fixture(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:151: in _map_fixture
+    home_name = sfc_team(fixture.home_id, fixture.home)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider_id = '99999999', label = '格鲁吉'
+
+    def sfc_team(provider_id, label):
+        """An ID plus the original printed label must agree before expanding a short name."""
+        entry = identities()["sfc"].get(provider_id)
+        if entry is None:
+            candidate = sfc_aliases().get(LEAGUE, {}).get(provider_id, {})
+            if (
+                candidate.get("status") == "approved"
+                and candidate.get("scope") == "national_team"
+                and candidate.get("evidence")
+            ):
+                canonical = identities()["teams"].get(str(candidate.get("apif_id")), {})
+                if canonical.get("canonical") != candidate.get("canonical"):
+                    raise ValueError("欧国联核准别名与标准国家队身份冲突")
+                entry = candidate
+        if entry is None:
+            if provider_id and any(r["label"] == label for r in identities()["sfc"].values()):
+                raise ValueError("欧国联期次球队名称与已核验编号冲突")
+>           raise UnknownSfcTeam(provider_id, label)
+E           zucai.nations.UnknownSfcTeam: 欧国联队名对照表缺该队
+
+/workspace/work/football-t59/src/zucai/nations.py:48: UnknownSfcTeam
+__ test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown[True] ___
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-155/test_manual_fetch_archives_all1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f42f1ccd580>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x7f42f1ccc200>
+export_csv = True
+
+    @pytest.mark.parametrize("export_csv", [False, True])
+    def test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown(
+        tmp_path, monkeypatch, caplog, export_csv
+    ):
+        monkeypatch.chdir(tmp_path)
+        db = tmp_path / "manual.db"
+        output = tmp_path / "inputs/matches.csv" if export_csv else None
+        raw = _national_page()
+        with responses.RequestsMock() as http:
+            http.get(SFC_URL, body=raw)
+            http.get(BRIDGE_URL, body=b'<table id="betTbThead"></table>')
+            with caplog.at_level("INFO", logger="zucai.sources.sfc"):
+>               record = fetch_sfc("26156", db=db, matches_out=output)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/football-t59/tests/test_t59_sfc_manual.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/work/football-t59/src/zucai/sources/sfc.py:534: in fetch_sfc
+    record = ingest_issue(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:478: in ingest_issue
+    snapshot = _snapshot_rows(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:271: in _snapshot_rows
+    match, mapping, candidates, evidence = _map_fixture(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:151: in _map_fixture
+    home_name = sfc_team(fixture.home_id, fixture.home)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider_id = '99999999', label = '格鲁吉'
+
+    def sfc_team(provider_id, label):
+        """An ID plus the original printed label must agree before expanding a short name."""
+        entry = identities()["sfc"].get(provider_id)
+        if entry is None:
+            candidate = sfc_aliases().get(LEAGUE, {}).get(provider_id, {})
+            if (
+                candidate.get("status") == "approved"
+                and candidate.get("scope") == "national_team"
+                and candidate.get("evidence")
+            ):
+                canonical = identities()["teams"].get(str(candidate.get("apif_id")), {})
+                if canonical.get("canonical") != candidate.get("canonical"):
+                    raise ValueError("欧国联核准别名与标准国家队身份冲突")
+                entry = candidate
+        if entry is None:
+            if provider_id and any(r["label"] == label for r in identities()["sfc"].values()):
+                raise ValueError("欧国联期次球队名称与已核验编号冲突")
+>           raise UnknownSfcTeam(provider_id, label)
+E           zucai.nations.UnknownSfcTeam: 欧国联队名对照表缺该队
+
+/workspace/work/football-t59/src/zucai/nations.py:48: UnknownSfcTeam
+___ test_manual_fetch_csv_write_failure_removes_partial_file_and_rolls_back ____
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-155/test_manual_fetch_csv_write_fa0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f42f1c03fb0>
+
+    def test_manual_fetch_csv_write_failure_removes_partial_file_and_rolls_back(
+        tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        db, output = tmp_path / "manual.db", tmp_path / "matches.csv"
+    
+        def failed_writerows(self, rows):
+            self.writerow(next(iter(rows)))
+            raise OSError("simulated output write failure")
+    
+        monkeypatch.setattr(csv.DictWriter, "writerows", failed_writerows)
+        with responses.RequestsMock() as http:
+            http.get(SFC_URL, body=_national_page())
+            http.get(BRIDGE_URL, body=b'<table id="betTbThead"></table>')
+            with pytest.raises(OSError, match="simulated output write failure"):
+>               fetch_sfc("26156", db=db, matches_out=output)
+
+/workspace/work/football-t59/tests/test_t59_sfc_manual.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/work/football-t59/src/zucai/sources/sfc.py:534: in fetch_sfc
+    record = ingest_issue(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:478: in ingest_issue
+    snapshot = _snapshot_rows(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:271: in _snapshot_rows
+    match, mapping, candidates, evidence = _map_fixture(
+/workspace/work/football-t59/src/zucai/sources/sfc.py:151: in _map_fixture
+    home_name = sfc_team(fixture.home_id, fixture.home)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider_id = '99999999', label = '格鲁吉'
+
+    def sfc_team(provider_id, label):
+        """An ID plus the original printed label must agree before expanding a short name."""
+        entry = identities()["sfc"].get(provider_id)
+        if entry is None:
+            candidate = sfc_aliases().get(LEAGUE, {}).get(provider_id, {})
+            if (
+                candidate.get("status") == "approved"
+                and candidate.get("scope") == "national_team"
+                and candidate.get("evidence")
+            ):
+                canonical = identities()["teams"].get(str(candidate.get("apif_id")), {})
+                if canonical.get("canonical") != candidate.get("canonical"):
+                    raise ValueError("欧国联核准别名与标准国家队身份冲突")
+                entry = candidate
+        if entry is None:
+            if provider_id and any(r["label"] == label for r in identities()["sfc"].values()):
+                raise ValueError("欧国联期次球队名称与已核验编号冲突")
+>           raise UnknownSfcTeam(provider_id, label)
+E           zucai.nations.UnknownSfcTeam: 欧国联队名对照表缺该队
+
+/workspace/work/football-t59/src/zucai/nations.py:48: UnknownSfcTeam
+=========================== short test summary info ============================
+FAILED tests/test_t59_sfc_manual.py::test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown[False]
+FAILED tests/test_t59_sfc_manual.py::test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown[True]
+FAILED tests/test_t59_sfc_manual.py::test_manual_fetch_csv_write_failure_removes_partial_file_and_rolls_back
