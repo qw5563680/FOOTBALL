@@ -1,91 +1,43 @@
-# T66：FD 导入后导出失败与漏班补采验收
+# T66 审查修订验收（2026-11-14）
 
-结论：代码与离线验收完成，正式合并、线上回填和每日链路验收待完成。没有发布生产数据。
+结论：两条必须修和两条建议已处理，离线验收通过；正式合并与线上发布、每日链路验收仍由审查者和所有者执行。
 
-- 任务：`docs/tasks/T66-fd-import-export-validation-failure.md`；代码基线 `d6a52bbb15df4ed22f9c6b57ee2e0936c31ca861`。
-- 实现提交：`46a0a32ae4f7d1d2a0238f8180347508133aa018`；本报告之后的文档提交不改变受测代码。
-- 验收日期：北京时间 2026-11-14；最终全量测试结束于北京时间 13:09:08（UTC 05:09:08）。合并期限：北京时间 **2026-11-16 周一 10:40（UTC 02:40）**。
-- 固定归档：`e5848e5d7de83a0cd024fa3e03e08cf6db6c7ee4`，恢复 SQLite 为 66,744,320 字节，SHA256 `1f5a99bfad007629272d2272fc0dfb10d4a11b9e0dcad775bb22f7dbc4d5f44f`。
-- [完整证据：78 个文件](https://github.com/qw5563680/FOOTBALL/tree/07585d0e1b811f4196ca56176502089f64c6cc92/acceptance/2026-11-14-t66-fd-import-export)，数据分支 `data/t66-fd-import-export-acceptance-20261114`。本目录只提交 README 与 SHA256SUMS；完整脚本、原件、日志、JSON、XML 均在证据分支。
+代码：`bf7c603` 实现修订，`4c924b806b3dd080210ef1d554f3bbacf6f5b9b6` 普通合入 main `6be4104`；后续文档提交不改受测源码。
+[完整本轮证据](https://github.com/qw5563680/FOOTBALL/tree/ecef4198e632c78d893930fe439bff822b1704d4/acceptance/2026-11-14-t66-review)；本目录 SHA256SUMS 相对该证据根目录。
+固定数据 `e5848e5d7de83a0cd024fa3e03e08cf6db6c7ee4`，原件来自[失败运行43543648051](https://github.com/qw5563680/FOOTBALL/actions/runs/43543648051)。
+附件ZIP SHA256：`ab410c4abdacfffc914d8833419a31c1d2ebbb22c4836ba79cbf61ae84da37e5`。
+通过GitHub连接取得附件，只重放15份非空HTTP200原件；没有重新请求体育接口或使用正式密钥。
+回归时钟固定UTC 2026-11-14 06:30（北京时间14:30），是离线回归设定，不是当时已发布预测。
 
-## 修复了什么
+## 逐条回应 PR #138
 
-原问题有两处：已有射正关联先保存，随后免费赛果导入补上同一个 FD 比赛编号，校验器却认为关联被改坏；另外采集限定周一早班，缺班后整周无法补回。
+1. **必须修：晚到免费数据与APIF重复。** 导入只给唯一同场记录补APIF→FD指针，原球队、赛果、半场比分、采集/可知时间保留。两方规范ID相同，或APIF恰一方占位而另一方已绑定且同向ID相同，才可能通过；同时核验三小时窗口、双向唯一、全局供应商绑定和其他声明。未完赛竞争记录也参与检查。导入、导出恢复、训练读取共用这些验证。优先级仍为jc>fd>fdorg>apif；比分不作为身份依据，未新增比分取舍政策。
+2. **必须修：行级partial导致重复采集、滚动七天漂移。** 全部已核验联赛文件完成即记成功，行级拒收/疑似重复保留partial警告但不阻止回执。整联赛/配置/空范围失败继续重试。按UTC周一开始的自然周采一次，周六成功不推迟下周一；回执版本及真实开始时刻保持。
+3. **建议：工具计划文件。** 已删除 `docs/superpowers/plans/2026-11-14-t66-fd-import-export.md`。
+4. **建议：Release增长。** 已核对[GitHub官方限制](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases#storage-and-bandwidth-quotas)：每Release最多1000附件，单文件小于2GiB。正常成功后的同周班次不再下载/复用FD原件，失败重试仍可能追加附件；没有声称解决APIF、伤停等其他附件的增长。
 
-1. `fd_stats_links.py` 只接受“原关联 counterpart 为空，后来变为该条证据中的同一个 FD 编号”。原证据不重写，其他 FD 编号、其他来源、原 fdorg 被替换、反向或重复身份仍拒绝。
-2. 后来的统计捕获仍须追加对应原件观察；不能因为已补上 counterpart 就跳过独立证据。`stats_archive.py` 读取和发布都核对同一条关联的原件 SHA、位置及真实捕获时间。
-3. `cloud_apis.py` 按距上次完整成功采集的 **7 个 UTC 自然日** 判断，缺少记录则下班补采；不再限定星期和早晚。失败、部分成功、空范围不写成功记录。可选 `state/fd_collection.json` 保存真实运行开始时间，仅在完整成功后落盘，随归档哈希导出/恢复；恢复旧快照会清除未发布的新记录。
-4. 工作流原有“复用本次已下载 FD 文件保存统计”步骤也适用于晚班，并使用独立 `-fd` 批次名，避免与 APIF 统计附件重名。没有增加体育 HTTP 请求或改变接口配额、来源范围。
+## 真实原件实跑
 
-## 逐条验收
-
-| 任务验收 | 实跑结果 | 证据（均相对完整证据目录） |
+| 检查 | 结果 | 证据（相对完整证据目录） |
 | --- | --- | --- |
-| 1. 恢复固定归档、复现并完整导入导出 | 原库 52 条校验通过；旧代码仅赋同一 FD 键即失败；真实样本完整导入也得到相同错误。修复后导入并导出通过 | `baseline/reproduction.json`、`acceptance/summary.json` |
-| 2. 保留既有拒绝场景 | T48/T24 原测试逐字节不变；本次新增先关联后导入、后续观察、伪造原件及晚班流程测试。具体矩阵如下 | `verification/staged-byte-verification.json`、`links/`、`internal-review/` |
-| 3. 合并后线上验收 | **未执行，须审查者执行**。本地没有真实调用、生产发布或模型拟合；不能把旧原件回放写成 FD 已推进到 11-09 之后 | `delivery.json`、下方线上检查清单 |
-| 4. 全量、ruff、文档与体积 | 基线 3247 通过，最终 **3331 通过，0 失败/错误/跳过**；ruff check、format --check（338 文件）、diff check 通过。343 个受测文件与提交字节一致 | `verification/full-tests-summary.json`、`full-tests.log/xml`、`ruff-*.log`、`tested-code-files.json` |
+| 原代码复现 | 同15文件新增95/关联610/拒收6/疑似141；仅欧战读取失败，首个冲突FIN apif:1638116 | real-acceptance/baseline/summary.json |
+| 修复后首轮 | 新增95场，既有关联610，新增APIF→FD关系40条，原6拒收/141疑似不消失 | real-acceptance/fixed/summary.json |
+| 重复导入 | 新增0，全部表逻辑哈希不变 | tables-repeat.json（fixed目录） |
+| 导出恢复 | 导入版本与最终合并代码各自通过；所有表哈希相同 | real-acceptance/fixed/final-source-validation.json |
+| 实际训练 | 最终合并代码19/19训练成功，参数/时窗调用与cloud_predict一致，DB哈希不变 | real-acceptance/fixed/training-summary.json、training/ |
+| 原记录保护 | 37617条旧赛果、52条证明、51条既有fdorg指针、2615份冻结文件均保持 | old-result-changes.json、fd-proof-pointer-comparison.json、frozen-before/after.json（fixed目录） |
+| 最新免费场次 | UTC2026-11-01 20:30推进到2026-11-09 18:00，仅验收副本 | real-acceptance/fixed/summary.json |
+| 全量测试 | 合入main后3554项通过，0失败/错误/跳过；ruff check/format/diff通过 | verification/full-tests.xml、full-tests-summary.json、ruff-*.log |
 
-### 同一真实原件与 52 条关联
+40条关系包含34条双边ID一致（原审查所列），另6条符合单边占位规则：瑞超1、美职5。美职另2条API规范队与FD未映射原名不一致，保持未关联，不新增全局队名映射；7条FD未映射来源行均维持原导入行为。美职不属于当前欧战池；逐条ID/原球队/时刻在 `real-acceptance/fixed/linked-apif-list.csv` 与 `usa-partial-identity-evidence.json`。
+旧Match行的正常导入变化另列明：40条APIF、43条FDORG、2条JC只补counterpart；1742条FD仅将最近检查时间更新为本批原件真实捕获时间，旧赛果可知时间不改。详见 `old-match-change-fields.json`。
+15国内模型训练新增ID与95条新FD对应；完整逐联赛增减在 `training-id-deltas.json`。Euro改用已证明同场的高优先级代表，未证明的身份重叠仍拒绝。
 
-真实荷甲样本来自已保存的 2026-11-04 N1 文件第 97 行（包括表头的行号），赛事季 `2627`，`Zwolle` 对 `Den Haag`，射正 `5 / 3`；关联 `jc:2042418` 与 `fd:N1:20261101:zwolle:den-haag`。裁剪只保留原表头及该原行，保留 BOM/CRLF，Git 属性禁止换行转换。
+导入使用单独冻结的修订源码；最终合并代码重新验证FD15完整配置、模型参数文件及19个模型的全部历史/截点内ID完全一致，再重新导出恢复并实际拟合。两阶段源码SHA分别留在 `inputs.json` 和 `final-source-validation.json`，未把旧快照冒充合并后的代码。
 
-- 原 N1 文件 SHA256：`5f5cdffe5f8c413ae73bd1988b259d453a05ba6884e2a2b6060a17fa71867ed1`。
-- 原捕获时间：北京时间 2026-11-04 22:07:19.980721（UTC 14:07:19.980721）。裁剪样本 SHA256：`a96d3ecb3ddb635965b504e9ca3b0c43e9c3085e3b8f38e214e7cef89d32da3a`。
-- 原运行附件位置：`release:stats-raw-202611/stats-raw-41841959728-1.zip`；本次 9 份原件及 sidecar 已逐字节复制到证据 `inputs/raw/`，选择清单带原路径、Release 指针与全部哈希。
-- 全部 52 条独立关联都在 9 份原件中找到，并经过真实导入入口重放；52 条证据行原样保留，51 条原 fdorg 引用原样保留，仅 `jc:2042418` 的空 counterpart 补成其已核验 FD 编号。已有可靠 JC 赛果不变。
+## 独立内部检查与限制
 
-### 另外 51 条与 fd_ingest.py 原第 293 行
+独立内部复核443项通过；修正并验证实际落库的10个边界探针在旧代码7失败/3通过、修复后全过。早期opaque探针存在ORM临时对象未持久化的问题，日志保留并标明，使用更正后的复现作证。详见 `internal-review/final-review.json`。这是Codex内部复核，不替代Claude正式审批。
+初版9份11-04原件、52条统计关联验收仍保存在[原证据提交](https://github.com/qw5563680/FOOTBALL/tree/07585d0e1b811f4196ca56176502089f64c6cc92/acceptance/2026-11-14-t66-fd-import-export)，原备份未删除。本报告的周调度和15原件结论取代初版相应限制。
 
-逐条查询归档：51 条都是 **JC 目标指向历史 fdorg 编号，但对应 fdorg 行已经不在库中**。FD 导入实际先匹配 JC 分支并返回，保留原 fdorg 引用，不走后面的独立 fdorg 行赋值路径。因此不能把“51 条引用”误说成“51 条现存 fdorg 行”。完整清单在 `internal-review/original-link-inventory.json` 和 `acceptance/all-52-link-audit.json`。
-
-确有独立 fdorg 行的另一条路径，仍由原 `tests/test_fd_counterpart.py` 覆盖：迟到 FD 建立双向关系、重采不改比分/可知时间；冲突仍进疑似重复。该导入模块、对应测试和所有 T48 拒绝测试都未改动。
-
-### 接受/拒绝对照
-
-| 情形 | 旧行为 | 本次行为与验证 |
-| --- | --- | --- |
-| 独立统计关联存在，JC 空 counterpart 后由赛果导入补同一 FD 键 | 误拒，导出失败 | 接受；真实复现和完整导入/导出/恢复均通过 |
-| 原 fdorg 引用保持不变 | 接受 | 51 条真实记录全部保留并通过 |
-| 空 counterpart 换成其他来源或不同 FD；原 fdorg 被换成 FD/其他 fdorg/空 | 拒绝 | 继续拒绝 |
-| 三小时内主客反向、共享球队、候选不唯一、联赛/时间不符、别名冲突 | 拒绝 | 旧测试全部原样通过；同 FD pointer 新测试不能绕过 |
-| 同 FD 编号另有实体比赛或其他场次声明，即使在窗口外 | 冲突不得接受 | 新精确过渡路径明确拒绝 |
-| 同 FD pointer 后收到第二份合法原件 | 旧关联早已使导出失败；legacy 捷径不能作为修复 | 新观察追加一次、重复不追加，原身份证据不改 |
-| 同 FD pointer 后伪造统计原件 SHA、位置、时间 | 旧 SQL 会跳过该 pointer 的关联原件检查 | 读取/发布均拒绝；独立复查先复现失败后验证修复 |
-| 缺早班/早班失败、后续班次运行 | 非早班跳过 | 缺有效成功记录或已满 7 个 UTC 日则重试；成功后 0–6 日跳过 |
-| 本地成功但导出失败，再恢复上个正式快照 | 无成功状态可追踪 | 清除或恢复旧成功记录，不会被未发布的记录错误抑制 |
-
-### 完整副本、重复与恢复
-
-9 份文件共 896 条原始赛季比赛行。首次重导新增 **4 场 FD**；旧疑似重复 23 条仍保留隔离，其中 13 条有未匹配球队计数，不为通过测试放宽校验。第二次新增 **0 场**，14 张表全部行数与逻辑哈希完全一致；导出再恢复也一致。
-
-| 联赛 | 原训练读取行数 | 修复副本行数 | 新增 |
-| --- | ---: | ---: | ---: |
-| 法甲 | 1762 | 1763 | 1 |
-| 荷甲 | 1631 | 1633 | 2 |
-| 葡超 | 1617 | 1618 | 1 |
-| 另外 12 个既有国内联赛 | 逐联赛明细见 summary.json | 各自不变 | 0 |
-
-新增的 4 个训练 ID 全部来自这次新 FD 比赛，删除 ID 为 0。这里只检查现有训练读取函数，没有拟合模型，更不声称这些资料在历史预测时已经可用。
-
-`forecasts/models/scoreboard/sfc/daily/state/publication/data/runs` 中实际存在的 **2393 个文件**前后 SHA 一致；没有重写旧预测、参数、日报或账本。当前固定 feeds 的技术统计表本来为空，不能用该库的导出恢复声称远端统计分片已经发布。统计分片另以真实裁剪样本通过实际写入、LocalRelease 发布和恢复入口验证：原 16 行保留；明示合成的射门 24→25 纠错场景形成第 17 行版本，重复新增 0、恢复一致，真实旧时间保持不变。
-
-### 晚班消费者实跑
-
-`tests/test_stats_workflow.py` 顺序执行一次已有 APIF 技术批次和工作流中 FD-only 命令，调用真实 `cloud_stats.main`，GitHub Release 边界换为本地不可变附件实现：保留 4 条原伤停，新增 16 条 FD 统计，新增体育 HTTP/FD 下载/配额消耗均为 0。前一批校验附件及原 CSV/sidecar 字节保持不变。日志见 `schedule/workflow-red.log` 与 `workflow-green.log`。
-
-## 复核与线上剩余步骤
-
-独立内部复查最终 320 项通过，关闭了后续原件观察、读侧原件验证、晚班原件复用三项问题；它是 Codex 内部检查，**不能代替 Claude 正式审查**。
-
-失败运行 [43543648051](https://github.com/qw5563680/FOOTBALL/actions/runs/43543648051) 的附件元数据已核验，但本环境下载仍被 GitHub API 代理 CONNECT 403 拒绝，未取得内容。此处使用的是 11-04 真原件，明确没有冒充 11-14 失败批次重放。
-
-合并后由审查者执行任务单验收 3：
-
-1. 用合并代码重新触发 FD 补采，保留运行 URL、原件及导出/发布日志，确认正式保存后可恢复。
-2. 查询正式库 FD 行最新开球是否确实推进到 11-09 之后；逐联赛保存新入库比赛 ID。
-3. 检查随后一次正常每日链路成功；15 联赛训练新增 ID 与这次新 FD 入库相对照，已有 JC 记录不得被误计为新增，也不拿离线这 4 场代替线上增量。
-
-本任务无需重跑历史模型。上线后新的正常批次会按实际新增资料训练并独立冻结。源码未改模型、参数、来源配置、概率、实际投注开关；没有新表或重型依赖。
-
-证据打包曾因空索引的稀疏工作区漏带原归档文件，已在独立验收分支追加恢复提交；最终相对 e5848e5 **仅新增 78 个证据文件，原 3615 个 Git 文件对象全部相同**。未强推，正式数据分支未改；修复过程见 `packaging-verification.json`。
+未修改正式数据、旧预测、日报、账本、模型参数、来源范围或投注开关；无需重跑旧预测。下一步由Claude复审，所有者合并；审查者执行正式FD补采发布及随后每日链路验收。离线19个模型跑通不表示预测有效。合并期限仍为UTC 2026-11-16 02:40（北京时间10:40）。
