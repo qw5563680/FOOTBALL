@@ -1,0 +1,166 @@
+..............FFFF                                                       [100%]
+=================================== FAILURES ===================================
+__ test_later_stats_capture_still_appends_observation_after_fd_result_import ___
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-422/test_later_stats_capture_still0')
+
+    def test_later_stats_capture_still_appends_observation_after_fd_result_import(tmp_path):
+        database = seed(tmp_path)
+        before = rows(database, "fd_stats_links")[0]
+        import_result(database)
+        # A separately simulated capture; original real fixture remains byte-identical.
+        raw = RawStore(tmp_path / "later").save(
+            "football-data-co-uk",
+            "N1-2627",
+            RAW.read_bytes() + b"\n",
+            "csv",
+            captured_at=instant("2026-11-05T14:07:19Z"),
+            url="https://football-data.co.uk/mmz4281/2627/N1.csv",
+            status_code=200,
+        )
+        for _ in range(2):
+>           assert ingest_fd(
+                database,
+                raw,
+                div="N1",
+                season="2627",
+                leagues_path=ROOT / "data/football_data_co_uk/leagues.json",
+                aliases_path=ROOT / "data/team_aliases/football_data_co_uk.json",
+            ) == {"inserted": 0, "rejected": 0}
+
+tests/test_t66_fd_links.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/stats_storage.py:564: in ingest_fd
+    added = store_rows(session, rows, meta, clocks=clocks, daily=daily)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+session = <sqlalchemy.orm.session.Session object at 0x7f26c56ec320>
+rows = [{'provider': 'fd', 'endpoint': 'csv', 'provider_team_id': None, 'side': 'home', ...}, {'provider': 'fd', 'endpoint': ... None, 'side': 'home', ...}, {'provider': 'fd', 'endpoint': 'csv', 'provider_team_id': None, 'side': 'home', ...}, ...]
+metadata = {'captured_utc': '2026-11-05T14:07:19+00:00', 'raw_sha256': 'ce8d1558eefbc4977887953971e5c93c8bcec91dc6751bd9974e19870..._stats_capture_still0/later/football-data-co-uk/2026-11-05/N1-2627_140719000000Z_39236c7194a049ee9e2080c1acd9c1c7.csv'}
+clocks = {('fd:N1:20261101:zwolle:den-haag', 'csv', 'home:shots'): datetime.datetime(2026, 11, 4, 14, 7, 19, 980721, tzinfo=dat...:den-haag', 'csv', 'home:fouls'): datetime.datetime(2026, 11, 4, 14, 7, 19, 980721, tzinfo=datetime.timezone.utc), ...}
+daily = False
+
+    def store_rows(session, rows, metadata, *, clocks=None, daily=False):
+        """Append corrections per logical record; never mutate an earlier observation."""
+        inserted = 0
+        validated_links = {}
+        keys = [(r["provider"], r["provider_fixture_id"], r["endpoint"], r["record_key"]) for r in rows]
+        if len(set(keys)) != len(keys):
+            raise ValueError("技术数据逻辑行键重复")
+        for row in rows:
+            observed = (clocks or {}).get(
+                (row["provider_fixture_id"], row["endpoint"], row["record_key"])
+            )
+            if observed is not None and instant(metadata["captured_utc"]) < observed:
+                continue
+            fields = dict(row, **metadata, available_utc=None, availability_basis="backfilled")
+            model = MODELS[row["endpoint"]]
+            match = session.get(Match, row["match_id"])
+            if not match or row["team_id"] != getattr(match, row["side"] + "_team_id"):
+                raise ValueError("技术数据主客身份与比赛不符")
+            if (
+                daily
+                and match.status == "finished"
+                and instant(metadata["captured_utc"]) > instant(match.kickoff_utc) + timedelta(hours=2)
+            ):
+                fields.update(availability_basis="captured", available_utc=metadata["captured_utc"])
+            if row["provider"] == "apif":
+                index = session.get(ApifFixtureIndex, row["provider_fixture_id"])
+                if (
+                    not index
+                    or index.match_id != match.match_id
+                    or row["provider_team_id"] != getattr(index, row["side"] + "_provider_id")
+                ):
+                    raise ValueError("技术数据缺少一致的 fixture 索引")
+            else:
+                legacy = (match.source == "fd" and row["provider_fixture_id"] == match.match_id) or (
+                    match.source == "jc" and match.counterpart_id == row["provider_fixture_id"]
+                )
+                link = session.get(FdStatsLink, row["provider_fixture_id"])
+                if link is not None:
+                    if link.provider_fixture_id not in validated_links:
+                        teams, matches = _session_context(session)
+                        validated_links[link.provider_fixture_id] = _validate_link(
+                            _model_dict(link, FD_LINK_COLUMNS), teams, matches
+                        )
+                    if not fd_link_authorizes(
+                        validated_links[link.provider_fixture_id], match_id=match.match_id, **metadata
+                    ):
+>                       raise ValueError("fd 技术数据缺少一致的原件关联观察")
+E                       ValueError: fd 技术数据缺少一致的原件关联观察
+
+src/zucai/stats_storage.py:245: ValueError
+_ test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance[raw_sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-422/test_fd_result_pointer_does_no0')
+column = 'raw_sha256'
+value = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+    @pytest.mark.parametrize(
+        ("column", "value"),
+        [
+            ("raw_sha256", "b" * 64),
+            ("raw_location", "forged://raw.csv"),
+            ("captured_utc", "2026-11-05T12:00:00Z"),
+        ],
+    )
+    def test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance(tmp_path, column, value):
+        database = seed(tmp_path)
+        import_result(database)
+        mutate(database, f"UPDATE match_stats SET {column}=?", (value,))
+>       with sqlite3.connect(database) as db, pytest.raises(ValueError, match="原件证据"):
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_links.py:265: Failed
+_ test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance[raw_location-forged://raw.csv] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-422/test_fd_result_pointer_does_no1')
+column = 'raw_location', value = 'forged://raw.csv'
+
+    @pytest.mark.parametrize(
+        ("column", "value"),
+        [
+            ("raw_sha256", "b" * 64),
+            ("raw_location", "forged://raw.csv"),
+            ("captured_utc", "2026-11-05T12:00:00Z"),
+        ],
+    )
+    def test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance(tmp_path, column, value):
+        database = seed(tmp_path)
+        import_result(database)
+        mutate(database, f"UPDATE match_stats SET {column}=?", (value,))
+>       with sqlite3.connect(database) as db, pytest.raises(ValueError, match="原件证据"):
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_links.py:265: Failed
+_ test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance[captured_utc-2026-11-05T12:00:00Z] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-422/test_fd_result_pointer_does_no2')
+column = 'captured_utc', value = '2026-11-05T12:00:00Z'
+
+    @pytest.mark.parametrize(
+        ("column", "value"),
+        [
+            ("raw_sha256", "b" * 64),
+            ("raw_location", "forged://raw.csv"),
+            ("captured_utc", "2026-11-05T12:00:00Z"),
+        ],
+    )
+    def test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance(tmp_path, column, value):
+        database = seed(tmp_path)
+        import_result(database)
+        mutate(database, f"UPDATE match_stats SET {column}=?", (value,))
+>       with sqlite3.connect(database) as db, pytest.raises(ValueError, match="原件证据"):
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_links.py:265: Failed
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_links.py::test_later_stats_capture_still_appends_observation_after_fd_result_import
+FAILED tests/test_t66_fd_links.py::test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance[raw_sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb]
+FAILED tests/test_t66_fd_links.py::test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance[raw_location-forged://raw.csv]
+FAILED tests/test_t66_fd_links.py::test_fd_result_pointer_does_not_bypass_existing_link_raw_provenance[captured_utc-2026-11-05T12:00:00Z]
+4 failed, 14 passed in 2.07s

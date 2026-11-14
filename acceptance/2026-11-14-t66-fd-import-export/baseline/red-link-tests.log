@@ -1,0 +1,71 @@
+F............F                                                           [100%]
+=================================== FAILURES ===================================
+_ test_existing_statistics_then_fd_result_roundtrips_without_rewriting_proof[None] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-415/test_existing_statistics_then_0')
+original = None
+
+    @pytest.mark.parametrize("original", [None, "fdorg:77"])
+    def test_existing_statistics_then_fd_result_roundtrips_without_rewriting_proof(tmp_path, original):
+        database = seed(tmp_path, original)
+        before = {name: rows(database, name) for name in ("fd_stats_links", "match_stats", "results")}
+        for _ in range(2):
+            imported = import_result(database)
+            assert imported["linked_existing"] == 1
+            assert imported["inserted"] == imported["rejected_rows"] == 0
+            assert imported["suspected_duplicates"] == 0
+            with sqlite3.connect(database) as db:
+>               assert list(validate_fd_links(db)) == [FD_ID]
+                            ^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t66_fd_links.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/fd_stats_links.py:289: in validate_fd_links
+    _validate_link(link, teams, matches)
+src/zucai/fd_stats_links.py:221: in _validate_link
+    match = _unique_match(matches, link["league"], kickoff, pair)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+matches = [{'match_id': 'jc:2042418', 'source': 'jc', 'league': '荷甲', 'kickoff_utc': '2026-11-01T11:15:00.000000Z', ...}]
+league = '荷甲'
+kickoff = datetime.datetime(2026, 11, 1, 11, 15, tzinfo=datetime.timezone.utc)
+pair = (1, 2)
+
+    def _unique_match(matches, league, kickoff, pair):
+        window = [
+            m
+            for m in matches
+            if m["league"] == league and abs(instant(m["kickoff_utc"]) - instant(kickoff)) <= WINDOW
+        ]
+        related = [m for m in window if set(pair) & {m["home_team_id"], m["away_team_id"]}]
+        direct = [m for m in related if (m["home_team_id"], m["away_team_id"]) == pair]
+        if len(direct) != 1 or len(related) != 1 or direct[0]["source"] != "jc":
+            raise ValueError("FD 同联赛三小时内主客反向、共享球队或候选不唯一")
+        match = direct[0]
+        if match.get("counterpart_id") and not match["counterpart_id"].startswith("fdorg:"):
+>           raise ValueError("FD 目标已有其他来源 counterpart 声明")
+E           ValueError: FD 目标已有其他来源 counterpart 声明
+
+src/zucai/fd_stats_links.py:143: ValueError
+______ test_real_crop_retains_the_captured_clock_and_exact_row_provenance ______
+
+    def test_real_crop_retains_the_captured_clock_and_exact_row_provenance():
+        import hashlib
+    
+        provenance = json.loads((RAW.parent / "provenance.json").read_text())
+        metadata = json.loads(RAW.with_suffix(".csv.meta.json").read_text())
+        assert provenance["raw_line"] == 97
+>       assert metadata["fetched_at_utc"] == "2026-11-04T14:07:19.980721+00:00"
+E       AssertionError: assert '2026-11-04T14:07:19.980721Z' == '2026-11-04T1....980721+00:00'
+E         
+E         - 2026-11-04T14:07:19.980721+00:00
+E         ?                           ^^^^^^
+E         + 2026-11-04T14:07:19.980721Z
+E         ?                           ^
+
+tests/test_t66_fd_links.py:202: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_links.py::test_existing_statistics_then_fd_result_roundtrips_without_rewriting_proof[None]
+FAILED tests/test_t66_fd_links.py::test_real_crop_retains_the_captured_clock_and_exact_row_provenance
+2 failed, 12 passed in 2.07s

@@ -1,0 +1,46 @@
+..............F......................................................... [ 52%]
+.................................................................        [100%]
+=================================== FAILURES ===================================
+__ test_later_stats_capture_still_appends_observation_after_fd_result_import ___
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-423/test_later_stats_capture_still0')
+
+    def test_later_stats_capture_still_appends_observation_after_fd_result_import(tmp_path):
+        database = seed(tmp_path)
+        before = rows(database, "fd_stats_links")[0]
+        import_result(database)
+        # A separately simulated capture; original real fixture remains byte-identical.
+        raw = RawStore(tmp_path / "later").save(
+            "football-data-co-uk",
+            "N1-2627",
+            RAW.read_bytes() + b"\n",
+            "csv",
+            captured_at=instant("2026-11-05T14:07:19Z"),
+            url="https://football-data.co.uk/mmz4281/2627/N1.csv",
+            status_code=200,
+        )
+        for _ in range(2):
+            assert ingest_fd(
+                database,
+                raw,
+                div="N1",
+                season="2627",
+                leagues_path=ROOT / "data/football_data_co_uk/leagues.json",
+                aliases_path=ROOT / "data/team_aliases/football_data_co_uk.json",
+            ) == {"inserted": 0, "rejected": 0}
+        with sqlite3.connect(database) as db:
+            checked = validate_fd_links(db)[FD_ID]
+            observations = checked["evidence"]["observations"]
+            assert len(observations) == 2
+>           assert observations[0]["captured_utc"] == "2026-11-04T14:07:19.980721Z"
+E           AssertionError: assert '2026-11-04T1....980721+00:00' == '2026-11-04T14:07:19.980721Z'
+E             
+E             - 2026-11-04T14:07:19.980721Z
+E             ?                           ^
+E             + 2026-11-04T14:07:19.980721+00:00
+E             ?                           ^^^^^^
+
+tests/test_t66_fd_links.py:236: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_links.py::test_later_stats_capture_still_appends_observation_after_fd_result_import
+1 failed, 136 passed in 6.70s

@@ -1,0 +1,112 @@
+.......F                                                                 [100%]
+=================================== FAILURES ===================================
+_ test_captured_fd_recovery_after_api_stats_has_no_requests_or_asset_collision _
+
+batch = (PosixPath('/tmp/pytest-of-agent/pytest-427/test_captured_fd_recovery_afte0/data/feeds.db'), PosixPath('/tmp/pytest-of...te0/archive'), <test_stats_batch.Release object at 0x7fa4ee989be0>, <function batch.<locals>.client at 0x7fa4ee998860>)
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-427/test_captured_fd_recovery_afte0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa4eeb72ff0>
+
+    def test_captured_fd_recovery_after_api_stats_has_no_requests_or_asset_collision(
+        batch, tmp_path, monkeypatch
+    ):
+        from zucai import cloud_stats
+        from zucai.db import get_engine, session_scope
+        from zucai.models import Match
+        from zucai.sources.base import RawStore
+        from zucai.stats_batch import collect_batch
+        from zucai.stats_schedule import plan
+    
+        database, archive, release, client = batch
+        work = tmp_path / "work"
+        work.mkdir()
+        database.parent.rename(work / "data")
+        database = work / "data/zucai.db"
+        (work / "data/feeds.db").rename(database)
+        archive.rename(tmp_path / "cloud-data")
+        archive = tmp_path / "cloud-data"
+        fixture_root = ROOT / "data/fixtures"
+        engine = get_engine(database)
+        with session_scope(engine) as session:
+            session.add(
+                Match(**json.loads((fixture_root / "t31/store.json").read_bytes())["matches"][0])
+            )
+        engine.dispose()
+        raw = RawStore(database.parent / "raw").save(
+            "football-data-co-uk",
+            "E0-2425",
+            (fixture_root / "t31/fd.csv").read_bytes(),
+            "csv",
+            captured_at=STATS_NOW,
+            url="https://www.football-data.co.uk/mmz4281/2425/E0.csv",
+            status_code=200,
+        )
+        raw_before = raw.read_bytes()
+        metadata_before = raw.with_suffix(".csv.meta.json").read_bytes()
+        export_feeds(database, archive, STATS_NOW.date(), "before-late-stats")
+        injury = json.loads((fixture_root / "t38/injuries.json").read_bytes())
+        injury["parameters"]["season"] = "2026"
+        kickoff = json.loads((fixture_root / "t38/archive.json").read_bytes())["match"]["kickoff_utc"]
+        for row in injury["response"]:
+            row["league"]["season"] = 2026
+            row["fixture"]["date"] = kickoff
+        with responses.RequestsMock() as http:
+            http.get("https://v3.football.api-sports.io/injuries?league=39&season=2026", json=injury)
+            earlier = collect_batch(
+                database,
+                archive,
+                plan("39", "2026", "injuries", STATS_NOW),
+                release=release,
+                run_id="fd-recovery-3",
+                now=STATS_NOW,
+                daily=True,
+                client_factory=client,
+            )
+        assert earlier["status"] == "complete" and earlier["inserted"] == 4
+        assert earlier["requests"] == 1
+        prior_checksum = release.root / "stats-raw-202611/SHA256SUMS-fd-recovery-3"
+        checksum_before = prior_checksum.read_bytes()
+        quota = database.parent / "state/api_football_quota.json"
+        quota_before = quota.read_bytes()
+    
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return STATS_NOW
+    
+        monkeypatch.setattr(cloud_stats, "datetime", Clock)
+        monkeypatch.setattr(cloud_stats, "ReleaseStore", lambda: release)
+        release.session = requests.Session()
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
+        monkeypatch.delenv("API_FOOTBALL_KEY")
+        monkeypatch.chdir(work)
+        argv = captured_fd_argv(tmp_path, work)
+        with responses.RequestsMock() as http:
+            assert cloud_stats.main(argv[2:]) == 0
+            assert len(http.calls) == 0
+        report = archive_info(archive)["collection"]["stats"]
+        assert report["status"] == "complete", report
+        assert report["requests"] == report["downloaded_files"] == 0
+        assert report["reused_files"] == 1 and report["inserted"] == 16
+        assert quota.read_bytes() == quota_before
+        assert prior_checksum.read_bytes() == checksum_before
+        assert raw.read_bytes() == raw_before
+        assert raw.with_suffix(".csv.meta.json").read_bytes() == metadata_before
+        with sqlite3.connect(database) as db:
+            assert db.execute("SELECT count(*) FROM match_injuries").fetchone() == (4,)
+            assert db.execute("SELECT count(*) FROM match_stats WHERE provider='fd'").fetchone() == (
+                16,
+            )
+>           assert db.execute(
+                "SELECT DISTINCT availability_basis,captured_utc,available_utc "
+                "FROM match_stats WHERE provider='fd'"
+            ).fetchall() == [("captured", "2026-11-04T09:00:10.000000Z", "2026-11-04T09:00:10.000000Z")]
+E           AssertionError: assert [('backfilled...0000Z', None)] == [('captured',...:10.000000Z')]
+E             
+E             At index 0 diff: ('backfilled', '2026-11-04T09:00:10.000000Z', None) != ('captured', '2026-11-04T09:00:10.000000Z', '2026-11-04T09:00:10.000000Z')
+E             Use -v to get more diff
+
+/workspace/work/football-t66/tests/test_t66_fd_schedule.py:338: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_schedule.py::test_captured_fd_recovery_after_api_stats_has_no_requests_or_asset_collision
+1 failed, 7 passed, 116 deselected in 1.20s

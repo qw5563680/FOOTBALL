@@ -1,0 +1,29 @@
+T66 FD cadence/state handoff
+
+Changed files are exactly those in SHA256SUMS. No commits, pushes, production operations, key usage, or live HTTP. Parent owns full suite, docs, acceptance and PR.
+
+Behavior:
+- fd_due(now, slot="auto", state=None) accepts the existing two arguments. slot no longer affects FD freshness; state is an optional receipt FILE Path. Missing file or no path is due; valid successful evidence suppresses collection for date differences 0 through 6 and becomes due at date difference 7. Both dates are UTC, not elapsed 168-hour windows.
+- Optional state/fd_collection.json has exact schema {"version": 1, "last_successful_run_started_utc": "UTC ISO timestamp"}. It records the collect_apis(now) run-start anchor, written atomically only after a nonempty configured FD batch finishes complete. It does not claim a completion time, response capture time, or publication time. Raw captures are untouched.
+- Download/parse failures, rejected rows, suspected duplicates, configuration failure, zero scope and receipt-write failure leave the previous successful receipt intact; partial batches never advance it. Other providers do not govern FD success. Normal manual/historical backfill does not write this receipt because it may cover a different subset.
+- fd_due treats invalid/unreadable/future local evidence conservatively as due. Export and archive_info are deliberately stricter: exact schema, integer version 1 (bool rejected), full UTC ISO time, and no future run-start allowed. Export bounds against actual export time before archive mutation; archive_info bounds against manifest created_utc after hashes and before destination DB replacement. Corrupt published archives fail validation instead of silently discarding their evidence.
+- Receipt is optional in old v1/v2 archives, included in the existing SHA256 state export/restore whitelist, and absent receipt on restore explicitly removes any newer local receipt. Existing receipt restores exact bytes. Thus a local successful collection followed by failed export cannot suppress collection after restoring the last published snapshot.
+- FD configured scopes, import identity rules, other-provider windows, job slots, prediction triggers and technical-statistics schedule are unchanged. State contains no configuration fingerprint; existing normal weekly configured scope is the unit of successful collection.
+
+Tests/evidence:
+- red.log: 63 failed, 78 passed against old production code. Includes the missing Monday early / late recovery reproduction, old two-argument missing-evidence decisions, absent persistence and unchecked invalid export state.
+- green-first.log: 141 passed after minimal implementation.
+- green.log: 263 passed (new scheduling; APIs; predict workflow; cloud feeds/backfill; stats workflow; T61 neighboring backfills).
+- fixture-consumers.log: 58 passed (T22 backfill, cloud cups/identity and alias evaluation/proposals sharing the updated T14 seed).
+- ruff.log: scoped ruff check and format --check pass; scoped git diff --check passed.
+- Existing T14 environment now explicitly seeds recent success for non-FD scenarios; the two existing FD importing scenarios explicitly remove that receipt. Assertions unrelated to old weekday-only behavior remain intact.
+- New regression coverage: all slots/weekdays with no receipt; seventh UTC-date boundary including UTC+8 conversion; missing early recovered late then every slot suppressed; HTTP/parse/rejected-row/duplicate/zero-scope failures retry late without erasing previous success; later-scope failure does not stamp partial batch; successful archive/hash roundtrip; malformed/future/hash-invalid restore rejected before replacement; failed export followed by restoration removes/reverts unpublished receipt.
+
+Review follow-up: late FD recovery postdownload processing
+- Root explicitly authorized this direct integration repair after independent review found the existing captured-FD statistics reuse step was early-only. The normal late technical API endpoint selection omits fd, so freshly recovered late FD files otherwise waited until a future eligible batch.
+- Only two workflow lines changed: existing FD-only reuse step now applies to normal apis regardless early/late slot, still runs only when the current workdir has its downloaded FD raw directory, and uses run ID <run>-<attempt>-fd. The suffix prevents immutable per-run checksum asset collisions with the preceding late API technical batch.
+- No stats_captured_fd.py, stats scheduler, endpoint set, parser, request cap or API technical-data schedule was changed. This is the same zero-sports-request postdownload processing following its newly flexible collection time; GitHub Release artifact access remains the existing mechanism.
+- workflow-red.log: 3 failed / 5 passed, specifically late step excluded, old shared run ID, and sequential APIF daily + FD-only reuse failing immutable artifact publication.
+- workflow-green.log: 200 passed across stats workflow, T66 schedule, prediction workflow and stats batch. The sequential consumer test executes the checked-in FD shell, passes its emitted arguments into real cloud_stats.main, uses real ingestion/cursor/archive code with fixture HTTP and local immutable Release boundary, preserves four prior injury rows, adds 16 FD stat rows, observes zero additional HTTP requests/FD downloads/quota change, and preserves prior checksum plus source CSV/sidecar bytes. Existing T31 scheduled fixture correctly retains backfilled/unknown availability rather than inventing result time.
+- Updated ruff.log: seven scoped Python files pass check and format --check. Workflow/test diff-check passed. SHA256SUMS now covers all nine owned files, including workflow + stats workflow tests.
+- Frozen after focused green. Full suite and docs remain parent-owned.

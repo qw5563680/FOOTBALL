@@ -1,0 +1,1711 @@
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF...FFF....FFFF...... [ 51%]
+.................................................................FFFF    [100%]
+=================================== FAILURES ===================================
+_ test_success_is_fresh_until_seventh_utc_date[early-2026-11-02T23:59:59+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se0')
+instant = '2026-11-02T23:59:59+00:00', expected = False, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[early-2026-11-03T10:19:00+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se1')
+instant = '2026-11-03T10:19:00+00:00', expected = False, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[early-2026-11-08T23:59:59+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se2')
+instant = '2026-11-08T23:59:59+00:00', expected = False, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[early-2026-11-09T00:00:00+00:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se3')
+instant = '2026-11-09T00:00:00+00:00', expected = True, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[early-2026-11-09T07:59:59+08:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se4')
+instant = '2026-11-09T07:59:59+08:00', expected = False, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[early-2026-11-09T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se5')
+instant = '2026-11-09T08:00:00+08:00', expected = True, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[late-2026-11-02T23:59:59+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se6')
+instant = '2026-11-02T23:59:59+00:00', expected = False, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[late-2026-11-03T10:19:00+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se7')
+instant = '2026-11-03T10:19:00+00:00', expected = False, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[late-2026-11-08T23:59:59+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se8')
+instant = '2026-11-08T23:59:59+00:00', expected = False, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[late-2026-11-09T00:00:00+00:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se9')
+instant = '2026-11-09T00:00:00+00:00', expected = True, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[late-2026-11-09T07:59:59+08:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se10')
+instant = '2026-11-09T07:59:59+08:00', expected = False, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[late-2026-11-09T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se11')
+instant = '2026-11-09T08:00:00+08:00', expected = True, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[auto-2026-11-02T23:59:59+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se12')
+instant = '2026-11-02T23:59:59+00:00', expected = False, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[auto-2026-11-03T10:19:00+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se13')
+instant = '2026-11-03T10:19:00+00:00', expected = False, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[auto-2026-11-08T23:59:59+00:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se14')
+instant = '2026-11-08T23:59:59+00:00', expected = False, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[auto-2026-11-09T00:00:00+00:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se15')
+instant = '2026-11-09T00:00:00+00:00', expected = True, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[auto-2026-11-09T07:59:59+08:00-False] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se16')
+instant = '2026-11-09T07:59:59+08:00', expected = False, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_ test_success_is_fresh_until_seventh_utc_date[auto-2026-11-09T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_success_is_fresh_until_se17')
+instant = '2026-11-09T08:00:00+08:00', expected = True, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("instant", "expected"),
+        [
+            ("2026-11-02T23:59:59+00:00", False),
+            ("2026-11-03T10:19:00+00:00", False),
+            ("2026-11-08T23:59:59+00:00", False),
+            ("2026-11-09T00:00:00+00:00", True),
+            ("2026-11-09T07:59:59+08:00", False),
+            ("2026-11-09T08:00:00+08:00", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+        path = tmp_path / STATE
+        write_receipt(path)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:55: TypeError
+_____ test_invalid_or_future_success_never_suppresses_collection[damaged] ______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success0')
+raw = 'damaged'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+________ test_invalid_or_future_success_never_suppresses_collection[[]] ________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success1')
+raw = '[]'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+________ test_invalid_or_future_success_never_suppresses_collection[{}] ________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success2')
+raw = '{}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": true, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success3')
+raw = '{"version": true, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 2, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success4')
+raw = '{"version": 2, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00", "extra": 1}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success5')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00", "extra": 1}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": null}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success6')
+raw = '{"version": 1, "last_successful_run_started_utc": null}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": 1793491200}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success7')
+raw = '{"version": 1, "last_successful_run_started_utc": 1793491200}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success8')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success9')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+08:00"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success10')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+08:00"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01 02:40:00Z"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success11')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01 02:40:00Z"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-02-30T02:40:00Z"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success12')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-02-30T02:40:00Z"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-02T02:40:01Z"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_invalid_or_future_success13')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-02T02:40:01Z"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_invalid_or_future_success_never_suppresses_collection(tmp_path, raw):
+        path = tmp_path / STATE
+        path.parent.mkdir()
+        path.write_text(raw)
+>       assert fd_due(datetime.fromisoformat("2026-11-02T02:40:00Z"), "late", path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: fd_due() takes 2 positional arguments but 3 were given
+
+tests/test_t66_fd_schedule.py:86: TypeError
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[damaged] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or0')
+raw = 'damaged'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+__ test_export_rejects_invalid_or_future_success_before_changing_archive[[]] ___
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or1/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or1')
+raw = '[]'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+__ test_export_rejects_invalid_or_future_success_before_changing_archive[{}] ___
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or2/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or2')
+raw = '{}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": true, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or3/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or3')
+raw = '{"version": true, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 2, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or4/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or4')
+raw = '{"version": 2, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00", "extra": 1}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or5/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or5')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00", "extra": 1}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": null}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or6/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or6')
+raw = '{"version": 1, "last_successful_run_started_utc": null}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": 1793491200}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or7/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or7')
+raw = '{"version": 1, "last_successful_run_started_utc": 1793491200}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01"}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or8/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or8')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00"}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or9/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or9')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+08:00"}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or10/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or10')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+08:00"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01 02:40:00Z"}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or11/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or11')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-01 02:40:00Z"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-02-30T02:40:00Z"}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or12/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or12')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-02-30T02:40:00Z"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+_ test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-02T02:40:01Z"}] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or13/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_export_rejects_invalid_or13')
+raw = '{"version": 1, "last_successful_run_started_utc": "2026-11-02T02:40:01Z"}'
+
+    @pytest.mark.parametrize("raw", INVALID_RECEIPTS)
+    def test_export_rejects_invalid_or_future_success_before_changing_archive(
+        environment, tmp_path, raw
+    ):
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        before = (environment / "feed_manifest.json").read_bytes()
+        (database.parent / STATE).write_text(raw)
+>       with pytest.raises(ValueError, match="FD"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:97: Failed
+___________ test_missing_early_collects_late_and_success_roundtrips ____________
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_missing_early_collects_la0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_missing_early_collects_la0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd35f1eb860>
+
+    def test_missing_early_collects_late_and_success_roundtrips(environment, tmp_path, monkeypatch):
+        forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        monkeypatch.setattr("test_cloud_apis.CLOCK", datetime.fromisoformat("2026-11-02T10:19:00Z"))
+>       with responses.RequestsMock() as api:
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/football-t66/tests/test_t66_fd_schedule.py:106: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/work/t48-venv/lib/python3.12/site-packages/responses/__init__.py:1006: in __exit__
+    self.stop(allow_assert=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <responses.RequestsMock object at 0x7fd35d647f80>, allow_assert = True
+
+    def stop(self, allow_assert: bool = True) -> None:
+        if self._patcher:
+            # prevent stopping unstarted patchers
+            self._patcher.stop()
+    
+            # once patcher is stopped, clean it. This is required to create a new
+            # fresh patcher on self.start()
+            self._patcher = None
+    
+        if not self.assert_all_requests_are_fired:
+            return
+    
+        if not allow_assert:
+            return
+    
+        not_called = [m for m in self.registered() if m.call_count == 0]
+        if not_called:
+>           raise AssertionError(
+                "Not all requests have been executed {!r}".format(
+                    [(match.method, match.url) for match in not_called]
+                )
+            )
+E           AssertionError: Not all requests have been executed [('GET', 'https://www.football-data.co.uk/mmz4281/2627/E0.csv')]
+
+/workspace/work/t48-venv/lib/python3.12/site-packages/responses/__init__.py:1246: AssertionError
+_____ test_failed_early_preserves_previous_success_and_retries_late[http] ______
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd3747ca1b0>
+failure = 'http'
+
+    @pytest.mark.parametrize("failure", ["http", "parse", "rows", "duplicates", "zero-scopes"])
+    def test_failed_early_preserves_previous_success_and_retries_late(
+        environment, tmp_path, monkeypatch, failure
+    ):
+        configure_fd(monkeypatch, tmp_path)
+        archive_receipt(environment, "2026-10-26T02:40:00+00:00")
+        previous = (environment / STATE).read_bytes()
+        database = tmp_path / "work/data/zucai.db"
+>       restore_feeds(environment, database)
+
+tests/test_t66_fd_schedule.py:135: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:422: in restore_feeds
+    meta = archive_info(archive)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr0/archive')
+
+    def archive_info(archive: Path) -> dict:
+        meta = json.loads((archive / MANIFEST).read_text(encoding="utf-8"))
+        if meta["version"] not in (1, 2):
+            raise ValueError("不支持的云端归档版本")
+        _candidate_review_files(archive)
+        _catalogue_files(archive)
+        for key, want in meta["files"].items():
+            if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
+                rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
+                key,
+            ):
+>               raise ValueError(f"未知归档文件 {key}")
+E               ValueError: 未知归档文件 state/fd_collection.json
+
+src/zucai/cloud_feeds.py:402: ValueError
+_____ test_failed_early_preserves_previous_success_and_retries_late[parse] _____
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr1/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd35d25e900>
+failure = 'parse'
+
+    @pytest.mark.parametrize("failure", ["http", "parse", "rows", "duplicates", "zero-scopes"])
+    def test_failed_early_preserves_previous_success_and_retries_late(
+        environment, tmp_path, monkeypatch, failure
+    ):
+        configure_fd(monkeypatch, tmp_path)
+        archive_receipt(environment, "2026-10-26T02:40:00+00:00")
+        previous = (environment / STATE).read_bytes()
+        database = tmp_path / "work/data/zucai.db"
+>       restore_feeds(environment, database)
+
+tests/test_t66_fd_schedule.py:135: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:422: in restore_feeds
+    meta = archive_info(archive)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr1/archive')
+
+    def archive_info(archive: Path) -> dict:
+        meta = json.loads((archive / MANIFEST).read_text(encoding="utf-8"))
+        if meta["version"] not in (1, 2):
+            raise ValueError("不支持的云端归档版本")
+        _candidate_review_files(archive)
+        _catalogue_files(archive)
+        for key, want in meta["files"].items():
+            if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
+                rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
+                key,
+            ):
+>               raise ValueError(f"未知归档文件 {key}")
+E               ValueError: 未知归档文件 state/fd_collection.json
+
+src/zucai/cloud_feeds.py:402: ValueError
+_____ test_failed_early_preserves_previous_success_and_retries_late[rows] ______
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr2/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd35d25d3d0>
+failure = 'rows'
+
+    @pytest.mark.parametrize("failure", ["http", "parse", "rows", "duplicates", "zero-scopes"])
+    def test_failed_early_preserves_previous_success_and_retries_late(
+        environment, tmp_path, monkeypatch, failure
+    ):
+        configure_fd(monkeypatch, tmp_path)
+        archive_receipt(environment, "2026-10-26T02:40:00+00:00")
+        previous = (environment / STATE).read_bytes()
+        database = tmp_path / "work/data/zucai.db"
+>       restore_feeds(environment, database)
+
+tests/test_t66_fd_schedule.py:135: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:422: in restore_feeds
+    meta = archive_info(archive)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr2/archive')
+
+    def archive_info(archive: Path) -> dict:
+        meta = json.loads((archive / MANIFEST).read_text(encoding="utf-8"))
+        if meta["version"] not in (1, 2):
+            raise ValueError("不支持的云端归档版本")
+        _candidate_review_files(archive)
+        _catalogue_files(archive)
+        for key, want in meta["files"].items():
+            if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
+                rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
+                key,
+            ):
+>               raise ValueError(f"未知归档文件 {key}")
+E               ValueError: 未知归档文件 state/fd_collection.json
+
+src/zucai/cloud_feeds.py:402: ValueError
+__ test_failed_early_preserves_previous_success_and_retries_late[duplicates] ___
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr3/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd35d645c70>
+failure = 'duplicates'
+
+    @pytest.mark.parametrize("failure", ["http", "parse", "rows", "duplicates", "zero-scopes"])
+    def test_failed_early_preserves_previous_success_and_retries_late(
+        environment, tmp_path, monkeypatch, failure
+    ):
+        configure_fd(monkeypatch, tmp_path)
+        archive_receipt(environment, "2026-10-26T02:40:00+00:00")
+        previous = (environment / STATE).read_bytes()
+        database = tmp_path / "work/data/zucai.db"
+>       restore_feeds(environment, database)
+
+tests/test_t66_fd_schedule.py:135: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:422: in restore_feeds
+    meta = archive_info(archive)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr3/archive')
+
+    def archive_info(archive: Path) -> dict:
+        meta = json.loads((archive / MANIFEST).read_text(encoding="utf-8"))
+        if meta["version"] not in (1, 2):
+            raise ValueError("不支持的云端归档版本")
+        _candidate_review_files(archive)
+        _catalogue_files(archive)
+        for key, want in meta["files"].items():
+            if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
+                rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
+                key,
+            ):
+>               raise ValueError(f"未知归档文件 {key}")
+E               ValueError: 未知归档文件 state/fd_collection.json
+
+src/zucai/cloud_feeds.py:402: ValueError
+__ test_failed_early_preserves_previous_success_and_retries_late[zero-scopes] __
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr4/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd35d42ac00>
+failure = 'zero-scopes'
+
+    @pytest.mark.parametrize("failure", ["http", "parse", "rows", "duplicates", "zero-scopes"])
+    def test_failed_early_preserves_previous_success_and_retries_late(
+        environment, tmp_path, monkeypatch, failure
+    ):
+        configure_fd(monkeypatch, tmp_path)
+        archive_receipt(environment, "2026-10-26T02:40:00+00:00")
+        previous = (environment / STATE).read_bytes()
+        database = tmp_path / "work/data/zucai.db"
+>       restore_feeds(environment, database)
+
+tests/test_t66_fd_schedule.py:135: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:422: in restore_feeds
+    meta = archive_info(archive)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive = PosixPath('/tmp/pytest-of-agent/pytest-414/test_failed_early_preserves_pr4/archive')
+
+    def archive_info(archive: Path) -> dict:
+        meta = json.loads((archive / MANIFEST).read_text(encoding="utf-8"))
+        if meta["version"] not in (1, 2):
+            raise ValueError("不支持的云端归档版本")
+        _candidate_review_files(archive)
+        _catalogue_files(archive)
+        for key, want in meta["files"].items():
+            if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
+                rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
+                key,
+            ):
+>               raise ValueError(f"未知归档文件 {key}")
+E               ValueError: 未知归档文件 state/fd_collection.json
+
+src/zucai/cloud_feeds.py:402: ValueError
+_______ test_restore_rejects_bad_receipt_before_replacing_database[hash] _______
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_rejects_bad_recei2/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_rejects_bad_recei2')
+receipt = 'hash'
+
+    @pytest.mark.parametrize("receipt", ["invalid", "future", "hash"])
+    def test_restore_rejects_bad_receipt_before_replacing_database(environment, tmp_path, receipt):
+        if receipt == "invalid":
+            archive_receipt(environment, "2026-11-01T02:40:00")
+        elif receipt == "future":
+            archive_receipt(environment, "2026-11-02T02:40:01Z")
+        else:
+            write_receipt(environment / STATE, "2026-11-01T03:00:00Z")
+        target = tmp_path / "existing.db"
+        target.write_bytes(b"must remain untouched")
+>       with pytest.raises(ValueError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_schedule.py:205: Failed
+______ test_restore_discards_success_from_unpublished_failed_export[None] ______
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_discards_success_0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_discards_success_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd35d429e20>
+prior_success = None
+
+    @pytest.mark.parametrize("prior_success", [None, "2026-10-26T02:40:00Z"])
+    def test_restore_discards_success_from_unpublished_failed_export(
+        environment, tmp_path, monkeypatch, prior_success
+    ):
+        if prior_success:
+            archive_receipt(environment, prior_success)
+        else:
+            forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        database = tmp_path / "work/data/zucai.db"
+        restore_feeds(environment, database)
+        monkeypatch.setenv("ZUCAI_DB", str(database))
+        with responses.RequestsMock() as api:
+            mock_apis(api, fd=True)
+            report = collect_apis(database, datetime.fromisoformat("2026-11-02T02:40:00Z"))
+        assert report["fd"]["status"] == "complete"
+>       assert (database.parent / STATE).exists()
+E       AssertionError: assert False
+E        +  where False = exists()
+E        +    where exists = (PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_discards_success_0/work/data') / 'state/fd_collection.json').exists
+E        +      where PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_discards_success_0/work/data') = PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_discards_success_0/work/data/zucai.db').parent
+
+tests/test_t66_fd_schedule.py:226: AssertionError
+_ test_restore_discards_success_from_unpublished_failed_export[2026-10-26T02:40:00Z] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_discards_success_1/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_discards_success_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd35d3edf10>
+prior_success = '2026-10-26T02:40:00Z'
+
+    @pytest.mark.parametrize("prior_success", [None, "2026-10-26T02:40:00Z"])
+    def test_restore_discards_success_from_unpublished_failed_export(
+        environment, tmp_path, monkeypatch, prior_success
+    ):
+        if prior_success:
+            archive_receipt(environment, prior_success)
+        else:
+            forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        database = tmp_path / "work/data/zucai.db"
+>       restore_feeds(environment, database)
+
+tests/test_t66_fd_schedule.py:220: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:422: in restore_feeds
+    meta = archive_info(archive)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive = PosixPath('/tmp/pytest-of-agent/pytest-414/test_restore_discards_success_1/archive')
+
+    def archive_info(archive: Path) -> dict:
+        meta = json.loads((archive / MANIFEST).read_text(encoding="utf-8"))
+        if meta["version"] not in (1, 2):
+            raise ValueError("不支持的云端归档版本")
+        _candidate_review_files(archive)
+        _catalogue_files(archive)
+        for key, want in meta["files"].items():
+            if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
+                rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
+                key,
+            ):
+>               raise ValueError(f"未知归档文件 {key}")
+E               ValueError: 未知归档文件 state/fd_collection.json
+
+src/zucai/cloud_feeds.py:402: ValueError
+_ test_fd_without_success_evidence_is_due_in_any_slot[2026-11-02T09:40:00+00:00-late-True] _
+
+instant = '2026-11-02T09:40:00+00:00', slot = 'late', expected = True
+
+    @pytest.mark.parametrize(
+        ("instant", "slot", "expected"),
+        [
+            ("2026-11-02T02:40:00+00:00", "early", True),
+            ("2026-11-02T09:40:00+00:00", "late", True),
+            ("2026-11-01T02:40:00+00:00", "early", True),
+            ("2026-11-03T02:40:00+00:00", "early", True),
+            ("2026-11-02T02:40:00+08:00", "early", True),
+        ],
+    )
+    def test_fd_without_success_evidence_is_due_in_any_slot(instant, slot, expected):
+        from zucai.cloud_apis import fd_due
+    
+>       assert fd_due(datetime.fromisoformat(instant), slot) is expected
+E       AssertionError: assert False is True
+E        +  where False = <function fd_due at 0x7fd3748ebf60>(datetime.datetime(2026, 11, 2, 9, 40, tzinfo=datetime.timezone.utc), 'late')
+E        +    where datetime.datetime(2026, 11, 2, 9, 40, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-02T09:40:00+00:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_cloud_apis.py:248: AssertionError
+_ test_fd_without_success_evidence_is_due_in_any_slot[2026-11-01T02:40:00+00:00-early-True] _
+
+instant = '2026-11-01T02:40:00+00:00', slot = 'early', expected = True
+
+    @pytest.mark.parametrize(
+        ("instant", "slot", "expected"),
+        [
+            ("2026-11-02T02:40:00+00:00", "early", True),
+            ("2026-11-02T09:40:00+00:00", "late", True),
+            ("2026-11-01T02:40:00+00:00", "early", True),
+            ("2026-11-03T02:40:00+00:00", "early", True),
+            ("2026-11-02T02:40:00+08:00", "early", True),
+        ],
+    )
+    def test_fd_without_success_evidence_is_due_in_any_slot(instant, slot, expected):
+        from zucai.cloud_apis import fd_due
+    
+>       assert fd_due(datetime.fromisoformat(instant), slot) is expected
+E       AssertionError: assert False is True
+E        +  where False = <function fd_due at 0x7fd3748ebf60>(datetime.datetime(2026, 11, 1, 2, 40, tzinfo=datetime.timezone.utc), 'early')
+E        +    where datetime.datetime(2026, 11, 1, 2, 40, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-01T02:40:00+00:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_cloud_apis.py:248: AssertionError
+_ test_fd_without_success_evidence_is_due_in_any_slot[2026-11-03T02:40:00+00:00-early-True] _
+
+instant = '2026-11-03T02:40:00+00:00', slot = 'early', expected = True
+
+    @pytest.mark.parametrize(
+        ("instant", "slot", "expected"),
+        [
+            ("2026-11-02T02:40:00+00:00", "early", True),
+            ("2026-11-02T09:40:00+00:00", "late", True),
+            ("2026-11-01T02:40:00+00:00", "early", True),
+            ("2026-11-03T02:40:00+00:00", "early", True),
+            ("2026-11-02T02:40:00+08:00", "early", True),
+        ],
+    )
+    def test_fd_without_success_evidence_is_due_in_any_slot(instant, slot, expected):
+        from zucai.cloud_apis import fd_due
+    
+>       assert fd_due(datetime.fromisoformat(instant), slot) is expected
+E       AssertionError: assert False is True
+E        +  where False = <function fd_due at 0x7fd3748ebf60>(datetime.datetime(2026, 11, 3, 2, 40, tzinfo=datetime.timezone.utc), 'early')
+E        +    where datetime.datetime(2026, 11, 3, 2, 40, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-03T02:40:00+00:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_cloud_apis.py:248: AssertionError
+_ test_fd_without_success_evidence_is_due_in_any_slot[2026-11-02T02:40:00+08:00-early-True] _
+
+instant = '2026-11-02T02:40:00+08:00', slot = 'early', expected = True
+
+    @pytest.mark.parametrize(
+        ("instant", "slot", "expected"),
+        [
+            ("2026-11-02T02:40:00+00:00", "early", True),
+            ("2026-11-02T09:40:00+00:00", "late", True),
+            ("2026-11-01T02:40:00+00:00", "early", True),
+            ("2026-11-03T02:40:00+00:00", "early", True),
+            ("2026-11-02T02:40:00+08:00", "early", True),
+        ],
+    )
+    def test_fd_without_success_evidence_is_due_in_any_slot(instant, slot, expected):
+        from zucai.cloud_apis import fd_due
+    
+>       assert fd_due(datetime.fromisoformat(instant), slot) is expected
+E       AssertionError: assert False is True
+E        +  where False = <function fd_due at 0x7fd3748ebf60>(datetime.datetime(2026, 11, 2, 2, 40, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))), 'early')
+E        +    where datetime.datetime(2026, 11, 2, 2, 40, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-02T02:40:00+08:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_cloud_apis.py:248: AssertionError
+_________ test_actual_start_slot_and_prediction_for_both_crons[case0] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_actual_start_slot_and_pre0')
+case = {'cron': '40 2 * * *', 'now': '2026-11-02T08:59:00+00:00', 'slot': 'early', 'fd': True}
+
+    @pytest.mark.parametrize(
+        "case", json.loads((WORKFLOW.parents[2] / "data/fixtures/schedule_slots.json").read_text())
+    )
+    def test_actual_start_slot_and_prediction_for_both_crons(tmp_path, case):
+        import os
+        import subprocess
+        import textwrap
+        from datetime import datetime, timedelta
+    
+        from zucai.cloud_apis import fd_due
+    
+        text = WORKFLOW.read_text()
+        step = next(s for s in text.split("      - name:") if "Restore and collect APIs" in s)
+        expression = re.search(r"FEED_SLOT: \$\{\{ (.*?) \}\}", step).group(1)
+        for key, value in {
+            "github.event_name": "schedule",
+            "github.event.schedule": case["cron"],
+            "inputs.operation": "",
+            "fromJSON(inputs.options || '{}').slot": "",
+        }.items():
+            expression = expression.replace(key, repr(value))
+        feed_slot = eval(
+            expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}, {}
+        )
+        assert feed_slot == "auto"
+        assert "slot: ${{ steps.collect.outputs.slot }}" in text
+        assert "id: collect" in step
+        now = datetime.fromisoformat(case["now"])
+        # Execute the checked-in shell; replace clock and collector with offline recorders.
+        for name, script in {
+            "date": '#!/bin/bash\nprintf "%s\\n" "$FAKE_HOUR"\n',
+            "python": '#!/bin/bash\nprintf "%s\\n" "$@" > "$CAPTURE_ARGS"\n',
+        }.items():
+            path = tmp_path / name
+            path.write_text(script)
+            path.chmod(0o755)
+        output, capture = tmp_path / "output", tmp_path / "argv"
+        env = dict(
+            PATH=str(tmp_path) + os.pathsep + os.defpath,
+            FAKE_HOUR=f"{now.hour:02}",
+            GITHUB_OUTPUT=str(output),
+            CAPTURE_ARGS=str(capture),
+            WORK_DIR=str(tmp_path / "work"),
+            FEED_MODE="apis",
+            LOOKBACK="3",
+            FEED_SLOT=feed_slot,
+            GITHUB_RUN_ID="offline",
+            GITHUB_RUN_ATTEMPT="1",
+        )
+        subprocess.run(
+            ["/bin/bash", "-eu", "-c", textwrap.dedent(step.split("        run: |\n", 1)[1])],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        assert output.read_text().strip() == f"slot={case['slot']}"
+        argv = capture.read_text().splitlines()
+        assert argv[argv.index("--slot") + 1] == "auto"
+        assert fd_due(now, case["slot"]) is case["fd"]
+>       assert fd_due(now + timedelta(days=1), case["slot"]) is True
+E       AssertionError: assert False is True
+E        +  where False = <function fd_due at 0x7fd3748ebf60>((datetime.datetime(2026, 11, 2, 8, 59, tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)), 'early')
+E        +    where datetime.timedelta(days=1) = <class 'datetime.timedelta'>(days=1)
+
+tests/test_cloud_predict_workflow.py:356: AssertionError
+_________ test_actual_start_slot_and_prediction_for_both_crons[case1] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_actual_start_slot_and_pre1')
+case = {'cron': '40 2 * * *', 'now': '2026-11-02T09:00:00+00:00', 'slot': 'late', 'fd': True}
+
+    @pytest.mark.parametrize(
+        "case", json.loads((WORKFLOW.parents[2] / "data/fixtures/schedule_slots.json").read_text())
+    )
+    def test_actual_start_slot_and_prediction_for_both_crons(tmp_path, case):
+        import os
+        import subprocess
+        import textwrap
+        from datetime import datetime, timedelta
+    
+        from zucai.cloud_apis import fd_due
+    
+        text = WORKFLOW.read_text()
+        step = next(s for s in text.split("      - name:") if "Restore and collect APIs" in s)
+        expression = re.search(r"FEED_SLOT: \$\{\{ (.*?) \}\}", step).group(1)
+        for key, value in {
+            "github.event_name": "schedule",
+            "github.event.schedule": case["cron"],
+            "inputs.operation": "",
+            "fromJSON(inputs.options || '{}').slot": "",
+        }.items():
+            expression = expression.replace(key, repr(value))
+        feed_slot = eval(
+            expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}, {}
+        )
+        assert feed_slot == "auto"
+        assert "slot: ${{ steps.collect.outputs.slot }}" in text
+        assert "id: collect" in step
+        now = datetime.fromisoformat(case["now"])
+        # Execute the checked-in shell; replace clock and collector with offline recorders.
+        for name, script in {
+            "date": '#!/bin/bash\nprintf "%s\\n" "$FAKE_HOUR"\n',
+            "python": '#!/bin/bash\nprintf "%s\\n" "$@" > "$CAPTURE_ARGS"\n',
+        }.items():
+            path = tmp_path / name
+            path.write_text(script)
+            path.chmod(0o755)
+        output, capture = tmp_path / "output", tmp_path / "argv"
+        env = dict(
+            PATH=str(tmp_path) + os.pathsep + os.defpath,
+            FAKE_HOUR=f"{now.hour:02}",
+            GITHUB_OUTPUT=str(output),
+            CAPTURE_ARGS=str(capture),
+            WORK_DIR=str(tmp_path / "work"),
+            FEED_MODE="apis",
+            LOOKBACK="3",
+            FEED_SLOT=feed_slot,
+            GITHUB_RUN_ID="offline",
+            GITHUB_RUN_ATTEMPT="1",
+        )
+        subprocess.run(
+            ["/bin/bash", "-eu", "-c", textwrap.dedent(step.split("        run: |\n", 1)[1])],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        assert output.read_text().strip() == f"slot={case['slot']}"
+        argv = capture.read_text().splitlines()
+        assert argv[argv.index("--slot") + 1] == "auto"
+>       assert fd_due(now, case["slot"]) is case["fd"]
+E       AssertionError: assert False is True
+E        +  where False = <function fd_due at 0x7fd3748ebf60>(datetime.datetime(2026, 11, 2, 9, 0, tzinfo=datetime.timezone.utc), 'late')
+
+tests/test_cloud_predict_workflow.py:355: AssertionError
+_________ test_actual_start_slot_and_prediction_for_both_crons[case2] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_actual_start_slot_and_pre2')
+case = {'cron': '40 9 * * *', 'now': '2026-11-02T08:59:00+00:00', 'slot': 'early', 'fd': True}
+
+    @pytest.mark.parametrize(
+        "case", json.loads((WORKFLOW.parents[2] / "data/fixtures/schedule_slots.json").read_text())
+    )
+    def test_actual_start_slot_and_prediction_for_both_crons(tmp_path, case):
+        import os
+        import subprocess
+        import textwrap
+        from datetime import datetime, timedelta
+    
+        from zucai.cloud_apis import fd_due
+    
+        text = WORKFLOW.read_text()
+        step = next(s for s in text.split("      - name:") if "Restore and collect APIs" in s)
+        expression = re.search(r"FEED_SLOT: \$\{\{ (.*?) \}\}", step).group(1)
+        for key, value in {
+            "github.event_name": "schedule",
+            "github.event.schedule": case["cron"],
+            "inputs.operation": "",
+            "fromJSON(inputs.options || '{}').slot": "",
+        }.items():
+            expression = expression.replace(key, repr(value))
+        feed_slot = eval(
+            expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}, {}
+        )
+        assert feed_slot == "auto"
+        assert "slot: ${{ steps.collect.outputs.slot }}" in text
+        assert "id: collect" in step
+        now = datetime.fromisoformat(case["now"])
+        # Execute the checked-in shell; replace clock and collector with offline recorders.
+        for name, script in {
+            "date": '#!/bin/bash\nprintf "%s\\n" "$FAKE_HOUR"\n',
+            "python": '#!/bin/bash\nprintf "%s\\n" "$@" > "$CAPTURE_ARGS"\n',
+        }.items():
+            path = tmp_path / name
+            path.write_text(script)
+            path.chmod(0o755)
+        output, capture = tmp_path / "output", tmp_path / "argv"
+        env = dict(
+            PATH=str(tmp_path) + os.pathsep + os.defpath,
+            FAKE_HOUR=f"{now.hour:02}",
+            GITHUB_OUTPUT=str(output),
+            CAPTURE_ARGS=str(capture),
+            WORK_DIR=str(tmp_path / "work"),
+            FEED_MODE="apis",
+            LOOKBACK="3",
+            FEED_SLOT=feed_slot,
+            GITHUB_RUN_ID="offline",
+            GITHUB_RUN_ATTEMPT="1",
+        )
+        subprocess.run(
+            ["/bin/bash", "-eu", "-c", textwrap.dedent(step.split("        run: |\n", 1)[1])],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        assert output.read_text().strip() == f"slot={case['slot']}"
+        argv = capture.read_text().splitlines()
+        assert argv[argv.index("--slot") + 1] == "auto"
+        assert fd_due(now, case["slot"]) is case["fd"]
+>       assert fd_due(now + timedelta(days=1), case["slot"]) is True
+E       AssertionError: assert False is True
+E        +  where False = <function fd_due at 0x7fd3748ebf60>((datetime.datetime(2026, 11, 2, 8, 59, tzinfo=datetime.timezone.utc) + datetime.timedelta(days=1)), 'early')
+E        +    where datetime.timedelta(days=1) = <class 'datetime.timedelta'>(days=1)
+
+tests/test_cloud_predict_workflow.py:356: AssertionError
+_________ test_actual_start_slot_and_prediction_for_both_crons[case3] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-414/test_actual_start_slot_and_pre3')
+case = {'cron': '40 9 * * *', 'now': '2026-11-02T09:00:00+00:00', 'slot': 'late', 'fd': True}
+
+    @pytest.mark.parametrize(
+        "case", json.loads((WORKFLOW.parents[2] / "data/fixtures/schedule_slots.json").read_text())
+    )
+    def test_actual_start_slot_and_prediction_for_both_crons(tmp_path, case):
+        import os
+        import subprocess
+        import textwrap
+        from datetime import datetime, timedelta
+    
+        from zucai.cloud_apis import fd_due
+    
+        text = WORKFLOW.read_text()
+        step = next(s for s in text.split("      - name:") if "Restore and collect APIs" in s)
+        expression = re.search(r"FEED_SLOT: \$\{\{ (.*?) \}\}", step).group(1)
+        for key, value in {
+            "github.event_name": "schedule",
+            "github.event.schedule": case["cron"],
+            "inputs.operation": "",
+            "fromJSON(inputs.options || '{}').slot": "",
+        }.items():
+            expression = expression.replace(key, repr(value))
+        feed_slot = eval(
+            expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}, {}
+        )
+        assert feed_slot == "auto"
+        assert "slot: ${{ steps.collect.outputs.slot }}" in text
+        assert "id: collect" in step
+        now = datetime.fromisoformat(case["now"])
+        # Execute the checked-in shell; replace clock and collector with offline recorders.
+        for name, script in {
+            "date": '#!/bin/bash\nprintf "%s\\n" "$FAKE_HOUR"\n',
+            "python": '#!/bin/bash\nprintf "%s\\n" "$@" > "$CAPTURE_ARGS"\n',
+        }.items():
+            path = tmp_path / name
+            path.write_text(script)
+            path.chmod(0o755)
+        output, capture = tmp_path / "output", tmp_path / "argv"
+        env = dict(
+            PATH=str(tmp_path) + os.pathsep + os.defpath,
+            FAKE_HOUR=f"{now.hour:02}",
+            GITHUB_OUTPUT=str(output),
+            CAPTURE_ARGS=str(capture),
+            WORK_DIR=str(tmp_path / "work"),
+            FEED_MODE="apis",
+            LOOKBACK="3",
+            FEED_SLOT=feed_slot,
+            GITHUB_RUN_ID="offline",
+            GITHUB_RUN_ATTEMPT="1",
+        )
+        subprocess.run(
+            ["/bin/bash", "-eu", "-c", textwrap.dedent(step.split("        run: |\n", 1)[1])],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        assert output.read_text().strip() == f"slot={case['slot']}"
+        argv = capture.read_text().splitlines()
+        assert argv[argv.index("--slot") + 1] == "auto"
+>       assert fd_due(now, case["slot"]) is case["fd"]
+E       AssertionError: assert False is True
+E        +  where False = <function fd_due at 0x7fd3748ebf60>(datetime.datetime(2026, 11, 2, 9, 0, tzinfo=datetime.timezone.utc), 'late')
+
+tests/test_cloud_predict_workflow.py:355: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[early-2026-11-02T23:59:59+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[early-2026-11-03T10:19:00+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[early-2026-11-08T23:59:59+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[early-2026-11-09T00:00:00+00:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[early-2026-11-09T07:59:59+08:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[early-2026-11-09T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[late-2026-11-02T23:59:59+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[late-2026-11-03T10:19:00+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[late-2026-11-08T23:59:59+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[late-2026-11-09T00:00:00+00:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[late-2026-11-09T07:59:59+08:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[late-2026-11-09T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[auto-2026-11-02T23:59:59+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[auto-2026-11-03T10:19:00+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[auto-2026-11-08T23:59:59+00:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[auto-2026-11-09T00:00:00+00:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[auto-2026-11-09T07:59:59+08:00-False]
+FAILED tests/test_t66_fd_schedule.py::test_success_is_fresh_until_seventh_utc_date[auto-2026-11-09T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[damaged]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[[]]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": true, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 2, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00", "extra": 1}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": null}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": 1793491200}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01"}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00"}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+08:00"}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-01 02:40:00Z"}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-02-30T02:40:00Z"}]
+FAILED tests/test_t66_fd_schedule.py::test_invalid_or_future_success_never_suppresses_collection[{"version": 1, "last_successful_run_started_utc": "2026-11-02T02:40:01Z"}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[damaged]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[[]]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": true, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 2, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00"}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00", "extra": 1}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": null}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": 1793491200}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01"}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00"}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01T02:40:00+08:00"}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-01 02:40:00Z"}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-02-30T02:40:00Z"}]
+FAILED tests/test_t66_fd_schedule.py::test_export_rejects_invalid_or_future_success_before_changing_archive[{"version": 1, "last_successful_run_started_utc": "2026-11-02T02:40:01Z"}]
+FAILED tests/test_t66_fd_schedule.py::test_missing_early_collects_late_and_success_roundtrips
+FAILED tests/test_t66_fd_schedule.py::test_failed_early_preserves_previous_success_and_retries_late[http]
+FAILED tests/test_t66_fd_schedule.py::test_failed_early_preserves_previous_success_and_retries_late[parse]
+FAILED tests/test_t66_fd_schedule.py::test_failed_early_preserves_previous_success_and_retries_late[rows]
+FAILED tests/test_t66_fd_schedule.py::test_failed_early_preserves_previous_success_and_retries_late[duplicates]
+FAILED tests/test_t66_fd_schedule.py::test_failed_early_preserves_previous_success_and_retries_late[zero-scopes]
+FAILED tests/test_t66_fd_schedule.py::test_restore_rejects_bad_receipt_before_replacing_database[hash]
+FAILED tests/test_t66_fd_schedule.py::test_restore_discards_success_from_unpublished_failed_export[None]
+FAILED tests/test_t66_fd_schedule.py::test_restore_discards_success_from_unpublished_failed_export[2026-10-26T02:40:00Z]
+FAILED tests/test_cloud_apis.py::test_fd_without_success_evidence_is_due_in_any_slot[2026-11-02T09:40:00+00:00-late-True]
+FAILED tests/test_cloud_apis.py::test_fd_without_success_evidence_is_due_in_any_slot[2026-11-01T02:40:00+00:00-early-True]
+FAILED tests/test_cloud_apis.py::test_fd_without_success_evidence_is_due_in_any_slot[2026-11-03T02:40:00+00:00-early-True]
+FAILED tests/test_cloud_apis.py::test_fd_without_success_evidence_is_due_in_any_slot[2026-11-02T02:40:00+08:00-early-True]
+FAILED tests/test_cloud_predict_workflow.py::test_actual_start_slot_and_prediction_for_both_crons[case0]
+FAILED tests/test_cloud_predict_workflow.py::test_actual_start_slot_and_prediction_for_both_crons[case1]
+FAILED tests/test_cloud_predict_workflow.py::test_actual_start_slot_and_prediction_for_both_crons[case2]
+FAILED tests/test_cloud_predict_workflow.py::test_actual_start_slot_and_prediction_for_both_crons[case3]
+63 failed, 78 passed in 7.77s
