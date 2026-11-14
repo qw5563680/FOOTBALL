@@ -12,6 +12,7 @@ from zucai.cloud_api_backfill import collect_planned_api_backfill
 from zucai.cloud_backfill import collect_backfill
 from zucai.cloud_probe import require_probe_actions
 from zucai.league_registry import load_registry, provider_config
+from zucai.request_budget import DeferredRequestBudget
 from zucai.sources.api_football import ApiFootball
 from zucai.sources.apif_ingest import COUNT_KEYS
 from zucai.sources.base import RawStore, _atomic_write
@@ -189,7 +190,7 @@ class RequestBudget:
 
     def check(self):
         if self.used >= self.limit:
-            raise ValueError("已达本次请求上限；已完成部分保留，下次可继续")
+            raise DeferredRequestBudget("已达本次请求上限；已完成部分保留，下次可继续")
 
     def call(self, function, *args, **kwargs):
         self.check()
@@ -209,6 +210,7 @@ class _Session:
 
 
 def _bind_budget(source, budget, provider):
+    source.request_budget = budget
     source.session = _Session(source.session, budget)
     # Check before the APIF quota is reserved; exhausted jobs must not consume
     # local daily credit without issuing a request.
@@ -290,6 +292,7 @@ def collect_catalogue_backfill(
         run_id=run_id,
         scopes=[],
         failed_scopes=[],
+        deferred_scopes=[],
         errors=[],
         downloaded_files=0,
         processed_files=0,
@@ -340,6 +343,18 @@ def collect_catalogue_backfill(
                 )
         _atomic_write(checkpoint_path, _bytes(checkpoint))
     now = datetime.now(UTC)
+    report.setdefault("deferred_scopes", [])
+    failed = {item["scope"] for item in report["failed_scopes"]}
+    report["scope_counts"] = dict.fromkeys(
+        ("completed", "partial", "failed", "deferred", "held"), 0
+    )
+    for item in report["scopes"]:
+        category = (
+            "failed"
+            if item["scope"] in failed
+            else {"complete": "completed"}.get(item["status"], item["status"])
+        )
+        report["scope_counts"][category] += 1
     report.update(
         source=provider,
         operation="catalogue-backfill",
@@ -369,6 +384,11 @@ def write_summary(report):
             stream.write(
                 f"### 目录历史回填：{report['status']}\n\n"
                 f"请求 {report['requests']}/{report['max_requests']}，"
+                f"计划 {report['planned_scopes']}，成功 {report['scope_counts']['completed']}，"
+                f"部分 {report['scope_counts']['partial']}，"
+                f"失败 {report['scope_counts']['failed']}，"
+                f"未请求待续 {report['scope_counts']['deferred']}，"
+                f"未绑定暂缓范围 {report['scope_counts']['held']}，"
                 f"本次新增 {report['inserted']}，续跑跳过 {report['resumed_scopes']} 个已完成范围。"
                 f"每日保留 {report['daily_reserve']}。\n\n"
                 "目录列出不等于账号可读；失败、缺年份与原件见 state/catalogue 本批记录。\n"

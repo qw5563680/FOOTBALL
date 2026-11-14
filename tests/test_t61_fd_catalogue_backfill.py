@@ -96,7 +96,8 @@ def test_fd_catalogue_budget_import_archive_resume_and_cli_no_resume(
         assert limited["requests"] == limited["robots_requests"] == len(http.calls) == 1
         assert limited["csv_requests"] == limited["inserted"] == limited["processed_files"] == 0
         assert http.calls[0].request.url == HOST + "/robots.txt"
-        assert "请求上限" in limited["failed_scopes"][0]["reason"]
+        assert limited["failed_scopes"] == []
+        assert limited["deferred_scopes"][0]["reason"] == "deferred_request_budget"
     checkpoint = database.parent / "state/catalogue/backfill-checkpoint.json"
     assert json.loads(checkpoint.read_bytes())["completed"] == {}
     assert fd_rows(database) == []
@@ -188,7 +189,7 @@ def test_fd_catalogue_budget_import_archive_resume_and_cli_no_resume(
         robots(http)
         http.get(url, body=original)
         main()
-        replay = archive_info(archive)["collection"]["fd"]
+        replay = archive_info(archive)["collection"]["fd_backfill"]
         assert replay["status"] == "complete"
         assert replay["requests"] == len(http.calls) == 2
         assert replay["resumed_scopes"] == replay["inserted"] == 0

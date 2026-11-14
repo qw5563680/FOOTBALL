@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from statistics import fmean
 
-from zucai.cloud_feeds import archive_info
+from zucai.cloud_feeds import archive_info, daily_collection
 from zucai.digest_aliases import pending_name_lines
 from zucai.digest_context import (
     archived_matches,
@@ -211,7 +211,7 @@ def _anomaly_sections(feed, summary, quota, repository, coverage=None):
         f"来源：{_link('feed_manifest.json', repository)} collection。",
         "",
     ]
-    collection = feed.get("collection", {})
+    collection = daily_collection(feed.get("collection", {}))
     for source in ("jc", "fd", "fdorg", "apif"):
         record = collection.get(source, {})
         details = [record["reason"]] if record.get("reason") else []
@@ -219,7 +219,13 @@ def _anomaly_sections(feed, summary, quota, repository, coverage=None):
         reason = "；".join(_text(detail) for detail in details) or "未记录原因"
         lines.append(
             f"- {source}：{_text(record.get('status'))}；疑似重复 "
-            f"{_text(record.get('suspected_duplicates'))}；{reason}。"
+            f"{_text(record.get('suspected_duplicates'))}；"
+            f"单行拒收 {_text(record.get('rejected_rows'))}；{reason}。"
+            + (
+                f" 未绑定暂缓 {record['held_unbound']}（不计异常）。"
+                if record.get("held_unbound")
+                else ""
+            )
         )
     apif = collection.get("apif", {})
     # Legacy/manual archives can lack quota metadata; preserve the fallback's provenance.
@@ -484,8 +490,9 @@ def generate(
         or any(not isinstance(row, dict) for row in coverage["rows"])
     ):
         raise ValueError("技术覆盖率快照格式无效")
+    collection = daily_collection(feed.get("collection", {}))
     states = " / ".join(
-        f"{source}={_text(feed.get('collection', {}).get(source, {}).get('status'))}"
+        f"{source}={_text(collection.get(source, {}).get('status'))}"
         for source in ("jc", "fd", "fdorg", "apif")
     )
     displayed_ids = set()

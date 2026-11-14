@@ -58,6 +58,12 @@ def audit(path, destination):
 
 def test_audit_is_read_only_deterministic_and_preserves_both_evidence_versions(tmp_path):
     path = database(tmp_path, "consistent", "kickoff_only")
+    # These independent comparison examples must be outside the new 36h risk window.
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE matches SET kickoff_utc='2026-08-25T14:00:00Z' "
+            "WHERE match_id IN ('apif:consistent','fd:consistent')"
+        )
     before = hashlib.sha256(path.read_bytes()).hexdigest()
     destination = tmp_path / "audit" / "source_results.csv"
     summary, rows = audit(path, destination)
@@ -124,7 +130,8 @@ def test_unverified_links_are_excluded_with_evidence(tmp_path, case, reason, cou
     assert summary["unverified"] == count
     assert summary["unmatched"] == 0
     assert len(rows) == count
-    assert {row["classification"] for row in rows} == {"unverified"}
+    expected = "temporary_identity_summary" if reason == "temporary_team_identity" else "unverified"
+    assert {row["classification"] for row in rows} == {expected}
     assert {row["reason"] for row in rows} == {reason}
     assert all(row["link_basis"] != "exact_team_ids_unique" for row in rows)
     if case == "outside_window":

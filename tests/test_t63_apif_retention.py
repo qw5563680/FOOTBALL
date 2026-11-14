@@ -172,8 +172,9 @@ def test_missing_historical_identity_is_excluded_before_overlap_precheck(databas
         assert set(selected.match_id) == {"fd:retained"}
         record_result_identity(session, session.get(Match, "apif:91001"), SEEN)
         frame = read_history(session, "日职", "fd,apif")
-        with pytest.raises(ValueError, match="重复|重叠"):
-            select_training_history(frame, "2026-11-14T00:00Z")
+        selected = select_training_history(frame, "2026-11-14T00:00Z")
+        assert set(selected.match_id) == {"fd:retained"}
+        assert selected.attrs["unverified_fd_identity_overlaps"][0]["match_id"] == "apif:91001"
 
 
 @pytest.mark.parametrize("pooled", [False, True])
@@ -197,8 +198,9 @@ def test_future_free_result_cannot_block_earlier_paid_cutoff_at_history_entry(da
         early = select_training_history(frame, SEEN + timedelta(hours=1))
         assert set(early.match_id) == {"apif:91001"}
         assert set(select_training_history(frame, arrived).match_id) == {"apif:91001"}
-        with pytest.raises(ValueError, match="重复|重叠"):
-            select_training_history(frame, arrived + timedelta(seconds=1))
+        selected = select_training_history(frame, arrived + timedelta(seconds=1))
+        assert set(selected.match_id) == {"fd:retained"}
+        assert selected.attrs["unverified_fd_identity_overlaps"][0]["match_id"] == "apif:91001"
 
 
 def test_daily_late_official_link_is_timestamped_without_any_result_mutation(database):

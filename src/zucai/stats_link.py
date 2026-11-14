@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from zucai.models import ApifFixtureIndex, Match
 from zucai.sources.api_football import APIF_INDEX_LEAGUE_IDS, LEAGUES
-from zucai.sources.apif_aliases import validate_approvals
+from zucai.sources.apif_aliases import binding_scope_allows, validate_approvals
 from zucai.sources.apif_ingest import _Teams
 from zucai.sources.apif_reconcile import _formal_entry
 from zucai.sources.apif_stats import PARSER_VERSION, envelope, fixture_identity, instant
@@ -120,6 +120,10 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             for side in ("home", "away"):
                 pid = str(identity[f"{side}_provider_id"])
                 formal, origins = _formal_entry(session, aliases, league, pid)
+                if formal and not binding_scope_allows(
+                    formal, league, kickoff_utc=identity["kickoff_utc"].isoformat()
+                ):
+                    raise ValueError("binding_scope does not authorize this fixture time/league")
                 team = lookup.one(normalize_team(formal["canonical"])) if formal else None
                 if team is None or team.name.startswith(("apif:", "fdorg:", "fd:")):
                     raise ValueError("正式别名未映射到既有规范球队")

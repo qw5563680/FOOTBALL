@@ -280,11 +280,11 @@ def select_training_history(frame, as_of):
                 withheld.update(rows.match_id)
         eligible = eligible.loc[~eligible.match_id.isin(withheld)].copy()
         eligible.attrs["unresolved_score_conflict_rows"] = sorted(withheld)
-        eligible = linked_representatives(eligible, groups=groups)
         if not frame.attrs.get("legacy_source_policy"):
             from zucai.source_result_quarantine import exclude_pending_fd_overlaps
 
-            eligible = exclude_pending_fd_overlaps(eligible)
+            eligible = exclude_pending_fd_overlaps(eligible, groups=groups, as_of=cutoff)
+        eligible = linked_representatives(eligible, groups=groups)
     reject_cross_source_overlaps(eligible)
     return eligible
 

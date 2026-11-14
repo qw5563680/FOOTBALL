@@ -187,7 +187,16 @@ def read_history(
         from zucai.result_source_links import load_result_links
 
         frame.attrs["verified_result_links"].extend(load_result_links(session))
-        from zucai.source_result_quarantine import pending_fd_identity_overlaps
+        from zucai.cross_day_decisions import load_decisions
+        from zucai.source_result_quarantine import (
+            complete_old_source_links,
+            pending_fd_identity_overlaps,
+        )
+
+        frame.attrs["verified_result_links"] = complete_old_source_links(
+            session, frame, frame.attrs["verified_result_links"]
+        )
+        frame.attrs["cross_day_decisions"] = load_decisions(session)
 
         frame.attrs["pending_fd_identity_overlaps"] = pending_fd_identity_overlaps(
             session, frame, identities, frame.attrs["verified_result_links"]

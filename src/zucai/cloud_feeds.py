@@ -19,6 +19,7 @@ from tempfile import TemporaryDirectory
 
 from requests import RequestException
 
+from zucai.cross_day_decisions import RECEIPT_FILE, read_receipts
 from zucai.db import get_engine, init_db
 from zucai.fd_collection import FD_COLLECTION_FILE, read_fd_success
 from zucai.fd_stats_archive import export_fd_links, restore_fd_links, validate_fd_links_manifest
@@ -78,6 +79,8 @@ TABLES = {
     "closing_odds": ("match_id", "bookmaker", "pool", "h", "d", "a", "basis"),
 }
 MANIFEST = "feed_manifest.json"
+BACKFILL_COLLECTIONS = {source: f"{source}_backfill" for source in ("apif", "fdorg", "fd")}
+BACKFILL_OPERATIONS = {"backfill", "catalogue-backfill"}
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 CANDIDATE_REVIEW_DIR = "state/audit/jc_candidate_reviews"
 CANDIDATE_REVIEW_RUN_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}"
@@ -98,7 +101,7 @@ CATALOGUE_FILE = (
     r"[A-Za-z0-9_][A-Za-z0-9_.-]*_[0-9]{12}Z_[0-9a-f]{32}\.(?:json|csv|txt)(?:\.meta\.json)?))"
 )
 STATE_FILE = (
-    r"state/(?:(?:api_football_quota|nations_league|fd_collection)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
+    r"state/(?:(?:api_football_quota|nations_league|fd_collection|t68_cross_day_receipts)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif|jc)\.json|publication/(?:forecast|sfc)_history\.json)"
@@ -270,8 +273,51 @@ def pending_results(source: Path) -> list[dict[str, str]]:
     return pending
 
 
+def _legacy_backfill(source, record):
+    return (
+        source in BACKFILL_COLLECTIONS
+        and record.get("operation") in BACKFILL_OPERATIONS
+        and record.get("source") in (None, source)
+    )
+
+
+def separate_backfill_collection(collection):
+    """Move only explicitly identified legacy history; never infer an old daily status."""
+    separated = dict(collection)
+    for source, key in BACKFILL_COLLECTIONS.items():
+        record = separated.get(source, {})
+        if not _legacy_backfill(source, record):
+            continue
+        del separated[source]
+        if key in separated and separated[key] != record:
+            # Preserve both records when an archive already contains the new namespace.
+            suffix = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
+            key = f"{key}_legacy_{suffix}"
+        separated[key] = record
+    return separated
+
+
+def daily_collection(collection):
+    """Read daily state without relabelling known history as a daily observation."""
+    return {
+        name: record
+        for name, record in collection.items()
+        if not _legacy_backfill(name, record)
+        and not any(
+            name == key or name.startswith(f"{key}_legacy_")
+            for key in BACKFILL_COLLECTIONS.values()
+        )
+    }
+
+
 def export_feeds(
-    source: Path, archive: Path, through: date, run_id: str, *, collection=None
+    source: Path,
+    archive: Path,
+    through: date,
+    run_id: str,
+    *,
+    collection=None,
+    status_collection=None,
 ) -> dict:
     if not source.is_file():
         raise ValueError("采集数据库缺失")
@@ -281,6 +327,7 @@ def export_feeds(
     _candidate_review_files(archive)
     _catalogue_files(source.parent)
     _catalogue_files(archive)
+    read_receipts(source.parent / RECEIPT_FILE)
     pending = pending_results(source)
     archive.mkdir(parents=True, exist_ok=True)
     previous = set(archive_info(archive)["files"]) if (archive / MANIFEST).is_file() else set()
@@ -401,7 +448,13 @@ def export_feeds(
         "sources": sources,
         "collection": collection or {},
         "collection_status": "partial"
-        if pending or any(item.get("status") == "partial" for item in (collection or {}).values())
+        if pending
+        or any(
+            item.get("status") == "partial"
+            for item in (
+                (collection if status_collection is None else status_collection) or {}
+            ).values()
+        )
         else "complete",
         "pending_result_count": len(pending),
         "pending_result_dates": sorted({row["date"] for row in pending}),
@@ -450,6 +503,8 @@ def archive_info(archive: Path) -> dict:
         raise ValueError("云端数据校验失败：缺少 closing_odds")
     validate_stats_manifest(meta)
     validate_fd_links_manifest(meta)
+    if RECEIPT_FILE in meta["files"]:
+        read_receipts(archive / RECEIPT_FILE)
     validate_result_links_manifest(meta)
     validate_result_identities_manifest(meta)
 
@@ -514,6 +569,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
         for key in (
             RESULT_LINK_FILE,
             RESULT_IDENTITY_FILE,
+            RECEIPT_FILE,
             "state/audit/apif_results_crosscheck.csv",
             "state/audit/jc_catalog.csv",
             "state/audit/jc_skipped.csv",
@@ -910,7 +966,10 @@ def main():
             from zucai.cloud_api_backfill import collect_api_backfill
 
             result = collect_api_backfill(target, args.run_id, provider=provider, **options)
-        collection = {provider: result}
+        summary_collection = (
+            provider if args.relink_jc or args.relink_fdorg else BACKFILL_COLLECTIONS[provider]
+        )
+        collection = {summary_collection: result}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "sync":
         from zucai.sources.sfc import collect_current_sfc
@@ -923,6 +982,7 @@ def main():
         if not windows_complete:
             day = date.fromisoformat(meta["through_beijing"])
     published_collection = collection
+    status_collection = None
     if args.command in {"sync", "apis"}:
         from zucai.source_result_reconcile import reconcile_source_results
         from zucai.source_results_audit import audit_source_results
@@ -940,10 +1000,15 @@ def main():
             result.update(run_id=args.run_id, observed_utc=datetime.now(UTC).isoformat())
         previous = {
             name: result
-            for name, result in meta.get("collection", {}).items()
+            for name, result in separate_backfill_collection(meta.get("collection", {})).items()
             if name != "jc-kickoffs"
         }
         published_collection = {**previous, **collection}
+        status_collection = daily_collection(published_collection)
+    elif args.command == "backfill" and not (args.relink_jc or args.relink_fdorg):
+        previous = separate_backfill_collection(meta.get("collection", {}))
+        published_collection = {**previous, **collection}
+        status_collection = {**daily_collection(previous), **collection}
     elif args.command == "probe" and args.probe_kind == "jc-kickoffs":
         previous = {
             name: result
@@ -951,7 +1016,14 @@ def main():
             if name != "jc-kickoffs"
         }
         published_collection = {**previous, **collection}
-    manifest = export_feeds(target, archive, day, args.run_id, collection=published_collection)
+    manifest = export_feeds(
+        target,
+        archive,
+        day,
+        args.run_id,
+        collection=published_collection,
+        status_collection=status_collection,
+    )
     if args.command == "backfill":
         from zucai.forecast_archive import verify_forecasts
 
@@ -970,7 +1042,7 @@ def main():
             restore_feeds(archive, Path(temporary) / "data/zucai.db")
         verify_forecasts(archive)
         LOG.info("%s 历史回填归档恢复校验通过", provider)
-        write_summary(collection[provider])
+        write_summary(collection[summary_collection])
     if args.command in {"probe", "identity", "reconcile"}:
         from zucai.forecast_archive import verify_forecasts
 
@@ -997,8 +1069,9 @@ def main():
             )
             if collection:
                 summary.write(
-                    "\n| 来源 | 状态 | 入库 | 链接 | 拒绝 | 请求/文件 | 剩余配额 |\n"
-                    "| --- | --- | ---: | ---: | ---: | ---: | ---: |\n"
+                    "\n| 来源 | 状态 | 入库 | 链接 | 拒绝 | 疑似重复 | 未绑定暂缓 | "
+                    "请求/文件 | 剩余配额 |\n"
+                    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
                 )
                 for provider, result in collection.items():
                     calls = (
@@ -1014,6 +1087,8 @@ def main():
                         f"| {provider} | {result['status']} | "
                         f"{result['inserted'] if result['inserted'] is not None else '未统计'} | "
                         f"{linked} | {result['rejected_rows']} | "
+                        f"{result.get('suspected_duplicates', 0)} | "
+                        f"{result.get('held_unbound', 0)} | "
                         f"{calls if calls is not None else '未统计'} | "
                         f"{result.get('remaining_quota', '—')} |\n"
                     )
