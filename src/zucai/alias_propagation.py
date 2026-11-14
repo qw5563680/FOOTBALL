@@ -51,9 +51,11 @@ def _plan(aliases, provider, histories, sha):
             continue
         if len({active[league][key] for league in origins}) != 1:
             raise ValueError(f"{provider}/{key} 同源 ID 跨联赛规范名冲突")
-        # Prefer original evidence over a previously propagated entry; use a stable tie-break.
+        # A new scoped entry cannot displace independent legacy authorization.
+        # Within each class retain the original evidence preference and tie-break.
         origins.sort(
             key=lambda league: (
+                "binding_scope" in aliases[league][key],
                 any(
                     e.get("kind") == "same_provider_id"
                     for e in aliases[league][key].get("evidence", [])

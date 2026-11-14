@@ -130,6 +130,7 @@ def _bridge(provider, database, league, labels, aliases):
     entries = deepcopy(aliases.get(league, {}))
     scoped = _scoped_ids(provider, aliases)
     known = defaultdict(list)
+    legacy = defaultdict(list)
     for source_league, records in aliases.items():
         # Check the originating league's complete reverse map, including IDs
         # absent from this cup capture. A colliding domestic identity is no anchor.
@@ -140,16 +141,25 @@ def _bridge(provider, database, league, labels, aliases):
                 name = _canonical(aliases, source_league, key)
                 if name:
                     known[key].append((source_league, name))
+                    if provider != "apif" or "binding_scope" not in records[key]:
+                        legacy[key].append((source_league, name))
+    # Runtime fallback may still use an independent old authorization. Do not
+    # strip a scoped entry to create that authorization or mutate the input file.
+    for key in labels:
+        if key in legacy and provider == "apif" and "binding_scope" in entries.get(key, {}):
+            del entries[key]
     base_sha = hashlib.sha256(json.dumps(aliases, sort_keys=True).encode()).hexdigest()
     for key, record in _persisted_bindings(database, provider, league).items():
         if key not in labels:
             continue
         known[key].append((league, record["canonical"]))
+        legacy[key].append((league, record["canonical"]))
         if key not in scoped and not _canonical({league: entries}, league, key):
             entries[key] = {"name": labels[key], **record}
-    for key, names in known.items():
+    for names in known.values():
         if len({name for _, name in names}) != 1:
             raise ValueError("跨联赛的同源数字球队 ID 存在规范名冲突")
+    for key, names in legacy.items():
         if key not in scoped and not _canonical({league: entries}, league, key):
             entries[key] = dict(
                 name=labels[key],
@@ -171,13 +181,20 @@ def _bridge(provider, database, league, labels, aliases):
 
 def _scoped_ids(provider, aliases):
     # Legacy bridges and graphs cannot retain the new category/time authorization.
-    # Keep their old behavior only for IDs without an explicit APIF scope.
-    return {
+    # A scope constrains its own entry, not an independent active legacy entry.
+    scoped = {
         key
         for records in aliases.values()
         for key, entry in records.items()
         if provider == "apif" and "binding_scope" in entry
     }
+    legacy = {
+        key
+        for records in aliases.values()
+        for key, entry in records.items()
+        if "binding_scope" not in entry and entry.get("status") in {"approved", "auto_verified"}
+    }
+    return scoped - legacy
 
 
 def _audit_aliases(path, rows):
