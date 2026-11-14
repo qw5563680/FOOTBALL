@@ -1,0 +1,55 @@
+..............................FF........................F.......         [100%]
+=================================== FAILURES ===================================
+______________ test_legacy_provider_values_and_modes_remain_exact ______________
+
+    def test_legacy_provider_values_and_modes_remain_exact():
+        registry = load_registry()
+        for provider, path in LEGACY.items():
+            original = json.loads(path.read_bytes())
+            routes = registry["providers"][provider]
+            assert {k: routes[k]["config"] for k in original} == original
+            additions = [v for k, v in routes.items() if k not in original]
+>           assert all(
+                v["status"] == "candidate" and not v["daily"] and not v["backfill"] for v in additions
+            )
+E           assert False
+E            +  where False = all(<generator object test_legacy_provider_values_and_modes_remain_exact.<locals>.<genexpr> at 0x7f5857932cf0>)
+
+tests/test_t61_registry.py:63: AssertionError
+________ test_purpose_preserves_legacy_order_and_special_nations_route _________
+
+    def test_purpose_preserves_legacy_order_and_special_nations_route():
+        assert daily_codes("fdorg") == "PL ELC PD SA BL1 FL1 DED PPL BSA CL".split()
+>       assert daily_codes("apif") == "98 292 188 113 103 244 119 253 169 3 848".split()
+E       AssertionError: assert ['98', '292',...', '244', ...] == ['98', '292',...', '244', ...]
+E         
+E         Left contains 62 more items, first extra item: '79'
+E         Use -v to get more diff
+
+tests/test_t61_registry.py:80: AssertionError
+___________ test_default_apif_parsing_matches_explicit_legacy_config ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-324/test_default_apif_parsing_matc0')
+
+    def test_default_apif_parsing_matches_explicit_legacy_config(tmp_path):
+        legacy = json.loads((ROOT / "data/api_football/leagues.json").read_bytes())
+        raw = (FIXTURES / "t10/synthetic_season.json").read_bytes()
+        default = api_football.ApiFootball(quota_path=tmp_path / "quota.json")
+        explicit = api_football.ApiFootball(leagues=legacy, quota_path=tmp_path / "quota.json")
+>       assert default.leagues == explicit.leagues
+E       AssertionError: assert {'98': {'leag...n', ...}, ...} == {'98': {'leag...n', ...}, ...}
+E         
+E         Omitting 12 identical items, use -vv to show
+E         Left contains 62 more items:
+E         {'1': {'league': '世界杯', 'api_name': 'World Cup', 'api_country': 'World', 'api_type': 'Cup', ...}}
+E         {'10': {'league': '国际友谊赛', 'api_name': 'Friendlies', 'api_country': 'World', 'api_type': 'Cup', ...}}
+E         {'101': {'league': '日联赛杯', 'api_name': 'J-League Cup', 'api_country': 'Japan', 'api_type': 'Cup', ...}}
+E         {'102': {'league': '日天皇杯', 'api_name': 'Emperor Cup', 'api_country': 'Japan', 'api_type': 'Cup', ...}}...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_t61_provider_integration.py:20: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t61_registry.py::test_legacy_provider_values_and_modes_remain_exact
+FAILED tests/test_t61_registry.py::test_purpose_preserves_legacy_order_and_special_nations_route
+FAILED tests/test_t61_provider_integration.py::test_default_apif_parsing_matches_explicit_legacy_config
