@@ -28,11 +28,11 @@
 ### Task 1: JC目录时刻补充及Actions入口
 
 Files: 新增 `src/zucai/jc_catalogue_kickoffs.py`，修改 `cloud_feeds.py`、`.github/workflows/football-feeds.yml`；测试 `tests/test_t68_jc_kickoffs.py`，样本 `data/fixtures/t68/heads/`。
-Interfaces: `plan_kickoffs(archive: Path) -> dict`；`collect_kickoffs(database, run_id, *, max_requests=5) -> dict`（与cloud_feeds probe collector保持兼容；archive由工作库/恢复证据定位）；计划命令 `python -m zucai.jc_catalogue_kickoffs plan --archive ... --out ...`。
-- [ ] 测试先写：只选新路由1083+泛称179的同ID缺时刻集；有可核验时刻不请求；主客ID/日期/HTTP/SHA错误不成功；重复0请求；未有先导成功记录不能全量。
-- [ ] 跑红测试，再实现复用 `_head_time`、≥1秒限速、仅self-hosted workflow_dispatch入口；前5最早历史ID先导。
-- [ ] 归档 `state/catalogue/<run>/jc-heads/<id>.json(.meta.json)`、`jc-kickoff-plan.json`、`jc-kickoffs.json`，加入manifest导出恢复白名单。失败记录不当成功游标。
-- [ ] 用fixtures验证collector、CLI、导出恢复与工作流路由；定向pytest/ruff；提供完整命令和测试日志供父任务。
+Interfaces: `plan_kickoffs(archive: Path) -> dict`；`collect_kickoffs(database, run_id, *, max_requests=5, archive=None) -> dict`（cloud_feeds传入原归档；缺此参数时可用恢复证据）；计划命令 `python -m zucai.jc_catalogue_kickoffs plan --archive ... --out ...`。
+- [x] 测试先写：只选新路由1083+泛称179的同ID缺时刻集；有可核验时刻不请求；主客ID/日期/HTTP/SHA错误不成功；重复0请求；未有先导成功记录不能全量。
+- [x] 跑红测试，再实现复用 `_head_time`、≥1秒限速、仅self-hosted workflow_dispatch入口；前5最早历史ID先导。
+- [x] 归档 `state/catalogue/<run>/jc-heads/<id>.json(.meta.json)`、`jc-kickoff-plan.json`、`jc-kickoffs.json`，加入manifest导出恢复白名单。失败记录不当成功游标。
+- [x] 用fixtures验证collector、CLI、导出恢复与工作流路由；定向149通过，内部独立复查135通过，全量4103通过；ruff check/format通过。固定输入146复用、1116待取，真实先导尚未执行。
 
 ### Task 2: 严格绑定提案与正式目标范围
 

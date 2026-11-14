@@ -1,9 +1,9 @@
-# T68 球队身份绑定方案（送审稿，尚未实施）
+# T68 球队身份绑定方案（A段实施中，B段修订待审）
 
 - 任务：[T68](../tasks/T68-new-competition-team-identity.md)，包括 2026-11-14 第五节增补。
 - 代码基线：`273008329b15fabe8b5dd0cdc1ed78f139dcc270`；数据基线：`e370db1d5cabe1cb33ddbfff3029c6d802bb8992`。
 - 编写日期：2026-11-14（北京时间）；方案核查时间及证据见[核查记录](../../reports/t68-new-competition-team-identity/README.md)。
-- 分支：`codex/T68-new-competition-team-identity`。本修订提交先于 A 段实现提交；B 段只交修订稿。
+- 分支：`codex/T68-new-competition-team-identity`。三条必须修的修订提交 `f240994c` 先于 A 段实现；目前A1时刻工具已完成离线验收，后续A模块继续实施；B 段只交修订稿。
 - **状态：按 [PR #140 条件通过审查](https://github.com/qw5563680/FOOTBALL/pull/140#pullrequestreview-5904223500) 修订。三条必须修已纳入，A 段获准开始；第6节 B 段修订稿等待复审，不实现。**
   依据所有者本轮指示执行 [PR #139](https://github.com/qw5563680/FOOTBALL/pull/139) 对应增补（当前尚未合并），不把它误记为主干。通过方案不等于批准任何球队绑定、赛事归类、每日开关或生产发布。
 
@@ -75,7 +75,16 @@
 按竞彩ID去重为1,262场，再扣除库内有可核对精确时刻的同ID场次。实际待请求分母由命令产出，预计约1,100次。
 库内时刻只有来源身份、主客体彩编号和北京日期均可复核才跳过；疑点单列，不从API借时间。
 
-计划命令（实现后提供，当前不是已存在功能）：
+这里的“库内时刻可复核”仅用于同一竞彩ID免重复补时刻，不是新的球队绑定授权：允许使用固定manifest
+核验过SHA的 `matches.jsonl/teams.jsonl`，前提为比赛 `source=jc` 且 `result_provider=jc`、目录同ID且同赛事、
+北京日期一致，目录给出的两个体彩数字ID分别对应原主客顺序，双方原名通过既有核准映射或精确规范名核对到
+各自唯一的项目队ID。保存 `basis=db_same_jc_id_verified`、原始行指针、manifest/表/目录/别名SHA，
+另列原 `result_checked_utc` 和本次 `verified_utc`；前者不能改称缺失原件的抓取时间。
+此证据不授权新别名、不得借API时间补证；任何已保存原件的时刻、编号或方向冲突仍待核。
+同一竞彩ID的原 `getMatchCalculatorV1` 赛程原件也可复用，须独立核验URL、HTTP、SHA、双方数字ID、日期与准确时间。
+没有上述完整链条的库内时间继续列缺口；不要求所有既有时间必须再下载一份head才算可用。
+
+已实现命令（真实体育请求仍只由审查者执行）：
 
 ```bash
 python -m zucai.jc_catalogue_kickoffs plan --archive ../cloud-data --out work/t68-head-plan.json

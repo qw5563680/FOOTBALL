@@ -31,14 +31,14 @@ def test_jc_catalogue_never_runs_for_schedule_or_push(event):
     assert "jc-catalogue" not in enabled_jobs("jc-catalogue", **{"github.event_name": event})
 
 
-@pytest.mark.parametrize("kind", ["catalogue", "jc-catalogue"])
+@pytest.mark.parametrize("kind", ["catalogue", "jc-catalogue", "jc-kickoffs"])
 def test_catalogue_shell_routes_without_legacy_default_scopes(tmp_path, kind):
     title = (
         "Restore and enumerate monthly JC catalogue"
-        if kind == "jc-catalogue"
+        if kind in {"jc-catalogue", "jc-kickoffs"}
         else "Probe all API league catalogues"
     )
-    job = jobs()["jc-catalogue" if kind == "jc-catalogue" else "apis"]
+    job = jobs()["jc-catalogue" if kind in {"jc-catalogue", "jc-kickoffs"} else "apis"]
     collect = step(title, job)
     recorder = tmp_path / "python"
     recorder.write_text('#!/bin/bash\nprintf "%s\\0" "$@" > "$CAPTURE_ARGS"\n')
@@ -54,6 +54,7 @@ def test_catalogue_shell_routes_without_legacy_default_scopes(tmp_path, kind):
         PROBE_LEAGUES="",
         PROBE_SEASONS="",
         PROBE_PER_SCOPE="1",
+        KICKOFF_MAX_REQUESTS="42",
     )
     subprocess.run(
         ["/bin/bash", "-eu", "-c", script(collect)], env=env, check=True, capture_output=True
@@ -62,12 +63,16 @@ def test_catalogue_shell_routes_without_legacy_default_scopes(tmp_path, kind):
     assert argv[:3] == ["-m", "zucai.cloud_feeds", "probe"]
     assert argv[argv.index("--probe-kind") + 1] == kind
     assert "--leagues" not in argv and "--seasons" not in argv and "--per-scope" not in argv
-    if kind == "jc-catalogue":
+    if kind in {"jc-catalogue", "jc-kickoffs"}:
         assert "--source" not in argv
         assert "runs-on: [self-hosted, football-local]" in job
         assert "API_FOOTBALL_KEY" not in job and "FOOTBALL_DATA_ORG_TOKEN" not in job
     else:
         assert "FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}" in collect
+    if kind == "jc-kickoffs":
+        assert argv[argv.index("--max-requests") + 1] == "42"
+    else:
+        assert "--max-requests" not in argv
 
 
 @pytest.mark.parametrize(
@@ -119,6 +124,12 @@ def test_backfill_shell_forwards_budget_and_resume_only_for_catalogue(
         ('{"catalogue":1}', False),
         ('{"probe_kind":"catalogue"}', True),
         ('{"probe_kind":"jc-catalogue"}', True),
+        ('{"probe_kind":"jc-kickoffs","max_requests":5}', True),
+        ('{"probe_kind":"jc-kickoffs","max_requests":1200}', True),
+        ('{"probe_kind":"jc-kickoffs","max_requests":0}', False),
+        ('{"probe_kind":"jc-kickoffs","max_requests":true}', False),
+        ('{"probe_kind":"jc-kickoffs","max_requests":"5"}', False),
+        ('{"max_requests":5}', False),
     ],
 )
 def test_dispatch_validates_new_options_before_collection(tmp_path, options, valid):
@@ -147,6 +158,9 @@ def test_dispatch_validates_new_options_before_collection(tmp_path, options, val
         ("probe", ["--probe-kind", "catalogue", "--seasons", "2026"]),
         ("probe", ["--probe-kind", "jc-catalogue", "--source", "apif"]),
         ("probe", ["--probe-kind", "jc-catalogue", "--per-scope", "2"]),
+        ("probe", ["--probe-kind", "jc-kickoffs", "--source", "apif"]),
+        ("probe", ["--probe-kind", "jc-kickoffs", "--resume"]),
+        ("probe", ["--probe-kind", "jc-kickoffs", "--max-requests", "0"]),
     ],
 )
 def test_cli_rejects_invalid_catalogue_arguments_before_restore(
