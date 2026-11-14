@@ -13,7 +13,6 @@ from urllib.parse import parse_qs, urlparse
 from zucai import jc_catalogue_kickoffs as kickoffs
 from zucai.identity_binding import _clock, _utc
 from zucai.sources.api_football import API, FINISHED, ApiFootball
-from zucai.sources.apif_aliases import valid_identity_category
 from zucai.sources.fd_ingest import _canonical, fd_match_id
 from zucai.sources.football_data import (
     ALIASES_PATH as FD_ALIASES,
@@ -28,8 +27,6 @@ from zucai.sources.football_data import (
 )
 from zucai.sources.results import SportteryResults
 from zucai.sources.sporttery import official_value
-from zucai.sources.sporttery_aliases import ALIASES_PATH as JC_ALIASES
-from zucai.sources.sporttery_aliases import approved_canonical
 
 ROOT = Path(__file__).resolve().parents[2]
 FORMAL = ROOT / "data/team_aliases/api_football.json"
@@ -51,10 +48,12 @@ def _proof(path, root):
     meta_raw = sidecar.read_bytes()
     meta = json.loads(meta_raw)
     captured = _utc(meta["fetched_at_utc"])
+    frozen_path = root / "feed_manifest.json"
+    frozen_time = _json(frozen_path).get("created_utc") if frozen_path.is_file() else None
     if (
         meta.get("sha256") != _sha(raw)
         or meta.get("status_code") != 200
-        or captured > datetime.now(UTC)
+        or captured > (_utc(frozen_time) if frozen_time else datetime.now(UTC))
     ):
         raise ValueError("raw SHA/HTTP/actual capture verification failed")
     return (
@@ -62,7 +61,6 @@ def _proof(path, root):
         meta,
         dict(
             path=path.relative_to(root).as_posix(),
-            root=str(root.resolve()),
             sha256=_sha(raw),
             metadata_sha256=_sha(meta_raw),
             url=meta["url"],
@@ -172,6 +170,8 @@ def load_apif(root, configs):
                             )
                         )
                     game = games.get(mid)
+                    if f.get("status", {}).get("short") in {"TBD", "PST"}:
+                        when = None
                     rows.append(
                         dict(
                             match_id=f"apif:{mid}",
@@ -280,7 +280,12 @@ def _tables(root):
         if len(rows) != manifest["counts"][name]:
             raise ValueError(f"Frozen {name} row count mismatch")
         tables[name] = rows
-    return tables, dict(path=str(manifest_path), sha256=_sha(manifest_path.read_bytes()))
+    for row in tables["results"]:
+        if any(
+            type(row[field]) is not int or row[field] < 0 for field in ("home_goals", "away_goals")
+        ):
+            raise ValueError("Frozen results contains invalid regular-time score")
+    return tables, dict(path="feed_manifest.json", sha256=_sha(manifest_path.read_bytes()))
 
 
 def _fd_day(value, zone):
@@ -298,7 +303,7 @@ def load_fd(directory, teams, configs, *, league_codes=None):
     aliases, leagues = _json(FD_ALIASES), _json(FD_LEAGUES)
     names = defaultdict(set)
     for key, team in teams.items():
-        names[team["name"]].add(key)
+        names[team.get("project_name") or team["name"]].add(team.get("identity_key", key))
     output, issues = [], []
     seen_hashes = set()
     unattributed_failure = False
@@ -332,7 +337,7 @@ def load_fd(directory, teams, configs, *, league_codes=None):
             ):
                 issues.append(
                     dict(
-                        path=str(path),
+                        path=path.relative_to(directory).as_posix(),
                         reasons=["fd_redirect_observation"],
                         status_code=meta["status_code"],
                     )
@@ -361,7 +366,7 @@ def load_fd(directory, teams, configs, *, league_codes=None):
                 if not home or not away:
                     issues.append(
                         dict(
-                            path=str(path),
+                            path=path.relative_to(directory).as_posix(),
                             pointer=f"/csv/line/{index}",
                             reasons=["fd_competitor_identity_unverified"],
                         )
@@ -417,7 +422,13 @@ def load_fd(directory, teams, configs, *, league_codes=None):
                 row.update(coverage=coverage, complete=True)
             output.extend(rows)
         except (OSError, ValueError, KeyError, TypeError, csv.Error) as exc:
-            issues.append(dict(path=str(path), reasons=["fd_original_unverified"], detail=str(exc)))
+            issues.append(
+                dict(
+                    path=path.relative_to(directory).as_posix(),
+                    reasons=["fd_original_unverified"],
+                    detail=str(exc),
+                )
+            )
             if league is None:
                 unattributed_failure = True
             else:
@@ -426,7 +437,7 @@ def load_fd(directory, teams, configs, *, league_codes=None):
                 lower, upper = "1900-01-01T00:00:00Z", "9999-12-31T23:59:59Z"
                 output.append(
                     dict(
-                        match_id=f"fd:{code}:invalid:{_sha(str(path).encode())}",
+                        match_id=f"fd:{code}:invalid:{_sha(path.relative_to(directory).as_posix().encode())}",
                         league=league,
                         competition_id=(league_codes or {}).get(league),
                         home="unresolved:fd:home",
@@ -440,7 +451,12 @@ def load_fd(directory, teams, configs, *, league_codes=None):
                         possible_start_utc=lower,
                         possible_end_utc=upper,
                         coverage=dict(start_utc=lower, end_utc=upper),
-                        provenance=[proof or dict(path=str(path), verification="failed")],
+                        provenance=[
+                            proof
+                            or dict(
+                                path=path.relative_to(directory).as_posix(), verification="failed"
+                            )
+                        ],
                     )
                 )
     if unattributed_failure:
@@ -565,95 +581,52 @@ def official_entities(rows, matches):
 
 
 def load_archive(root, *, leagues=None, fd_raw_dir=None):
-    root = Path(root)
+    from zucai.identity_archive_evidence import FrozenEvidence
+    from zucai.identity_categories import load_categories
+    from zucai.identity_official_ids import associate_official
+
+    root = Path(root).resolve()
     tables, manifest = _tables(root)
-    formal, registry, nations = _json(FORMAL), _json(REGISTRY), _json(NATIONS)
+    frozen = FrozenEvidence(root)
+    formal, registry = _json(FORMAL), _json(REGISTRY)
+    categories = load_categories(registry)
     configs = {
-        code: entry["config"]
+        code: dict(entry["config"], identity_category=categories.get(code, {}).get("category"))
         for code, entry in registry["providers"]["apif"].items()
         if entry["status"] == "verified"
         and (leagues is None or code in leagues or entry["config"]["league"] in leagues)
     }
     league_codes = {config["league"]: code for code, config in configs.items()}
-    teams, occupied, names = {}, defaultdict(set), defaultdict(set)
-    categories = defaultdict(set)
-    for entries in formal.values():
-        for entry in entries.values():
-            category = entry.get("binding_scope", {}).get("category", entry.get("category"))
-            if entry.get("status") in {"approved", "auto_verified"} and valid_identity_category(
-                category
-            ):
-                categories[entry["canonical"]].add(category)
-    for team in nations["teams"].values():
-        categories[team["canonical"]].add("national/men/senior/standard")
-    for row in tables["teams"]:
-        key = str(row["id"])
-        available = categories[row["name"]]
-        teams[key] = dict(
-            name=row["name"],
-            category=next(iter(available)) if len(available) == 1 else None,
-            provenance=[dict(manifest, pointer=f"state/teams.jsonl#/line/{row['row_number']}")],
-        )
-        names[row["name"]].add(key)
-        for alias in (
-            json.loads(row["aliases"]) if isinstance(row["aliases"], str) else row["aliases"]
-        ):
-            match = re.fullmatch(r"apif:[^:]+:team:([1-9][0-9]*)", alias)
-            if match:
-                occupied[match[1]].add(key)
-    for ids in names.values():
-        if len(ids) > 1:
-            for key in ids:
-                teams[key]["ambiguous"] = True
     apif, issues, apif_summary = load_apif(root, configs)
-    # Only explicit adult national registry group + formal nations ID grants this
-    # category. Generic International/qualifying/cup rows remain outside A.
-    adult_codes = set()
-    for competition in registry["competitions"]:
-        if competition["master_fields"]["分组"].startswith("7 ") and competition[
-            "project_name"
-        ] not in {"国际赛", "世预赛", "杯赛"}:
-            adult_codes.update(
-                m["code"]
-                for m in competition["mappings"]
-                if m["provider"] == "apif" and m["status"] == "verified"
-            )
     for row in apif:
-        if row["competition_id"] in adult_codes:
-            for side in ("home", "away"):
-                if row[side] in nations["teams"]:
-                    row[f"{side}_category"] = "national/men/senior/standard"
-                    row.setdefault("category_evidence", []).append(
-                        dict(
-                            path=str(NATIONS),
-                            sha256=_sha(NATIONS.read_bytes()),
-                            pointer=f"/teams/{row[side]}",
-                            registry_sha256=_sha(REGISTRY.read_bytes()),
-                        )
-                    )
-    catalogue_rows, _, catalogue = kickoffs._catalogue(root)
-    db_clocks, db_issues = kickoffs._database_evidence(root, catalogue_rows, catalogue)
-    issues.extend(dict(item, reasons=["jc_db_evidence_unverified"]) for item in db_issues)
-    head_plan = kickoffs.plan_kickoffs(root)
-    extra_paths = defaultdict(list)
-    for path in sorted((root / "state/catalogue").glob("*/jc-heads/*.json")):
-        if path.stem.isdigit():
-            extra_paths[int(path.stem)].append(path)
-    for path in sorted((root / "raw").rglob("match-*.json")):
-        match = re.match(r"match-([1-9][0-9]*)_", path.name)
-        if match and not path.name.endswith(".meta.json"):
-            extra_paths[int(match[1])].append(path)
-    matches = {row["match_id"]: row for row in tables["matches"]}
+        category = categories.get(row["competition_id"])
+        row["category_evidence"] = [category] if category else []
+        row["category_status"] = category["status"] if category else "missing"
+    catalogue_rows, _, catalogue = frozen.catalogue()
+    clocks_by_id, clock_issues = frozen.clocks(catalogue_rows, catalogue)
+    issues.extend(dict(item, reasons=["jc_clock_evidence_unverified"]) for item in clock_issues)
     official, page_cache = [], {}
-    jc_aliases = _json(JC_ALIASES)
-    coverage = dict(start_utc="2025-10-31T16:00:00Z", end_utc="2026-10-31T16:00:00Z")
+    coverage = dict(
+        start_utc=datetime.fromisoformat(catalogue["window"]["start_beijing"])
+        .replace(tzinfo=kickoffs.BEIJING)
+        .astimezone(UTC)
+        .isoformat(),
+        end_utc=(
+            datetime.fromisoformat(catalogue["window"]["end_beijing"]).replace(
+                tzinfo=kickoffs.BEIJING
+            )
+            + timedelta(days=1)
+        )
+        .astimezone(UTC)
+        .isoformat(),
+    )
     for row in catalogue_rows:
         league = row["league"]
         if row["league_id"] in kickoffs.GENERIC_IDS or league not in league_codes:
             continue
         path = row["catalogue_path"]
         if path not in page_cache:
-            raw, _, proof = _proof(root / path, root)
+            raw, _, proof = _proof(frozen.original(path), root)
             page_cache[path] = (
                 {
                     item["matchId"]: (i, item)
@@ -663,33 +636,20 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
             )
         index, original = page_cache[path][0][row["match_id"]]
         proof = dict(page_cache[path][1], pointer=f"/value/matchResult/{index}")
-        clocks, clock_issues = select_clock_evidence(
-            row,
-            db_clocks.get(row["match_id"], []),
-            head_plan,
-            root,
-            extra_paths=extra_paths[row["match_id"]],
+        clocks = clocks_by_id.get(row["match_id"], [])
+        times = {_utc(item["kickoff_utc"]) for item in clocks if "kickoff_utc" in item}
+        conflict = len(times) > 1 or any(
+            item["basis"].endswith("_raw_contradiction") for item in clocks
         )
-        issues.extend(clock_issues)
-        times = {item["kickoff_utc"] for item in clocks if "kickoff_utc" in item}
-        when = next(iter(times)) if len(times) == 1 else None
-        match = matches.get(f"jc:{row['match_id']}")
-        canonical = {}
-        for side in ("home", "away"):
-            authorized = approved_canonical(jc_aliases, league, row[f"{side}_name"])
-            owners = names.get(authorized, set())
-            if (
-                match
-                and clocks
-                and any(item["basis"] == "db_same_jc_id_verified" for item in clocks)
-            ):
-                canonical[side] = str(match[f"{side}_team_id"])
-            else:
-                canonical[side] = (
-                    next(iter(owners))
-                    if len(owners) == 1
-                    else f"unresolved:jc:{row[f'{side}_team_id']}"
+        when = next(iter(times)).isoformat() if len(times) == 1 and not conflict else None
+        if conflict:
+            issues.append(
+                dict(
+                    match_id=f"jc:{row['match_id']}",
+                    reasons=["conflicting_jc_kickoff_evidence"],
+                    evidence=clocks,
                 )
+            )
         try:
             game = SportteryResults._row(original)
         except (ValueError, KeyError):
@@ -701,23 +661,74 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
                 competition_id=league_codes[league],
                 home_source_id=str(row["home_team_id"]),
                 away_source_id=str(row["away_team_id"]),
-                **canonical,
+                home=f"jc-team:{row['home_team_id']}",
+                away=f"jc-team:{row['away_team_id']}",
+                home_name=row["home_name"],
+                away_name=row["away_name"],
                 kickoff_utc=when,
                 time_precision="second" if when else "date",
+                clock_conflict=conflict,
                 match_date=row["match_date"],
                 status=game.status if game else "unverified",
                 score=list(game.full) if game and game.full else None,
                 regular_time_basis="regular" if game and game.full else "missing",
-                complete=True,
+                complete=not conflict,
                 coverage=coverage,
                 provenance=[proof, *clocks],
             )
         )
+    teams, identity_issues = associate_official(
+        official, tables, categories, manifest, frozen.observed_utc
+    )
+    issues.extend(identity_issues)
+    by_project = defaultdict(set)
+    for key, team in teams.items():
+        if team.get("project_team_id"):
+            by_project[team["project_team_id"]].add(key)
+    legacy_categories = defaultdict(set)
+    category_proofs = defaultdict(list)
+    for league, entries in formal.items():
+        category = categories.get(league_codes.get(league))
+        if not category:
+            category = next((c for c in categories.values() if c["league"] == league), None)
+        for entry in entries.values():
+            if entry.get("status") in {"approved", "auto_verified"} and category:
+                legacy_categories[entry["canonical"]].add(category["category"])
+                category_proofs[entry["canonical"]].append(category)
+    occupied = defaultdict(set)
+    for row in tables["teams"]:
+        tid = str(row["id"])
+        key = next(iter(by_project[tid])) if len(by_project[tid]) == 1 else f"project-team:{tid}"
+        available = legacy_categories[row["name"]]
+        teams[f"project-team:{tid}"] = dict(
+            name=row["name"],
+            project_team_id=tid,
+            identity_key=key,
+            category=next(iter(available)) if len(available) == 1 else None,
+            category_status="proposed",
+            category_evidence=category_proofs[row["name"]],
+            provenance=[dict(manifest, pointer=f"state/teams.jsonl#/line/{row['row_number']}")],
+        )
+        aliases = json.loads(row["aliases"]) if isinstance(row["aliases"], str) else row["aliases"]
+        for alias in aliases:
+            match = re.fullmatch(r"apif:[^:]+:team:([1-9][0-9]*)", alias)
+            if match:
+                occupied[match[1]].add(key)
     if fd_raw_dir:
         fd, fd_issues = load_fd(fd_raw_dir, teams, configs, league_codes=league_codes)
         official.extend(fd)
         issues.extend(fd_issues)
-    official, entity_issues = official_entities(official, tables["matches"])
+    # Entity validation uses project IDs, never the coincident official numeric IDs.
+    entity_matches = []
+    for match in tables["matches"]:
+        copy = dict(match)
+        for side in ("home", "away"):
+            tid = str(match[f"{side}_team_id"])
+            copy[f"{side}_team_id"] = (
+                next(iter(by_project[tid])) if len(by_project[tid]) == 1 else f"project-team:{tid}"
+            )
+        entity_matches.append(copy)
+    official, entity_issues = official_entities(official, entity_matches)
     issues.extend(entity_issues)
     new_leagues = {
         configs[code]["league"] for code in kickoffs.APPROVED_ROUTE_IDS if code in configs
@@ -737,6 +748,7 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
         issues=issues,
         summary=dict(
             manifest=manifest,
+            observed_utc=frozen.observed_utc,
             new_route_leagues=sorted(new_leagues),
             new_route_finished_db_count=len(new_finished),
             new_route_finished_in_catalogue=sum(
@@ -750,7 +762,7 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
             jc_verified_clocks=sum(
                 _clock(row) is not None for row in official if row["match_id"].startswith("jc:")
             ),
-            fd_raw_dir=str(fd_raw_dir) if fd_raw_dir else None,
+            fd_raw_dir="external_fd_originals" if fd_raw_dir else None,
             formal_aliases_sha256=_sha(FORMAL.read_bytes()),
             registry_sha256=_sha(REGISTRY.read_bytes()),
             nations_sha256=_sha(NATIONS.read_bytes()),
