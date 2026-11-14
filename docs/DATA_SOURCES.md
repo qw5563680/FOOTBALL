@@ -2,7 +2,8 @@
 
 ## T63 新增训练来源的权限与历史边界（2026-11-14）
 
-训练清单增加15联赛 APIF、9联赛 FDORG；具体集合见 README 的 T63 节。
+新来源训练清单增加15联赛 APIF、9联赛 FDORG；具体集合见 README 的 T63 节。
+其中七个原可用联赛的主版本继续只用原 `fd,jc`，新来源另行冻结为实验候选；八个原实验联赛直接使用新来源。
 本地仅使用已保存归档和 `data/fixtures/`，真实体育 HTTP 请求0、正式 key 使用0；没有真实回填。
 固定输入为 `data/football-feeds@e5848e5d7de83a0cd024fa3e03e08cf6db6c7ee4`，原归档只读。
 该档 APIF 相关原件仅含 `/leagues` 目录，缺 `/fixtures` 赛果响应原件；
@@ -25,9 +26,11 @@
 每日 `state/audit/apif_results_crosscheck.csv` 列比分/时间差异、未配对和未核实身份，
 柏林联合—波鸿 2024-12-14 判罚/场上比分单列；所有者决定前旧来源口径不变。
 
-15联赛均暂为 P2 实验，旧来源 evidence 不复用；参数和 gate 不调整。
-真实配对 LL / 上一场覆盖实验须先按 [事前协议](experiments/T63-source-latency-protocol.md) 获 Claude 审查。
-目前收益未测，不能写0收益或改善；真实 P2 重产及合并后连续三次每日成功另待 reviewer 验收。
+所有新来源定义均标“实验”，不沿用七个原 `fd,jc` 定义的资格；七个原定义保留“可用（旧规，考核中）”。
+原七参数与欧战训练范围保持原状。新来源的证明门禁不会追溯改变旧定义或旧冻结记录。
+真实配对 LL / 上一场覆盖实验按获审的 [事前协议](experiments/T63-source-latency-protocol.md) 执行，
+历史结果仅供参考，不按旧 gate 恢复新定义资格。实验及合并后连续三次每日成功的验收状态见
+[T63 验收说明](../reports/t63-apif-results-for-existing-15-leagues/README.md)，完整批准登记和前瞻计数由 T67 处理。
 
 ## T61 总目录（2026-11-14实现前核查）
 

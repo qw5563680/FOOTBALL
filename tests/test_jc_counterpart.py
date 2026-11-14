@@ -345,6 +345,6 @@ def test_pooled_training_refuses_unlinked_duplicates_then_excludes_api(db, provi
     with session_scope(db) as s:
         clean = read_history(s, source="jc,fd,fdorg,apif", training_leagues=scope)
     assert clean.attrs["linked_rows_excluded"] == [f"{provider}:{SAMPLE['provider_match_id']}"]
-    assert len(clean) == len(history) + 2  # Raw versions remain until each fit cutoff.
+    assert len(clean) == len(history) + 1  # The legacy European corpus still deduplicates on read.
     model = DixonColes(pooled=True).fit(clean, as_of=pd.Timestamp(SAMPLE["pooled_cutoff_utc"]))
     assert model.league == "欧战"

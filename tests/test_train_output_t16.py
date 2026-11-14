@@ -107,6 +107,8 @@ def test_train_jsonl_keeps_full_records_and_distinguishes_strict_evaluation(
 def test_train_model_and_output_record_training_and_evaluation_database_hashes(
     training_db, tmp_path
 ):
+    from zucai.predict.parameters import model_readiness
+
     output = tmp_path / "model.pkl"
     result = train(
         db=training_db,
@@ -120,12 +122,15 @@ def test_train_model_and_output_record_training_and_evaluation_database_hashes(
     digest = hashlib.sha256(training_db.read_bytes()).hexdigest()
     published = json.loads((ROOT / "data/model/params.json").read_text())
     evaluation = published["leagues"]["英超"].get("database_sha256")
-    assert evaluation is None  # T63 has not certified the changed source corpus.
+    # The approved fd,jc definition keeps its original evaluation provenance.
+    assert isinstance(evaluation, str) and len(evaluation) == 64
     assert digest != evaluation
     assert model.training_database_sha256 == result["training_database_sha256"] == digest
     assert model.evaluation_database_sha256 == result["evaluation_database_sha256"] == evaluation
     assert model.database_sha256 == digest
     assert Path(result["parameter_provenance"]["params_path"]).is_file()
+    # This deliberately fd-only model cannot borrow that full definition's approval.
+    assert not model_readiness(model, as_of="2026-11-03T00:00Z")["p2_ready"]
 
 
 @pytest.mark.parametrize("target", ["database", "model", "parameters"])

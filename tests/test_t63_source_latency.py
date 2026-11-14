@@ -158,11 +158,16 @@ def test_source_expansion_invalidates_evidence_but_preserves_all_numeric_model_p
     current = json.loads((ROOT / "data/model/params.json").read_text())
     assert current["gate"] == baseline["gate"]
     policy = apif_history_sources()
+    legacy = {"英超", "西甲", "意甲", "德甲", "法甲", "葡超", "巴甲"}
     for league in FIXTURE["leagues"]:
         expected = {"fd", "jc", "apif"}
         if league in FIXTURE["fdorg_leagues"]:
             expected.add("fdorg")
         assert policy[league] == expected
+        if league in legacy:
+            assert current["leagues"][league]["sources"] == ["fd", "jc"]
+            assert current["leagues"][league]["p2_ready"] is True
+            continue
         assert set(current["leagues"][league]["sources"]) == expected
         assert current["leagues"][league]["p2_ready"] is False
         assert current["leagues"][league]["p2_evidence"]["p2_ready"] is False

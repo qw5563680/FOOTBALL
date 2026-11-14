@@ -175,8 +175,14 @@ def train(
     )
     model.replayed_eval_share = (strict_report or report)["replayed_eval_share"]
     summaries = _prediction_summaries(report, strict_report, predictions_out)
+    from zucai.predict.model_definitions import definition_metadata
+
+    definition = definition_metadata(model, config["leagues"].get(league, {}))
+    for key, value in definition.items():
+        setattr(model, key, value)
     model.save(output)
     return {
+        **definition,
         "model_name": "dixon-coles",
         "engine": "penaltyblog 1.13.1",
         "league": model.league,

@@ -188,7 +188,11 @@ def test_future_free_result_cannot_block_earlier_paid_cutoff_at_history_entry(da
         session.get(Result, other.match_id).available_utc = arrived
         session.get(Result, other.match_id).available_source = "captured"
         other.result_checked_utc = arrived
-        kwargs = {"training_leagues": ["日职"]} if pooled else {"league": "日职"}
+        kwargs = (
+            {"training_leagues": ["日职"], "source_selection": "cutoff"}
+            if pooled
+            else {"league": "日职"}
+        )
         frame = read_history(session, source="apif,fd", **kwargs)
         early = select_training_history(frame, SEEN + timedelta(hours=1))
         assert set(early.match_id) == {"apif:91001"}

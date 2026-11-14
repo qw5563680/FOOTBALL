@@ -342,7 +342,7 @@ def test_registry_batch_render_and_sfc_preserve_actual_cup_names(
             assert load_batch(frozen) == batch
             wrong_sources = copy.deepcopy(batch)
             wrong_sources["models"][0]["sources"] = ["fdorg"]
-            with pytest.raises(ValueError, match="P2门槛"):
+            with pytest.raises(ValueError, match="模型定义与冻结模型"):
                 _validate_batch(wrong_sources)
             wrong_targets = copy.deepcopy(batch)
             wrong_targets["predictions"] = []
@@ -431,9 +431,9 @@ def test_pooled_corpus_uses_existing_priority_link_without_mutating_database(
     )
     if linked:
         games, market, closing, digest = load_corpus(database, POOL, **kwargs)
-        # Read keeps both observations so an earlier fold can select its own
-        # available version. The cutoff view still uses the existing priority.
-        assert {"fd:synthetic-t21-0", duplicate_id} <= set(games.match_id)
+        # PR136 preserves the original European model's materialized corpus.
+        assert "fd:synthetic-t21-0" in set(games.match_id)
+        assert duplicate_id not in set(games.match_id)
         selected = select_training_history(games, MODEL_CUTOFF)
         assert "fd:synthetic-t21-0" in set(selected.match_id)
         assert duplicate_id not in set(selected.match_id)
@@ -441,9 +441,8 @@ def test_pooled_corpus_uses_existing_priority_link_without_mutating_database(
         assert market == {"jc:synthetic-t21-2": (0.5, 0.25, 0.25)} and closing == {}
         assert digest == hashlib.sha256(before).hexdigest()
     else:
-        games, _, _, _ = load_corpus(database, POOL, **kwargs)
         with pytest.raises(ValueError, match="跨来源重复"):
-            select_training_history(games, MODEL_CUTOFF)
+            load_corpus(database, POOL, **kwargs)
     assert database.read_bytes() == before
 
 

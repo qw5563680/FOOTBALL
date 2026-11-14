@@ -1,5 +1,9 @@
 # T63 Implementation Plan
 
+本文件保留第一阶段实现计划。所有者在 PR136 修订版本并行及标签要求后的工作，按
+[后续计划](../superpowers/plans/2026-11-14-t63-versioned-parallel.md) 执行；
+下述原15联赛统一失效及旧 gate 重产描述不再作为当前资格规则。
+
 **Goal:** 15 个既有国内联赛接入 APIF，九个接入 FDORG；在真实可知截点后使用，保留既有优先级。
 
 **Architecture:** 复用 T60 显式训练来源清单；训练和逐折评价延迟到截点内再择源。

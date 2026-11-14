@@ -8,7 +8,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from zucai.forecast_archive import MANIFEST, _write, verify_forecasts
+from zucai.forecast_archive import MANIFEST, _path, _read, _write, verify_forecasts
 from zucai.publication_history import (
     PublicationHistoryError,
     check_history,
@@ -26,9 +26,24 @@ def candidates(manifest):
     for run in (manifest or {}).get("runs", {}).values():
         for entry in run["forecasts"].values():
             yield entry, entry["path"] + "/forecast.json", ""
-            for prefix in ("experimental_", "parlay_"):
+            for prefix in ("experimental_", "parlay_", "source_versions_"):
                 if entry.get(prefix + "path"):
                     yield entry, entry[prefix + "path"], prefix
+
+
+def _candidate_generation(archive, entry, path, prefix):
+    """A later source candidate cannot inherit the primary batch's earlier clock."""
+    if prefix != "source_versions_":
+        return _timestamp(entry["generated_utc"])
+    if path != entry["path"] + "/source_versions.json":
+        raise ValueError("来源候选发布时间路径与主批次不符")
+    document = _read(_path(Path(archive), path))
+    if document.get("batch_id") != entry["batch_id"]:
+        raise ValueError("来源候选发布时间批次不符")
+    return max(
+        _timestamp(document.get("generated_utc")),
+        _timestamp(entry.get("source_versions_attached_utc")),
+    )
 
 
 def git_evidence(archive, paths, *, published_ref=PUBLISHED_REF, repository=None):
@@ -125,13 +140,13 @@ def publication_times(
                     == manifest["files"][path]
                     and receipt["published_utc"] == published
                     and _timestamp(published).astimezone(UTC)
-                    >= _timestamp(entry["generated_utc"]).astimezone(UTC)
+                    >= _candidate_generation(archive, entry, path, prefix).astimezone(UTC)
                 )
-            except (KeyError, ValueError, TypeError, OverflowError):
+            except (KeyError, ValueError, TypeError, OverflowError, OSError):
                 valid = False
             if valid:
                 resolved[path] = receipt
-        elif not entry.get("publication_required"):
+        elif prefix != "source_versions_" and not entry.get("publication_required"):
             legacy[path] = (manifest["files"][path], entry["generated_utc"])
     resolved.update(
         resolve_history(
@@ -158,7 +173,8 @@ def confirm_publication(archive, *, published_ref=PUBLISHED_REF, clock=None):
     pending = [
         (entry, path, prefix)
         for entry, path, prefix in candidates(manifest)
-        if entry.get("publication_required") and not entry.get(prefix + "publication_evidence")
+        if (entry.get("publication_required") or prefix == "source_versions_")
+        and not entry.get(prefix + "publication_evidence")
     ]
     evidence = git_evidence(
         archive,
@@ -169,7 +185,9 @@ def confirm_publication(archive, *, published_ref=PUBLISHED_REF, clock=None):
     now = (clock or (lambda: datetime.now(UTC)))().isoformat()
     changed = []
     for entry, path, prefix in pending:
-        if path not in evidence or _timestamp(now) < _timestamp(entry["generated_utc"]):
+        if path not in evidence or _timestamp(now) < _candidate_generation(
+            archive, entry, path, prefix
+        ):
             continue
         receipt = dict(
             evidence[path],

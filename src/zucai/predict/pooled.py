@@ -56,7 +56,26 @@ def _linked_groups(frame, *, as_of=None):
     indexed = frame.set_index("match_id")
     edges = list(frame.attrs.get("verified_result_links", []))
     timed_pairs = {frozenset(edge[:2]) for edge in edges if len(edge) == 3}
-    for row in frame.itertuples():
+    legacy = frame.attrs.get("legacy_source_policy", False)
+    if legacy:
+        # A removed old FD row can remain an anchor for its original JC
+        # representative. Only an already-effective new proof activates these
+        # old materialization edges; no new proof is converted to a timeless one.
+        reached = {
+            key
+            for edge in edges
+            if as_of is None or pd.Timestamp(edge[2]) < as_of
+            for key in edge[:2]
+        }
+        pending = list(frame.attrs.get("legacy_counterpart_links", []))
+        while pending:
+            attached = [edge for edge in pending if set(edge) & reached]
+            if not attached:
+                break
+            edges.extend(attached)
+            reached.update(key for edge in attached for key in edge)
+            pending = [edge for edge in pending if edge not in attached]
+    for row in () if legacy else frame.itertuples():
         if row.counterpart_id not in indexed.index:
             continue
         other = indexed.loc[row.counterpart_id]
@@ -83,9 +102,13 @@ def _linked_groups(frame, *, as_of=None):
             key in indexed.index and indexed.at[key, "league"] in strict_leagues
             for key in (left, right)
         )
-        if len(edge) == 2 and (
-            frozenset(edge) in timed_pairs
-            or (as_of is not None and ({left, right} & strict_ids or added_anchor))
+        if (
+            len(edge) == 2
+            and not legacy
+            and (
+                frozenset(edge) in timed_pairs
+                or (as_of is not None and ({left, right} & strict_ids or added_anchor))
+            )
         ):
             continue
         if len(edge) == 3 and as_of is not None and pd.Timestamp(edge[2]) >= as_of:
@@ -112,12 +135,55 @@ def linked_representatives(frame, *, groups=None):
     best = ranks.groupby(frame.match_id.map(groups), sort=False).transform("min")
     excluded = set(frame.loc[ranks > best, "match_id"])
     result = frame.loc[~frame.match_id.isin(excluded)].copy()
+    if frame.attrs.get("legacy_source_policy"):
+        excluded.update(frame.attrs.get("linked_rows_excluded", []))
     result.attrs["linked_rows_excluded"] = sorted(excluded)
     return result
 
 
+def legacy_linked_representatives(frame, *, retain_links=False):
+    """The pre-T63 materialized view, retained for the unchanged European model."""
+    rank = {source: i for i, source in enumerate(SOURCES)}
+    indexed = frame.set_index("match_id")
+    excluded = set()
+    old_links = []
+    for row in frame.itertuples():
+        if row.counterpart_id not in indexed.index:
+            continue
+        other = indexed.loc[row.counterpart_id]
+        if (row.league, row.home, row.away) != (other.league, other.home, other.away) or abs(
+            row.kickoff_utc - other.kickoff_utc
+        ) > timedelta(hours=3):
+            continue
+        left, right = rank[row.source], rank[other.source]
+        if left != right:
+            excluded.add(row.match_id if left > right else row.counterpart_id)
+            old_links.append((row.match_id, row.counterpart_id))
+    result = frame.loc[~frame.match_id.isin(excluded)].copy()
+    result.attrs["linked_rows_excluded"] = sorted(excluded)
+    if retain_links:
+        result.attrs["legacy_counterpart_links"] = old_links
+    return result
+
+
+def related_result_links(frame, links):
+    """Keep complete verified components touching this pool, including non-result anchors."""
+    reached = set(frame.match_id)
+    remaining, selected = list(links), []
+    while remaining:
+        attached = [edge for edge in remaining if set(edge[:2]) & reached]
+        if not attached:
+            break
+        selected.extend(attached)
+        reached.update(key for edge in attached for key in edge[:2])
+        remaining = [edge for edge in remaining if edge not in attached]
+    return selected
+
+
 def source_eligible_history(frame):
     """A copied view; never relabel or overwrite stored assumed availability."""
+    if frame.attrs.get("legacy_source_policy"):
+        return frame.copy()
     from zucai.predict.training_sources import actual_result_leagues
 
     result = frame.copy()
@@ -172,8 +238,10 @@ def select_training_history(frame, as_of):
         entities = eligible.match_id.map(groups)
         repeated = eligible.loc[entities.duplicated(keep=False)]
         for _, rows in repeated.groupby(entities, sort=False):
-            if len(rows[["home_goals", "away_goals"]].drop_duplicates()) > 1 and not (
-                rows.source.isin(("jc", "fd")).any()
+            if (
+                not frame.attrs.get("legacy_source_policy")
+                and len(rows[["home_goals", "away_goals"]].drop_duplicates()) > 1
+                and not (rows.source.isin(("jc", "fd")).any())
             ):
                 withheld.update(rows.match_id)
         eligible = eligible.loc[~eligible.match_id.isin(withheld)].copy()

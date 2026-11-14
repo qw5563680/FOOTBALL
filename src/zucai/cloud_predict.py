@@ -20,6 +20,7 @@ from zucai.models import Match, SfcIssue
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.command import train
 from zucai.predict.dixon_coles import DixonColes
+from zucai.predict.model_definitions import LEGACY_LEAGUES, T63_LEAGUES, entry_definition_metadata
 from zucai.predict.parameters import (
     model_readiness,
     parameters_path,
@@ -81,6 +82,10 @@ def _summary(archive, run):
                 + "、".join(f"{name} {n} 场" for name, n in result["training_leagues"].items())
                 + "。\n"
             )
+    if candidates := run.get("source_versions", {}).get("leagues"):
+        lines += ["", "七个旧规联赛的新来源候选独立冻结，标实验，不供纸面账户或14场报告使用。", ""]
+        for league, result in candidates.items():
+            lines.append(f"- {league}：{result['status']}，预测 {result['predicted']} 场，实验。")
     for day, forecast in run["forecasts"].items():
         lines += [
             "",
@@ -158,6 +163,8 @@ def run(
             raise ValueError(f"{league} 的训练来源必须显式配置且仅限 {' / '.join(sorted(allowed))}")
         if league == POOL and "jc" not in entry["sources"]:
             raise ValueError("欧战每日预测的训练来源须包含 jc，才能注册三项竞彩赛事")
+        if league in LEGACY_LEAGUES and set(entry["sources"]) != {"fd", "jc"}:
+            raise ValueError("七个旧规联赛的主模型须保留 fd,jc；新来源走独立候选冻结")
     cutoff = _now()
     with TemporaryDirectory(prefix="zucai-forecast-") as temporary:
         stage = Path(temporary)
@@ -172,6 +179,7 @@ def run(
             model_path = f"models/{run_id}/{league}.pkl"
             train_path = f"models/{run_id}/{league}.train.json"
             result = {
+                **entry_definition_metadata(league, entry),
                 "training_json_path": train_path,
                 "training_cutoff_utc": cutoff.isoformat(),
                 "training_database_sha256": database_sha,
@@ -180,7 +188,8 @@ def run(
                 "parameter_source": selected["source"],
                 "predicted": 0,
                 "p2_ready": False,
-                "p2_label": "P2 实验",
+                "p2_label": "实验" if league in T63_LEAGUES else "P2 实验",
+                "paper_eligible": False,
             }
             try:
                 training = train(
@@ -338,6 +347,40 @@ def run(
         check_snapshot_and_deadlines()
         result["generated_utc"] = _now().isoformat()
         publish_forecasts(archive, stage, result, before_commit=check_snapshot_and_deadlines)
+        # The approved legacy stream is already immutable. Source candidates use
+        # the identical training/prediction cutoffs and never replace that stream.
+        try:
+            from zucai.source_version_archive import attach_source_versions
+            from zucai.source_version_training import predict_candidates, train_candidates
+
+            candidates, candidate_models, candidate_params = train_candidates(
+                database, stage, run_id, cutoff, config, trainer=train
+            )
+            if candidates:
+                candidate_engine = get_engine(database)
+                try:
+                    with candidate_engine.connect() as connection:
+                        connection.exec_driver_sql("PRAGMA query_only=ON")
+                        connection.exec_driver_sql("BEGIN")
+                        with Session(bind=connection) as session:
+                            documents = {
+                                batch["input"]["kickoff_date_beijing"]: predict_candidates(
+                                    session,
+                                    primary=batch,
+                                    outcomes=candidates,
+                                    fitted=candidate_models,
+                                    params_path=candidate_params,
+                                    clock=_now,
+                                )
+                                for batch in batches
+                            }
+                finally:
+                    candidate_engine.dispose()
+                result = attach_source_versions(
+                    archive, stage, run_id, candidates, documents, clock=_now
+                )
+        except Exception:
+            LOG.exception("新来源候选冻结失败；已冻结旧版与原实验联赛结果保持原样")
         # Production is frozen first; experimental restoration/fitting cannot roll it back.
         parlay_injuries = {}
         try:

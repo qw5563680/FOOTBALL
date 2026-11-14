@@ -4,7 +4,7 @@
 
 `data/model/apif_history_training.json` 在 T60 两联赛外，显式列入既有15联赛的 APIF 来源和其中9联赛的 FDORG。
 新范围标 `availability_policy=actual_capture`，不改变求解器数值参数、来源优先级或 P2 gate。
-`read_history` 保留全体原始结果行；`DixonColes.fit` 和逐折训练共用
+新来源版本的 `read_history` 保留全体原始结果行；`DixonColes.fit` 和逐折训练共用
 `select_training_history(frame, as_of)`，先验证身份、可知时间，再按 `jc > fd > fdorg > apif` 取代表。
 后到的高优先级行不会提前删除过去可用的低优先级行。评估标签按评价结束截点选唯一实体，训练仍用各折独立截点。
 
@@ -30,9 +30,31 @@ APIF 的 T63 导入路径即使存在旧来源同场行，也保存独立 APIF �
 `source_result_reconcile` 在每日采集后核对当前存量身份与关系，只写证明表；未结算锚可以连接实体但不是赛果。
 `source_results_audit` 只读输出逐场比分/开球审计，绝不写训练取舍或数据库。
 
-`predict.revalidate_sources` 仅在新目录重产现行 gate 的候选模型、预测、评价与参数副本，不调参、不覆盖正式配置。
-15联赛旧 P2 evidence 清除认证并标实验。欧战仍按原 gate；其国内训练输入也受新范围身份/时间规则约束，
-必须在相同归档上与 main 的独立进程比较实际输入及拟合，不能仅以参数未改声称语料不变。
+七个旧规可用联赛保留完整原 `params.json` 条目。`read_history` 默认对 T63 的纯 `fd,jc` 输入和欧战池
+采用原读取/去重语义；`source_selection="cutoff"` 可显式选择新语义。欧战池不因国内新来源政策改变语料。
+原七联赛拟合/预测须在相同归档、截点与 main 独立进程逐项比较，不能仅以参数未改声称不变。
+
+欧战原物化去重之后，只有触及当前语料的有效 `ResultSourceLink` 才启用额外的时标兼容选择：
+新关系须在 `verified_utc < as_of` 后生效，原已验证 counterpart 边只帮助新关系找到原物化代表，
+包括已被旧 JC 代表替代的 FD 锚。未结算锚不作为赛果，失效快照不授权去重。
+该兼容分支不对旧欧战行施加新增身份或 assumed 门禁，保留原比分优先级；无相关新证明时原路径不变。
+
+`predict.model_definitions` 用固定七字段生成稳定 `model_definition_id`，与每日模型 SHA `model_version` 分开。
+旧七联赛与固化的原方法定义及实际模型训练来源相符时标“可用（旧规，考核中）”；八个原实验联赛直接使用新来源，
+七个旧联赛的新来源候选也始终标“实验”。旧 gate 仍供历史参考，不用于自动恢复候选资格或自动撤销原定义资格；
+原有模型适用性、未知球队及非重放等检查继续执行。完整批准登记和前瞻计数留给 T67。
+
+`cloud_predict` 先按原子归档流程冻结主批，再由 `source_version_training` 以原截点训练七个候选。
+`source_version_archive` 保存 `models/{run_id}/*.source-expanded.pkl`、训练 JSON、候选参数及每个主批旁的
+完整 `source_versions.json`，校验同 ID/同截点、定义、模型哈希与失败排除记录；候选失败不改变主批或 LATEST。
+`forecast_publication` 为候选文件单独核对远端 path/SHA 和推送后时间，attached 时间不等于 published。
+
+新批次顶层 `model_definition_schema=1` 要求模型及每条预测完整携带 definition、variant 和 paper 标记，
+下游评分透传父批次格式，纸面 A–F 按版本资格入票；14场另验证有效主批、模型与逐场定义一致性，
+保留八个原实验联赛主版本的概率及组合诊断，七个并行候选不能替代旧主版；八个原实验联赛的诊断展示不以纸面资格为门禁。
+七个旧规主版仍须匹配固定完整方法定义及原资格；同为 `fd,jc` 的手工选参或方法变更不能冒用旧主版。
+候选或漏标记录不能退回旧格式。
+已冻结的旧格式继续兼容读取，不重写原预测或账本。
 
 七个桥接 route 的 import 模式不等于权限开放：regular season 只读 `result_seasons_available` 的核准年，
 date 解析另需 `result_daily_verified=true`，并逐行检查返回的赛季。两个配置和 daily/backfill 开关仍须审查者核准。

@@ -33,8 +33,16 @@ LOG = logging.getLogger(__name__)
 
 
 def read_history(
-    session: Session, league=None, source=None, *, replay_known_after=None, training_leagues=None
+    session: Session,
+    league=None,
+    source=None,
+    *,
+    replay_known_after=None,
+    training_leagues=None,
+    source_selection=None,
 ) -> pd.DataFrame:
+    if source_selection not in (None, "legacy", "cutoff"):
+        raise ValueError("未知赛果来源选择协议")
     sources = normalize_sources(source)
     apif_domestic = apif_history_sources()
     if (
@@ -90,6 +98,50 @@ def read_history(
     if sources is None and frame.source.nunique() > 1:
         raise ValueError("存在多个来源，请用 --source 显式选择来源范围")
     frame.attrs["sources"] = sources or sorted(frame.source.unique())
+    from zucai.predict.training_sources import actual_result_leagues
+
+    legacy = source_selection == "legacy" or (
+        source_selection is None
+        and (
+            training_leagues is not None
+            or league in actual_result_leagues()
+            and set(frame.attrs["sources"]) <= {"fd", "jc"}
+        )
+    )
+    if legacy:
+        # PR136 preserves both the old seven and the European model definition.
+        # New provider proofs and cutoff selection cannot change their old corpus.
+        from zucai.predict.pooled import (
+            legacy_linked_representatives,
+            linked_representatives,
+            related_result_links,
+        )
+
+        for key in ("kickoff_utc", "available_utc"):
+            frame[key] = pd.to_datetime(frame[key], utc=True, format="ISO8601")
+        proofs = []
+        if training_leagues is not None:
+            from zucai.result_source_links import load_result_links
+
+            proofs = related_result_links(frame, load_result_links(session))
+            frame = legacy_linked_representatives(frame, retain_links=bool(proofs))
+            frame.attrs["training_leagues"] = sorted(training_leagues)
+        if proofs:
+            # Only new, dated relations need per-cutoff resolution. The old pool
+            # keeps its original identity, assumed-clock and priority policy.
+            frame.attrs.update(
+                linked_source_selection=True,
+                legacy_source_policy=True,
+                verified_result_links=proofs,
+            )
+            reject_cross_source_overlaps(linked_representatives(frame))
+        else:
+            reject_cross_source_overlaps(frame)
+        frame["available_source"] = availability_sources(frame)
+        frame.attrs["replay_delay"] = None
+        return (
+            replay_history(frame, replay_known_after) if replay_known_after is not None else frame
+        )
     from zucai.result_source_identity import load_result_identities
 
     identities = load_result_identities(session)

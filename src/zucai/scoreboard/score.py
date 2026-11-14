@@ -47,6 +47,11 @@ def load_forecasts(archive: Path, as_of: datetime, *, publications=None) -> list
             rows.append(
                 {
                     **prediction,
+                    **(
+                        {"model_definition_schema": batch["model_definition_schema"]}
+                        if "model_definition_schema" in batch
+                        else {}
+                    ),
                     **{k: batch[k] for k in ("batch_id", "generated_utc", "as_of_utc", "mode")},
                     "published_utc": publications.get(name, {}).get("published_utc"),
                     "publication_evidence": publications.get(name),
@@ -226,6 +231,11 @@ def score_forecasts(forecasts, results, existing, as_of, *, experimental=False):
                         "model_version",
                         "model_probabilities",
                     )
+                },
+                **{
+                    key: row[key]
+                    for key in ("model_definition_id", "source_variant", "paper_eligible")
+                    if key in row
                 },
                 "record_id": key,
                 "forecast_path": row.get("forecast_path"),
