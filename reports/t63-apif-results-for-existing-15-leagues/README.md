@@ -1,4 +1,70 @@
-# T63：既有15联赛赛果来源与新旧版本并行
+# T63：审查修订与补采后兼容验收
+
+**已完成本轮代码修订和离线验收；未合并、未写生产。** 实现提交 `2683bb5fc1ef46a16a8fd162adfc9d78dbfe26e3`。
+普通 merge 合入已含 PR #135 的 main `6be4104` 和已获 Claude 复审通过的 T66 `8c1f831`，无 rebase/强推。
+PR [#133](https://github.com/qw5563680/FOOTBALL/pull/133) 保持草稿；所有者先合 T66、后合 T63。
+
+## 本轮 PR #133 审查修订
+
+回应 [review5901828673](https://github.com/qw5563680/FOOTBALL/pull/133#pullrequestreview-5901828673)
+和 [补充6872534615](https://github.com/qw5563680/FOOTBALL/pull/133#issuecomment-6872534615)。
+
+| 要求 | 实际结果与证据（下列路径相对本轮完整证据） |
+| --- | --- |
+| 留行后技术索引不能中断 | 有效同场证明组件选一个目标；`1556134` 仍指向与T66一致的 `jc:2042615`，第二次新增0。真实竞彩记录+明确合成API页，HTTP0。`acceptance/stats-t63.json` |
+| 盘点其他消费者 | 在售阵容、实验统计历史、伤停及独立市场比较按每次实际截止读证明；不同截止的同场市场行独立判断。已有FD统计proof的导出恢复也适配，原16条统计/比赛/赛果不变。`stats/handoff.txt`、`fd-stats/` |
+| 欧战表述 | 保留来源、优先级与可知时间规则；付费先到可更早使用，竞彩后到替换代表。静态相同不代表所有到达顺序下语料不变。注释、README、ARCHITECTURE、DATA_SOURCES同步 |
+| 审计瘦身 | e584：28624比较记录全部保留计数，CSV由28624行/7013704B变49行/12801B；补采后51待核行/14776B。`integration/audit-final.json` |
+| 候选失败可见 | training/prediction/freeze外层故障及部分训练失败实跑；返回、manifest、摘要、日报显示状态和原因，原主文件不变，无伪附件。`observability/fault-injection-results.json` |
+| 工具计划 | 删除 docs/superpowers/plans/2026-11-14-t63-versioned-parallel.md |
+| 补采后的19模型 | 同15份保存FD原件所得T66副本上，实际19/19训练成功，欧战20608行。SWE1494327仍无假双边身份证明。`acceptance/training-summary.json` |
+
+### 补采状态与旧数据保护
+
+唯一原档 e5848e5；15份真实FD原件及导入链在
+[T66证据ecef419](https://github.com/qw5563680/FOOTBALL/tree/ecef4198e632c78d893930fe439bff822b1704d4/acceptance/2026-11-14-t66-review)。
+本次从T66副本SHA e668f1ee…a3934开始，T66已实跑95新增/40APIF补链/重复新增0。
+T63核验新增403身份、165关系，重复新增0；62跳过=60缺完整身份+2待核重叠。
+合成回归核验时钟06:29 UTC、拟合截止06:30 UTC（北京时间14:30），不冒充真实历史入库时间。
+
+实库发现美职 `apif:1490585`、`apif:1490596` 的FD差异侧仍为未映射原名。
+没有猜配或建关系；完整库确认唯一、同向单边共享且无其他声明后，两行均已可知才暂排新增APIF，保留旧FD。
+训练JSON `source_identity_exclusions` 与待核审计明列两条；FD未到截点时不提前删除已核验APIF。
+反向、完整绑定冲突、多候选和无完整库上下文继续拒绝。旧赛果/球队/时间全部不写。
+
+相对同一补采副本上的T66：日职新增180条APIF可训练记录，美职新增17条；其余17模型训练ID相同。
+原14表保持，新证明后16表导出恢复全行哈希一致；原e584的37617条赛果、2615个冻结文件以及T66补采后37712条赛果保留。
+最新恢复顺序改变副本物理SHA：训练时10b904…485c → 82c0e9…22b3；表内容与重新读取的19组训练ID一致，不混称物理字节相同。
+
+七旧版本404个拟合参数及先验/校准/半衰期等精确相同；4506个真实历史有向球队对放到合成未来时刻，
+450600个比分矩阵值、13518个胜平负概率值逐值相同（最大差0）。当前真实可适用未来目标0，诊断对不冒充历史预测或绩效实验。
+原补采前真实历史预测对照保留在下方前轮证据中，不拿它替代本轮补采状态验证。
+
+### 最终验证与代码对应
+
+- `pytest -q`：**4023通过，0失败/错误/跳过**；`ruff check src tests`、`ruff format --check src tests`、diff check通过。
+- 658个源码/测试/配置/fixture/工作流文件与最终受测输入逐字节核对，证据 `integration/tested-source-sha256.json`。
+- 实际19拟合后仅quarantine的时间类型归一化调整：旧fromisoformat改为现有instant，兼容同session datetime对象。
+  两副本各38377开球时间逐条值/ISO/时区相同；最终live重读19组ID、来源计数和排除项全同。
+  24个实际拟合模块字节相同、1个已证明归一化等价；保留原模型，不伪称全部源码字节相同。
+  见 `acceptance/final-normalization-compatibility.json` 与 `final-normalization-corpus-comparison.json`。
+- 红记录、独立反例、故障注入、完整原件链与最后成功均保留；内部Codex复查不能替代Claude正式审查。
+
+[本轮完整验收证据：6c3dd72](https://github.com/qw5563680/FOOTBALL/tree/6c3dd7285ceaf9eab1a32a96bfb5559431f0c1f9/acceptance/2026-11-14-t63-review)。`SHA256SUMS-REVIEW` 固定完整file-sha256清单。
+无体育HTTP、正式key、生产运行/发布/回写。无需重跑旧冻结预测；上线后的正常运行另存新批次。
+
+### 未完成与明确限制
+
+新增来源预测质量改善仍无法确认，原70场历史实验不改；[前瞻协议草案](../../docs/experiments/T63-prospective-source-comparison-protocol.md)待Claude批准，未运行。
+两美职身份缺口仍待核，未称完成映射。无as_of的旧T38离线标签/市场入口保守沿用原分组；
+known_fixture_ids采样优先级、jc_links及jc_linked旧指标可能少计proof-only关联，盘点明确列出。
+如果底层磁盘/清单不可写，候选状态无法保证落盘，仍保留主发布并记日志。
+真实接口权限/完整回填、合并后三次正常链路和双版本发布均待审查者执行；最终合并由所有者决定。
+
+---
+
+## 前轮版本与验收记录（保留，不替代本轮）
+
 
 **部分完成：实现与离线检查完成；新增来源真实贡献、完整回填和线上三次运行尚未验收。**
 草稿PR [#133](https://github.com/qw5563680/FOOTBALL/pull/133)，不合并、不运行生产。
