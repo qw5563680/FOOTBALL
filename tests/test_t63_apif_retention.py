@@ -171,8 +171,30 @@ def test_missing_historical_identity_is_excluded_before_overlap_precheck(databas
         selected = select_training_history(frame, "2026-11-14T00:00Z")
         assert set(selected.match_id) == {"fd:retained"}
         record_result_identity(session, session.get(Match, "apif:91001"), SEEN)
+        frame = read_history(session, "日职", "fd,apif")
         with pytest.raises(ValueError, match="重复|重叠"):
-            read_history(session, "日职", "fd,apif")
+            select_training_history(frame, "2026-11-14T00:00Z")
+
+
+@pytest.mark.parametrize("pooled", [False, True])
+def test_future_free_result_cannot_block_earlier_paid_cutoff_at_history_entry(database, pooled):
+    from zucai.predict.backtest import read_history
+    from zucai.predict.pooled import select_training_history
+
+    with session_scope(database) as session:
+        ingest(session)
+        other = add_old(session, "fd", score=captured_game().full)
+        arrived = SEEN + timedelta(days=2)
+        session.get(Result, other.match_id).available_utc = arrived
+        session.get(Result, other.match_id).available_source = "captured"
+        other.result_checked_utc = arrived
+        kwargs = {"training_leagues": ["日职"]} if pooled else {"league": "日职"}
+        frame = read_history(session, source="apif,fd", **kwargs)
+        early = select_training_history(frame, SEEN + timedelta(hours=1))
+        assert set(early.match_id) == {"apif:91001"}
+        assert set(select_training_history(frame, arrived).match_id) == {"apif:91001"}
+        with pytest.raises(ValueError, match="重复|重叠"):
+            select_training_history(frame, arrived + timedelta(seconds=1))
 
 
 def test_daily_late_official_link_is_timestamped_without_any_result_mutation(database):

@@ -142,7 +142,16 @@ def read_history(
         )
         checked = linked_representatives(checkable.loc[~unproven_added].copy())
         frame.attrs["linked_rows_excluded"] = checked.attrs["linked_rows_excluded"]
-        reject_cross_source_overlaps(checked)
+        # T63 keeps every arrival for per-cutoff selection. A later unlinked
+        # source must not veto an earlier usable result at this cutoff-free read.
+        # Preserve legacy eager checks for leagues without the added-source path.
+        deferred_leagues = set(
+            frame.loc[
+                frame.league.isin(actual_result_leagues()) & frame.source.isin(("apif", "fdorg")),
+                "league",
+            ]
+        )
+        reject_cross_source_overlaps(checked.loc[~checked.league.isin(deferred_leagues)])
     else:
         reject_cross_source_overlaps(frame)
     frame["available_source"] = availability_sources(frame)

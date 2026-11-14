@@ -441,8 +441,9 @@ def test_pooled_corpus_uses_existing_priority_link_without_mutating_database(
         assert market == {"jc:synthetic-t21-2": (0.5, 0.25, 0.25)} and closing == {}
         assert digest == hashlib.sha256(before).hexdigest()
     else:
+        games, _, _, _ = load_corpus(database, POOL, **kwargs)
         with pytest.raises(ValueError, match="跨来源重复"):
-            load_corpus(database, POOL, **kwargs)
+            select_training_history(games, MODEL_CUTOFF)
     assert database.read_bytes() == before
 
 
