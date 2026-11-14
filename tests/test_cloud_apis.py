@@ -56,7 +56,7 @@ def environment(tmp_path, monkeypatch):
         json.dumps(
             {
                 "version": 1,
-                "last_successful_run_started_utc": "2026-11-01T02:40:00+00:00",
+                "last_successful_run_started_utc": "2026-11-02T02:00:00+00:00",
             }
         )
     )
@@ -98,7 +98,15 @@ def run_apis(tmp_path, monkeypatch, archive, name, slot="early"):
 
 
 def mock_apis(
-    api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None, apif_mode=None, paid=False
+    api,
+    *,
+    fd=False,
+    fail_fdorg=False,
+    rejected=False,
+    remaining=None,
+    apif_mode=None,
+    paid=False,
+    empty_fdorg=False,
 ):
     if fd:
         api.add(
@@ -107,6 +115,8 @@ def mock_apis(
             body=(FIXTURES / "fd.csv").read_bytes(),
         )
     doc = json.loads((FIXTURES / "fdorg.json").read_bytes())
+    if empty_fdorg:
+        doc.update(resultSet={"count": 0}, matches=[])
     if rejected:
         doc["matches"][0]["score"]["fullTime"]["home"] = -1
     api.add(
@@ -118,8 +128,8 @@ def mock_apis(
             responses.matchers.query_param_matcher(
                 {
                     "competitions": "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA,CL",
-                    "dateFrom": "2026-10-30",
-                    "dateTo": "2026-11-06",
+                    "dateFrom": (CLOCK.date() - timedelta(days=3)).isoformat(),
+                    "dateTo": (CLOCK.date() + timedelta(days=4)).isoformat(),
                 }
             )
         ],

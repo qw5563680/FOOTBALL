@@ -213,6 +213,9 @@ def check_db(db: sqlite3.Connection) -> None:
     if db.execute("""SELECT 1 FROM matches m LEFT JOIN results r USING(match_id)
                   WHERE (m.status='finished') <> (r.match_id IS NOT NULL) LIMIT 1""").fetchone():
         raise ValueError("完赛状态与比分表不一致")
+    from zucai.sources.fd_apif_counterpart import validate_apif_fd_links
+
+    validate_apif_fd_links(db)
     check_stats(db, rows=False)
 
 

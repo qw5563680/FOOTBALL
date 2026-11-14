@@ -30,7 +30,7 @@ _DEFAULT_FD_LEAGUES = LEAGUES_PATH
 
 
 def fd_due(now, slot="auto", state: Path | None = None):
-    """Due after seven UTC dates since a successful run, regardless of weekday/slot.
+    """Due without a successful run in the current Monday-anchored UTC week.
 
     ``slot`` is retained for call compatibility and does not affect FD freshness.
     ``state`` is the optional receipt file, not its directory. Missing, invalid or
@@ -44,7 +44,8 @@ def fd_due(now, slot="auto", state: Path | None = None):
     except ValueError:
         LOG.warning("FD 成功采集状态无效，本次重试采集")
         return True
-    return (now.date() - previous.date()).days >= 7
+    monday = now.date() - timedelta(days=now.weekday())
+    return previous.date() < monday
 
 
 def fd_scopes(today, leagues):
@@ -155,6 +156,7 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
         except Exception as exc:
             scopes = []
             _failed(reports["fd"], "configuration", exc)
+        completed = bool(scopes)
         for code, scope in scopes:
             try:
                 _record(
@@ -164,14 +166,16 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
                     ),
                 )
             except Exception as exc:
+                completed = False
                 _failed(reports["fd"], code, exc)
-        if scopes and reports["fd"]["status"] == "complete":
+        # Row warnings keep partial reporting but do not mean a league file failed.
+        if completed:
             try:
                 save_fd_success(fd_state, now)
             except Exception as exc:
                 _failed(reports["fd"], "success state", exc)
     else:
-        reports["fd"].update(status="skipped", reason="距上次完整成功采集不足 7 个 UTC 自然日")
+        reports["fd"].update(status="skipped", reason="本 UTC 自然周已成功采集全部已核验 FD 范围")
 
     source = None
     try:

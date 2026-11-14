@@ -1000,9 +1000,11 @@ python -m zucai tune --league 欧战 --db data/zucai.db --params-file work/cups-
 
 新模型的 `sources` 表示选择的来源范围，`training_source_counts` 表示截点前实际参与拟合的场数。
 T06 对范围内来源可预测，冻结格式升级为 schema 2；旧单来源模型与 schema 1 报告仍能读取。
-T14 已接入日常采集和数据分支恢复；T66 改为按成功日期补采，不再依赖周一早班。
-可选 `state/fd_collection.json` 记录完整成功批次的 UTC 开始时刻，随 feeds 哈希导出恢复；
-失败、partial 或无范围不更新，旧归档恢复会清掉较新本地回执。成功后不足7个UTC自然日不重复下载。
+T14 已接入日常采集和数据分支恢复；T66 改为每个 UTC 自然周（周一开始）成功采集一次，不再依赖周一早班。
+可选 `state/fd_collection.json` 记录批次的实际 UTC 开始时刻，随 feeds 哈希导出恢复。
+全部已核验联赛文件都下载并导入完成才记成功；单行拒收、疑似重复仍报告 partial，但不阻止该回执。
+整联赛失败、配置失败或无范围不更新，后续班次重试；旧归档恢复会清掉未发布的新本地回执。
+同周成功后跳过，周六补采成功也会在下周一重新采集。FD 统计复用只读取本班下载的文件，跳过采集的班次不重复打包。
 历史原始 CSV 仍只保存在采集环境或 Actions artifact，手动子集回填不记成完整日常成功。
 [时区及数据限制](docs/DATA_SOURCES.md#4-football-datacouk历史赛果与收盘赔率t08) ·
 [真实数据验收与缺口](reports/2026-11-02-t08-acceptance/README.md)。

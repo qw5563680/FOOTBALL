@@ -237,6 +237,14 @@ def _link_target(session, key, game, sides, existing, per_team):
     _check_claims(game, per_team)
     pair = tuple(side.team.id if side.team else None for side in sides)
     known = all(side.binding is not None for side in sides)
+    linked_fd = None
+    if existing and (existing.counterpart_id or "").startswith("fd:"):
+        from zucai.sources.fd_apif_counterpart import check_linked_observation
+
+        try:
+            linked_fd = check_linked_observation(session, existing, game, pair)
+        except CounterpartConflict as exc:
+            raise _Suspected(str(exc), exc.candidates) from exc
     window = session.scalars(
         select(Match).where(
             Match.source.in_(("jc", "fd", "fdorg", "apif")),
@@ -250,7 +258,9 @@ def _link_target(session, key, game, sides, existing, per_team):
     for candidate in window:
         oriented = (candidate.home_team_id, candidate.away_team_id)
         source = candidate.source
-        if source != "apif" and known and pair == oriented:
+        if linked_fd is not None and candidate.match_id == linked_fd.match_id:
+            exact[source].append(candidate)
+        elif source != "apif" and known and pair == oriented:
             exact[source].append(candidate)
         elif (
             (source != "apif" and not known)
@@ -271,7 +281,11 @@ def _link_target(session, key, game, sides, existing, per_team):
     for source in ("jc", "fd", "fdorg"):
         matches = exact[source]
         candidates = conflicts[source] + [m.match_id for m in matches]
-        if conflicts[source] or len(matches) > 1 or (existing and matches and source != "jc"):
+        if (
+            conflicts[source]
+            or len(matches) > 1
+            or (existing and matches and source != "jc" and linked_fd is None)
+        ):
             raise _Suspected(f"{source} 候选身份不全、主客冲突或存在重复比赛", candidates)
         if matches:
             target = matches[0]
@@ -282,6 +296,8 @@ def _link_target(session, key, game, sides, existing, per_team):
                 except CounterpartConflict as exc:
                     raise _Suspected(str(exc), exc.candidates) from exc
             break
+    if linked_fd is not None and (target is None or target.match_id != linked_fd.match_id):
+        raise _Suspected("既有 apif→fd 链接与本次候选不符", [linked_fd.match_id])
     claimed = set(session.scalars(select(Match.match_id).where(Match.counterpart_id == key)))
     if claimed and (target is None or claimed != {target.match_id}):
         raise _Suspected("来源比赛ID已有另一关联，当前身份或开球无法复核", claimed)

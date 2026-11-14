@@ -87,7 +87,14 @@ def fdorg_candidate(session, fd):
         )
     )
     if claims:
-        raise CounterpartConflict("fd/fdorg 已被其他比赛链接", claims)
+        from zucai.sources.fd_apif_counterpart import apif_candidate
+
+        # Another provider may describe this same FD anchor, but it must pass
+        # the complete bidirectional identity and claim checks independently.
+        api = apif_candidate(session, fd)
+        allowed = {api.match_id} if api and api.counterpart_id == fd.match_id else set()
+        if set(claims) - allowed:
+            raise CounterpartConflict("fd/fdorg 已被其他比赛链接", claims)
     return candidate
 
 

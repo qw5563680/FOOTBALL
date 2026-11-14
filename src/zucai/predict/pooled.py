@@ -49,12 +49,35 @@ def linked_representatives(frame):
     """
     rank = {source: i for i, source in enumerate(SOURCES)}
     indexed = frame.set_index("match_id")
+    from zucai.sources.fd_apif_counterpart import FixtureIdentity, same_fixture_identity
+
+    # Names here come from the unique Team table, so exact equality represents
+    # the same stored ID. Keep the original fields and all unknown team labels.
+    identities = [
+        FixtureIdentity(
+            row.match_id,
+            row.source,
+            row.league,
+            row.home,
+            row.away,
+            row.kickoff_utc,
+            row.counterpart_id if isinstance(row.counterpart_id, str) else None,
+        )
+        for row in frame.itertuples()
+    ]
+    by_id = {row.match_id: row for row in identities}
+    names = {name: name for row in identities for name in (row.home_team_id, row.away_team_id)}
     excluded = set()
     for row in frame.itertuples():
         if row.counterpart_id not in indexed.index:
             continue
         other = indexed.loc[row.counterpart_id]
-        if (row.league, row.home, row.away) != (
+        if row.source == "apif" and other.source == "fd":
+            if (row.match_id, row.counterpart_id) not in frame.attrs.get(
+                "verified_apif_fd_links", ()
+            ) or not same_fixture_identity(by_id[row.counterpart_id], by_id[row.match_id], names):
+                raise ValueError("apif→fd 同场关系须经完整数据库身份与声明核验")
+        elif (row.league, row.home, row.away) != (
             other.league,
             other.home,
             other.away,

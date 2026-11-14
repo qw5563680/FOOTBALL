@@ -42,20 +42,29 @@ def archive_receipt(archive, stamp):
 
 
 @pytest.mark.parametrize(
-    ("instant", "expected"),
+    ("previous", "instant", "expected"),
     [
-        ("2026-11-02T23:59:59+00:00", False),
-        ("2026-11-03T10:19:00+00:00", False),
-        ("2026-11-08T23:59:59+00:00", False),
-        ("2026-11-09T00:00:00+00:00", True),
-        ("2026-11-09T07:59:59+08:00", False),
-        ("2026-11-09T08:00:00+08:00", True),
+        ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+        ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+        ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+        ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+        ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+        ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+        ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+        ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+        ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+        ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+        ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+        ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+        ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
     ],
 )
 @pytest.mark.parametrize("slot", ["early", "late", "auto"])
-def test_success_is_fresh_until_seventh_utc_date(tmp_path, instant, expected, slot):
+def test_success_only_suppresses_its_monday_anchored_utc_week(
+    tmp_path, previous, instant, expected, slot
+):
     path = tmp_path / STATE
-    write_receipt(path)
+    write_receipt(path, previous)
     assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
 
 
@@ -128,7 +137,7 @@ def test_missing_early_collects_late_and_success_roundtrips(environment, tmp_pat
     assert (restored.parent / STATE).read_bytes() == (environment / STATE).read_bytes()
 
 
-@pytest.mark.parametrize("failure", ["http", "parse", "rows", "duplicates", "zero-scopes"])
+@pytest.mark.parametrize("failure", ["http", "parse", "zero-scopes"])
 def test_failed_early_preserves_previous_success_and_retries_late(
     environment, tmp_path, monkeypatch, failure
 ):
@@ -142,33 +151,19 @@ def test_failed_early_preserves_previous_success_and_retries_late(
         config_path = tmp_path / "leagues.json"
         original = config_path.read_bytes()
         config_path.write_text("{}")
-    if failure == "duplicates":
-        with sqlite3.connect(database) as db:
-            db.execute(
-                "UPDATE matches SET league='英超',kickoff_utc='2026-11-01T12:00:00.000000Z' "
-                "WHERE match_id='jc:1'"
-            )
     with responses.RequestsMock() as api:
         mock_apis(api)
         if failure != "zero-scopes":
             raw = (FIXTURES / "fd.csv").read_bytes()
             if failure == "parse":
                 raw = b"not a CSV response"
-            elif failure == "rows":
-                raw = raw.replace(b",2,1,H,", b",-1,1,H,")
             api.get(FD_URL, body=raw, status=503 if failure == "http" else 200)
         early = collect_apis(database, datetime.fromisoformat("2026-11-02T02:40:00Z"), slot="early")
     assert early["fd"]["status"] == "partial"
-    if failure in ("rows", "duplicates"):
-        key = "rejected_rows" if failure == "rows" else "suspected_duplicates"
-        assert early["fd"][key] == 1
     assert (database.parent / STATE).read_bytes() == previous
     assert fd_due(datetime.fromisoformat("2026-11-02T10:19:00Z"), "late", database.parent / STATE)
     if failure == "zero-scopes":
         config_path.write_bytes(original)
-    if failure == "duplicates":
-        with sqlite3.connect(database) as db:
-            db.execute("UPDATE matches SET league='Seed' WHERE match_id='jc:1'")
     monkeypatch.setattr("test_cloud_apis.CLOCK", datetime.fromisoformat("2026-11-02T10:19:00Z"))
     with responses.RequestsMock() as api:
         mock_apis(api, fd=True)
@@ -179,7 +174,93 @@ def test_failed_early_preserves_previous_success_and_retries_late(
     assert saved[STARTED] == "2026-11-02T10:19:00+00:00"
 
 
-def test_later_scope_failure_does_not_record_partial_batch(environment, tmp_path, monkeypatch):
+@pytest.mark.parametrize("warning", ["rows", "duplicates", "both"])
+def test_row_warnings_keep_partial_report_but_complete_the_weekly_batch(
+    environment, tmp_path, monkeypatch, warning
+):
+    forget_fd_success(environment)
+    configure_fd(monkeypatch, tmp_path)
+    if warning in ("duplicates", "both"):
+        database = tmp_path / "seed-warning/data/zucai.db"
+        restore_feeds(environment, database)
+        with sqlite3.connect(database) as db:
+            db.execute(
+                "UPDATE matches SET league='英超',kickoff_utc='2026-11-01T12:00:00.000000Z' "
+                "WHERE match_id='jc:1'"
+            )
+        export_feeds(database, environment, datetime(2026, 11, 2).date(), "seed-warning")
+    raw = (FIXTURES / "fd.csv").read_bytes()
+    if warning == "rows":
+        raw = raw.replace(b",2,1,H,", b",-1,1,H,")
+    elif warning == "both":
+        raw += raw.splitlines(keepends=True)[1].replace(b",2,1,H,", b",-1,1,H,")
+    with responses.RequestsMock() as api:
+        mock_apis(api)
+        api.get(FD_URL, body=raw)
+        first = run_apis(tmp_path, monkeypatch, environment, "row-warnings")
+    meta = archive_info(environment)
+    report = meta["collection"]["fd"]
+    assert report["status"] == meta["collection_status"] == "partial"
+    assert report["downloaded_files"] == report["processed_files"] == 1
+    assert report["rejected_rows"] == (1 if warning in ("rows", "both") else 0)
+    assert report["suspected_duplicates"] == (1 if warning in ("duplicates", "both") else 0)
+    for key, audit in (
+        ("rejected_rows", "fd_rejected_rows.csv"),
+        ("suspected_duplicates", "fd_suspected_duplicates.csv"),
+    ):
+        if report[key]:
+            assert (first / "data/state/audit" / audit).is_file()
+            assert f"state/audit/{audit}" in meta["files"]
+    expected = {"version": 1, STARTED: "2026-11-02T02:40:00+00:00"}
+    assert (environment / STATE).is_file()
+    assert json.loads((environment / STATE).read_bytes()) == expected
+    assert meta["files"][STATE] == digest(first / "data" / STATE)
+    assert list((first / "data/raw/football-data-co-uk").rglob("*.csv"))
+    with responses.RequestsMock() as api:
+        mock_apis(api)
+        later = run_apis(tmp_path, monkeypatch, environment, "skip-warnings", slot="late")
+        assert not any("football-data.co.uk" in call.request.url for call in api.calls)
+    assert archive_info(environment)["collection"]["fd"]["status"] == "skipped"
+    assert json.loads((later / "data" / STATE).read_bytes()) == expected
+    assert not (later / "data/raw/football-data-co-uk").exists()
+    assert captured_fd_argv(tmp_path, later) == []
+
+
+def test_saturday_success_skips_sunday_but_collects_again_next_monday(
+    environment, tmp_path, monkeypatch
+):
+    forget_fd_success(environment)
+    configure_fd(monkeypatch, tmp_path)
+    for name, instant, expected in (
+        ("saturday", "2026-11-14T10:19:00Z", "complete"),
+        ("sunday", "2026-11-15T23:59:59Z", "skipped"),
+        ("monday", "2026-11-16T00:00:00Z", "complete"),
+    ):
+        monkeypatch.setattr("test_cloud_apis.CLOCK", datetime.fromisoformat(instant))
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as api:
+            mock_apis(api, fd=expected == "complete", apif_mode="empty", empty_fdorg=True)
+            work = run_apis(tmp_path, monkeypatch, environment, name)
+            assert sum("football-data.co.uk" in call.request.url for call in api.calls) == (
+                1 if expected == "complete" else 0
+            )
+        report = archive_info(environment)["collection"]["fd"]
+        assert report["status"] == expected
+        assert archive_info(environment)["collection"]["apif"]["status"] == "complete"
+        assert archive_info(environment)["collection"]["fdorg"]["status"] == "complete"
+        assert report["downloaded_files"] == (1 if expected == "complete" else 0)
+        if expected == "complete":
+            assert json.loads((environment / STATE).read_bytes())[STARTED] == instant.replace(
+                "Z", "+00:00"
+            )
+        else:
+            assert not (work / "data/raw/football-data-co-uk").exists()
+            assert captured_fd_argv(tmp_path, work) == []
+
+
+@pytest.mark.parametrize("failure", ["http", "parse"])
+def test_later_scope_failure_preserves_retry_after_another_scope_succeeds(
+    environment, tmp_path, monkeypatch, failure
+):
     forget_fd_success(environment)
     configure_fd(monkeypatch, tmp_path)
     config_path = tmp_path / "leagues.json"
@@ -188,13 +269,32 @@ def test_later_scope_failure_does_not_record_partial_batch(environment, tmp_path
     config_path.write_text(json.dumps(config))
     with responses.RequestsMock() as api:
         mock_apis(api, fd=True)
-        api.get("https://www.football-data.co.uk/mmz4281/2627/E1.csv", status=503)
+        api.get(
+            "https://www.football-data.co.uk/mmz4281/2627/E1.csv",
+            body=b"not a CSV response",
+            status=503 if failure == "http" else 200,
+        )
         work = run_apis(tmp_path, monkeypatch, environment, "partial-batch")
     report = archive_info(environment)["collection"]["fd"]
     assert report["status"] == "partial"
     assert report["downloaded_files"] == report["inserted"] == 1
     assert STATE not in archive_info(environment)["files"]
     assert not (work / "data" / STATE).exists()
+    assert list((work / "data/raw/football-data-co-uk").rglob("*.csv"))
+    assert captured_fd_argv(tmp_path, work)
+    assert fd_due(datetime.fromisoformat("2026-11-02T10:19:00Z"), "late", work / "data" / STATE)
+    monkeypatch.setattr("test_cloud_apis.CLOCK", datetime.fromisoformat("2026-11-02T10:19:00Z"))
+    with responses.RequestsMock() as api:
+        mock_apis(api, fd=True)
+        api.get(
+            "https://www.football-data.co.uk/mmz4281/2627/E1.csv",
+            body=(FIXTURES / "fd.csv").read_bytes().replace(b"E0,", b"E1,"),
+        )
+        run_apis(tmp_path, monkeypatch, environment, "retry-batch", slot="late")
+    report = archive_info(environment)["collection"]["fd"]
+    assert report["status"] == "complete"
+    assert report["downloaded_files"] == report["processed_files"] == 2
+    assert json.loads((environment / STATE).read_bytes())[STARTED] == "2026-11-02T10:19:00+00:00"
 
 
 @pytest.mark.parametrize("receipt", ["invalid", "future", "hash"])
@@ -340,3 +440,8 @@ def test_captured_fd_recovery_after_api_stats_has_no_requests_or_asset_collision
             "SELECT DISTINCT availability_basis,captured_utc,available_utc "
             "FROM match_stats WHERE provider='fd'"
         ).fetchall() == [("backfilled", "2026-11-04T09:00:10.000000Z", None)]
+    # Published Release references restore the evidence, never prior local raw bytes.
+    later = tmp_path / "later"
+    restore_feeds(archive, later / "data/zucai.db")
+    assert not (later / "data/raw/football-data-co-uk").exists()
+    assert captured_fd_argv(later, later) == []
