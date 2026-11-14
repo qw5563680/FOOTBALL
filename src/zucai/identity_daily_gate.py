@@ -17,6 +17,7 @@ from zucai.identity_gate_evidence import (
     existing_links,
     held_inventory,
     outcome,
+    replay_importer,
     transitions,
 )
 from zucai.identity_gate_evidence import (
@@ -75,6 +76,126 @@ def _provider_project(facts, league, pid, when):
     return next(iter(ids)) if len(ids) == 1 else None
 
 
+def _relation_graph(facts, matches):
+    """One ownership graph for legacy pointers and currently eligible explicit links."""
+    eligible = [
+        link
+        for link in facts.get("result_links", [])
+        if (
+            not facts.get("gate_cutoff")
+            or _clock(link["verified_utc"]) <= _clock(facts["gate_cutoff"])
+        )
+        and all(
+            mid in matches
+            and all(
+                matches[mid][key] == link[key] for key in ("league", "home_team_id", "away_team_id")
+            )
+            and _clock(matches[mid]["kickoff_utc"]) == _clock(link[clock])
+            for mid, clock in (
+                (link["provider_match_id"], "provider_kickoff_utc"),
+                (link["counterpart_id"], "counterpart_kickoff_utc"),
+            )
+        )
+    ]
+    edges = [
+        dict(
+            left=r["match_id"],
+            right=r["counterpart_id"],
+            kind="legacy_pointer",
+            pointer=f"state/matches.jsonl#/line/{r.get('row_number')}",
+        )
+        for r in matches.values()
+        if r.get("counterpart_id")
+    ]
+    edges.extend(
+        dict(
+            left=r["provider_match_id"],
+            right=r["counterpart_id"],
+            kind="result_source_link",
+            provenance=r["provenance"],
+        )
+        for r in eligible
+    )
+    parents = {}
+
+    def find(mid):
+        parents.setdefault(mid, mid)
+        if parents[mid] != mid:
+            parents[mid] = find(parents[mid])
+        return parents[mid]
+
+    for edge in edges:
+        parents[find(edge["left"])] = find(edge["right"])
+    groups = defaultdict(set)
+    for mid in parents:
+        groups[find(mid)].add(mid)
+    bad = []
+    for members in groups.values():
+        if any(count > 1 for count in Counter(mid.split(":", 1)[0] for mid in members).values()):
+            bad.append(
+                dict(members=sorted(members), edges=[e for e in edges if e["left"] in members])
+            )
+    return eligible, bad
+
+
+def _current_participants(facts, code, selected):
+    """Current JC identities need a proven project and approval at their current date."""
+    league = facts["configs"][code]["league"]
+    appearances = defaultdict(list)
+    for mid, row in selected.items():
+        for side in ("home", "away"):
+            appearances[row[f"{side}_source_id"]].append((mid, row))
+    rows = []
+    for tid, seen in sorted(appearances.items()):
+        team = facts["teams"].get("jc-team:" + tid)
+        if team is None:
+            team = next(
+                (
+                    t
+                    for key, t in facts["teams"].items()
+                    if any(
+                        r.get(side) == key and r[f"{side}_source_id"] == tid
+                        for r in selected.values()
+                        for side in ("home", "away")
+                    )
+                ),
+                {},
+            )
+        project = team.get("project_team_id")
+        clocks = []
+        for _, row in seen:
+            if row.get("kickoff_utc"):
+                clocks.append(row["kickoff_utc"])
+            else:
+                low = datetime.combine(
+                    date.fromisoformat(row["match_date"]), datetime.min.time(), BEIJING
+                )
+                clocks.extend(
+                    [
+                        low.isoformat(),
+                        (low + timedelta(days=1) - timedelta(microseconds=1)).isoformat(),
+                    ]
+                )
+        pids = [
+            pid
+            for pid in facts["formal"].get(league, {})
+            if project
+            and all(_provider_project(facts, league, pid, clock) == project for clock in clocks)
+        ]
+        rows.append(
+            dict(
+                official_team_id=tid,
+                project_team_id=project,
+                provider_team_ids=pids,
+                match_ids=sorted(mid for mid, _ in seen),
+                reason=None
+                if len(pids) == 1 and not team.get("ambiguous")
+                else "current_official_identity_or_binding_unverified",
+            )
+        )
+    return dict(total=len(rows), participants=rows, unbound=[r for r in rows if r["reason"]])
+
+
 def _facts_coverage(facts, code):
     league = facts["configs"][code]["league"]
     official = [
@@ -86,7 +207,7 @@ def _facts_coverage(facts, code):
     for row in official:
         for side in ("home", "away"):
             by_id[row[f"{side}_source_id"]].append((row, side))
-    bound, unbound, bindings = [], [], []
+    bound, unbound, bindings, identity_conflicts = [], [], [], []
     blockers = []
     for team_id, appearances in sorted(by_id.items()):
         projects = {_project(facts, row[side]) for row, side in appearances}
@@ -107,7 +228,28 @@ def _facts_coverage(facts, code):
             canonical=team.get("project_name"),
             project_identity_evidence=team.get("project_identity_evidence", []),
         )
-        if len(pids) == 1:
+        hard_issues = [
+            issue
+            for issue in facts.get("issues", [])
+            if issue.get("match_id") in {r["match_id"] for r, _ in appearances}
+            and set(issue.get("reasons", []))
+            & {"current_snapshot_identity_conflict", "conflicting_jc_kickoff_evidence"}
+        ]
+        if team.get("identity_status") == "conflict" or team.get("ambiguous") or hard_issues:
+            blockers.append("official_identity_conflict")
+            identity_conflicts.append(
+                dict(
+                    item,
+                    identity_status=team.get("identity_status"),
+                    ambiguous=team.get("ambiguous", False),
+                    conflicting_project_ids=team.get("conflicting_project_ids", []),
+                    issues=hard_issues,
+                    provenance=team.get("provenance", []),
+                )
+            )
+        if len(pids) == 1 and not (
+            team.get("identity_status") == "conflict" or team.get("ambiguous") or hard_issues
+        ):
             bound.append(team_id)
             bindings.append(dict(item, provider_team_id=next(iter(pids))))
         else:
@@ -130,7 +272,11 @@ def _facts_coverage(facts, code):
         "fd_originals", [r for r in facts["official"] if r["match_id"].startswith("fd:")]
     ):
         originals[row["match_id"]].append(row)
-    owners = Counter(r.get("counterpart_id") for r in facts["matches"] if r.get("counterpart_id"))
+    eligible_links, graph_conflicts = _relation_graph(facts, matches)
+    conflict_nodes = {mid for conflict in graph_conflicts for mid in conflict["members"]}
+    graph_conflicts = [
+        c for c in graph_conflicts if set(c["members"]) & {r["match_id"] for r in official}
+    ]
     linked, unresolved = [], []
     for row in official:
         stored = matches.get(row["match_id"], {})
@@ -140,26 +286,7 @@ def _facts_coverage(facts, code):
             for link in facts.get("result_links", [])
             if link["counterpart_id"] in {row["match_id"], counterpart}
         ]
-        verified_links = [
-            link
-            for link in link_rows
-            if (
-                not facts.get("gate_cutoff")
-                or _clock(link["verified_utc"]) <= _clock(facts["gate_cutoff"])
-            )
-            and all(
-                mid in matches
-                and all(
-                    matches[mid][key] == link[key]
-                    for key in ("league", "home_team_id", "away_team_id")
-                )
-                and _clock(matches[mid]["kickoff_utc"]) == _clock(link[clock])
-                for mid, clock in (
-                    (link["provider_match_id"], "provider_kickoff_utc"),
-                    (link["counterpart_id"], "counterpart_kickoff_utc"),
-                )
-            )
-        ]
+        verified_links = [link for link in link_rows if link in eligible_links]
         referenced = {link["provider_match_id"] for link in verified_links}
         if counterpart:
             referenced.add(counterpart)
@@ -179,7 +306,7 @@ def _facts_coverage(facts, code):
             evidence["unverified_result_links"] = link_rows
             blockers.append(reason)
         for counterpart in sorted(referenced) or [None]:
-            if conflict or counterpart and owners[counterpart] > 1:
+            if conflict or row["match_id"] in conflict_nodes:
                 reason = "non_unique_relation"
                 blockers.append(reason)
             elif counterpart:
@@ -292,6 +419,7 @@ def _facts_coverage(facts, code):
             bound_ids=bound,
             bindings=bindings,
             unbound=unbound,
+            identity_conflicts=identity_conflicts,
         ),
         dict(
             total=len(official),
@@ -303,6 +431,7 @@ def _facts_coverage(facts, code):
             relations=linked,
             unresolved=unresolved,
             unverified_source_relations=unverified_sources,
+            relation_conflicts=graph_conflicts,
         ),
         blockers,
     )
@@ -360,6 +489,28 @@ def _current_replay(facts, code, section, root):
         or scopes[0].get("parsed_matches") != len({r["match_id"] for r in current})
     ):
         raise ValueError("current season was not completely replayed")
+    held_details = _held_reconciliation(facts, code, section, root)
+    before, after = [_export(root, section[key]) for key in ("before_manifest", "after_manifest")]
+    if before["folder"].resolve() == after["folder"].resolve():
+        raise ValueError("current replay state exports must be independent")
+    verified_importer = replay_importer(
+        facts, code, section, root, report, scopes[0], before, after
+    )
+    for row in current:
+        _materialized_original(facts, code, after, row)
+    return dict(
+        season=season,
+        distinct_fixtures=len({r["match_id"] for r in current}),
+        importer=verified_importer,
+        **held_details,
+        raw_sha256=sorted(known_sha),
+    )
+
+
+def _held_reconciliation(facts, code, section, root):
+    """Reconcile archived held IDs; explanations retain pending risk, never resolve it."""
+    season = facts["configs"][code].get("current_season")
+    current = [r for r in facts["apif"] if r["competition_id"] == code and r["season"] == season]
     audit = held_inventory(root, section)
     current_ids = {r["match_id"] for r in current}
     league = facts["configs"][code]["league"]
@@ -412,33 +563,12 @@ def _current_replay(facts, code, section, root):
         raise ValueError(
             "previously held IDs remain unresolved or unexplained: " + ",".join(sorted(unresolved))
         )
-    before, after = [_export(root, section[key]) for key in ("before_manifest", "after_manifest")]
-    if before["folder"].resolve() == after["folder"].resolve():
-        raise ValueError("current replay state exports must be independent")
-    inserted = sum(
-        outcome(before, mid) is None
-        and (new := outcome(after, mid)) is not None
-        and new[0]["match_id"] == mid
-        for mid in current_ids
-    )
-    if scopes[0]["inserted"] != inserted:
-        raise ValueError("current inserted counts differ from actual state transitions")
-    if any(outcome(after, mid) is None for mid in current_ids):
-        raise ValueError("current replay fixture missing from materialized after state")
-    unchanged = sum(outcome(before, mid) == outcome(after, mid) for mid in current_ids)
-    if scopes[0]["unchanged"] != unchanged:
-        raise ValueError("current unchanged counts differ from actual state transitions")
-    for row in current:
-        _materialized_original(facts, code, after, row)
     return dict(
-        season=season,
-        distinct_fixtures=len(current_ids),
         held_before=len(held),
         held_before_ids=sorted(held),
         resolved_ids=sorted(relevant & stored),
         excluded_other_season_ids=sorted(excluded),
         explained_unresolved=explained,
-        raw_sha256=sorted(known_sha),
     )
 
 
@@ -518,6 +648,8 @@ def _recent_official(facts, code, section, root, start, end):
                         target[f"jc:{row['matchId']}"] = dict(
                             home_source_id=str(row["homeTeamId"]),
                             away_source_id=str(row["awayTeamId"]),
+                            match_date=day.isoformat(),
+                            kickoff_utc=base.get(f"jc:{row['matchId']}", {}).get("kickoff_utc"),
                         )
             if base_start <= day <= base_end and (
                 set(target) != set(base)
@@ -552,6 +684,7 @@ def _recent_official(facts, code, section, root, start, end):
         start_beijing=start.isoformat(),
         end_beijing=end.isoformat(),
         official_match_ids=sorted(selected),
+        matches=selected,
         official_team_ids=sorted(
             {r[key] for r in selected.values() for key in ("home_source_id", "away_source_id")}
         ),
@@ -904,6 +1037,7 @@ def _persistence(
             dict(
                 current_section,
                 report=section["repeat_report"],
+                replay_options=section.get("replay_options"),
                 before_manifest=section["before_manifest"],
                 after_manifest=section["after_manifest"],
             ),
@@ -988,6 +1122,19 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
     end = cutoff.astimezone(BEIJING).date() - timedelta(days=1)
     start = end - timedelta(days=29)
     missing, details = [], {}
+    current_official = _current_participants(
+        facts,
+        code,
+        {
+            r["match_id"]: r
+            for r in facts["official"]
+            if r["competition_id"] == code
+            and r["match_id"].startswith("jc:")
+            and start.isoformat() <= r["match_date"] <= end.isoformat()
+        },
+    )
+    if current_official["unbound"]:
+        blockers.append("current_official_participants_unbound")
     if not teams["total"] or not matches["total"]:
         missing.append("official_window_empty")
     window = complete_month_window(cutoff)
@@ -1043,6 +1190,12 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
             ):
                 raise ValueError("missing evidence root or frozen archive/cutoff binding")
             details[key] = validate(evidence[key])
+            if key == "recent_replay":
+                current_official = _current_participants(
+                    facts, code, details[key]["official_window"]["matches"]
+                )
+                if current_official["unbound"]:
+                    blockers.append("current_official_participants_unbound")
             if key == "unbound_explanations" and details[key]["pending_ids"]:
                 blockers.append("official_teams_unbound")
             if key == "current_season_replay" and details[key]["explained_unresolved"]:
@@ -1066,6 +1219,7 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
         teams=teams,
         matches=matches,
         current_season=season,
+        current_official_participants=current_official,
         missing_evidence=missing,
         blockers=sorted(set(blockers)),
         evidence=details,
@@ -1098,6 +1252,7 @@ def build_register(
     facts = dict(
         loaded,
         configs=configs,
+        archive_root=str(archive.resolve()),
         matches=tables["matches"],
         result_links=existing_links(archive, tables),
         fd_originals=load_fd(

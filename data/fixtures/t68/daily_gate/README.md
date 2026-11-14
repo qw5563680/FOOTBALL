@@ -9,3 +9,9 @@ separate auxiliary provenance. It is not a downloaded match result or proof of a
 
 The real-entry tests construct small, complete archives and exports from these and existing offline JC/APIF
 fixtures. They execute the actual archive reader and gate without sports network requests.
+
+Current/repeat reports in the entry fixture use actual offline `import_apif_games` output and exported
+memory-database state. The default fixture records the documented legacy absorbed mode explicitly;
+separate cases exercise retained results and a supplemental `assumed` count. Saved invocation/options
+include the synthetic import clock, source/config hashes and before/after manifests. These prove importer
+semantics and evidence validation, not that a production collector ran at those timestamps.

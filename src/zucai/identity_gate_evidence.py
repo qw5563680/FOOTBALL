@@ -5,6 +5,8 @@ import io
 import json
 import sqlite3
 from collections import Counter, defaultdict
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
@@ -112,20 +114,18 @@ def snapshot(state, cutoff=None, league=None):
     )
 
 
-def training_selection(state, cutoff, league):
+@contextmanager
+def restored_memory(state):
     """Run existing history/availability/quarantine selection in a disposable memory DB.
 
     The connection is memory-only. Its URL carries the source export directory solely
     so the existing receipt reader resolves this export's cross-day evidence.
     """
     from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session
 
     from zucai.cross_day_decisions import RECEIPT_FILE, read_receipts
     from zucai.fd_stats_archive import restore_fd_links
     from zucai.models import Base
-    from zucai.predict.backtest import read_history
-    from zucai.predict.pooled import select_training_history
     from zucai.result_source_identity import restore_result_identities
     from zucai.result_source_links import restore_result_links
 
@@ -156,6 +156,20 @@ def training_selection(state, cutoff, league):
         if RECEIPT_FILE in state["manifest"]["files"]:
             read_receipts(state["folder"] / RECEIPT_FILE)
         db.commit()
+        yield engine, db
+    finally:
+        engine.dispose()
+        db.close()
+
+
+def training_selection(state, cutoff, league):
+    """Use the existing history selectors and current receipt registry, without a fit."""
+    from sqlalchemy.orm import Session
+
+    from zucai.predict.backtest import read_history
+    from zucai.predict.pooled import select_training_history
+
+    with restored_memory(state) as (engine, _):
         leagues = {league} if league else {r["league"] for r in state["matches"].values()}
         selected = []
         with Session(engine) as session:
@@ -171,9 +185,6 @@ def training_selection(state, cutoff, league):
                 history = read_history(session, league=current, source=",".join(sources))
                 selected.extend(select_training_history(history, cutoff).match_id)
         return sorted(selected)
-    finally:
-        engine.dispose()
-        db.close()
 
 
 def held_inventory(root, section):
@@ -202,8 +213,9 @@ def outcome(state, mid):
         for r in state["matches"].values()
         if r["match_id"] == mid or r.get("counterpart_id") == mid
     ]
-    if len(owners) > 1:
+    if len({r["source"] for r in owners}) != len(owners):
         raise ValueError("non_unique replay fixture relation")
+    owners.sort(key=lambda r: r["match_id"] != mid)
     if not owners:
         return None
     row = {k: v for k, v in owners[0].items() if k != "row_number"}
@@ -228,7 +240,9 @@ def transitions(root, section, outcomes, *, inserted):
         if new is None:
             raise ValueError("replay outcome has no materialized fixture state")
         derived = (
-            "unchanged"
+            "inserted"
+            if mid not in before["matches"] and mid in after["matches"]
+            else "unchanged"
             if old == new
             else "updated"
             if old
@@ -281,3 +295,144 @@ def existing_links(root, tables):
         )
         for i, row in enumerate(rows, 1)
     ]
+
+
+def replay_importer(facts, code, section, root, report, scope, before, after):
+    """Reproduce saved invocation semantics with the unchanged offline importer.
+
+    Options are evidence, never guessed from capture time or modern collector defaults.
+    Every counter (including supplemental counters) and resulting stored row is checked.
+    """
+    from sqlalchemy.orm import Session
+
+    from zucai.identity_binding_archive import FORMAL
+    from zucai.models import Base
+    from zucai.sources.api_football import ApiFootball
+    from zucai.sources.apif_ingest import COUNT_KEYS, import_apif_games
+
+    def clock(value):
+        instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if instant.utcoffset() is None:
+            raise ValueError("importer replay time must include timezone")
+        return instant
+
+    if not section.get("replay_options"):
+        raise ValueError(
+            "recorded importer replay_options missing; historical options cannot be inferred"
+        )
+    options = document(root, section["replay_options"])
+    invocation = document(root, options["invocation_evidence"])
+    expected = dict(
+        run_id=report.get("run_id"),
+        provider_code=code,
+        season=scope["season"],
+        source_sha256=scope["raw"]["sha256"],
+    )
+    if not expected["run_id"] or any(options.get(k) != v for k, v in expected.items()):
+        raise ValueError("importer replay_options run/source/scope mismatch")
+    for key in (*expected, "retain_results", "assume_known_after_seconds", "imported_utc"):
+        if key not in options or invocation.get(key) != options[key]:
+            raise ValueError("importer replay_options differ from recorded invocation: " + key)
+    if (
+        options["before_manifest_sha256"] != section["before_manifest"]["sha256"]
+        or options["after_manifest_sha256"] != section["after_manifest"]["sha256"]
+        or clock(options["cutoff_utc"]) != clock(facts["gate_cutoff"])
+        or options["formal_aliases_sha256"] != sha256(FORMAL.read_bytes()).hexdigest()
+        or type(options["retain_results"]) is not bool
+    ):
+        raise ValueError("importer replay_options export/cutoff/config mismatch")
+    delay = options["assume_known_after_seconds"]
+    if delay is not None and (type(delay) is not int or not 0 < delay <= 14 * 86400):
+        raise ValueError("importer replay delay missing or invalid")
+    originals = [
+        p
+        for r in facts["apif"]
+        if r["competition_id"] == code and r["season"] == scope["season"]
+        for p in r["provenance"]
+        if p["sha256"] == options["source_sha256"]
+    ]
+    if not originals:
+        raise ValueError("importer replay original missing")
+    original = originals[0]
+    archive = Path(facts["archive_root"])
+    raw = proof(archive, original)
+    meta = document(
+        archive, dict(path=original["path"] + ".meta.json", sha256=original["metadata_sha256"])
+    )
+    seen, imported = clock(meta["fetched_at_utc"]), clock(options["imported_utc"])
+    if not (
+        seen <= imported <= clock(after["manifest"]["created_utc"]) <= clock(facts["gate_cutoff"])
+        and clock(before["manifest"]["created_utc"]) <= imported
+    ):
+        raise ValueError("importer replay imported_utc contradicts capture/export/cutoff")
+    parser = ApiFootball(leagues={code: facts["configs"][code]})
+    try:
+        games = parser.parse(raw, league_id=code, season=scope["season"])
+        if parser.rejected or len(games) != scope["parsed_matches"]:
+            raise ValueError("importer replay parser differs from report")
+    finally:
+        parser.session.close()
+
+    def normalized(name, rows):
+        columns = Base.metadata.tables[name].columns
+
+        def value(column, item):
+            if item is None:
+                return None
+            if str(column.type) == "DATETIME":
+                # SQLite exports omit UTC offsets; stored database timestamps are UTC.
+                instant = datetime.fromisoformat(str(item).replace("Z", "+00:00"))
+                if instant.tzinfo is not None:
+                    instant = instant.astimezone(UTC)
+                return instant.replace(tzinfo=None).isoformat()
+            if str(column.type) == "JSON" and isinstance(item, str):
+                return json.loads(item)
+            return item
+
+        return sorted(
+            json.dumps(
+                {c.name: value(c, row[c.name]) for c in columns}, sort_keys=True, ensure_ascii=False
+            )
+            for row in rows
+        )
+
+    with restored_memory(before) as (engine, db):
+        with Session(engine) as session:
+            result = import_apif_games(
+                session,
+                games,
+                seen=seen,
+                assume=timedelta(seconds=delay) if delay else None,
+                aliases=json.loads(FORMAL.read_bytes()),
+                retain_results=options["retain_results"],
+                imported_utc=imported,
+            )
+            session.commit()
+        for key in COUNT_KEYS:
+            if scope[key] != result[key]:
+                raise ValueError("current " + key + " counts differ from actual importer replay")
+        with restored_memory(after) as (_, expected_db):
+            for name in (
+                "teams",
+                "matches",
+                "results",
+                "result_source_links",
+                "result_source_identities",
+            ):
+                columns = [c.name for c in Base.metadata.tables[name].columns]
+
+                def rows(connection, columns=columns, name=name):
+                    return [
+                        dict(zip(columns, row, strict=True))
+                        for row in connection.execute(f"SELECT {','.join(columns)} FROM {name}")
+                    ]
+
+                if normalized(name, rows(db)) != normalized(name, rows(expected_db)):
+                    raise ValueError("actual importer replay differs from exported " + name)
+    return dict(
+        counts={k: result[k] for k in COUNT_KEYS},
+        replay_options_sha256=section["replay_options"]["sha256"],
+        invocation_sha256=options["invocation_evidence"]["sha256"],
+        retain_results=options["retain_results"],
+        imported_utc=options["imported_utc"],
+    )

@@ -277,7 +277,9 @@ def bundle(frozen_archive, monkeypatch, request):  # noqa: F811
         risk_review=document(root, "risks.json", []),
         persistence=persistence,
     )
-    return archive, root, evidence
+    result = (archive, root, evidence)
+    importer_bundle(result)
+    return result
 
 
 def run(bundle):
@@ -647,6 +649,13 @@ def test_persistence_cannot_lose_an_audit_inventory_with_matching_core_counts(bu
     path.write_text(path.read_text().splitlines()[0] + "\n")
     seal(root / "after")
     evidence["persistence"]["after_manifest"] = ref(root, root / "after/feed_manifest.json")
+    change(
+        root,
+        evidence["persistence"]["replay_options"],
+        lambda d: d.update(
+            after_manifest_sha256=evidence["persistence"]["after_manifest"]["sha256"]
+        ),
+    )
     result = run(bundle)
     assert "persistence" in result["missing_evidence"]
     assert "state" in result["evidence"]["persistence"]["reason"]
@@ -675,3 +684,505 @@ def test_header_only_held_cannot_be_self_certified_by_a_tiny_manifest(bundle):
     result = run(bundle)
     assert "current_season_replay" in result["missing_evidence"]
     assert "held" in result["evidence"]["current_season_replay"]["reason"]
+
+
+def fixture_rows(folder, name):
+    manifest = json.loads((folder / "feed_manifest.json").read_bytes())
+    return [
+        dict(zip(manifest["columns"][name], json.loads(line), strict=True))
+        for line in (folder / f"state/{name}.jsonl").read_text().splitlines()
+    ]
+
+
+def reseal_fixture(folder):
+    manifest = json.loads((folder / "feed_manifest.json").read_bytes())
+    with sqlite3.connect(":memory:") as db:
+        for name, columns in TABLES.items():
+            db.execute(f"CREATE TABLE {name} ({','.join(columns)})")
+            for row in fixture_rows(folder, name):
+                vals = [row[c] for c in columns]
+                db.execute(
+                    f"INSERT INTO {name} VALUES ({','.join('?' for _ in vals)})",
+                    [json.dumps(v) if isinstance(v, list) else v for v in vals],
+                )
+        manifest["sources"] = source_inventory(db)
+    save_json(folder / "feed_manifest.json", manifest)
+    seal(folder)
+
+
+def refresh_bundle_exports(bundle):
+    archive, root, evidence = bundle
+    reseal_fixture(archive)
+    original = json.loads((archive / "feed_manifest.json").read_bytes())
+    for name in ["preimport", "after", "restored"]:
+        folder = root / name
+        for path in (folder / "state").rglob("*"):
+            if path.is_file():
+                path.write_bytes((archive / path.relative_to(folder)).read_bytes())
+        manifest = deepcopy(original)
+        manifest["created_utc"] = json.loads((folder / "feed_manifest.json").read_bytes())[
+            "created_utc"
+        ]
+        manifest["files"] = {p: h for p, h in manifest["files"].items() if (folder / p).exists()}
+        save_json(folder / "feed_manifest.json", manifest)
+
+    def refresh(value):
+        if isinstance(value, dict):
+            if set(value) == {"path", "sha256"}:
+                value.update(ref(root, root / value["path"]))
+            else:
+                for item in value.values():
+                    refresh(item)
+        elif isinstance(value, list):
+            for item in value:
+                refresh(item)
+
+    refresh(evidence)
+    evidence["archive_sha256"] = ref(root, archive / "feed_manifest.json")["sha256"]
+    for section in [evidence["current_season_replay"], evidence["persistence"]]:
+        change(
+            root,
+            section["replay_options"],
+            lambda d, section=section: d.update(
+                before_manifest_sha256=section["before_manifest"]["sha256"],
+                after_manifest_sha256=section["after_manifest"]["sha256"],
+            ),
+        )
+
+
+def test_combined_legacy_and_explicit_edges_cannot_claim_two_jc_fixtures(bundle):
+    from zucai.result_source_links import RESULT_LINK_COLUMNS, RESULT_LINK_FILE
+
+    archive, _, _ = bundle
+    path = archive / "state/catalogue/catalogue/jc/2026-10/2026-10-31-p1.json"
+    page = json.loads(path.read_bytes())
+    page["value"]["matchResult"].append(dict(page["value"]["matchResult"][0], matchId=2042405))
+    page["value"]["total"] = 2
+    raw(
+        archive,
+        path.relative_to(archive),
+        page,
+        json.loads(path.with_suffix(".json.meta.json").read_bytes())["url"],
+    )
+    head = json.loads((archive / "state/catalogue/heads/jc-heads/2042404.json").read_bytes())
+    head["value"]["sportteryMatchId"] = 2042405
+    raw(
+        archive,
+        "state/catalogue/heads/jc-heads/2042405.json",
+        head,
+        kickoffs.API + "getMatchHeadV1.qry?source=web&sportteryMatchId=2042405",
+    )
+    original = fixture_rows(archive, "matches")[0]
+    original["kickoff_utc"] = "2026-10-31T12:15:00.000000Z"
+    table(
+        archive,
+        "matches",
+        [
+            original,
+            dict(original, match_id="jc:2042405", counterpart_id=None),
+            dict(original, match_id="apif:10", source="apif", counterpart_id=None),
+        ],
+    )
+    table(
+        archive,
+        "results",
+        [
+            dict(match_id=mid, home_goals=1, away_goals=3)
+            for mid in ["jc:2042404", "jc:2042405", "apif:10"]
+        ],
+    )
+    link = dict(
+        provider_match_id="apif:10",
+        counterpart_id="jc:2042405",
+        verified_utc="2026-11-14T01:00:00.000000Z",
+        league="日职",
+        home_team_id=1,
+        away_team_id=2,
+        provider_kickoff_utc=original["kickoff_utc"],
+        counterpart_kickoff_utc=original["kickoff_utc"],
+    )
+    (archive / RESULT_LINK_FILE).write_text(
+        json.dumps([link[k] for k in RESULT_LINK_COLUMNS]) + "\n"
+    )
+    manifest = json.loads((archive / "feed_manifest.json").read_bytes())
+    manifest["result_source_links"] = dict(version=1, columns=list(RESULT_LINK_COLUMNS), count=1)
+    save_json(archive / "feed_manifest.json", manifest)
+    seal(archive)
+    result = gate.build_register(archive, CUTOFF, codes=["98"])["leagues"][0]
+    assert result["matches"]["linked"] == 0, result["matches"]["relations"]
+    assert "non_unique_relation" in result["blockers"]
+    assert result["matches"]["relation_conflicts"][0]["members"] == [
+        "apif:10",
+        "jc:2042404",
+        "jc:2042405",
+    ]
+
+
+@pytest.mark.parametrize("bundle", [True], indirect=True)
+def test_historical_snapshot_conflict_remains_blocked_despite_explanations(bundle):
+    archive, root, evidence = bundle
+    path = archive / "state/catalogue/catalogue/jc/2026-09/2026-09-30-p1.json"
+    page = json.loads(path.read_bytes())
+    page["value"]["matchResult"][0].update(awayTeamId=901, awayTeam="Historical away")
+    raw(
+        archive,
+        path.relative_to(archive),
+        page,
+        json.loads(path.with_suffix(".json.meta.json").read_bytes())["url"],
+    )
+    head_path = archive / "state/catalogue/heads/jc-heads/2042405.json"
+    head = json.loads(head_path.read_bytes())
+    head["value"]["sportteryAwayTeamId"] = 901
+    raw(
+        archive,
+        head_path.relative_to(archive),
+        head,
+        json.loads(head_path.with_suffix(".json.meta.json").read_bytes())["url"],
+    )
+    table(
+        archive,
+        "teams",
+        fixture_rows(archive, "teams") + [dict(id=4, name="Historical project away", aliases=[])],
+    )
+    matches = fixture_rows(archive, "matches")
+    matches[1]["away_team_id"] = 4
+    table(archive, "matches", matches)
+    results = fixture_rows(archive, "results")
+    results[1]["home_goals"] = 9
+    table(archive, "results", results)
+    refresh_bundle_exports(bundle)
+    evidence["unbound_explanations"] = document(
+        root,
+        "unbound-conflicts.json",
+        [
+            dict(
+                official_team_id=tid,
+                reason="Historical only; cannot waive a contradiction.",
+                evidence=ref(root, path),
+            )
+            for tid in ["900", "901"]
+        ],
+    )
+    result = run(bundle)
+    assert "official_identity_conflict" in result["blockers"], result
+    assert result["status"] == "blocked", result["evidence"]
+    assert {r["official_team_id"] for r in result["teams"]["identity_conflicts"]} == {"900", "901"}
+
+
+@pytest.mark.parametrize("bundle", [False, True], indirect=True)
+def test_recent_jc_only_participants_cannot_use_historical_unbound_exception(bundle):
+    archive, root, evidence = bundle
+    historical = len(fixture_rows(archive, "teams")) == 3
+    tid = 900 if historical else 777
+    reference = evidence["recent_replay"]["official_originals"][4]
+    path = root / reference["path"]
+    page = json.loads(path.read_bytes())
+    original = json.loads(
+        (archive / "state/catalogue/catalogue/jc/2026-10/2026-10-31-p1.json").read_bytes()
+    )["value"]["matchResult"][0]
+    page["value"].update(
+        matchResult=[dict(original, matchId=2042406, matchDate="2026-11-05", homeTeamId=tid)],
+        total=1,
+    )
+    save_json(path, page)
+    reference.update(ref(root, path))
+    meta_path = path.with_suffix(".json.meta.json")
+    meta = json.loads(meta_path.read_bytes())
+    meta["sha256"] = reference["sha256"]
+    save_json(meta_path, meta)
+    change(
+        root,
+        evidence["recent_replay"]["results"],
+        lambda d: d["official_match_ids"].append("jc:2042406"),
+    )
+    if historical:
+        evidence["unbound_explanations"] = document(
+            root,
+            "unbound.json",
+            [
+                dict(
+                    official_team_id="900",
+                    reason="Historical club without approval",
+                    evidence=ref(root, archive / "state/teams.jsonl"),
+                )
+            ],
+        )
+    result = run(bundle)
+    assert result["teams"]["total"] == (3 if historical else 2)
+    assert "current_official_participants_unbound" in result["blockers"], result
+    assert result["current_official_participants"]["unbound"][0]["official_team_id"] == str(tid)
+    assert result["status"] == "blocked"
+
+
+def importer_bundle(bundle, *, retain_results=False, supplemental=False):
+    """Actual offline importer and repeat; only collector envelope is assembled here."""
+    from datetime import datetime
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from zucai.models import Base
+    from zucai.result_source_identity import export_result_identities
+    from zucai.result_source_links import export_result_links
+    from zucai.sources.api_football import ApiFootball
+    from zucai.sources.apif_ingest import import_apif_games
+
+    archive, root, evidence = bundle
+    path = archive / "state/catalogue/backfill/backfill/api-football/day/fixtures_one.json"
+    if supplemental:
+        doc = json.loads(path.read_bytes())
+        extra = deepcopy(doc["response"][0])
+        when = datetime.fromisoformat("2026-10-20T12:15:00+00:00")
+        extra["fixture"].update(id=11, date=when.isoformat(), timestamp=int(when.timestamp()))
+        doc["response"].append(extra)
+        doc["results"] = 2
+        raw(
+            archive,
+            path.relative_to(archive),
+            doc,
+            "https://v3.football.api-sports.io/fixtures?league=98&season=2027",
+        )
+        for reference in evidence["recent_replay"]["originals"]:
+            daily_path = root / reference["path"]
+            daily_doc = json.loads(daily_path.read_bytes())
+            if daily_doc["parameters"]["date"] == "2026-10-20":
+                daily_doc.update(response=[extra], results=1)
+                save_json(daily_path, daily_doc)
+                reference.update(ref(root, daily_path))
+                sidecar = daily_path.with_suffix(".json.meta.json")
+                meta = json.loads(sidecar.read_bytes())
+                meta["sha256"] = reference["sha256"]
+                save_json(sidecar, meta)
+    parser = ApiFootball(leagues={"98": {"league": "日职"}})
+    try:
+        games = parser.parse(path.read_bytes(), league_id="98", season=2027)
+    finally:
+        parser.session.close()
+    assert len(games) == (2 if supplemental else 1)
+    source_hash = sha256(path.read_bytes()).hexdigest()
+    aliases = json.loads(reader.FORMAL.read_bytes())
+    seen = datetime.fromisoformat(
+        json.loads(path.with_suffix(".json.meta.json").read_bytes())["fetched_at_utc"]
+    )
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        for name in TABLES:
+            rows = fixture_rows(archive, name)
+            for row in rows:
+                for column in Base.metadata.tables[name].columns:
+                    if str(column.type) == "JSON" and isinstance(row.get(column.name), str):
+                        row[column.name] = json.loads(row[column.name])
+            if rows:
+                connection.execute(Base.metadata.tables[name].insert(), rows)
+    connection = engine.raw_connection()
+
+    def save_state(folder, created):
+        manifest = json.loads((folder / "feed_manifest.json").read_bytes())
+        manifest["created_utc"] = created
+        for name, columns in TABLES.items():
+            rows = connection.execute(
+                f"SELECT {','.join(columns)} FROM {name} ORDER BY {columns[0]}"
+            ).fetchall()
+            (folder / f"state/{name}.jsonl").write_text(
+                "".join(
+                    json.dumps(list(r), ensure_ascii=False, separators=(",", ":")) + "\n"
+                    for r in rows
+                )
+            )
+            manifest["counts"][name] = len(rows)
+        manifest["sources"] = source_inventory(connection)
+        for key, fn in [
+            ("result_source_links", export_result_links),
+            ("result_source_identities", export_result_identities),
+        ]:
+            block = fn(connection, folder)
+            if block:
+                manifest[key] = block
+        save_json(folder / "feed_manifest.json", manifest)
+        seal(folder)
+        return ref(root, folder / "feed_manifest.json")
+
+    pre = save_state(root / "preimport", "2026-11-14T01:05:00Z")
+    reports = []
+    for suffix, imported, target, created in [
+        ("first", "2026-11-14T01:15:00Z", archive, "2026-11-14T01:20:00Z"),
+        ("repeat", "2026-11-14T01:22:00Z", root / "after", "2026-11-14T01:25:00Z"),
+    ]:
+        with Session(engine) as session:
+            result = import_apif_games(
+                session,
+                games,
+                seen=seen,
+                assume=timedelta(hours=3),
+                aliases=aliases,
+                retain_results=retain_results,
+                imported_utc=datetime.fromisoformat(imported),
+            )
+            session.commit()
+        assert not result["rejected"] and not result["suspected"] and not result["held"], result
+        after = save_state(target, created)
+        counts = {key: result[key] for key in COUNT_KEYS}
+        run_id = "synthetic-importer-" + suffix
+        report = dict(
+            counts,
+            status="complete",
+            processed_files=1,
+            run_id=run_id,
+            scopes=[
+                dict(
+                    counts,
+                    code="98",
+                    season=2027,
+                    status="complete",
+                    parsed_matches=len(games),
+                    raw={"sha256": source_hash},
+                )
+            ],
+            files=[dict(result, raw_sha256=source_hash, seen_utc=seen.isoformat())],
+        )
+        invocation = dict(
+            run_id=run_id,
+            provider_code="98",
+            season=2027,
+            retain_results=retain_results,
+            assume_known_after_seconds=10800,
+            imported_utc=imported,
+            source_sha256=source_hash,
+            provenance="Synthetic offline import_apif_games invocation; not production evidence.",
+        )
+        invocation_ref = document(root, "importer-" + suffix + "-invocation.json", invocation)
+        options = dict(
+            invocation,
+            cutoff_utc=CUTOFF,
+            before_manifest_sha256=pre["sha256"],
+            after_manifest_sha256=after["sha256"],
+            invocation_evidence=invocation_ref,
+            formal_aliases_sha256=sha256(reader.FORMAL.read_bytes()).hexdigest(),
+        )
+        reports.append(
+            (
+                document(root, "importer-" + suffix + "-report.json", report),
+                document(root, "importer-" + suffix + "-options.json", options),
+                result,
+            )
+        )
+        pre = after
+    restored = save_state(root / "restored", "2026-11-14T01:30:00Z")
+    connection.close()
+    engine.dispose()
+    evidence["archive_sha256"] = ref(root, archive / "feed_manifest.json")["sha256"]
+    current = evidence["current_season_replay"]
+    current.update(
+        report=reports[0][0],
+        replay_options=reports[0][1],
+        before_manifest=ref(root, root / "preimport/feed_manifest.json"),
+        after_manifest=ref(root, archive / "feed_manifest.json"),
+        held_before_manifest=ref(root, archive / "feed_manifest.json"),
+    )
+    persistence = evidence["persistence"]
+    persistence.update(
+        repeat_report=reports[1][0],
+        replay_options=reports[1][1],
+        before_manifest=ref(root, archive / "feed_manifest.json"),
+        after_manifest=ref(root, root / "after/feed_manifest.json"),
+        restored_manifest=restored,
+    )
+    for key in ["before_repeat", "after_repeat", "restored"]:
+        state = json.loads((root / persistence[key]["path"]).read_bytes())
+        if retain_results or supplemental:
+            state["coverage"]["日职"]["apif"] = len(games) if retain_results else 1
+
+        persistence[key] = document(root, key + ".json", state)
+    recent = evidence["recent_replay"]
+    recent.update(
+        before_manifest=current["before_manifest"], after_manifest=current["after_manifest"]
+    )
+    results = json.loads((root / recent["results"]["path"]).read_bytes())
+    results.update(
+        fixture_ids=["apif:10", "apif:11"] if supplemental else ["apif:10"],
+        raw_sha256=[r["sha256"] for r in recent["originals"]],
+        inserted=reports[0][2]["inserted"],
+        outcomes=[dict(fixture_id="apif:10", outcome="inserted" if retain_results else "unchanged")]
+        + ([dict(fixture_id="apif:11", outcome="inserted")] if supplemental else []),
+    )
+    recent["results"] = document(root, "recent.json", results)
+    return reports
+
+
+@pytest.mark.parametrize("retain,supplemental", [(False, False), (True, False), (False, True)])
+def test_genuine_importer_current_and_repeat_reports_reach_actual_entry(
+    bundle, retain, supplemental
+):
+    reports = importer_bundle(bundle, retain_results=retain, supplemental=supplemental)
+    first, repeat = reports[0][2], reports[1][2]
+    if retain:
+        assert first["inserted"] == 1 and first["linked_existing"] == 0
+        assert repeat["unchanged"] == 1 and repeat["inserted"] == 0
+    else:
+        assert first["linked_existing"] == repeat["linked_existing"] == 1
+        assert first["unchanged"] == 0
+    if supplemental:
+        assert first["inserted"] == 1 and first["assumed"] == 1
+        assert repeat["unchanged"] == 1 and repeat["assumed"] == 0
+    result = run(bundle)
+    assert result["status"] == "ready_for_review", result["evidence"]
+
+
+@pytest.mark.parametrize("counter", ["updated", "linked_existing", "assumed"])
+@pytest.mark.parametrize("section", ["current_season_replay", "persistence"])
+def test_current_scope_cannot_forge_other_importer_counts(bundle, counter, section):
+    _, root, evidence = bundle
+    change(
+        root,
+        evidence[section]["report" if section == "current_season_replay" else "repeat_report"],
+        lambda d: d["scopes"][0].update({counter: 999}),
+    )
+    result = run(bundle)
+    assert section in result["missing_evidence"]
+    assert counter in result["evidence"][section]["reason"]
+
+
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "missing",
+        "wrong_run",
+        "wrong_export",
+        "naive_time",
+        "pre_capture",
+        "after_cutoff",
+        "unrecorded_options",
+    ],
+)
+def test_importer_replay_requires_recorded_options_and_actual_clock(bundle, problem):
+    _, root, evidence = bundle
+    section = evidence["current_season_replay"]
+    if problem == "missing":
+        section.pop("replay_options")
+    else:
+        options = json.loads((root / section["replay_options"]["path"]).read_bytes())
+        if problem == "wrong_run":
+            options["run_id"] = "unrelated"
+        elif problem == "wrong_export":
+            options["before_manifest_sha256"] = "0" * 64
+        elif problem == "unrecorded_options":
+            options["retain_results"] = True
+        else:
+            options["imported_utc"] = {
+                "naive_time": "2026-11-14T01:15:00",
+                "pre_capture": "2026-11-14T00:59:00Z",
+                "after_cutoff": "2026-11-14T17:00:00Z",
+            }[problem]
+            change(
+                root,
+                options["invocation_evidence"],
+                lambda d: d.update(imported_utc=options["imported_utc"]),
+            )
+        section["replay_options"] = document(root, "tampered-options.json", options)
+    result = run(bundle)
+    assert "current_season_replay" in result["missing_evidence"]
+    assert any(
+        word in result["evidence"]["current_season_replay"]["reason"]
+        for word in ["replay_options", "imported_utc", "timezone"]
+    )

@@ -38,10 +38,24 @@ JC 补充页须在对应北京时间整日结束后抓到。不能用覆盖日�
 - `report`：真实采集报告；所查当季 scope 必须完整，原件 SHA 对上，`parsed_matches` 与真实不同 fixture 数一致，
   所有 `apif_ingest.COUNT_KEYS` 字段明确为非负整数。暂缓、疑似重复和拒收不能默认为零。
 - `before_manifest`、`after_manifest`：本次重放前后不同目录的实际导出清单。
+- `replay_options`：同一保存运行的调用记录引用（见下）。在内存恢复 before，离线调用未修改的
+  `import_apif_games`，逐项核对全部计数及 after 的核心表、source link/identity 记录。
+  `linked_existing` 不等于状态变更：已吸收到 JC 的旧关系重放仍计 linked_existing，unchanged 可为零。
+  `assumed` 等是补充计数，不能把所有计数相加当作不同场次数。
 - `held_before`：此前完整暂缓 CSV；`held_before_manifest` 必须就是上述某份已物化导出，清单列出的哈希与 CSV 相同。
   只有表头必须有这个独立归档依据，不能再附一份自造小清单为自己证明零暂缓。
 - 可选 `held_explanations`：逐 fixture 的 `fixture_id`、`reason`、`disposition: "still_held"`、`evidence`。
   这些条目仍未解决，继续阻止开启。其他季排除必须由相同编号及 SHA 的已核验原件证明。
+
+`replay_options` JSON 必填 `run_id`、`provider_code`、`season`、`source_sha256`、
+`before_manifest_sha256`、`after_manifest_sha256`、`cutoff_utc`、`formal_aliases_sha256`、
+`retain_results`（布尔）、`assume_known_after_seconds`（原调用秒数或明确 null）、`imported_utc`（带时区），
+以及 `invocation_evidence`（保存的原调用记录引用）。后者须匹配 run/scope/source/options/import 时刻。
+审查者从已保存的运行日志/调用记录整理 companion，不能从原件抓取时间猜 imported_utc，
+也不能把今天的默认值回填为历史配置；没有记录即 insufficient_evidence。
+当前 fetch_apif/backfill 的真实调用使用 retain_results=True；False 仅适用于有记录的历史吸收模式。
+imported_utc 不得早于源抓取或 before 导出，不得晚于 after 导出或截止；选项不豁免可知时刻校验。
+不会联网、重写原归档或修改导入器；这是相同源/配置/状态的可复现核验，不是生产重放。
 
 `recent_replay` 包含 `mode`（默认 `dates`）、`originals`（API 原件引用列表）、`official_originals`
 （固定12月目录以外的每日 JC 补充页）、`results`、`before_manifest`、`after_manifest`。
@@ -61,12 +75,17 @@ JC 补充页须在对应北京时间整日结束后抓到。不能用覆盖日�
 
 `unbound_explanations` 是列表引用，每项为 `official_team_id`、非空 `reason`、非空 `evidence` 引用。
 编号必须属于该赛事未绑定集合，不能重复。解释只满足覆盖披露，不增加绑定数；
-当前赛季原件中仍未绑定的队继续阻止开启，不据离线文字创造审查例外。
+当前赛季原件及近30日 JC（含补充页、新官方编号、历史球队重新参赛）仍未绑定的队继续阻止开启，
+不据历史解释创造审查例外。当前参与者另列分母，不改变固定12个月球队/场次分母。
+Task1 的 identity conflict/ambiguous/current snapshot 矛盾独立阻止开启，保留原始证据。
+已有 FD 关系的900秒时差诊断继续按既有±3小时唯一性核验，不能混作新身份提案批准。
+已存 pointer 与有效 explicit link 合成同一关系图；同一连通组出现两个同源不同场次即阻止计数。
 历史未关联比赛逐场披露具体指针缺口；关系冲突、一对多及未解决的当季暂缓仍阻止开启。
 
 `persistence` 包含：
 
 - `repeat_report`：第二次真实报告；总新增为零，并重新核验当季 scope 的字段、原件和逐 ID 状态。
+- `replay_options`：第二次运行自己的调用记录，与自己的 before/after 绑定；不能复用第一次时刻或清单。
 - `before_manifest`、`after_manifest`、`restored_manifest`：三个不同目录、不同清单文件的实际导出。
   第一份清单须与冻结归档相同。检查项目 schema、逐表行数、实际来源清单、审计/关系/隔离状态文件及内容。
 - `before_repeat`、`after_repeat`、`restored`：三份 JSON 快照引用，字段恰为下面五项。

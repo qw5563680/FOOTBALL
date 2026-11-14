@@ -565,7 +565,7 @@ def test_held_other_season_requires_matching_verified_original_and_remains_count
         "held-manifest.json",
         {"files": {section["held_before"]["path"]: section["held_before"]["sha256"]}},
     )
-    result = current_replay(facts, "307", section, tmp_path)
+    result = current_replay(facts, "307", section, tmp_path, held_only=True)
     assert result["held_before"] == 1 and result["held_before_ids"] == ["apif:999"]
     assert result["excluded_other_season_ids"] == ["apif:999"]
     assert result["resolved_ids"] == []
@@ -629,6 +629,7 @@ def test_missing_held_id_can_be_explained_but_not_counted_as_resolved(facts, tmp
             **materialized_states(tmp_path),
         ),
         tmp_path,
+        held_only=True,
     )
     assert result["held_before_ids"] == ["apif:999"] and result["resolved_ids"] == []
     assert result["explained_unresolved"][0]["fixture_id"] == "apif:999"
@@ -717,7 +718,7 @@ def materialized_states(root):
     return output
 
 
-def current_replay(facts, code, section, root):
+def current_replay(facts, code, section, root, *, held_only=False):
     """Supply the full prior export when a unit case changes its held CSV."""
     from zucai.identity_daily_gate import _current_replay
 
@@ -730,4 +731,8 @@ def current_replay(facts, code, section, root):
     manifest["files"]["held.csv"] = sha256(payload).hexdigest()
     section["before_manifest"] = receipt(root, "before/feed_manifest.json", manifest)
     section["held_before_manifest"] = section["before_manifest"]
+    if held_only:
+        from zucai.identity_daily_gate import _held_reconciliation
+
+        return _held_reconciliation(facts, code, section, root)
     return _current_replay(facts, code, section, root)
