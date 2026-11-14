@@ -94,7 +94,7 @@ T68 补开球时刻先离线生成清单：`python -m zucai.jc_catalogue_kickoff
 由审查者在同一自托管 Actions 以 `operation=probe`、`options={"probe_kind":"jc-kickoffs","max_requests":5}`
 先试最早的5场；成功原件复核后另开批次提高上限（最大7000），失败保留待核，恢复后仅请求缺项。
 对应命令为 `python -m zucai.cloud_feeds probe --probe-kind jc-kickoffs --max-requests 5 --archive ../cloud-data --run-id <新批次>`。
-此工具只保存官方时间原件，不修改比赛表或批准球队绑定；泛称赛事的关联方案另待审查。
+此工具只保存官方时间原件，不修改比赛表或批准球队绑定；泛称赛事的关联设计已审，实现在后续B段PR交付。
 已保存的竞彩目录可离线重算：`python -m zucai.catalogue_replay --source-dir ../cloud-data/state/catalogue/43539673769-1 --out-dir ../t65-replay --run-id t65-offline-1`；只写新目录，不请求接口、不更新正式 `latest.json`。
 目录历史回填：`python -m zucai.cloud_feeds backfill --catalogue --source apif --max-requests 500 --resume --archive ../cloud-data --run-id <新批次>`。
 以上命令不在开发环境使用正式密钥；本地验证只用 `data/fixtures/` 离线样本。

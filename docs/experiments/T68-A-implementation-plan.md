@@ -1,11 +1,12 @@
 # T68 A 段实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. 使用 `- [ ]` 记录步骤。本计划依据已获条件批准的方案，不再次请求已授权的A段实施许可。
 
 **Goal:** 提供严格绑定证据与补时刻工具，修正跨日重复和采集口径，产出可复核离线证据。
 **Architecture:** 沿用正式候选队列、reconcile/relink-jc、原来源保存策略；只新增离线校验/审核工具和局部保护。B段仅文档，不实现。
 **Tech Stack:** Python 3.12、SQLAlchemy/SQLite、requests、现有pytest/ruff；不新增依赖。
 **Spec:** `docs/experiments/T68-identity-binding-protocol.md`；PR140 review5904223500；PR139 task增补，由所有者本轮指示采用。
+
+按 [复审要求](https://github.com/qw5563680/FOOTBALL/pull/140#pullrequestreview-5904285942)，PR #140 只交付方案与 Task 1。Task 2–4 在 `codex/T68-A-identity-and-quarantine` 后续 PR 实施；本计划保留全段依赖关系。B 段设计及候选赛事集合已获批准，另行实施前先提交全部 counterpart_id 读取位置的盘点与测试，不并入 A 段。
 
 ## Global Constraints
 
@@ -62,4 +63,4 @@ Files: `cloud_catalogue_backfill.py`、`cloud_api_backfill.py`等实际catch入�
 - [ ] 候选坏行按可安全确定的赛事隔离；未知归属整份不作候选。旧候选差异只允许此前被别赛事坏行牵连的情况。
 - [ ] 每赛事只读开启登记校验：球队/场次分母可解释、当季暂缓补齐或明确原因、30天完整覆盖、风险逐项、重复0及恢复一致；缺证据不判可开。工具不写daily开关。
 - [ ] README、ARCHITECTURE、DATA_SOURCES更新；独立固定归档副本跑A段工具、二次0新增及导出恢复；正式冻结/旧账本SHA不变。
-- [ ] 全量pytest/ruff、内部独立review；报告大文件放独立证据分支，原PR推送并逐项回复，不合并。线上head请求、条目核准和开启仍等Claude。
+- [ ] 全量pytest/ruff、内部独立review；报告大文件放独立证据分支，后续PR推送并逐项回复，不合并。线上head请求、条目核准和开启仍等Claude。

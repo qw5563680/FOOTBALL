@@ -1,11 +1,13 @@
 # T68 方案与 A 段实施核查记录
 
-**三条必须修已更新方案；A 段先交付官方开球时刻工具。正式绑定与每日开启尚未执行，B 段修订稿单独待审。**
+**三条必须修已更新方案；A 段先交付官方开球时刻工具。正式绑定与每日开启尚未执行；B段设计已审，留待后续PR实施。**
 
 任务：[T68](../../docs/tasks/T68-new-competition-team-identity.md)。
 方案：[T68-identity-binding-protocol.md](../../docs/experiments/T68-identity-binding-protocol.md)。
 所有者授权依据为 [PR140 条件审查](https://github.com/qw5563680/FOOTBALL/pull/140#pullrequestreview-5904223500)
 及 PR139 任务增补。A 段实施计划见 [T68-A-implementation-plan.md](../../docs/experiments/T68-A-implementation-plan.md)。
+[复审](https://github.com/qw5563680/FOOTBALL/pull/140#pullrequestreview-5904285942)要求本PR只保留方案与A1，其余A模块在 `codex/T68-A-identity-and-quarantine` 后续PR交付。
+[所有者决定](https://github.com/qw5563680/FOOTBALL/pull/140#issuecomment-6877359853)已批准14项归类原则和B段候选集合，注册表状态字段仍留待B段PR更新。
 本次工具验收不代表全任务2–7完成；真实原件先导、正式绑定核准与线上三次验收由 Claude 执行。
 
 ## A1 官方开球时间补充工具
@@ -68,7 +70,7 @@
 | 同一 JC matchId 能在库内找到 | 826 |
 | 其余没有该库内行 | 4,140 |
 | 四批归档 fixtures 原件数（不含 sidecar/汇总） | 728 |
-| 待所有者决定的 official_catalogue 类别 / 涉及总表行 | 14 / 32 |
+| 固定基线带 owner_decision_required 的类别 / 总表行 | 14 / 32 |
 | 美职同主客规范 ID、3h < 时间差 ≤36h 的 APIF/FD 完赛对 | 12 |
 
 上述 826 场只是按 ID 的交集，不代表时间原件、身份类别、比分和唯一性全部合格。
@@ -186,5 +188,5 @@ ruff format --check src tests
 - 本模块只影响上述1262场的待取/复用计划，没有正式比赛、绑定、采集开关或模型改动，无须重跑正式模型。
 - 第9节验收解释已获批准：旧18联赛原条目不改；未来受影响训练行逐ID列明；其他输入/参数/概率相同；旧冻结与账本不改。
 - 三条必须修均已反映：官方时间是前置步骤；B段按核准候选赛事集合设计自动唯一关联；删除新赛事独立付费行/时标范围。
-- A段其余严格绑定提案、36小时隔离、采集分类和每日开启门槛继续实施；尚不宣称这些业务验收完成。
-- B段第6节修订稿单独待审，14类具体归类与正式球队绑定仍需核准；未新采体育数据、未发布生产数据、未开启daily。
+- A段其余严格绑定提案、36小时隔离、采集分类和每日开启门槛在单独分支/后续PR继续实施；尚不宣称这些业务验收完成。
+- B段设计与14类归类原则已通过；B段实现首先提交全部指针读取盘点与测试，具体球队绑定仍需核准；未新采体育数据、未发布生产数据、未开启daily。
