@@ -89,7 +89,10 @@ CATALOGUE_RUN_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}"
 CATALOGUE_DATE = rf"{MONTH}-(?:0[1-9]|[12][0-9]|3[01])"
 CATALOGUE_FILE = (
     rf"state/catalogue/(?:(?:latest|backfill-checkpoint)\.json|{CATALOGUE_RUN_ID}/(?:"
-    r"(?:apif(?:-raw|-meta)?|fdorg(?:-raw|-meta)?|fd|jc(?:-leagues)?|summary|backfill)\.json|"
+    r"(?:apif(?:-raw|-meta)?|fdorg(?:-raw|-meta)?|fd|jc(?:-leagues|-kickoff-plan|-kickoffs)?|summary|backfill)\.json|"
+    r"jc-heads/(?:[1-9][0-9]*|conflicts/[1-9][0-9]*-[0-9a-f]{64})\.json(?:\.meta\.json)?|"
+    r"jc-schedules/[0-9a-f]{64}\.json(?:\.meta\.json)?|"
+    r"jc-db-(?:aliases\.json|(?:matches|teams)\.jsonl|manifests/[0-9a-f]{64}\.json)|"
     rf"jc/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?|"
     rf"backfill/(?:api-football|football-data-org|football-data-co-uk)/{CATALOGUE_DATE}/"
     r"[A-Za-z0-9_][A-Za-z0-9_.-]*_[0-9]{12}Z_[0-9a-f]{32}\.(?:json|csv|txt)(?:\.meta\.json)?))"
@@ -669,7 +672,7 @@ def main():
     parser.add_argument("--seasons", help="probe 的年份；identity 默认 2025,2026")
     parser.add_argument(
         "--probe-kind",
-        choices=("seasons", "leagues", "stats", "catalogue", "jc-catalogue"),
+        choices=("seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs"),
         help="仅 probe：赛季权限、桥接元数据或技术数据",
     )
     parser.add_argument("--per-scope", type=int, help="仅 stats probe：每联赛季最多抽样场数")
@@ -678,7 +681,9 @@ def main():
     parser.add_argument(
         "--catalogue", action="store_true", help="仅 backfill：按已核验目录赛季回填"
     )
-    parser.add_argument("--max-requests", type=int, help="仅 catalogue backfill：本批请求上限")
+    parser.add_argument(
+        "--max-requests", type=int, help="仅 catalogue backfill / jc-kickoffs probe：本批请求上限"
+    )
     parser.add_argument(
         "--resume",
         action=argparse.BooleanOptionalAction,
@@ -700,9 +705,12 @@ def main():
     if args.catalogue and (args.command != "backfill" or args.relink_jc or args.relink_fdorg):
         parser.error("--catalogue 仅供非 relink 的 backfill 使用")
     if (args.max_requests is not None or args.resume is not None) and not (
-        args.command == "backfill" and args.catalogue
+        (args.command == "backfill" and args.catalogue)
+        or (args.command == "probe" and args.probe_kind == "jc-kickoffs" and args.resume is None)
     ):
-        parser.error("--max-requests / --resume / --no-resume 仅供 --catalogue backfill 使用")
+        parser.error(
+            "--max-requests 仅供 --catalogue backfill / jc-kickoffs probe；--resume 仅供 backfill"
+        )
     if args.max_requests is not None and not 1 <= args.max_requests <= 7000:
         parser.error("--max-requests 必须在 1–7000 之间")
     if args.relink_fdorg or args.relink_jc:
@@ -742,10 +750,10 @@ def main():
         from zucai.cloud_probe import require_probe_actions
 
         require_probe_actions()
-    if args.command == "probe" and args.probe_kind in {"catalogue", "jc-catalogue"}:
+    if args.command == "probe" and args.probe_kind in {"catalogue", "jc-catalogue", "jc-kickoffs"}:
         if any(value is not None for value in (args.leagues, args.seasons, args.per_scope)):
             parser.error("目录 probe 不接受 --leagues / --seasons / --per-scope")
-        if args.probe_kind == "jc-catalogue":
+        if args.probe_kind in {"jc-catalogue", "jc-kickoffs"}:
             if args.source is not None:
                 parser.error("JC 目录 probe 不接受 --source")
             from zucai.cloud_jc_catalogue import require_jc_catalogue_actions
@@ -843,6 +851,9 @@ def main():
         elif args.probe_kind == "jc-catalogue":
             from zucai.cloud_jc_catalogue import collect_jc_catalogue as collector
             from zucai.cloud_jc_catalogue import write_summary as identity_summary
+        elif args.probe_kind == "jc-kickoffs":
+            from zucai.jc_catalogue_kickoffs import collect_kickoffs as collector
+            from zucai.jc_catalogue_kickoffs import write_summary as identity_summary
         elif args.probe_kind == "stats":
             from zucai.cloud_stats_probe import collect_stats_probe as collector
             from zucai.cloud_stats_probe import write_stats_probe_summary as identity_summary
@@ -852,14 +863,21 @@ def main():
         else:
             from zucai.cloud_probe import collect_probe as collector
             from zucai.cloud_probe import write_probe_summary as identity_summary
-        catalogue_probe = args.probe_kind in {"catalogue", "jc-catalogue"}
+        catalogue_probe = args.probe_kind in {"catalogue", "jc-catalogue", "jc-kickoffs"}
         options = {} if catalogue_probe else dict(codes=args.leagues)
         if args.probe_kind == "stats":
             options["per_scope"] = args.per_scope
         if not catalogue_probe and args.probe_kind != "leagues":
             options["seasons"] = args.seasons
+        if args.probe_kind == "jc-kickoffs":
+            options["max_requests"] = args.max_requests if args.max_requests is not None else 5
+            options["archive"] = archive
         result = collector(target, args.run_id, **options)
         summary_collection = result.get("collection", "apif")
+        if args.probe_kind == "jc-kickoffs":
+            from zucai.jc_catalogue_kickoffs import collection_summary
+
+            result = collection_summary(result, target.parent)
         collection = {summary_collection: result}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "backfill":
@@ -920,7 +938,19 @@ def main():
             collection[owner]["source_results_audit"] = audit
         for result in collection.values():
             result.update(run_id=args.run_id, observed_utc=datetime.now(UTC).isoformat())
-        published_collection = {**meta.get("collection", {}), **collection}
+        previous = {
+            name: result
+            for name, result in meta.get("collection", {}).items()
+            if name != "jc-kickoffs"
+        }
+        published_collection = {**previous, **collection}
+    elif args.command == "probe" and args.probe_kind == "jc-kickoffs":
+        previous = {
+            name: result
+            for name, result in meta.get("collection", {}).items()
+            if name != "jc-kickoffs"
+        }
+        published_collection = {**previous, **collection}
     manifest = export_feeds(target, archive, day, args.run_id, collection=published_collection)
     if args.command == "backfill":
         from zucai.forecast_archive import verify_forecasts
