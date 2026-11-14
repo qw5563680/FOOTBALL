@@ -82,6 +82,16 @@ def test_proposal_fields_do_not_grant_permission(tmp_path):
     assert provider_config("apif", path=path) == provider_config("apif", path=FIXTURE)
 
 
+def test_reviewed_proposal_requires_an_approved_mapping_for_every_entry(tmp_path):
+    doc = proposal_registry()
+    proposal = doc["competitions"][0]["api_catalogue_proposal"]
+    proposal.update(status="verified", review_status="verified")
+    with pytest.raises(ValueError, match="proposal identity is not approved"):
+        load_registry(save(tmp_path, doc))
+    proposal["entries"][0]["code"] = "1001"
+    assert load_registry(save(tmp_path, doc)) == doc
+
+
 @pytest.mark.parametrize(
     "change",
     [

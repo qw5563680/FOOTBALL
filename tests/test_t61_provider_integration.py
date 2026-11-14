@@ -17,7 +17,7 @@ def test_default_apif_parsing_matches_explicit_legacy_config(tmp_path):
     raw = (FIXTURES / "t10/synthetic_season.json").read_bytes()
     default = api_football.ApiFootball(quota_path=tmp_path / "quota.json")
     explicit = api_football.ApiFootball(leagues=legacy, quota_path=tmp_path / "quota.json")
-    assert default.leagues == explicit.leagues
+    assert {code: default.leagues[code] for code in explicit.leagues} == explicit.leagues
     assert default.parse(raw, league_id=98, season=2024) == explicit.parse(
         raw, league_id=98, season=2024
     )

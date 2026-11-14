@@ -123,9 +123,13 @@ def _catalogue_proposal(value, *, official, row, registry):
         else ()
     )
     _keys(value, (*common, *extra))
-    statuses = {"candidate", "not_found"} | (set() if official else {"existing_verified"})
+    statuses = {"candidate", "not_found"} | (
+        set() if official else {"existing_verified", "verified"}
+    )
     _require(isinstance(value["status"], str) and value["status"] in statuses, "proposal status")
-    expected_review = "existing_verified" if value["status"] == "existing_verified" else "pending"
+    expected_review = (
+        value["status"] if value["status"] in {"existing_verified", "verified"} else "pending"
+    )
     _require(value["review_status"] == expected_review, "proposal review status")
     _require(_strings(value["searched_names"]), "proposal searched names")
     _require(isinstance(value["reason"], str) and value["reason"], "proposal reason")
@@ -177,8 +181,14 @@ def _catalogue_proposal(value, *, official, row, registry):
         seen.add(code)
         _evidence(entry["evidence"], "verified")
     if not official:
-        if value["status"] == "existing_verified":
+        if value["status"] in {"existing_verified", "verified"}:
             _require(row["status"] == "verified", "unapproved existing proposal")
+            approved = {
+                mapping["code"]
+                for mapping in row["mappings"]
+                if mapping["provider"] == "apif" and mapping["status"] == "verified"
+            }
+            _require(seen <= approved, "proposal identity is not approved")
         return
     _require(
         value["proposed_status"] in {"verified", "candidate", "not_found"},
@@ -346,6 +356,13 @@ def load_registry(path=REGISTRY_PATH) -> dict:
             entry["config"]["api_id"] for entry in entries.values() if "api_id" in entry["config"]
         ]
         _require(len(api_ids) == len(set(api_ids)), "duplicate provider api_id")
+        import_leagues = [
+            entry["config"]["league"] for entry in entries.values() if entry["mode"] == "import"
+        ]
+        _require(
+            len(import_leagues) == len(set(import_leagues)),
+            f"duplicate {provider} import league",
+        )
     rows = registry["competitions"]
     _require(isinstance(rows, list) and len(rows) == master["row_count"], "master row count")
     for row in rows:

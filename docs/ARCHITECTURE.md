@@ -23,7 +23,13 @@ API-Football 的单个赛季日期字符串格式错误、日期年超出固定 
 `catalogue_mappings` 只按明确 ID 核对完整官方名称，名称改变或语义歧义列为待决定，
 没有观察到比赛单独披露；保留旧简称核对以便比较。升降级、赛事改制及泛化名称不自动拆分。
 API 候选路由 `daily=false/backfill=false/seasons_available=[]`，
-`catalogue_seasons` 只是原件列出的年份；8 个下级支撑联赛同样待审。
+`catalogue_seasons` 只是原件列出的年份。
+PR #135 的 2026-11-14 审查逐 ID 核准了其中 62 个 provider 身份（审查文字写 60，明细实际 62），
+对应 `daily/backfill=true`；账号权限仍为 `access_status=unverified/seasons_available=[]`。
+40/62/71/850/916 仍是禁用候选。明确一对一的总表映射随审查转核准，时期或多 ID 归属歧义继续候选，
+官方14类所有者待决定事项不被 provider 身份核准替代。
+导入路由的 `config.league` 使用固定中文项目名，同一 provider 的 import 路由不得重名；
+官方泛称「国际赛」「杯赛」「世预赛」只作对照，不覆盖项目细分的赛事名。
 
 ## T61 目录、核准映射与历史下载
 

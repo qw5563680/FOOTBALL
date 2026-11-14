@@ -91,6 +91,8 @@ T61 只读目录由审查者在 Actions 运行：`python -m zucai.cloud_feeds pr
 已保存的竞彩目录可离线重算：`python -m zucai.catalogue_replay --source-dir ../cloud-data/state/catalogue/43539673769-1 --out-dir ../t65-replay --run-id t65-offline-1`；只写新目录，不请求接口、不更新正式 `latest.json`。
 目录历史回填：`python -m zucai.cloud_feeds backfill --catalogue --source apif --max-requests 500 --resume --archive ../cloud-data --run-id <新批次>`。
 以上命令不在开发环境使用正式密钥；本地验证只用 `data/fixtures/` 离线样本。
+T65 审查后已核准的62个新赛事身份采用唯一中文项目名；目录列出的赛季不代表账号可读。
+五组重复赛季仍阻止 APIF 全目录入库，隔离规则待所有者确认；本 PR 未触发回填。
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
