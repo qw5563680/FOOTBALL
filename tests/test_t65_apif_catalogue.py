@@ -119,7 +119,7 @@ def test_wrong_date_field_type_is_structural_and_rejects_entire_catalogue(field,
         _parse(doc)
 
 
-@pytest.mark.parametrize("mutation", ["league-id", "duplicate-id", "duplicate-year", "coverage"])
+@pytest.mark.parametrize("mutation", ["league-id", "duplicate-id", "coverage"])
 def test_date_warning_does_not_mask_structural_errors(mutation):
     doc = json.loads(REAL.read_bytes())
     row = next(row for row in doc["response"] if row["league"]["id"] == 271)
@@ -127,8 +127,6 @@ def test_date_warning_does_not_mask_structural_errors(mutation):
         row["league"].pop("id")
     elif mutation == "duplicate-id":
         doc["response"][2]["league"]["id"] = 271
-    elif mutation == "duplicate-year":
-        row["seasons"][-2]["year"] = 2026
     else:
         row["seasons"][-1]["coverage"]["results"] = "yes"
     with pytest.raises(CatalogueError):
@@ -139,15 +137,6 @@ def test_date_warning_does_not_mask_structural_errors(mutation):
 def test_non_json_or_duplicate_keys_still_reject_entire_catalogue(raw):
     with pytest.raises(CatalogueError):
         parse_apif_catalogue(raw)
-
-
-@pytest.mark.parametrize("league_id", [397, 276, 379, 402, 542])
-def test_real_duplicate_season_years_remain_structural_errors(league_id):
-    doc = json.loads((FIXTURES / "t65/apif-catalogue-duplicate-years-real.json").read_bytes())
-    row = next(row for row in doc["response"] if row["league"]["id"] == league_id)
-    doc.update(response=[row], results=1)
-    with pytest.raises(CatalogueError, match="duplicate season years"):
-        _parse(doc)
 
 
 def test_date_warning_preserves_explicit_unavailable_coverage():

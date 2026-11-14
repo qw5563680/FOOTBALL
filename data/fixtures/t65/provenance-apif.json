@@ -31,8 +31,8 @@
     "source_bytes": 3090059,
     "source_league_count": 1251,
     "source_season_count": 8816,
-    "fixture_sha256": "98e6ca505b210bdff201a564128b261eaaa12a92137cfe20c95636446c9f533c",
-    "fixture_bytes": 8006,
+    "fixture_sha256": "1a3dc17dd4eb97d43586a214db7c816fb89e62f03dbc7b942b8c14ddc5ec1790",
+    "fixture_bytes": 39824,
     "fixture_league_ids": [
       397,
       276,
@@ -40,9 +40,9 @@
       402,
       542
     ],
-    "fixture_season_count": 10,
+    "fixture_season_count": 62,
     "synthetic_rows": [],
-    "transformation": "Retain league/country objects for original league IDs 397, 276, 379, 402, 542 in source order; retain only the two original seasons sharing year 2018, 2018, 2020, 2019, 2021 respectively. Every selected field/value is unchanged; no duplicate season was removed or merged. Change envelope results from 1251 to 5 and reserialize JSON with two-space indentation and a final LF.",
-    "interpretation": "Real structural counterexamples discovered only after the NB I date repair allowed full replay to progress. Duplicate league/year entries have different dates and/or coverage. They remain whole-document rejection cases; this fixture is not evidence of successful full-directory acceptance."
+    "transformation": "Retain complete original response rows for league IDs 397, 276, 379, 402, and 542 in source order, including all normal years and all duplicate-year records. Every selected field/value is unchanged; no duplicate season is removed or merged. Change envelope results from 1251 to 5 and reserialize JSON with two-space indentation and a final LF.",
+    "interpretation": "Real duplicate-year counterexamples from the immutable archived response. The approved T65 isolation keeps each league and normal year, marks the five conflicting years unavailable for backfill, and retains every original conflict record in warnings. Catalogue metadata never establishes account season access. No new API requests were made."
   }
 }

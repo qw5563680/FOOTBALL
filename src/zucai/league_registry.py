@@ -413,6 +413,14 @@ def provider_config(provider, *, path=REGISTRY_PATH) -> dict:
     }
 
 
+def daily_provider_config(provider, *, path=REGISTRY_PATH) -> dict:
+    """Daily import configs, preserving APIF's separate legacy Nations date route."""
+    entries = provider_entries(provider, path=path, purpose="daily")
+    if provider == "apif":
+        entries |= provider_entries(provider, path=path, modes="nations")
+    return {code: copy.deepcopy(row["config"]) for code, row in entries.items()}
+
+
 def provider_ids(provider, mode="import", *, path=REGISTRY_PATH) -> frozenset[int]:
     """API-Football's numeric IDs; other providers use daily_codes/provider_entries."""
     _require(provider == "apif", "numeric IDs are only defined for apif")

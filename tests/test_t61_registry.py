@@ -76,11 +76,11 @@ def test_legacy_provider_values_and_modes_remain_exact():
 
 def test_purpose_preserves_legacy_order_and_special_nations_route():
     assert daily_codes("fdorg") == "PL ELC PD SA BL1 FL1 DED PPL BSA CL".split()
-    assert daily_codes("apif")[:11] == "98 292 188 113 103 244 119 253 169 3 848".split()
+    assert daily_codes("apif") == "98 292 188 113 103 244 119 253 169 3 848".split()
+    assert set(provider_entries("apif", purpose="backfill")) == {
+        str(code) for code in provider_ids("apif")
+    }
     for purpose in ("daily", "backfill"):
-        assert set(provider_entries("apif", purpose=purpose)) == {
-            str(code) for code in provider_ids("apif")
-        }
         assert "5" not in provider_entries("apif", purpose=purpose)
 
 

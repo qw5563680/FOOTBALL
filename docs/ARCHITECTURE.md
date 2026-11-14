@@ -5,7 +5,11 @@
 API-Football 的单个赛季日期字符串格式错误、日期年超出固定 1900–2100 范围或起止倒置，
 仅将该赛季两端日期置空；`warnings` 保存赛事 ID、赛季年份、原值和原因，并汇总到运行摘要。
 赛事/年份及权限语义保留，日期警告不会把 `access=unverified` 变成已授权。
-缺字段、错误数据类型、重复赛事 ID、重复赛季年份及非 JSON 继续拒收。
+同赛事重复年份保留一个 `status=conflict/access=conflict` 占位，日期与覆盖率不任选一条；
+警告保存全部 `original_records`、`raw_sha256`、`raw_path` 与 `record_pointers`。
+每条原记录仍先做完整结构校验，缺字段、错误数据类型、重复赛事 ID 及非 JSON 继续整份拒收。
+`raw_season_count` 与规范化年份数分列；冲突年份不作可读赛季，回填规划的 `excluded` 明列排除原因，
+显式指定这些年份也不能绕过排除。其他年份和赛事正常解析。
 
 竞彩严格识别真实零页（页数、页号、页大小、结果数均为零、空比赛数组、合法 `leagueList`），
 同时兼容旧离线样本。官方字典独立保存为 `state/catalogue/<run>/jc-leagues.json`，
@@ -25,11 +29,16 @@ API-Football 的单个赛季日期字符串格式错误、日期年超出固定 
 API 候选路由 `daily=false/backfill=false/seasons_available=[]`，
 `catalogue_seasons` 只是原件列出的年份。
 PR #135 的 2026-11-14 审查逐 ID 核准了其中 62 个 provider 身份（审查文字写 60，明细实际 62），
-对应 `daily/backfill=true`；账号权限仍为 `access_status=unverified/seasons_available=[]`。
+按所有者合并 PR #136 后的任务修订，仅 `backfill=true`、`daily=false`；
+账号权限仍为 `access_status=unverified/seasons_available=[]`。
 40/62/71/850/916 仍是禁用候选。明确一对一的总表映射随审查转核准，时期或多 ID 归属歧义继续候选，
 官方14类所有者待决定事项不被 provider 身份核准替代。
 导入路由的 `config.league` 使用固定中文项目名，同一 provider 的 import 路由不得重名；
 官方泛称「国际赛」「杯赛」「世预赛」只作对照，不覆盖项目细分的赛事名。
+`daily_provider_config()` 统一供日期导入及候选别名生成使用，保留原11个普通每日路由及欧国联特殊日期行为；
+历史导入仍取完整核准范围。新路由不因出现在日期原件中而进入数据库、拒收审计或候选队列，
+也不会因新赛事的拒收状态抑制旧赛事候选。不同原件仍保存各自真实 SHA，不抹除来源差异。
+T68 后续逐赛事完成球队绑定并开启每日采集，本单不执行真实回填。
 
 ## T61 目录、核准映射与历史下载
 

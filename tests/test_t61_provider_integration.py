@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from zucai.league_registry import load_registry, provider_config, provider_entries
+from zucai.league_registry import daily_provider_config, load_registry, provider_config
 from zucai.sources import api_football, football_data, football_data_org
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,8 +120,8 @@ def test_apif_daily_flag_filters_defaults_and_preserves_explicit_fixture_path(
     monkeypatch.setattr(apif_command, "provider_config", lambda provider: approved)
     monkeypatch.setattr(
         apif_command,
-        "provider_entries",
-        lambda provider, **kwargs: provider_entries(provider, path=path, **kwargs),
+        "daily_provider_config",
+        lambda provider: daily_provider_config(provider, path=path),
     )
     captured = []
 

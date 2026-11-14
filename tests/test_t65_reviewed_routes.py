@@ -59,17 +59,19 @@ def test_same_league_key_is_allowed_across_providers_and_for_identity_only(tmp_p
     assert load_registry(save(tmp_path, document)) == document
 
 
-def test_reviewed_ids_enter_daily_and_backfill_without_inventing_access():
+def test_reviewed_ids_enter_only_backfill_without_inventing_access():
     registry = load_registry()
     legacy = json.loads((ROOT / "data/api_football/leagues.json").read_bytes())
     assert len(APPROVED_IDS) == 62
-    for purpose in ("daily", "backfill"):
+    for purpose, added in (("daily", set()), ("backfill", APPROVED_IDS)):
         routes = provider_entries("apif", purpose=purpose)
-        assert routes.keys() - legacy.keys() == APPROVED_IDS
+        assert routes.keys() - legacy.keys() == added
         assert not UNREVIEWED_IDS & routes.keys()
-    assert APPROVED_IDS <= set(daily_codes("apif"))
+    assert not APPROVED_IDS & set(daily_codes("apif"))
     for code in APPROVED_IDS:
         route = registry["providers"]["apif"][code]
+        assert route["status"] == "verified"
+        assert route["daily"] is False and route["backfill"] is True
         assert route["access_status"] == "unverified"
         assert route["config"]["seasons_available"] == []
         assert route["config"]["catalogue_seasons"]
