@@ -1,0 +1,76 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______ test_same_fixture_market_rows_keep_their_own_proof_cutoffs[False] _______
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-495/test_same_fixture_market_rows_0/retained.db)
+reverse = False
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_same_fixture_market_rows_keep_their_own_proof_cutoffs(engine, reverse):
+        with session_scope(engine) as session:
+            retained(session, "2026-11-10T09:00Z")
+            for selection in "hda":
+                session.add(
+                    Odds(
+                        match_id="jc:1", pool="had", line=0, selection=selection,
+                        price=3, snapshot_utc="2026-11-10T08:00Z",
+                    )
+                )
+            session.flush()
+            rows = [
+                dict(match_id="apif:1", actual=0, feature_cutoff=cutoff, variants={})
+                for cutoff in ("2026-11-10T08:59Z", "2026-11-10T09:01Z")
+            ]
+            if reverse:
+                rows.reverse()
+            attach_market(session, rows, StatsFeatures(session, provider="apif"))
+>           assert {
+                row["feature_cutoff"]: row["variants"]["market"] is not None for row in rows
+            } == {"2026-11-10T08:59Z": False, "2026-11-10T09:01Z": True}
+E           AssertionError: assert {'2026-11-10T...09:01Z': True} == {'2026-11-10T...09:01Z': True}
+E             
+E             Omitting 1 identical items, use -vv to show
+E             Differing items:
+E             {'2026-11-10T08:59Z': True} != {'2026-11-10T08:59Z': False}
+E             Use -v to get more diff
+
+tests/test_t63_stats_consumers.py:163: AssertionError
+_______ test_same_fixture_market_rows_keep_their_own_proof_cutoffs[True] _______
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-495/test_same_fixture_market_rows_1/retained.db)
+reverse = True
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_same_fixture_market_rows_keep_their_own_proof_cutoffs(engine, reverse):
+        with session_scope(engine) as session:
+            retained(session, "2026-11-10T09:00Z")
+            for selection in "hda":
+                session.add(
+                    Odds(
+                        match_id="jc:1", pool="had", line=0, selection=selection,
+                        price=3, snapshot_utc="2026-11-10T08:00Z",
+                    )
+                )
+            session.flush()
+            rows = [
+                dict(match_id="apif:1", actual=0, feature_cutoff=cutoff, variants={})
+                for cutoff in ("2026-11-10T08:59Z", "2026-11-10T09:01Z")
+            ]
+            if reverse:
+                rows.reverse()
+            attach_market(session, rows, StatsFeatures(session, provider="apif"))
+>           assert {
+                row["feature_cutoff"]: row["variants"]["market"] is not None for row in rows
+            } == {"2026-11-10T08:59Z": False, "2026-11-10T09:01Z": True}
+E           AssertionError: assert {'2026-11-10T...08:59Z': True} == {'2026-11-10T...09:01Z': True}
+E             
+E             Omitting 1 identical items, use -vv to show
+E             Differing items:
+E             {'2026-11-10T08:59Z': True} != {'2026-11-10T08:59Z': False}
+E             Use -v to get more diff
+
+tests/test_t63_stats_consumers.py:163: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t63_stats_consumers.py::test_same_fixture_market_rows_keep_their_own_proof_cutoffs[False]
+FAILED tests/test_t63_stats_consumers.py::test_same_fixture_market_rows_keep_their_own_proof_cutoffs[True]
+2 failed, 11 deselected in 2.19s

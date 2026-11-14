@@ -1,0 +1,56 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+__ test_retained_api_fixture_id_cannot_authorize_a_different_provider_fixture __
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-472/test_retained_api_fixture_id_c0/retained.db)
+
+    def test_retained_api_fixture_id_cannot_authorize_a_different_provider_fixture(engine):
+        with session_scope(engine) as session:
+            add_match(session, "apif")
+            proof(session, "apif:1", "jc:1")
+            result = link(session, rows=[offset_fixture(2, 10)])
+>           assert result["linked"] == 0 and result["audit"][0]["reason"] == "同窗冲突"
+E           assert (1 == 0)
+
+tests/test_t63_stats_retention.py:307: AssertionError
+_ test_other_fixture_id_cannot_obtain_pregame_eligibility_from_retained_api_proof _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-472/test_other_fixture_id_cannot_o0/retained.db)
+
+    def test_other_fixture_id_cannot_obtain_pregame_eligibility_from_retained_api_proof(engine):
+        with session_scope(engine) as session:
+            add_match(session, "apif")
+            proof(session, "apif:1", "jc:1")
+            add_index(session, "apif:1", "2")
+            session.add(Odds(match_id="jc:1", pool="had", line=0, selection="h", price=2, snapshot_utc=VERIFIED))
+>       assert list(match_units(engine.url.database, plan("39", "2026", "lineups", NOW), NOW, daily=True)) == []
+E       AssertionError: assert [({'key': 'ap..., ...}, None)] == []
+E         
+E         Left contains one more item: ({'key': 'apif:39:2026:lineups:2:pregame', 'provider': 'apif', 'endpoint': 'lineups', 'league_id': 39, ...}, None)
+E         Use -v to get more diff
+
+tests/test_t63_stats_retention.py:413: AssertionError
+____ test_conflicting_component_indices_do_not_add_an_extra_pregame_request ____
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-472/test_conflicting_component_ind0/retained.db)
+
+    def test_conflicting_component_indices_do_not_add_an_extra_pregame_request(engine):
+        with session_scope(engine) as session:
+            add_match(session, "fdorg")
+            proof(session, "fdorg:1", "jc:1")
+            add_index(session, "fdorg:1")
+            add_index(session, "jc:1", "2")
+            session.add(Odds(match_id="jc:1", pool="had", line=0, selection="h", price=2, snapshot_utc=VERIFIED))
+        rows = list(match_units(engine.url.database, plan("39", "2026", "lineups", NOW), NOW, daily=True))
+>       assert {row["fixture_id"] for row, _ in rows} == {"2"}
+E       AssertionError: assert {'1', '2'} == {'2'}
+E         
+E         Extra items in the left set:
+E         '1'
+E         Use -v to get more diff
+
+tests/test_t63_stats_retention.py:424: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t63_stats_retention.py::test_retained_api_fixture_id_cannot_authorize_a_different_provider_fixture
+FAILED tests/test_t63_stats_retention.py::test_other_fixture_id_cannot_obtain_pregame_eligibility_from_retained_api_proof
+FAILED tests/test_t63_stats_retention.py::test_conflicting_component_indices_do_not_add_an_extra_pregame_request

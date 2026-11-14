@@ -1,0 +1,498 @@
+E501 Line too long (102 > 100)
+  --> work/t63-review-20261114/acceptance/acceptance.py:78:101
+   |
+76 |     result = {}
+77 |     with closing(connect(database)) as db:
+78 |         for (table,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
+   |                                                                                                     ^^
+79 |             columns = [r[1] for r in db.execute(f'PRAGMA table_info("{table}")')]
+80 |             cols = ','.join(f'"{c}"' for c in columns)
+   |
+
+E501 Line too long (107 > 100)
+  --> work/t63-review-20261114/acceptance/acceptance.py:83:101
+   |
+81 |             digest, count = hashlib.sha256(), 0
+82 |             for row in db.execute(f'SELECT {cols} FROM "{table}" ORDER BY {cols}'):
+83 |                 digest.update((json.dumps(row, ensure_ascii=False, separators=(',', ':')) + '\n').encode())
+   |                                                                                                     ^^^^^^^
+84 |                 count += 1
+85 |             result[table] = dict(columns=columns, rows=count, sha256=digest.hexdigest())
+   |
+
+E501 Line too long (101 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:125:101
+    |
+123 |     write(ROOT / 'tables-before.json', before)
+124 |     with closing(connect(DB)) as db:
+125 |         originals = list(map(json.loads, (ARCHIVE / 'state/results.jsonl').read_text().splitlines()))
+    |                                                                                                     ^
+126 |         columns = read(ARCHIVE / 'feed_manifest.json')['columns']['results']
+127 |         current = {r[0]: list(r) for r in db.execute(f'SELECT {",".join(columns)} FROM results')}
+    |
+
+E501 Line too long (110 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:137:101
+    |
+135 |         synthetic_training_cutoff_utc=CUTOFF.isoformat(),
+136 |         source_hashes=before_code, runtime={'python': sys.version, 'packages': {
+137 |             n: importlib.metadata.version(n) for n in ('numpy','pandas','scipy','penaltyblog','SQLAlchemy')}},
+    |                                                                                                     ^^^^^^^^^^
+138 |     ))
+139 |     make_targets()
+    |
+
+E501 Line too long (103 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:140:101
+    |
+138 |     ))
+139 |     make_targets()
+140 |     print('Prepared immutable training code and one T66 DB copy; 2615 frozen files hashed', flush=True)
+    |                                                                                                     ^^^
+
+E501 Line too long (105 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:150:101
+    |
+148 |             rows = [dict(r) for r in db.execute(
+149 |                 'SELECT m.match_id,m.source,m.league,m.kickoff_utc,h.name AS home,a.name AS away '
+150 |                 'FROM matches m JOIN teams h ON h.id=m.home_team_id JOIN teams a ON a.id=m.away_team_id '
+    |                                                                                                     ^^^^^
+151 |                 'WHERE m.league=? ORDER BY m.kickoff_utc,m.match_id', (league,))]
+152 |             future = [r for r in rows if datetime.fromisoformat(r['kickoff_utc']) > CUTOFF]
+    |
+
+E501 Line too long (104 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:158:101
+    |
+156 |             pairs = {}
+157 |             for row in rows:
+158 |                 if datetime.fromisoformat(row['kickoff_utc']) < CUTOFF and row['source'] in ('fd','jc'):
+    |                                                                                                     ^^^^
+159 |                     pairs.setdefault((row['home'], row['away']), row)
+160 |             diagnostic = [dict(r, original_match_id=r['match_id'],
+    |
+
+E501 Line too long (119 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:172:101
+    |
+170 |         excluded_future_targets=future_excluded,
+171 |         synthetic_time_diagnostic_counts={k:len(v) for k,v in targets.items()},
+172 |         explanation='Only numerical regression: historical pair names, synthetic future kickoff; no performance claim',
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^
+173 |     ))
+    |
+
+E501 Line too long (111 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:193:101
+    |
+191 |     with closing(connect(DB)) as db:
+192 |         check_db(db)
+193 |         assert db.execute('SELECT counterpart_id FROM matches WHERE match_id=?',(SWE,)).fetchone() == (SWE_FD,)
+    |                                                                                                     ^^^^^^^^^^^
+194 |         assert not db.execute('SELECT 1 FROM result_source_identities WHERE match_id=?',(SWE,)).fetchone()
+195 |         assert not db.execute('SELECT 1 FROM result_source_links WHERE provider_match_id=? OR counterpart_id=?', (SWE,SWE)).fetchone()
+    |
+
+E501 Line too long (106 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:194:101
+    |
+192 |         check_db(db)
+193 |         assert db.execute('SELECT counterpart_id FROM matches WHERE match_id=?',(SWE,)).fetchone() == (SWE_FD,)
+194 |         assert not db.execute('SELECT 1 FROM result_source_identities WHERE match_id=?',(SWE,)).fetchone()
+    |                                                                                                     ^^^^^^
+195 |         assert not db.execute('SELECT 1 FROM result_source_links WHERE provider_match_id=? OR counterpart_id=?', (SWE,SWE)).fetchone()
+196 |         for table in ('result_source_identities','result_source_links'):
+    |
+
+E501 Line too long (134 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:195:101
+    |
+193 |         assert db.execute('SELECT counterpart_id FROM matches WHERE match_id=?',(SWE,)).fetchone() == (SWE_FD,)
+194 |         assert not db.execute('SELECT 1 FROM result_source_identities WHERE match_id=?',(SWE,)).fetchone()
+195 |         assert not db.execute('SELECT 1 FROM result_source_links WHERE provider_match_id=? OR counterpart_id=?', (SWE,SWE)).fetchone()
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+196 |         for table in ('result_source_identities','result_source_links'):
+197 |             timestamps = [r[0] for r in db.execute(f'SELECT DISTINCT verified_utc FROM {table}')]
+    |
+
+E501 Line too long (106 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:201:101
+    |
+199 |     write(ROOT / 'swe-partial-proof.json', dict(
+200 |         apif_match_id=SWE, legacy_counterpart=SWE_FD, partial_pointer_preserved=True,
+201 |         bilateral_identity_proofs=0, dated_source_links=0, original_matches_teams_results_unchanged=True))
+    |                                                                                                     ^^^^^^
+202 |     export_dir = ROOT / 'temporary-export'
+203 |     assert not export_dir.exists()
+    |
+
+E501 Line too long (118 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:240:101
+    |
+238 |         ids[league] = sorted(eligible.match_id)
+239 |         summaries[league] = dict(status='read',corpus_rows=len(games), training_rows=len(eligible),
+240 |             sources=entry['sources'], source_counts={str(k):int(v) for k,v in eligible.source.value_counts().items()},
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^
+241 |             database_sha256=digest, linked_source_selection=games.attrs.get('linked_source_selection',False),
+242 |             legacy_source_policy=games.attrs.get('legacy_source_policy',False),
+    |
+
+E501 Line too long (109 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:241:101
+    |
+239 |         summaries[league] = dict(status='read',corpus_rows=len(games), training_rows=len(eligible),
+240 |             sources=entry['sources'], source_counts={str(k):int(v) for k,v in eligible.source.value_counts().items()},
+241 |             database_sha256=digest, linked_source_selection=games.attrs.get('linked_source_selection',False),
+    |                                                                                                     ^^^^^^^^^
+242 |             legacy_source_policy=games.attrs.get('legacy_source_policy',False),
+243 |             source_identity_exclusions=eligible.attrs.get('unverified_fd_identity_overlaps', []),
+    |
+
+E501 Line too long (144 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:257:101
+    |
+255 | …
+256 | …
+257 | …ult_source_links WHERE provider_match_id IN ('apif:1490585','apif:1490596')").fetchone()
+    |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+258 | …ute("SELECT counterpart_id FROM matches WHERE match_id IN ('apif:1490585','apif:1490596')"))
+259 | …=True)
+    |
+
+E501 Line too long (148 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:258:101
+    |
+256 | …
+257 | …t_source_links WHERE provider_match_id IN ('apif:1490585','apif:1490596')").fetchone()
+258 | …e("SELECT counterpart_id FROM matches WHERE match_id IN ('apif:1490585','apif:1490596')"))
+    |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+259 | …rue)
+260 | …
+    |
+
+E501 Line too long (119 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:295:101
+    |
+293 |             assert result['training_rows'] == len(ids[league])
+294 |             if league == '美职':
+295 |                 assert {r['match_id'] for r in result['source_identity_exclusions']} == {'apif:1490585','apif:1490596'}
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^
+296 |             result.update(status='trained', synthetic_regression_clock=True,
+297 |                           source_tree_sha256=tree_sha, model_sha256=sha(model))
+    |
+
+E501 Line too long (112 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:312:101
+    |
+310 |                    trained=sum(v['status']=='trained' for v in outcomes.values()),
+311 |                    failed=sum(v['status']!='trained' for v in outcomes.values()),
+312 |                    outcomes={k:{p:v.get(p) for p in ('status','error','training_rows','seconds','model_sha256')}
+    |                                                                                                     ^^^^^^^^^^^^
+313 |                              for k,v in outcomes.items()}, http_calls=calls, **protect())
+314 |     write(ROOT / 'training-summary.json', summary)
+    |
+
+E501 Line too long (108 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:330:101
+    |
+328 |         model = DixonColes.load(directory / f'{league}.pkl')
+329 |         assert model.as_of.to_pydatetime() == CUTOFF
+330 |         numeric = dict(engine_parameters=model.engine.get_params(), prior_parameters=model.prior_parameters,
+    |                                                                                                     ^^^^^^^^
+331 |                        draw_offset=model.draw_offset, draw_calibration=model.draw_calibration,
+332 |                        half_life_days=model.half_life_days, training_rows=model.training_rows,
+    |
+
+E501 Line too long (107 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:345:101
+    |
+343 |         print(f'SIGNATURE {label} {league}: {len(grids)} diagnostic inputs',flush=True)
+344 |     write(output / 'parameters.json', all_numeric)
+345 |     write(output / 'provenance.json', dict(label=label, models={k:sha(directory/f'{k}.pkl') for k in OLD7},
+    |                                                                                                     ^^^^^^^
+346 |           imported_modules=imported_modules(), targets_sha256=sha(ROOT/'prediction-targets.json'), http_calls=calls))
+    |
+
+E501 Line too long (117 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:346:101
+    |
+344 |     write(output / 'parameters.json', all_numeric)
+345 |     write(output / 'provenance.json', dict(label=label, models={k:sha(directory/f'{k}.pkl') for k in OLD7},
+346 |           imported_modules=imported_modules(), targets_sha256=sha(ROOT/'prediction-targets.json'), http_calls=calls))
+    |                                                                                                     ^^^^^^^^^^^^^^^^^
+
+E501 Line too long (114 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:356:101
+    |
+354 |     for league in OLD7:
+355 |         assert left[league] == right[league], f'{league}: fitted parameters changed'
+356 |         with np.load(ROOT/f'signatures-t66/{league}.npz') as a, np.load(ROOT/f'signatures-t63/{league}.npz') as b:
+    |                                                                                                     ^^^^^^^^^^^^^^
+357 |             assert set(a.files) == set(b.files)
+358 |             for key in a.files:
+    |
+
+E501 Line too long (103 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:359:101
+    |
+357 |             assert set(a.files) == set(b.files)
+358 |             for key in a.files:
+359 |                 assert np.array_equal(a[key],b[key]), (league,key,float(np.max(np.abs(a[key]-b[key]))))
+    |                                                                                                     ^^^
+360 |             summary[league] = dict(numeric_parameters_equal=True,
+361 |                 engine_parameter_count=len(left[league]['engine_parameters']),
+    |
+
+E501 Line too long (109 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:365:101
+    |
+363 |                 all_score_matrix_values_exactly_equal=True, all_1x2_values_exactly_equal=True,
+364 |                 max_absolute_difference=0.0)
+365 |     result = dict(old_seven=summary, prediction_target_coverage=read(ROOT/'prediction-target-coverage.json'),
+    |                                                                                                     ^^^^^^^^^
+366 |                   applicable_real_future_targets=0, synthetic_future_diagnostics_only=True,
+367 |                   no_performance_experiment=True, http_calls=calls, **protect())
+    |
+
+E501 Line too long (109 > 100)
+   --> work/t63-review-20261114/acceptance/acceptance.py:381:101
+    |
+379 |         raise AssertionError('Network disabled by independent acceptance runner')
+380 |     with ExitStack() as stack:
+381 |         for name in ('requests.sessions.Session.request','socket.create_connection','socket.socket.connect'):
+    |                                                                                                     ^^^^^^^^^
+382 |             stack.enter_context(patch(name,side_effect=blocked))
+383 |         if args.phase == 'prepare': prepare()
+    |
+
+E701 Multiple statements on one line (colon)
+   --> work/t63-review-20261114/acceptance/acceptance.py:383:35
+    |
+381 |         for name in ('requests.sessions.Session.request','socket.create_connection','socket.socket.connect'):
+382 |             stack.enter_context(patch(name,side_effect=blocked))
+383 |         if args.phase == 'prepare': prepare()
+    |                                   ^
+384 |         elif args.phase == 'reconcile': reconcile_and_roundtrip(calls)
+385 |         elif args.phase == 'corpus': corpus(calls)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> work/t63-review-20261114/acceptance/acceptance.py:384:39
+    |
+382 |             stack.enter_context(patch(name,side_effect=blocked))
+383 |         if args.phase == 'prepare': prepare()
+384 |         elif args.phase == 'reconcile': reconcile_and_roundtrip(calls)
+    |                                       ^
+385 |         elif args.phase == 'corpus': corpus(calls)
+386 |         elif args.phase == 'train': train_models(calls)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> work/t63-review-20261114/acceptance/acceptance.py:385:36
+    |
+383 |         if args.phase == 'prepare': prepare()
+384 |         elif args.phase == 'reconcile': reconcile_and_roundtrip(calls)
+385 |         elif args.phase == 'corpus': corpus(calls)
+    |                                    ^
+386 |         elif args.phase == 'train': train_models(calls)
+387 |         elif args.phase.startswith('signatures-'): signatures(args.phase.split('-')[1],calls)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> work/t63-review-20261114/acceptance/acceptance.py:386:35
+    |
+384 |         elif args.phase == 'reconcile': reconcile_and_roundtrip(calls)
+385 |         elif args.phase == 'corpus': corpus(calls)
+386 |         elif args.phase == 'train': train_models(calls)
+    |                                   ^
+387 |         elif args.phase.startswith('signatures-'): signatures(args.phase.split('-')[1],calls)
+388 |         elif args.phase == 'compare': compare(calls)
+    |
+
+E701 Multiple statements on one line (colon)
+   --> work/t63-review-20261114/acceptance/acceptance.py:387:50
+    |
+385 |         elif args.phase == 'corpus': corpus(calls)
+386 |         elif args.phase == 'train': train_models(calls)
+387 |         elif args.phase.startswith('signatures-'): signatures(args.phase.split('-')[1],calls)
+    |                                                  ^
+388 |         elif args.phase == 'compare': compare(calls)
+389 |     assert not calls
+    |
+
+E701 Multiple statements on one line (colon)
+   --> work/t63-review-20261114/acceptance/acceptance.py:388:37
+    |
+386 |         elif args.phase == 'train': train_models(calls)
+387 |         elif args.phase.startswith('signatures-'): signatures(args.phase.split('-')[1],calls)
+388 |         elif args.phase == 'compare': compare(calls)
+    |                                     ^
+389 |     assert not calls
+    |
+
+E501 Line too long (109 > 100)
+  --> work/t63-review-20261114/acceptance/baseline_read_red.py:32:101
+   |
+30 |     engine=create_engine(f'sqlite+pysqlite:///file:{BASE_DB}?mode=ro&uri=true')
+31 |     with ExitStack() as stack:
+32 |         for name in ('requests.sessions.Session.request','socket.create_connection','socket.socket.connect'):
+   |                                                                                                     ^^^^^^^^^
+33 |             stack.enter_context(patch(name,side_effect=blocked))
+34 |         try:
+   |
+
+E501 Line too long (105 > 100)
+  --> work/t63-review-20261114/acceptance/baseline_read_red.py:48:101
+   |
+46 |     assert result['database_sha256_after']==before
+47 |     assert result.get('status')=='expected_failure'
+48 |     assert 'apif:1494327' in result['message'] and 'fd:SWE:20261103:sirius:halmstad' in result['message']
+   |                                                                                                     ^^^^^
+49 |     assert not calls
+50 |     write(ROOT/'b821ae6-euro-red-rerun.json',result)
+   |
+
+E501 Line too long (109 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:63:101
+   |
+61 |         raise AssertionError('HTTP and sockets blocked for offline stats acceptance')
+62 |     with ExitStack() as stack, TemporaryDirectory(dir=ROOT,prefix='stats-small-db-') as directory:
+63 |         for name in ('requests.sessions.Session.request','socket.create_connection','socket.socket.connect'):
+   |                                                                                                     ^^^^^^^^^
+64 |             stack.enter_context(patch(name,side_effect=blocked))
+65 |         engine = get_engine(Path(directory)/'probe.db')
+   |
+
+E501 Line too long (110 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:68:101
+   |
+66 |         init_db(engine)
+67 |         with session_scope(engine) as session:
+68 |             session.add_all(Team(**dict(r,aliases=json.loads(r['aliases']))) for r in seed['tables']['teams'])
+   |                                                                                                     ^^^^^^^^^^
+69 |             session.flush()
+70 |             session.add_all(Match(**r) for r in seed['tables']['matches'])
+   |
+
+E501 Line too long (122 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:74:101
+   |
+72 |             session.add_all(Result(**r) for r in seed['tables']['results'])
+73 |             session.flush()
+74 |             before = dict(matches=snapshot(session,Match), results=snapshot(session,Result), teams=snapshot(session,Team))
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^
+75 |             game = ApiGame(provider='apif',provider_match_id=1556134,competition_code='98',league='日职',
+76 |                 kickoff_utc=datetime.fromisoformat('2026-11-08T06:00:00Z'),status='FT',
+   |
+
+E501 Line too long (105 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:75:101
+   |
+73 |             session.flush()
+74 |             before = dict(matches=snapshot(session,Match), results=snapshot(session,Result), teams=snapshot(session,Team))
+75 |             game = ApiGame(provider='apif',provider_match_id=1556134,competition_code='98',league='日职',
+   |                                                                                                      ^^^^
+76 |                 kickoff_utc=datetime.fromisoformat('2026-11-08T06:00:00Z'),status='FT',
+77 |                 home_raw='Gamba Osaka',away_raw='Cerezo Osaka',home_provider_id=293,away_provider_id=291,
+   |
+
+E501 Line too long (105 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:77:101
+   |
+75 |             game = ApiGame(provider='apif',provider_match_id=1556134,competition_code='98',league='日职',
+76 |                 kickoff_utc=datetime.fromisoformat('2026-11-08T06:00:00Z'),status='FT',
+77 |                 home_raw='Gamba Osaka',away_raw='Cerezo Osaka',home_provider_id=293,away_provider_id=291,
+   |                                                                                                     ^^^^^
+78 |                 full=tuple(synthetic['full']),half=tuple(synthetic['half']),regular_time_basis='regular')
+79 |             assert ('retain_results' in inspect.signature(import_apif_games).parameters) == (args.label=='t63')
+   |
+
+E501 Line too long (111 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:79:101
+   |
+77 |                 home_raw='Gamba Osaka',away_raw='Cerezo Osaka',home_provider_id=293,away_provider_id=291,
+78 |                 full=tuple(synthetic['full']),half=tuple(synthetic['half']),regular_time_basis='regular')
+79 |             assert ('retain_results' in inspect.signature(import_apif_games).parameters) == (args.label=='t63')
+   |                                                                                                     ^^^^^^^^^^^
+80 |             options = dict(retain_results=True,imported_utc=now) if args.label=='t63' else {}
+81 |             imported = import_apif_games(session,[game],seen=now,assume=None,aliases=aliases,**options)
+   |
+
+E501 Line too long (103 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:81:101
+   |
+79 |             assert ('retain_results' in inspect.signature(import_apif_games).parameters) == (args.label=='t63')
+80 |             options = dict(retain_results=True,imported_utc=now) if args.label=='t63' else {}
+81 |             imported = import_apif_games(session,[game],seen=now,assume=None,aliases=aliases,**options)
+   |                                                                                                     ^^^
+82 |             session.flush()
+83 |             imported_snapshot = dict(matches=snapshot(session,Match),results=snapshot(session,Result),teams=snapshot(session,Team))
+   |
+
+E501 Line too long (131 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:83:101
+   |
+81 |             imported = import_apif_games(session,[game],seen=now,assume=None,aliases=aliases,**options)
+82 |             session.flush()
+83 |             imported_snapshot = dict(matches=snapshot(session,Match),results=snapshot(session,Result),teams=snapshot(session,Team))
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+84 |             original_match = next(r for r in imported_snapshot['matches'] if r['match_id']=='jc:2042615')
+85 |             original_result = next(r for r in imported_snapshot['results'] if r['match_id']=='jc:2042615')
+   |
+
+E501 Line too long (105 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:84:101
+   |
+82 |             session.flush()
+83 |             imported_snapshot = dict(matches=snapshot(session,Match),results=snapshot(session,Result),teams=snapshot(session,Team))
+84 |             original_match = next(r for r in imported_snapshot['matches'] if r['match_id']=='jc:2042615')
+   |                                                                                                     ^^^^^
+85 |             original_result = next(r for r in imported_snapshot['results'] if r['match_id']=='jc:2042615')
+86 |             assert original_match == before['matches'][0]
+   |
+
+E501 Line too long (106 > 100)
+  --> work/t63-review-20261114/acceptance/stats_acceptance.py:85:101
+   |
+83 |             imported_snapshot = dict(matches=snapshot(session,Match),results=snapshot(session,Result),teams=snapshot(session,Team))
+84 |             original_match = next(r for r in imported_snapshot['matches'] if r['match_id']=='jc:2042615')
+85 |             original_result = next(r for r in imported_snapshot['results'] if r['match_id']=='jc:2042615')
+   |                                                                                                     ^^^^^^
+86 |             assert original_match == before['matches'][0]
+87 |             assert original_result == before['results'][0]
+   |
+
+E501 Line too long (119 > 100)
+   --> work/t63-review-20261114/acceptance/stats_acceptance.py:103:101
+    |
+101 |             assert repeat['linked']==0 and repeat['unchanged']==1
+102 |             assert session.get(ApifFixtureIndex,'1556134').match_id == 'jc:2042615'
+103 |             after = dict(matches=snapshot(session,Match),results=snapshot(session,Result),teams=snapshot(session,Team))
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^
+104 |             assert after == imported_snapshot
+105 |             modules={}
+    |
+
+E501 Line too long (114 > 100)
+   --> work/t63-review-20261114/acceptance/stats_acceptance.py:110:101
+    |
+108 |                 if name.startswith('zucai') and path and Path(path).suffix=='.py':
+109 |                     modules[name]=dict(path=path,sha256=sha(path))
+110 |             report = dict(label=args.label,seed_sha256=sha(SEED),synthetic_api_disclaimer=synthetic['disclaimer'],
+    |                                                                                                     ^^^^^^^^^^^^^^
+111 |                 synthetic_validation_time=now.isoformat(),seed_exactly_matches_original_archive=True,
+112 |                 import_result=imported,index_result=linked,index_repeat=repeat,
+    |
+
+E501 Line too long (245 > 100)
+   --> work/t63-review-20261114/acceptance/stats_acceptance.py:118:101
+    |
+116 | …
+117 | …ndent=2,default=str)+'\n')
+118 | …l_jc_match_result_teams_unchanged','indexing_all_matches_results_unchanged','retained_apif_row','technical_target','http_calls')},ensure_ascii=False))
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+119 | …
+120 | …
+    |
+
+Found 51 errors (5 fixed, 46 remaining).

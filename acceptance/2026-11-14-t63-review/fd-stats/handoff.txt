@@ -1,0 +1,18 @@
+T63 retained API rows / existing FD statistics proof repair
+
+Owned edits: src/zucai/fd_stats_links.py and new tests/test_t63_fd_stats_retention.py only. No commits/push/network/key usage.
+
+Cause: T48 stored proof points FD stats to one existing JC row. T63 later retains a separate APIF result for that same match with an immutable ResultSourceLink, so raw match-row counting incorrectly treats the new proven row as a competing fixture and rejects check_db/export.
+
+Fix: before candidate uniqueness, the FD context reads all result-source proof rows through existing SQLite validators (_stored_rows, _archive_context, _validate_rows). That validates complete source-unique components; only edges whose league, canonical sides and each kickoff still exactly match current rows contribute equivalence. The same SQLite helper enriches ORM contexts via the session-owned driver connection; no transaction is opened, committed or closed. The FD resolver still requires exactly one JC target and rejects reversed/shared-team rows. Only same-direction APIF/FDORG rows in that JC's proven component can collapse the extra row count. Independent/unproven API rows, other FD/JC candidates and all existing counterpart claim guards retain their rejection behavior. T66 exact FD pointer allowance remains unchanged. No FD proof, match or Result is rewritten by this logic.
+
+Restore integration: root separately changed cloud_feeds.restore_feeds to restore ResultSourceLinks before restore_fd_links (whose immediate validation needs the proof). I did not edit that file.
+
+Evidence:
+- red.log: 3 failed / 7 passed before production fix. All three valid retained-row cases failed with the reproduced candidate-not-unique error.
+- green.log: 181 passed in 17.83s across new tests; T48 FD links/archive/replay; T66 FD links; T63 result links and stats retention.
+- New successful cases cover original empty pointer, original fdorg pointer and T66 later exact FD pointer. They execute real ingestion, check_db, LocalRelease row publication, cloud_feeds.main export, cloud_feeds.main verify (real restore), and restore_rows. Canonically ordered matches, Results, all 16 stats rows, and unchanged FD proof rows compare exactly before/after.
+- New rejection cases: no result proof, stale kickoff snapshot, reversed sides, shared team, independent API competitor, other-source JC pointer and invalid proof timestamp. Existing rejection tests remain unmodified.
+- ruff.log: both owned files pass ruff check and format --check; scoped git diff --check passed.
+
+Implementation frozen after green. Parent owns full suite, global docs, acceptance and integration.

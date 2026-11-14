@@ -1,0 +1,146 @@
+FFFFFF..F                                                                [100%]
+=================================== FAILURES ===================================
+___ test_aligned_history_uses_model_cutoff_and_rechecks_each_feature_cutoff ____
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-482/test_aligned_history_uses_mode0/retained.db)
+
+    def test_aligned_history_uses_model_cutoff_and_rechecks_each_feature_cutoff(engine):
+        verified = instant("2026-11-11T12:00:00Z")
+        with session_scope(engine) as session:
+            retained(session)
+            add_match(session, "jc", key="jc:target", kickoff="2026-11-12T10:00:00Z")
+>           builder, games = unified_history(session, provider="apif", as_of=verified + timedelta(seconds=1))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: unified_history() got an unexpected keyword argument 'as_of'
+
+tests/test_t63_stats_consumers.py:31: TypeError
+_____ test_history_does_not_admit_future_stale_or_unfinished_rows[future] ______
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-482/test_history_does_not_admit_fu0/retained.db)
+case = 'future'
+
+    @pytest.mark.parametrize("case", ["future", "stale", "scheduled"])
+    def test_history_does_not_admit_future_stale_or_unfinished_rows(engine, case):
+        with session_scope(engine) as session:
+            paid = retained(session)
+            if case == "stale":
+                paid.kickoff_utc = "2026-11-10T10:31:00Z"
+            if case == "scheduled":
+                paid.status = "scheduled"
+            session.flush()
+            cutoff = "2026-11-11T12:00:00Z" if case == "future" else "2026-11-12T12:00:00Z"
+>           _, games = unified_history(session, provider="apif", as_of=cutoff)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: unified_history() got an unexpected keyword argument 'as_of'
+
+tests/test_t63_stats_consumers.py:52: TypeError
+______ test_history_does_not_admit_future_stale_or_unfinished_rows[stale] ______
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-482/test_history_does_not_admit_fu1/retained.db)
+case = 'stale'
+
+    @pytest.mark.parametrize("case", ["future", "stale", "scheduled"])
+    def test_history_does_not_admit_future_stale_or_unfinished_rows(engine, case):
+        with session_scope(engine) as session:
+            paid = retained(session)
+            if case == "stale":
+                paid.kickoff_utc = "2026-11-10T10:31:00Z"
+            if case == "scheduled":
+                paid.status = "scheduled"
+            session.flush()
+            cutoff = "2026-11-11T12:00:00Z" if case == "future" else "2026-11-12T12:00:00Z"
+>           _, games = unified_history(session, provider="apif", as_of=cutoff)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: unified_history() got an unexpected keyword argument 'as_of'
+
+tests/test_t63_stats_consumers.py:52: TypeError
+____ test_history_does_not_admit_future_stale_or_unfinished_rows[scheduled] ____
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-482/test_history_does_not_admit_fu2/retained.db)
+case = 'scheduled'
+
+    @pytest.mark.parametrize("case", ["future", "stale", "scheduled"])
+    def test_history_does_not_admit_future_stale_or_unfinished_rows(engine, case):
+        with session_scope(engine) as session:
+            paid = retained(session)
+            if case == "stale":
+                paid.kickoff_utc = "2026-11-10T10:31:00Z"
+            if case == "scheduled":
+                paid.status = "scheduled"
+            session.flush()
+            cutoff = "2026-11-11T12:00:00Z" if case == "future" else "2026-11-12T12:00:00Z"
+>           _, games = unified_history(session, provider="apif", as_of=cutoff)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: unified_history() got an unexpected keyword argument 'as_of'
+
+tests/test_t63_stats_consumers.py:52: TypeError
+____ test_injury_index_proof_is_strictly_before_each_target_cutoff[strict] _____
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-482/test_injury_index_proof_is_str0/retained.db)
+mode = 'strict'
+
+    @pytest.mark.parametrize("mode", ["strict", "backfill_replay"])
+    def test_injury_index_proof_is_strictly_before_each_target_cutoff(engine, mode):
+        with session_scope(engine) as session:
+            retained(session, "2026-11-10T09:00Z", status="scheduled")
+            add_index(session, "jc:1")
+            builder = InjuryFeatures(session)
+        target = builder.matches["apif:1"]
+        for cutoff, reason in [("2026-11-10T09:00Z", "fixture_identity_missing"), ("2026-11-10T09:01Z", "capture_receipt_missing"), ("2026-11-10T08:59Z", "fixture_identity_missing")]:
+            row = builder.build(target, as_of=cutoff, mode=mode)
+>           assert row["home"]["missing_n"]["missing_reason"] == reason
+E           AssertionError: assert 'fixture_identity_missing' == 'capture_receipt_missing'
+E             
+E             - capture_receipt_missing
+E             + fixture_identity_missing
+
+tests/test_t63_stats_consumers.py:66: AssertionError
+_ test_injury_index_proof_is_strictly_before_each_target_cutoff[backfill_replay] _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-482/test_injury_index_proof_is_str1/retained.db)
+mode = 'backfill_replay'
+
+    @pytest.mark.parametrize("mode", ["strict", "backfill_replay"])
+    def test_injury_index_proof_is_strictly_before_each_target_cutoff(engine, mode):
+        with session_scope(engine) as session:
+            retained(session, "2026-11-10T09:00Z", status="scheduled")
+            add_index(session, "jc:1")
+            builder = InjuryFeatures(session)
+        target = builder.matches["apif:1"]
+        for cutoff, reason in [("2026-11-10T09:00Z", "fixture_identity_missing"), ("2026-11-10T09:01Z", "capture_receipt_missing"), ("2026-11-10T08:59Z", "fixture_identity_missing")]:
+            row = builder.build(target, as_of=cutoff, mode=mode)
+>           assert row["home"]["missing_n"]["missing_reason"] == reason
+E           AssertionError: assert 'fixture_identity_missing' == 'capture_receipt_missing'
+E             
+E             - capture_receipt_missing
+E             + fixture_identity_missing
+
+tests/test_t63_stats_consumers.py:66: AssertionError
+_ test_post_fit_market_mapping_uses_only_proofs_known_before_row_cutoff[2026-11-10T09:01Z-True] _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-482/test_post_fit_market_mapping_u1/retained.db)
+cutoff = '2026-11-10T09:01Z', available = True
+
+    @pytest.mark.parametrize("cutoff,available", [("2026-11-10T09:00Z", False), ("2026-11-10T09:01Z", True)])
+    def test_post_fit_market_mapping_uses_only_proofs_known_before_row_cutoff(engine, cutoff, available):
+        with session_scope(engine) as session:
+            retained(session, "2026-11-10T09:00Z")
+            for selection in "hda":
+                session.add(Odds(match_id="jc:1", pool="had", line=0, selection=selection, price=3, snapshot_utc="2026-11-10T08:00Z"))
+            session.flush()
+            features = StatsFeatures(session, provider="apif")
+            rows = [dict(match_id="apif:1", actual=0, feature_cutoff=cutoff, variants={})]
+            attach_market(session, rows, features)
+>           assert (rows[0]["variants"]["market"] is not None) is available
+E           assert (None is not None) is True
+
+tests/test_t63_stats_consumers.py:88: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t63_stats_consumers.py::test_aligned_history_uses_model_cutoff_and_rechecks_each_feature_cutoff
+FAILED tests/test_t63_stats_consumers.py::test_history_does_not_admit_future_stale_or_unfinished_rows[future]
+FAILED tests/test_t63_stats_consumers.py::test_history_does_not_admit_future_stale_or_unfinished_rows[stale]
+FAILED tests/test_t63_stats_consumers.py::test_history_does_not_admit_future_stale_or_unfinished_rows[scheduled]
+FAILED tests/test_t63_stats_consumers.py::test_injury_index_proof_is_strictly_before_each_target_cutoff[strict]
+FAILED tests/test_t63_stats_consumers.py::test_injury_index_proof_is_strictly_before_each_target_cutoff[backfill_replay]
+FAILED tests/test_t63_stats_consumers.py::test_post_fit_market_mapping_uses_only_proofs_known_before_row_cutoff[2026-11-10T09:01Z-True]
+7 failed, 2 passed in 10.23s

@@ -1,0 +1,217 @@
+{
+  "provenance": {
+    "kind": "synthetic",
+    "origin": "Hand-authored offline T63 audit scenarios; no sports HTTP requests or production database extracts.",
+    "known_case": "The Union Berlin / Bochum date and classification come from docs/tasks/T63-apif-results-for-existing-15-leagues.md. Scores, IDs and availability timestamps here are synthetic test inputs, not evidence of collection or account access."
+  },
+  "teams": [
+    [1, "合成主队"], [2, "合成客队"], [3, "柏林联合"], [4, "波鸿"],
+    [5, "另一主队"], [6, "另一客队"], [7, "apif:team:9007"],
+    [8, "同名主队"], [9, "同名客队"], [10, "同名主队"], [11, "同名客队"],
+    [12, "unknown:team:9012"]
+  ],
+  "team_aliases": {
+    "1": [
+      "apif:英超:team:101", "apif:英冠:team:101", "apif:西甲:team:101",
+      "apif:意甲:team:101", "apif:德甲:team:101", "apif:法甲:team:101",
+      "apif:法乙:team:101", "apif:荷甲:team:101", "apif:葡超:team:101",
+      "apif:日职:team:101", "apif:瑞超:team:101", "apif:挪超:team:101",
+      "apif:芬超:team:101", "apif:美职:team:101", "apif:巴甲:team:101",
+      "fdorg:英冠:team:201"
+    ],
+    "2": [
+      "apif:英超:team:102", "apif:英冠:team:102", "apif:西甲:team:102",
+      "apif:意甲:team:102", "apif:德甲:team:102", "apif:法甲:team:102",
+      "apif:法乙:team:102", "apif:荷甲:team:102", "apif:葡超:team:102",
+      "apif:日职:team:102", "apif:瑞超:team:102", "apif:挪超:team:102",
+      "apif:芬超:team:102", "apif:美职:team:102", "apif:巴甲:team:102",
+      "fdorg:英冠:team:202"
+    ],
+    "3": ["apif:德甲:team:303"],
+    "4": ["apif:德甲:team:404"],
+    "5": ["apif:德甲:team:505"],
+    "6": ["apif:德甲:team:606"],
+    "8": ["apif:美职:team:808"],
+    "9": ["apif:美职:team:909"]
+  },
+  "binding_cases": {
+    "friendly_apif_home_without_binding": {
+      "base_case": "consistent",
+      "teams": [[1, "友好规范主队", []]],
+      "comparison_match_id": "fd:consistent",
+      "reason_prefix": "provider_binding_invalid:apif:home:",
+      "matched": 0
+    },
+    "friendly_apif_away_without_binding": {
+      "base_case": "consistent",
+      "teams": [[2, "友好规范客队", []]],
+      "comparison_match_id": "fd:consistent",
+      "reason_prefix": "provider_binding_invalid:apif:away:",
+      "matched": 0
+    },
+    "multiple_apif_bindings": {
+      "base_case": "consistent",
+      "teams": [[1, "合成主队", ["apif:英超:team:101", "apif:英超:team:199"]]],
+      "comparison_match_id": "fd:consistent",
+      "reason_prefix": "provider_binding_invalid:apif:home:",
+      "matched": 0
+    },
+    "apif_zero_id": {
+      "base_case": "consistent",
+      "teams": [[1, "合成主队", ["apif:英超:team:0"]]],
+      "comparison_match_id": "fd:consistent",
+      "reason_prefix": "provider_binding_invalid:apif:home:",
+      "matched": 0
+    },
+    "apif_malformed_aliases": {
+      "base_case": "consistent",
+      "teams": [[1, "合成主队", "not-a-list"]],
+      "comparison_match_id": "fd:consistent",
+      "reason_prefix": "provider_binding_invalid:apif:home:",
+      "matched": 0
+    },
+    "apif_hidden_alias_owner": {
+      "base_case": "consistent",
+      "teams": [[13, "从未参赛的别名拥有者", ["APIF:英超:TEAM:101"]]],
+      "comparison_match_id": "fd:consistent",
+      "reason_prefix": "provider_binding_multiple_owners:apif:home:",
+      "matched": 0
+    },
+    "apif_hidden_name_owner": {
+      "base_case": "consistent",
+      "teams": [[13, "APIF:英超:TEAM:101", []]],
+      "comparison_match_id": "fd:consistent",
+      "reason_prefix": "provider_binding_multiple_owners:apif:home:",
+      "matched": 0
+    },
+    "fdorg_without_binding": {
+      "base_case": "all_comparison_sources",
+      "teams": [[1, "合成主队", ["apif:英冠:team:101"]]],
+      "comparison_match_id": "fdorg:all",
+      "reason_prefix": "provider_binding_invalid:fdorg:home:",
+      "matched": 2
+    },
+    "fdorg_hidden_owner": {
+      "base_case": "all_comparison_sources",
+      "teams": [[13, "从未参赛的别名拥有者", ["FDORG:英冠:TEAM:201"]]],
+      "comparison_match_id": "fdorg:all",
+      "reason_prefix": "provider_binding_multiple_owners:fdorg:home:",
+      "matched": 2
+    }
+  },
+  "columns": [
+    "match_id", "source", "league", "home_team_id", "away_team_id", "kickoff_utc",
+    "counterpart_id", "home_goals", "away_goals", "available_utc", "available_source"
+  ],
+  "cases": {
+    "consistent": [
+      ["apif:consistent", "apif", "英超", 1, 2, "2026-09-01T14:00:00Z", "fd:consistent", 2, 1, "2026-09-01T18:00:00Z", "captured"],
+      ["fd:consistent", "fd", "英超", 1, 2, "2026-09-01T15:00:00+01:00", null, 2, 1, "2026-09-02T14:00:00Z", "captured"]
+    ],
+    "kickoff_only": [
+      ["apif:kickoff", "apif", "英超", 1, 2, "2026-09-02T14:00:00Z", null, 2, 1, "2026-09-02T18:00:00Z", "captured"],
+      ["jc:kickoff", "jc", "英超", 1, 2, "2026-09-02T15:00:00Z", null, 2, 1, "2026-09-03T14:00:00Z", "published"]
+    ],
+    "disciplinary": [
+      ["apif:disciplinary", "apif", "德甲", 3, 4, "2024-12-14T14:30:00Z", "fd:disciplinary", 1, 1, "2024-12-14T18:00:00Z", "captured"],
+      ["fd:disciplinary", "fd", "德甲", 3, 4, "2024-12-14T14:30:00Z", null, 0, 2, "2025-01-10T14:00:00Z", "captured"]
+    ],
+    "other_german_conflict": [
+      ["apif:other-german", "apif", "德甲", 5, 6, "2024-12-14T14:30:00Z", null, 1, 1, null, "assumed"],
+      ["fd:other-german", "fd", "德甲", 5, 6, "2024-12-14T14:30:00Z", null, 0, 2, null, "assumed"]
+    ],
+    "other_berlin_date": [
+      ["apif:other-date", "apif", "德甲", 3, 4, "2025-12-14T14:30:00Z", null, 1, 1, null, "assumed"],
+      ["fd:other-date", "fd", "德甲", 3, 4, "2025-12-14T14:30:00Z", null, 0, 2, null, "assumed"]
+    ],
+    "score_and_kickoff": [
+      ["apif:both", "apif", "法乙", 1, 2, "2026-09-03T14:00:00Z", null, 2, 1, null, null],
+      ["fd:both", "fd", "法乙", 1, 2, "2026-09-03T14:30:00Z", null, 1, 1, null, null]
+    ],
+    "reverse": [
+      ["apif:reverse", "apif", "西甲", 1, 2, "2026-09-04T14:00:00Z", "fd:reverse", 2, 1, null, null],
+      ["fd:reverse", "fd", "西甲", 2, 1, "2026-09-04T14:00:00Z", null, 1, 2, null, null]
+    ],
+    "temporary_identity": [
+      ["apif:temporary", "apif", "日职", 7, 2, "2026-09-05T14:00:00Z", "fd:temporary", 2, 1, null, null],
+      ["fd:temporary", "fd", "日职", 7, 2, "2026-09-05T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "unknown_team_prefix": [
+      ["apif:unknown-team", "apif", "日职", 12, 2, "2026-09-06T14:00:00Z", null, 2, 1, null, null],
+      ["fd:unknown-team", "fd", "日职", 12, 2, "2026-09-06T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "multiple_comparison": [
+      ["apif:multiple", "apif", "葡超", 1, 2, "2026-09-07T14:00:00Z", "fd:multiple-a", 2, 1, null, null],
+      ["fd:multiple-a", "fd", "葡超", 1, 2, "2026-09-07T14:00:00Z", null, 2, 1, null, null],
+      ["fd:multiple-b", "fd", "葡超", 1, 2, "2026-09-07T15:00:00Z", null, 2, 1, null, null]
+    ],
+    "multiple_apif": [
+      ["apif:multiple-a", "apif", "荷甲", 1, 2, "2026-09-08T14:00:00Z", null, 2, 1, null, null],
+      ["apif:multiple-b", "apif", "荷甲", 1, 2, "2026-09-08T15:00:00Z", null, 2, 1, null, null],
+      ["fd:multiple", "fd", "荷甲", 1, 2, "2026-09-08T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "multiple_apif_without_results": [
+      ["apif:scheduled-a", "apif", "荷甲", 1, 2, "2026-09-22T14:00:00Z", null, null, null, null, null],
+      ["apif:scheduled-b", "apif", "荷甲", 1, 2, "2026-09-22T15:00:00Z", null, null, null, null, null],
+      ["fd:multiple-scheduled", "fd", "荷甲", 1, 2, "2026-09-22T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "multiple_comparisons_without_apif_result": [
+      ["apif:scheduled", "apif", "葡超", 1, 2, "2026-09-23T14:00:00Z", null, null, null, null, null],
+      ["fd:scheduled-a", "fd", "葡超", 1, 2, "2026-09-23T14:00:00Z", null, 2, 1, null, null],
+      ["fd:scheduled-b", "fd", "葡超", 1, 2, "2026-09-23T15:00:00Z", null, 2, 1, null, null]
+    ],
+    "outside_window": [
+      ["apif:late-link", "apif", "瑞超", 1, 2, "2026-09-09T14:00:00Z", "fd:late-link", 2, 1, null, null],
+      ["fd:late-link", "fd", "瑞超", 1, 2, "2026-09-09T17:00:01Z", null, 2, 1, null, null]
+    ],
+    "boundary_window": [
+      ["apif:boundary", "apif", "挪超", 1, 2, "2026-09-10T14:00:00Z", null, 2, 1, null, null],
+      ["fd:boundary", "fd", "挪超", 1, 2, "2026-09-10T17:00:00Z", "apif:boundary", 2, 1, null, null]
+    ],
+    "unknown_counterpart": [
+      ["apif:unknown-link", "apif", "巴甲", 1, 2, "2026-09-11T14:00:00Z", "mystery:absent", 2, 1, null, null]
+    ],
+    "dangling_counterpart": [
+      ["apif:dangling", "apif", "巴甲", 1, 2, "2026-09-12T14:00:00Z", "fd:absent", 2, 1, null, null]
+    ],
+    "same_names_different_ids": [
+      ["apif:same-names", "apif", "美职", 8, 9, "2026-09-13T14:00:00Z", null, 2, 1, null, null],
+      ["fd:same-names", "fd", "美职", 10, 11, "2026-09-13T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "comparison_result_missing": [
+      ["apif:waiting", "apif", "芬超", 1, 2, "2026-09-14T14:00:00Z", "jc:waiting", 2, 1, "2026-09-14T18:00:00Z", "captured"],
+      ["jc:waiting", "jc", "芬超", 1, 2, "2026-09-14T14:00:00Z", null, null, null, null, null]
+    ],
+    "no_apif_result": [
+      ["apif:no-result", "apif", "意甲", 1, 2, "2026-09-15T14:00:00Z", null, null, null, null, null],
+      ["fd:old", "fd", "意甲", 1, 2, "2026-09-15T14:00:00Z", "apif:no-result", 2, 1, "2026-09-16T18:00:00Z", "captured"]
+    ],
+    "all_comparison_sources": [
+      ["apif:all", "apif", "英冠", 1, 2, "2026-09-16T14:00:00Z", null, 2, 1, null, null],
+      ["fd:all", "fd", "英冠", 1, 2, "2026-09-16T14:00:00Z", "fdorg:all", 2, 1, null, null],
+      ["fdorg:all", "fdorg", "英冠", 1, 2, "2026-09-16T14:00:00Z", null, 2, 1, null, null],
+      ["jc:all", "jc", "英冠", 1, 2, "2026-09-16T14:00:00Z", "apif:all", 1, 1, null, null]
+    ],
+    "out_of_scope": [
+      ["apif:cup", "apif", "欧冠", 1, 2, "2026-09-17T14:00:00Z", "fdorg:cup", 2, 1, null, null],
+      ["fdorg:cup", "fdorg", "欧冠", 1, 2, "2026-09-17T14:00:00Z", null, 2, 1, null, null],
+      ["apif:korea", "apif", "韩职", 1, 2, "2026-09-17T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "wrong_identity": [
+      ["apif:wrong-identity", "apif", "法甲", 1, 2, "2026-09-18T14:00:00Z", "fd:wrong-identity", 2, 1, null, null],
+      ["fd:wrong-identity", "fd", "法甲", 5, 6, "2026-09-18T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "invalid_kickoff": [
+      ["apif:invalid-time", "apif", "英超", 1, 2, "2026-09-19T14:00:00", "fd:invalid-time", 2, 1, null, null],
+      ["fd:invalid-time", "fd", "英超", 1, 2, "2026-09-19T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "league_mismatch": [
+      ["apif:wrong-league", "apif", "英超", 1, 2, "2026-09-20T14:00:00Z", "fd:wrong-league", 2, 1, null, null],
+      ["fd:wrong-league", "fd", "英冠", 1, 2, "2026-09-20T14:00:00Z", null, 2, 1, null, null]
+    ],
+    "unknown_match_prefix": [
+      ["apif:wrong-prefix", "apif", "英超", 1, 2, "2026-09-21T14:00:00Z", "mystery:wrong-prefix", 2, 1, null, null],
+      ["mystery:wrong-prefix", "fd", "英超", 1, 2, "2026-09-21T14:00:00Z", null, 2, 1, null, null]
+    ]
+  }
+}

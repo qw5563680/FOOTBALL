@@ -1,0 +1,92 @@
+........................................................................ [ 67%]
+F..F.........................F....                                       [100%]
+=================================== FAILURES ===================================
+______ test_a_filtered_frame_alone_cannot_authorize_the_new_partial_link _______
+
+    def test_a_filtered_frame_alone_cannot_authorize_the_new_partial_link():
+        frame = pd.DataFrame(
+            [
+                dict(
+                    match_id="apif:1494327",
+                    source="apif",
+                    league="瑞超",
+                    home="天狼星",
+                    away="apif:team:766",
+                    kickoff_utc=pd.Timestamp("2026-11-03T18:00Z"),
+                    counterpart_id="fd:SWE:20261103:sirius:halmstad",
+                ),
+                dict(
+                    match_id="fd:SWE:20261103:sirius:halmstad",
+                    source="fd",
+                    league="瑞超",
+                    home="天狼星",
+                    away="Halmstad",
+                    kickoff_utc=pd.Timestamp("2026-11-03T18:00Z"),
+                    counterpart_id=None,
+                ),
+            ]
+        )
+>       with pytest.raises(ValueError, match="完整数据库"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t66_fd_apif.py:532: Failed
+________ test_purpose_preserves_legacy_order_and_special_nations_route _________
+
+    def test_purpose_preserves_legacy_order_and_special_nations_route():
+        assert daily_codes("fdorg") == "PL ELC PD SA BL1 FL1 DED PPL BSA CL".split()
+        assert daily_codes("apif") == "98 292 188 113 103 244 119 253 169 3 848".split()
+>       assert set(provider_entries("apif", purpose="backfill")) == {
+            str(code) for code in provider_ids("apif")
+        }
+E       AssertionError: assert {'1', '10', '...', '104', ...} == {'1', '10', '...', '104', ...}
+E         
+E         Extra items in the right set:
+E         '39'
+E         '78'
+E         '94'
+E         '140'
+E         '61'...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_t61_registry.py:108: AssertionError
+____________ test_new_routes_do_not_change_daily_database_or_audits ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-452/test_new_routes_do_not_change_0')
+
+    def test_new_routes_do_not_change_daily_database_or_audits(tmp_path):
+        observed = []
+        for name, extra in (("clean", False), ("mixed", True)):
+            root = tmp_path / name
+            path = _archive(root / "raw", _document(extra=extra, rejected=extra))
+            database = root / "data/zucai.db"
+            result = fetch_apif(
+                date="2026-11-01",
+                raw_file=path,
+                db=database,
+                audit_dir=root / "audit",
+                quota_path=root / "quota.json",
+            )
+            assert result["inserted"] == 1
+            assert result["rejected_rows"] == result["suspected_duplicates"] == 0
+            assert result["requests"] == 0
+            observed.append(
+                (
+                    _snapshot(database),
+                    {p.name: p.read_bytes() for p in (root / "audit").glob("*.csv")},
+                    {key: value for key, value in result.items() if key != "files"},
+                )
+            )
+>       assert observed[0] == observed[1]
+E       AssertionError: assert ({'apif_fixtu...ted': 0, ...}) == ({'apif_fixtu...ted': 0, ...})
+E         
+E         At index 0 diff: {'apif_fixture_index': [], 'closing_odds': [], 'fd_stats_links': [], 'match_events': [], 'match_injuries': [], 'match_lineups': [], 'match_stats': [], 'matches': [('apif:9901', 'apif', '日职', 1, 2, '2026-11-01T11:00:00.000000Z', None, 'finished', '2026-11-03T00:00:00.000000Z', 'apif', None)], 'odds': [], 'predictions': [], 'result_source_identities': [], 'result_source_links': [], 'results': [('apif:9901', 1, 1, 0, 1, '2026-11-14T06:52:07.128281Z', 'captured')], 'sfc_issue_matches': [], 'sfc_issues': [], 'teams': [(1, 'apif:team:551', '[]'), (2, 'apif:te...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_t65_daily_scope.py:118: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_apif.py::test_a_filtered_frame_alone_cannot_authorize_the_new_partial_link
+FAILED tests/test_t61_registry.py::test_purpose_preserves_legacy_order_and_special_nations_route
+FAILED tests/test_t65_daily_scope.py::test_new_routes_do_not_change_daily_database_or_audits

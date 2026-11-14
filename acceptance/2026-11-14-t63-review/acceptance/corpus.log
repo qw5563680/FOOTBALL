@@ -1,0 +1,28 @@
+CORPUS 德甲: 1611
+CORPUS 意甲: 2010
+CORPUS 西甲: 2019
+CORPUS 英超: 1992
+CORPUS 法甲: 1768
+CORPUS 荷甲: 1638
+CORPUS 葡超: 1622
+CORPUS 英冠: 2940
+CORPUS 瑞超: 1418
+CORPUS 挪超: 1400
+CORPUS 法乙: 1845
+CORPUS 日职: 2066
+CORPUS 芬超: 1020
+CORPUS 巴甲: 2230
+Traceback (most recent call last):
+  File "/workspace/work/t63-review-20261114/acceptance/acceptance.py", line 380, in <module>
+    main()
+  File "/workspace/work/t63-review-20261114/acceptance/acceptance.py", line 372, in main
+    elif args.phase == 'corpus': corpus(calls)
+                                 ^^^^^^^^^^^^^
+  File "/workspace/work/t63-review-20261114/acceptance/acceptance.py", line 234, in corpus
+    eligible = select_training_history(games, CUTOFF)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/t63-review-20261114/acceptance/code-training/src/zucai/predict/pooled.py", line 284, in select_training_history
+    reject_cross_source_overlaps(eligible)
+  File "/workspace/work/t63-review-20261114/acceptance/code-training/src/zucai/predict/apif_guard.py", line 30, in reject_cross_source_overlaps
+    raise ValueError(
+ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：fd:USA:20261031:fc-cincinnati:philadelphia-union / apif:1490585

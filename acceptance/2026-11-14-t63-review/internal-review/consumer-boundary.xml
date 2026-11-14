@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="3" time="2.180" timestamp="2026-11-14T07:19:06.692657+00:00" hostname="5e80b6da1ed3"><testcase classname="t63-review-20261114.internal-review.test_consumer_boundary_review" name="test_market_rows_each_apply_own_proof_cutoff[False]" time="0.044"><failure message="AssertionError: assert {'2026-11-10T...09:01Z': True} == {'2026-11-10T...09:01Z': True}&#10;  &#10;  Omitting 1 identical items, use -vv to show&#10;  Differing items:&#10;  {'2026-11-10T08:59Z': True} != {'2026-11-10T08:59Z': False}&#10;  Use -v to get more diff">engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-494/test_market_rows_each_apply_ow0/retained.db)
+reverse = False
+
+    @pytest.mark.parametrize('reverse',[False,True])
+    def test_market_rows_each_apply_own_proof_cutoff(engine,reverse):
+        with session_scope(engine) as session:
+            retained(session,'2026-11-10T09:00Z')
+            for selection in 'hda':
+                session.add(Odds(match_id='jc:1',pool='had',line=0,selection=selection,price=3,snapshot_utc='2026-11-10T08:00Z'))
+            session.flush()
+            builder=StatsFeatures(session,provider='apif')
+            rows=[dict(match_id='apif:1',actual=0,feature_cutoff=c,variants={}) for c in ('2026-11-10T08:59Z','2026-11-10T09:01Z')]
+            if reverse: rows.reverse()
+            attach_market(session,rows,builder)
+            result={r['feature_cutoff']:r['variants']['market'] is not None for r in rows}
+&gt;           assert result=={'2026-11-10T08:59Z':False,'2026-11-10T09:01Z':True}
+E           AssertionError: assert {'2026-11-10T...09:01Z': True} == {'2026-11-10T...09:01Z': True}
+E             
+E             Omitting 1 identical items, use -vv to show
+E             Differing items:
+E             {'2026-11-10T08:59Z': True} != {'2026-11-10T08:59Z': False}
+E             Use -v to get more diff
+
+../t63-review-20261114/internal-review/test_consumer_boundary_review.py:26: AssertionError</failure></testcase><testcase classname="t63-review-20261114.internal-review.test_consumer_boundary_review" name="test_market_rows_each_apply_own_proof_cutoff[True]" time="0.023"><failure message="AssertionError: assert {'2026-11-10T...08:59Z': True} == {'2026-11-10T...09:01Z': True}&#10;  &#10;  Omitting 1 identical items, use -vv to show&#10;  Differing items:&#10;  {'2026-11-10T08:59Z': True} != {'2026-11-10T08:59Z': False}&#10;  Use -v to get more diff">engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-494/test_market_rows_each_apply_ow1/retained.db)
+reverse = True
+
+    @pytest.mark.parametrize('reverse',[False,True])
+    def test_market_rows_each_apply_own_proof_cutoff(engine,reverse):
+        with session_scope(engine) as session:
+            retained(session,'2026-11-10T09:00Z')
+            for selection in 'hda':
+                session.add(Odds(match_id='jc:1',pool='had',line=0,selection=selection,price=3,snapshot_utc='2026-11-10T08:00Z'))
+            session.flush()
+            builder=StatsFeatures(session,provider='apif')
+            rows=[dict(match_id='apif:1',actual=0,feature_cutoff=c,variants={}) for c in ('2026-11-10T08:59Z','2026-11-10T09:01Z')]
+            if reverse: rows.reverse()
+            attach_market(session,rows,builder)
+            result={r['feature_cutoff']:r['variants']['market'] is not None for r in rows}
+&gt;           assert result=={'2026-11-10T08:59Z':False,'2026-11-10T09:01Z':True}
+E           AssertionError: assert {'2026-11-10T...08:59Z': True} == {'2026-11-10T...09:01Z': True}
+E             
+E             Omitting 1 identical items, use -vv to show
+E             Differing items:
+E             {'2026-11-10T08:59Z': True} != {'2026-11-10T08:59Z': False}
+E             Use -v to get more diff
+
+../t63-review-20261114/internal-review/test_consumer_boundary_review.py:26: AssertionError</failure></testcase><testcase classname="t63-review-20261114.internal-review.test_consumer_boundary_review" name="test_aligned_cache_preserves_original_and_prior_view" time="0.020" /></testsuite></testsuites>

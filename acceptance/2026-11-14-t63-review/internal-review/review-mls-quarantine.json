@@ -1,0 +1,54 @@
+{
+  "verdict": "PASS for reviewed MLS quarantine and audit scope; Codex internal review only, not Claude formal approval",
+  "worktree": "/workspace/work/football-t63",
+  "must_fix": [],
+  "suggestions": [
+    "Promote selected independent boundary cases (claims on both endpoints, identity == cutoff, exactly 3h) into product regression coverage if desired."
+  ],
+  "reviewed_sha256": {
+    "src/zucai/source_result_quarantine.py": "26bb8ffec50c58bc42bdaca0c80f1c06e0dcd04b2aeeeab9047877a2e46c0c59",
+    "src/zucai/predict/backtest.py": "39270ef53f04ee338092fbdc8342dcc69560df0125f8e78203dcfa66fa9ba8a8",
+    "src/zucai/predict/pooled.py": "9f1c4925ebb619ba6d9be4a271bfbb6b947b491cd27c0dbc79d83e976f83bab5",
+    "src/zucai/predict/command.py": "15a40ff79a172dad3412b7ee7a7be8d527ca9b8c0504e3ec50abdec6b9c4d974",
+    "src/zucai/source_results_audit.py": "c74efdc1bc15d62c8eaae438f02bbc53eef187ac423ec29dd8039b0c8e75e1ff",
+    "tests/test_t63_fd_identity_quarantine.py": "7daf53fdd026e8e318d7c034570f81c3cdfb274d1667981d38c541aaf0d2b29b",
+    "tests/test_t63_source_audit.py": "bd128e1daae9cbd940f0e3e84da628201599a830dced1231bda09b65e39deda3",
+    "data/fixtures/t63/fd-unmapped-overlap.json": "0ea744b6b7737d6dfa76602df92077879bb2b617dfcaca69b9548e2c49b4b7f3",
+    "docs/ARCHITECTURE.md": "6a4ecfda152eccb9ab2450efaebd2ecb776e5c57829d5bfe36a15d59eadf74d0"
+  },
+  "independent_tests": {
+    "command": "PYTHONPATH=src:tests /workspace/work/t48-venv/bin/python -m pytest -q /workspace/work/t63-review-20261114/internal-review/test_quarantine_boundaries.py tests/test_t63_fd_identity_quarantine.py tests/test_t63_source_audit.py --junitxml=/workspace/work/t63-review-20261114/internal-review/quarantine-final.xml",
+    "tests": 62,
+    "failures": 0,
+    "errors": 0,
+    "scope": "13 independent boundary cases + 49 repository quarantine/audit cases",
+    "log": "quarantine-final.log",
+    "xml": "quarantine-final.xml"
+  },
+  "checked": [
+    "Complete DB, bidirectional sole neighbor, both endpoints unclaimed, same-direction exact one shared ID, unknown FD team truly lacks current league APIF prefix; malformed/non-list/non-string/multiple bindings fail closed.",
+    "Only nonlegacy source selection may exclude APIF; both rows must remain after identity/cutoff/conflict/legal-representative filters.",
+    "No FD result or not-yet-available FD cannot suppress API; exact identity timestamp is not yet effective; 3h inclusive boundary matches overlap guard.",
+    "Remote incoming/outgoing claims and local scheduled third candidates cannot authorize exclusion; original overlap guard remains intact.",
+    "Audit observations stay unverified with shared_team_id_candidate; do not create same-fixture proof.",
+    "No Match/Result/Team mutation from read/select/audit; existing product no-mutation fixture test passes.",
+    "Scoped ruff check, ruff format --check, git diff --check passed; prior backtest I001 closed."
+  ],
+  "parent_acceptance_artifact_inspected": {
+    "path": "/workspace/work/t63-review-20261114/acceptance/training/美职.train.json",
+    "sha256": "f60fc4710278cd61b2167ad49ac7102996e762877e45894cbc4afd989f955062",
+    "training_rows": 3001,
+    "exclusions": [
+      "apif:1490585",
+      "apif:1490596"
+    ],
+    "relevant_code_snapshot_matches_current": true,
+    "note": "Inspected existing parent-run artifact; this agent did not rerun full 19-model training."
+  },
+  "test_harness_note": "Initial 2 failing test constructions attempted assigning dict into SQLAlchemy MutableList, rejected before product path. Preserved original log/XML as quarantine-boundaries-test-construction-failure.*; corrected harness injects malformed persisted JSON and asserts fail-closed read.",
+  "limitations": [
+    "No full suite or 19-model run by this agent (owned by root/other agent).",
+    "stats_* integration reviewed by another agent; excluded here.",
+    "Only offline fixture and synthetic negative variations; no network or production action."
+  ]
+}

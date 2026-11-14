@@ -1,0 +1,33 @@
+F...................FFF..........F.....                                  [100%]
+=================================== FAILURES ===================================
+__ test_audit_is_read_only_deterministic_and_preserves_both_evidence_versions __
+tests/test_t63_source_audit.py:76: in test_audit_is_read_only_deterministic_and_preserves_both_evidence_versions
+    assert summary["rows"] == len(rows) == 1
+E   AssertionError: assert 2 == 1
+E    +  where 2 = len([{'league': '英超', 'apif_match_id': 'apif:consistent', 'apif_source': 'apif', 'apif_league': '英超', ...}, {'league': '英超', 'apif_match_id': 'apif:kickoff', 'apif_source': 'apif', 'apif_league': '英超', ...}])
+_______________ test_names_do_not_link_different_stored_team_ids _______________
+tests/test_t63_source_audit.py:148: in test_names_do_not_link_different_stored_team_ids
+    assert summary["comparison_rows"] == 2
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'comparison_rows'
+___________ test_missing_result_is_not_an_equal_or_conflicting_score ___________
+tests/test_t63_source_audit.py:158: in test_missing_result_is_not_an_equal_or_conflicting_score
+    assert summary["comparison_rows"] == 1
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'comparison_rows'
+________________ test_each_comparison_source_is_a_separate_pair ________________
+tests/test_t63_source_audit.py:167: in test_each_comparison_source_is_a_separate_pair
+    assert len(rows) == 1
+E   AssertionError: assert 3 == 1
+E    +  where 3 = len([{'league': '英冠', 'apif_match_id': 'apif:all', 'apif_source': 'apif', 'apif_league': '英冠', ...}, {'league': '英冠', 'api...if_league': '英冠', ...}, {'league': '英冠', 'apif_match_id': 'apif:all', 'apif_source': 'apif', 'apif_league': '英冠', ...}])
+_____ test_old_database_without_apif_results_still_reports_existing_result _____
+tests/test_t63_source_audit.py:215: in test_old_database_without_apif_results_still_reports_existing_result
+    assert summary["comparison_rows"] == 1
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'comparison_rows'
+=========================== short test summary info ============================
+FAILED tests/test_t63_source_audit.py::test_audit_is_read_only_deterministic_and_preserves_both_evidence_versions
+FAILED tests/test_t63_source_audit.py::test_names_do_not_link_different_stored_team_ids
+FAILED tests/test_t63_source_audit.py::test_missing_result_is_not_an_equal_or_conflicting_score
+FAILED tests/test_t63_source_audit.py::test_each_comparison_source_is_a_separate_pair
+FAILED tests/test_t63_source_audit.py::test_old_database_without_apif_results_still_reports_existing_result

@@ -1,0 +1,136 @@
+FFF.......                                                               [100%]
+=================================== FAILURES ===================================
+__ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[None] ___
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_0/feeds.db'), PosixPath('/tmp/pytest-of-agen...b4ea08bbc67b3e30c0ec0.csv'), PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_0/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_0')
+pointer = None
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(setup, tmp_path, pointer):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {table: sql(database, f"SELECT * FROM {table}") for table in ("matches", "results", "match_stats")}
+        with sqlite3.connect(database) as db:
+>           assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+                   ^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t63_fd_stats_retention.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/fd_stats_links.py:313: in validate_fd_links
+    _validate_link(link, teams, matches)
+src/zucai/fd_stats_links.py:236: in _validate_link
+    match = _unique_match(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+matches = [{'match_id': 'jc:1', 'source': 'jc', 'league': '英超', 'kickoff_utc': '2024-10-01T19:00:00.000000Z', ...}, {'match_id': 'apif:1', 'source': 'apif', 'league': '英超', 'kickoff_utc': '2024-10-01T19:00:00.000000Z', ...}]
+league = '英超'
+kickoff = datetime.datetime(2024, 10, 1, 19, 0, tzinfo=datetime.timezone.utc)
+pair = (1, 2), fd_counterpart = 'fd:E0:20241001:home:away'
+
+    def _unique_match(matches, league, kickoff, pair, *, fd_counterpart=None):
+        window = [
+            m
+            for m in matches
+            if m["league"] == league and abs(instant(m["kickoff_utc"]) - instant(kickoff)) <= WINDOW
+        ]
+        related = [m for m in window if set(pair) & {m["home_team_id"], m["away_team_id"]}]
+        direct = [m for m in related if (m["home_team_id"], m["away_team_id"]) == pair]
+        if len(direct) != 1 or len(related) != 1 or direct[0]["source"] != "jc":
+>           raise ValueError("FD 同联赛三小时内主客反向、共享球队或候选不唯一")
+E           ValueError: FD 同联赛三小时内主客反向、共享球队或候选不唯一
+
+src/zucai/fd_stats_links.py:140: ValueError
+_ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[fdorg:old] _
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_1/feeds.db'), PosixPath('/tmp/pytest-of-agen...242d69e7ae8ba12531d58.csv'), PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_1/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_1')
+pointer = 'fdorg:old'
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(setup, tmp_path, pointer):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {table: sql(database, f"SELECT * FROM {table}") for table in ("matches", "results", "match_stats")}
+        with sqlite3.connect(database) as db:
+>           assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+                   ^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t63_fd_stats_retention.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/fd_stats_links.py:313: in validate_fd_links
+    _validate_link(link, teams, matches)
+src/zucai/fd_stats_links.py:236: in _validate_link
+    match = _unique_match(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+matches = [{'match_id': 'jc:1', 'source': 'jc', 'league': '英超', 'kickoff_utc': '2024-10-01T19:00:00.000000Z', ...}, {'match_id': 'apif:1', 'source': 'apif', 'league': '英超', 'kickoff_utc': '2024-10-01T19:00:00.000000Z', ...}]
+league = '英超'
+kickoff = datetime.datetime(2024, 10, 1, 19, 0, tzinfo=datetime.timezone.utc)
+pair = (1, 2), fd_counterpart = None
+
+    def _unique_match(matches, league, kickoff, pair, *, fd_counterpart=None):
+        window = [
+            m
+            for m in matches
+            if m["league"] == league and abs(instant(m["kickoff_utc"]) - instant(kickoff)) <= WINDOW
+        ]
+        related = [m for m in window if set(pair) & {m["home_team_id"], m["away_team_id"]}]
+        direct = [m for m in related if (m["home_team_id"], m["away_team_id"]) == pair]
+        if len(direct) != 1 or len(related) != 1 or direct[0]["source"] != "jc":
+>           raise ValueError("FD 同联赛三小时内主客反向、共享球队或候选不唯一")
+E           ValueError: FD 同联赛三小时内主客反向、共享球队或候选不唯一
+
+src/zucai/fd_stats_links.py:140: ValueError
+_ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[same-fd] _
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_2/feeds.db'), PosixPath('/tmp/pytest-of-agen...3478ea94e41938dac61fb.csv'), PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_2/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-480/test_valid_retained_api_proof_2')
+pointer = 'same-fd'
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(setup, tmp_path, pointer):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {table: sql(database, f"SELECT * FROM {table}") for table in ("matches", "results", "match_stats")}
+        with sqlite3.connect(database) as db:
+>           assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+                   ^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t63_fd_stats_retention.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/fd_stats_links.py:313: in validate_fd_links
+    _validate_link(link, teams, matches)
+src/zucai/fd_stats_links.py:236: in _validate_link
+    match = _unique_match(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+matches = [{'match_id': 'jc:1', 'source': 'jc', 'league': '英超', 'kickoff_utc': '2024-10-01T19:00:00.000000Z', ...}, {'match_id': 'apif:1', 'source': 'apif', 'league': '英超', 'kickoff_utc': '2024-10-01T19:00:00.000000Z', ...}]
+league = '英超'
+kickoff = datetime.datetime(2024, 10, 1, 19, 0, tzinfo=datetime.timezone.utc)
+pair = (1, 2), fd_counterpart = 'fd:E0:20241001:home:away'
+
+    def _unique_match(matches, league, kickoff, pair, *, fd_counterpart=None):
+        window = [
+            m
+            for m in matches
+            if m["league"] == league and abs(instant(m["kickoff_utc"]) - instant(kickoff)) <= WINDOW
+        ]
+        related = [m for m in window if set(pair) & {m["home_team_id"], m["away_team_id"]}]
+        direct = [m for m in related if (m["home_team_id"], m["away_team_id"]) == pair]
+        if len(direct) != 1 or len(related) != 1 or direct[0]["source"] != "jc":
+>           raise ValueError("FD 同联赛三小时内主客反向、共享球队或候选不唯一")
+E           ValueError: FD 同联赛三小时内主客反向、共享球队或候选不唯一
+
+src/zucai/fd_stats_links.py:140: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[None]
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[fdorg:old]
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[same-fd]
+3 failed, 7 passed in 2.15s

@@ -1,0 +1,148 @@
+T63 retained-row statistics compatibility — implementer handoff
+
+Working tree: /workspace/work/football-t63
+Final owned bytes: FINAL_SHA256SUMS (8 source files + 2 test files).
+No commits, pushes, live sports requests, or frozen artifact changes by this agent.
+
+Implemented
+
+1. stats_link.py + stats_match_identity.py
+   Load existing result_source_links through its current-snapshot validator. Build
+   components from the complete graph, including scheduled and out-of-window rows.
+   Multiple direct candidates collapse only when every candidate belongs to one
+   proven component and sources remain unique. New indices choose jc > fd > fdorg
+   > apif. A valid old index retains its original component member and all fields.
+   Reverse/shared candidates and unproved third candidates still reject. Claims
+   and batch uniqueness cover the entire component, including members outside the
+   incoming fixture's window. A retained APIF ID cannot authorize another raw
+   provider fixture ID. Existing FD/FDORG same-kickoff preference remains intact.
+   Added audit reason verified_same_match, with the candidate IDs and actual target.
+
+2. stats_schedule.py
+   A sold JC grants pregame eligibility to an existing index through a currently
+   validated proof component, without writing any counterpart pointer. Competing
+   index fixture IDs in one component and contradictory retained APIF IDs cannot
+   obtain new eligibility. Original statuses, 30–60 minute window, missed-window
+   rules, request key, cursor behavior, and legacy sale links remain unchanged.
+   Operational scheduler accepts proof verified at or before now; pregame feature
+   consumers below require strictly earlier proof, as requested by root.
+
+3. result_source_groups.py + experiments/history.py + parallel.py
+   The new pure helper receives already validated links, forms components with
+   verified_utc < as_of, and retains source-uniqueness checks when adding them to
+   the pre-existing exact/pointer grouping. The daily parallel host passes its
+   explicit model cutoff to unified_history. Completed label rows retain the
+   original source ranking and latest/earliest kickoff semantics.
+   Crucially, a returned feature builder re-resolves its proof view at EACH build
+   call's cutoff; the model-wide cutoff is never used to borrow a later proof for
+   an earlier historical feature. Views are cached by eligible proof tuples.
+   Scheduled nodes may establish identities but never become completed histories.
+
+4. features/injuries.py
+   Each public build creates a read-only identity view from proofs strictly before
+   min(as_of, earliest aligned kickoff). If alignment moves the cutoff earlier,
+   eligibility is rechecked at that earlier time. The view then performs the same
+   index, previous-match, snapshot and lineup calculations as before. Two indices
+   in a proven component remain ambiguous. Proofs never get the backfill-replay
+   exception that technical observations already have.
+
+5. experiments/command.py
+   Post-fit market comparison additionally finds JC through current proven links
+   strictly before that row's feature cutoff and both endpoints' kickoff. The
+   original unaligned identity view is used to validate proof clock offsets.
+   This only repairs comparison lookup; no odds are added to feature/model inputs.
+
+Preservation
+
+No Match/Result/team/alias row is modified by these readers. No source score or
+availability clock is chosen/rewritten by identity matching. A synthetic retained
+import test deliberately uses disagreeing source scores and checks both remain
+byte-for-field unchanged while the index still selects JC. Model parameters,
+training policy, source priority and experimental feature definitions are unchanged.
+
+Verification
+
+- stats/red.log: original missing-coalescing/scheduling failures. Its initial
+  importer integration fixture also exposed canonical-name normalization; that
+  fixture was corrected before the successful integration run. The real seeded
+  probe below independently reproduces the old code's exact review failure.
+- stats/fixture-identity-red.log: three provider-ID/component-index guard failures.
+- stats/green-final.log: 60 passed (28 new retained/index/schedule tests + existing
+  stats_link/stats_schedule tests).
+- stats/domain.log: 628 passed across stats, injury, FD statistics, cloud statistics
+  and result-link domains, before the separately authorized consumer extension.
+- stats/consumers-red.log: 7 failed, 2 passed before consumer edits.
+- stats/consumers-domain-final.log: 110 passed after extension, including 11 new
+  proof-cutoff/retention tests and existing stats/injury/parallel/parlay tests.
+- Ruff check/format and scoped git diff --check passed. FINAL_SHA256SUMS captures
+  final working-tree files; the original three stats implementation hashes match
+  their prior frozen state.
+
+Review reproduction and provenance
+
+jc-2042615-seed-with-synthetic-api.json contains only the original e5848e5 Team
+rows 42/226, Match jc:2042615, and its Result, plus source-file hashes. The original
+JC counterpart (apif:1556134) and timestamps are preserved. The API1556134 fixture
+and observation are explicitly manually constructed, not a real API response.
+retained_index_probe.py imports that observation with retained_results=True, then
+runs b821ae6's stats_link and final stats_link over the SAME small DB. The former
+rejects 多对一; the latter creates index→jc:2042615, repeating creates zero, and all
+original JC fields and both source results are unchanged.
+retained-index-probe.json records the results. The independent acceptance agent
+also validated this seed against e584 and ran real T66/T63 import+index functions
+in separate small DBs; see ../acceptance/stats-{t66,t63}.{json,log}.
+
+Consumer inventory and remaining limits
+
+- Fixed here: stats_link; stats_schedule; daily experiments/history + parallel
+  caller; InjuryFeatures public build; experiment command post-fit JC comparison.
+- Fixed by the FD statistics owner after this inventory: fd_stats_links required
+  only one physical JC candidate; adding a proven retained APIF row invalidated
+  existing FDStatsLink on validate/export. The old failure is independently shown
+  by fd-link-consumer-probe.json. The owner reported 181 adjacent tests passing,
+  with restore_result_links ordered before restore_fd_links by root.
+- stats_context.refresh_context delegates index creation to stats_link and keeps
+  exact old index target identity checks. APIF stats_storage ingest, stats_archive
+  and injuries_storage._link resolve the stored fixture index, so preserving that
+  target preserves attachment behavior; they do not need a separate guessed link.
+- StatsFeatures and features/build intentionally group source-local histories and
+  schedules. Physical retained rows do not duplicate one source's own history.
+- predict/backtest and pooled source selection are root-owned T63/T66 integration;
+  they already consume result proofs and have separate cutoff/result-conflict gates.
+- sources/sfc's ordinary candidate query requires exact kickoff and canonical IDs;
+  _preferred_candidate already collapses these exact rows by source priority. Its
+  explicit APIF/JC national-cup transition is outside the 15 retained leagues.
+- ResultSourceLink/identity models, db/archive schema, aliases_snapshot and
+  jc_candidate_review serialize evidence; they do not choose one physical row as
+  a fixture. apif_verify/alias_evaluation work from explicit provider/JC evidence,
+  not a new general match-row representative. Existing manual counterpart/identity
+  reconciliation commands remain conservative mutation guards, not read consumers.
+- cloud_stats_probe.known_fixture_ids still recognizes JC preference through the
+  legacy pointer only; a proof-only APIF row remains known but may lose JC sampling
+  priority. apif_identity_metrics.jc_links/new_linked_jc still counts legacy pointers
+  and can undercount new proof-only links. Backtest's jc_linked descriptive flag
+  also still reflects legacy pointers. These are reported limits, not silent fixes.
+- unified_history without as_of intentionally does NOT activate new proof links.
+  The offline T38 injury_command currently calls it this way; its label grouping
+  remains legacy/exact-only. Public feature builds still enforce their own cutoff.
+  Adapting offline fold-level label grouping requires supplying that fold's actual
+  model cutoff rather than globally using today's proof. No claim is made that this
+  old offline caller now coalesces proof-only labels with differing kickoff times.
+- injury_command.attach_market uses aligned history siblings plus legacy pointers;
+  with the old offline no-as_of label path its proof-only market comparison can still
+  be absent. It remains post-fit comparison only.
+
+remaining-consumer-probe.json and consumer_probe.py record the PRE-extension
+synthetic contrast (proof-only versus legacy pointer). Final behavior is verified
+by test_t63_stats_consumers.py, which calls the explicit cutoff/public interfaces.
+
+Final internal-review correction
+
+The reviewer found that attach_market cached lookup results by match_id, so two
+rows for one fixture but different feature cutoffs shared the later row's link.
+The final implementation keys that temporary lookup by row position. Product
+regressions cover both row orders around proof09:00 with cutoffs08:59/09:01.
+market-row-cutoff-red.log records both failures; market-row-cutoff-green.log is
+22 passed (all 13 consumer product tests, existing market-command tests, and all
+three independent boundary probes). Ruff/diff checks passed; FINAL_SHA256SUMS
+was regenerated after this two-file correction. No other owned files changed.

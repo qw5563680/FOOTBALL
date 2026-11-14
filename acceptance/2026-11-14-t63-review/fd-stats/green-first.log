@@ -1,0 +1,185 @@
+FFF..................................................................... [ 93%]
+.....                                                                    [100%]
+=================================== FAILURES ===================================
+__ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[None] ___
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_0/feeds.db'), PosixPath('/tmp/pytest-of-agen...5417d9dfbd78603647d15.csv'), PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_0/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_0')
+pointer = None
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(setup, tmp_path, pointer):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {
+            table: sql(database, f"SELECT * FROM {table}")
+            for table in ("matches", "results", "match_stats")
+        }
+        with sqlite3.connect(database) as db:
+            assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+            check_db(db)
+        assert ingest(setup) == {"inserted": 0, "rejected": 0}
+        archive = tmp_path / "archive"
+>       export_feeds(database, archive, date(2026, 11, 4), "retained")
+
+tests/test_t63_fd_stats_retention.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:314: in export_feeds
+    technical_data = export_stats(db, archive, source)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+db = <sqlite3.Connection object at 0x7f7b424314e0>
+archive = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_0/archive')
+source = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_0/feeds.db')
+
+    def export_stats(db, archive, source=None):
+        present = check_stats(db, rows=False)
+        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        block = read_rows_manifest(source) if source is not None else None
+        counts = {
+            table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            if present and table in tables
+            else 0
+            for table in STATS_COLUMNS
+        }
+        if any(counts[t] for t in ROW_TABLES):
+            check_stats(db)
+            snapshot = block.get("snapshot") if block else None
+            if (
+                snapshot is None
+                or snapshot != row_snapshot(db, snapshot["counts"])
+                or (counts["match_injuries"] and "match_injuries" not in snapshot["counts"])
+            ):
+>               raise ValueError(
+                    "技术数据行尚未发布；先 restore_rows 恢复全部历史行，"
+                    "再 publish_rows 发布 Release 分片"
+                )
+E               ValueError: 技术数据行尚未发布；先 restore_rows 恢复全部历史行，再 publish_rows 发布 Release 分片
+
+src/zucai/stats_archive.py:216: ValueError
+_ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[fdorg:old] _
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_1/feeds.db'), PosixPath('/tmp/pytest-of-agen...e4bb0abb551865273f303.csv'), PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_1/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_1')
+pointer = 'fdorg:old'
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(setup, tmp_path, pointer):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {
+            table: sql(database, f"SELECT * FROM {table}")
+            for table in ("matches", "results", "match_stats")
+        }
+        with sqlite3.connect(database) as db:
+            assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+            check_db(db)
+        assert ingest(setup) == {"inserted": 0, "rejected": 0}
+        archive = tmp_path / "archive"
+>       export_feeds(database, archive, date(2026, 11, 4), "retained")
+
+tests/test_t63_fd_stats_retention.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:314: in export_feeds
+    technical_data = export_stats(db, archive, source)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+db = <sqlite3.Connection object at 0x7f7b42430040>
+archive = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_1/archive')
+source = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_1/feeds.db')
+
+    def export_stats(db, archive, source=None):
+        present = check_stats(db, rows=False)
+        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        block = read_rows_manifest(source) if source is not None else None
+        counts = {
+            table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            if present and table in tables
+            else 0
+            for table in STATS_COLUMNS
+        }
+        if any(counts[t] for t in ROW_TABLES):
+            check_stats(db)
+            snapshot = block.get("snapshot") if block else None
+            if (
+                snapshot is None
+                or snapshot != row_snapshot(db, snapshot["counts"])
+                or (counts["match_injuries"] and "match_injuries" not in snapshot["counts"])
+            ):
+>               raise ValueError(
+                    "技术数据行尚未发布；先 restore_rows 恢复全部历史行，"
+                    "再 publish_rows 发布 Release 分片"
+                )
+E               ValueError: 技术数据行尚未发布；先 restore_rows 恢复全部历史行，再 publish_rows 发布 Release 分片
+
+src/zucai/stats_archive.py:216: ValueError
+_ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[same-fd] _
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_2/feeds.db'), PosixPath('/tmp/pytest-of-agen...84b46b0caec01e27eb214.csv'), PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_2/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_2')
+pointer = 'same-fd'
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(setup, tmp_path, pointer):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {
+            table: sql(database, f"SELECT * FROM {table}")
+            for table in ("matches", "results", "match_stats")
+        }
+        with sqlite3.connect(database) as db:
+            assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+            check_db(db)
+        assert ingest(setup) == {"inserted": 0, "rejected": 0}
+        archive = tmp_path / "archive"
+>       export_feeds(database, archive, date(2026, 11, 4), "retained")
+
+tests/test_t63_fd_stats_retention.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_feeds.py:314: in export_feeds
+    technical_data = export_stats(db, archive, source)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+db = <sqlite3.Connection object at 0x7f7b42432110>
+archive = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_2/archive')
+source = PosixPath('/tmp/pytest-of-agent/pytest-483/test_valid_retained_api_proof_2/feeds.db')
+
+    def export_stats(db, archive, source=None):
+        present = check_stats(db, rows=False)
+        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        block = read_rows_manifest(source) if source is not None else None
+        counts = {
+            table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            if present and table in tables
+            else 0
+            for table in STATS_COLUMNS
+        }
+        if any(counts[t] for t in ROW_TABLES):
+            check_stats(db)
+            snapshot = block.get("snapshot") if block else None
+            if (
+                snapshot is None
+                or snapshot != row_snapshot(db, snapshot["counts"])
+                or (counts["match_injuries"] and "match_injuries" not in snapshot["counts"])
+            ):
+>               raise ValueError(
+                    "技术数据行尚未发布；先 restore_rows 恢复全部历史行，"
+                    "再 publish_rows 发布 Release 分片"
+                )
+E               ValueError: 技术数据行尚未发布；先 restore_rows 恢复全部历史行，再 publish_rows 发布 Release 分片
+
+src/zucai/stats_archive.py:216: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[None]
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[fdorg:old]
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[same-fd]
+3 failed, 74 passed in 13.70s

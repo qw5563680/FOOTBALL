@@ -1,0 +1,18 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_unmapped_pairs_are_visible_in_actionable_audit ______________
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-478/test_unmapped_pairs_are_visibl0/saved-mls.db)
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-478/test_unmapped_pairs_are_visibl0')
+
+    def test_unmapped_pairs_are_visible_in_actionable_audit(db, tmp_path):
+        out = tmp_path / "audit.csv"
+        report = audit_source_results(db.url.database, out)
+        rows = list(csv.DictReader(out.open()))
+>       assert report["unverified"] == 2
+E       assert 0 == 2
+
+tests/test_t63_fd_identity_quarantine.py:129: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t63_fd_identity_quarantine.py::test_unmapped_pairs_are_visible_in_actionable_audit
+1 failed, 9 deselected in 1.97s

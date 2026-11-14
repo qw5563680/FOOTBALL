@@ -1,0 +1,71 @@
+{
+  "review_type": "Codex independent internal review, not Claude approval",
+  "scope": "candidate status persistence, actionable source audit, T63/T66 full-graph/time compatibility, T65 merge; stats_* excluded",
+  "references": [
+    5901828673,
+    6872534615
+  ],
+  "base": "T63 b821ae6 merging T66 8c1f831",
+  "must_fix": [
+    {
+      "file": "src/zucai/predict/backtest.py",
+      "line": 101,
+      "finding": "ruff I001: remove blank between adjacent local imports; no behavioral must-fix found in tested state"
+    }
+  ],
+  "suggestions": [
+    {
+      "file": "tests/test_t63_t66_compatibility.py",
+      "finding": "Promote independent real FIN seed + delayed FD availability/T63 clock + later scheduled competitor scenario into regression test"
+    }
+  ],
+  "checks": [
+    {
+      "file": "focused.xml",
+      "tests": 94,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "compatibility.xml",
+      "tests": 119,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "probe": "t66-timed-probe.json",
+  "findings_closed": [
+    "outer candidate failures persisted and visible in return/summary/digest without changing primary files",
+    "partial/all-failed training status validated against frozen artifacts; overwrite rejected",
+    "audit CSV excludes consistent/unmatched rows while comparison_rows and classifications preserve denominator",
+    "T65 daily routes remain restricted; result seasons intersect explicit permissions",
+    "timed proof suppresses timeless duplicate edge only; equality/earlier cutoffs still exclude; full DB competitor validation remains before filtered frame"
+  ],
+  "limitations": [
+    "No full suite run; root owns ongoing full run",
+    "No stats retention review",
+    "No final full-archive/19-model acceptance claim",
+    "New MLS blocker proposal reviewed conceptually only; implementation not yet reviewed"
+  ],
+  "reviewed_sha256": {
+    "src/zucai/cloud_predict.py": "84d904772272d97dcdfc3c1154e1a68d516633b7203d3b8c7779ca7bb531b51f",
+    "src/zucai/source_version_archive.py": "101e6250de3c351d3615c14b790a627f8fa43aaff936d486eb924023228e5ee4",
+    "src/zucai/digest_views.py": "53991acb6481db2cbe15cceb7d54bd606dc8ae54296a9f42e23f8676fe5993e3",
+    "src/zucai/source_results_audit.py": "0345dddd75bdc79e1a407e4919bff5b4e6786db2d37cf172e454597cf5f06dea",
+    "src/zucai/predict/backtest.py": "a7f591e535b2debc866a7d9cbc37990a4428248a9b2c01153434cfc100360ec8",
+    "src/zucai/predict/pooled.py": "3056346aed2754e3c6abd4b4e88661d305bc43d746be13c2151756c613c17b1b",
+    "src/zucai/cloud_catalogue_backfill.py": "38485fc66b07dc6a4917e5dd7e3d9ecf33db1bffb3efb55948513d0de72d4f70",
+    "src/zucai/league_registry.py": "72bfef48af296a00300f21b29dc3de1288b22d1a9e0cb29fe00f06a20dda9dc5",
+    "data/league_map.json": "f7b9e6f9bdb604781c4ad7f6e771c82967fe4f4ca31b5141009663e15a774481",
+    "tests/test_t63_candidate_observability.py": "e0c914005fecc898130b732246b629cae327a689a8dc99cbc2245e95a79e7592",
+    "tests/test_t63_t66_compatibility.py": "4054b59a201ffed3e9c2c6df97948cb37aa2f4e93f2fe877fa66e7c771ebb100",
+    "tests/test_t63_source_version_archive.py": "03dd1d3a4affb8b64d333d17b175b182bb1c949a80055062429bfee73665a51f",
+    "tests/test_t63_source_audit.py": "bd128e1daae9cbd940f0e3e84da628201599a830dced1231bda09b65e39deda3",
+    "tests/test_t61_registry.py": "ed70cca62275356057b56886ba46cbbc5c939f1ef82e8ead68f3ee206b913ac3",
+    "tests/test_t65_daily_scope.py": "59d420322486768c2541770236ae43819a47611622ad8d9ec88065ce4a29f7c4"
+  },
+  "network_calls": 0,
+  "product_edits": 0
+}

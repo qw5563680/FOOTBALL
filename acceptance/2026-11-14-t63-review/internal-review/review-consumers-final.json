@@ -1,0 +1,25 @@
+{
+  "verdict": "PASS for targeted final fix closure; no outstanding must-fix in reviewed scope; Codex internal review, not Claude formal approval",
+  "reviewed_sha256": {
+    "src/zucai/predict/experiments/command.py": "57520bec8a1c51ee8882dd7f5130713d4d76e16150ce693dc2b693e2dbbca07b",
+    "src/zucai/source_result_quarantine.py": "bc0259696630260e09712f68f92c75916a551440a23c38e46c6ab02fa9917884"
+  },
+  "fixed_issue": "attach_market now keys temporary mappings by row_index and consumes the same row_index, eliminating cross-cutoff reuse for repeated match IDs.",
+  "verification": {
+    "independent_probe": "test_consumer_boundary_review.py, unchanged since red run",
+    "tests": 3,
+    "passed": 3,
+    "log": "consumer-boundary-green.log",
+    "xml": "consumer-boundary-green.xml",
+    "red_evidence_preserved": [
+      "consumer-boundary.log",
+      "consumer-boundary.xml"
+    ],
+    "ruff": "check and format --check passed for both source files"
+  },
+  "normalization_review": "Quarantine neighbors now calls established instant() on both kickoff values; preserves <=3h rule and accepts same-session ORM datetime values. No selection/identity rule changes observed. This follow-up did not rerun quarantine suite.",
+  "limitations": [
+    "Full test suite and final real-database 19-model replay remain parent-owned; not run by this agent.",
+    "Stats scope beyond the explicit final files remains covered by source agent."
+  ]
+}

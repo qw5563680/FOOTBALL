@@ -1,0 +1,1 @@
+JC offline fixtures are synthetic variants of the checked-in sporttery_results_20261031.json shape. They exercise pagination and exact league-name cross-checks only, and are not evidence of real catalogue coverage.

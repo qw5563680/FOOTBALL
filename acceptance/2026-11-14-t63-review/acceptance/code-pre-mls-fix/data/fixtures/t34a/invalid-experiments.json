@@ -1,0 +1,17 @@
+[
+  {"name": "broken_json", "raw": "{\"predictions\":["},
+  {"name": "not_object", "document": []},
+  {"name": "missing_timestamp", "remove": "as_of_utc"},
+  {"name": "invalid_timestamp", "document_fields": {"as_of_utc": "not-a-time"}},
+  {"name": "wrong_batch", "document_fields": {"batch_id": "wrong-batch"}},
+  {"name": "wrong_collection", "document_fields": {"predictions": {}}},
+  {"name": "bad_last_row", "row_fields": {"p2_ready": true}},
+  {"name": "missing_model", "row_fields": {"model_name": null}},
+  {"name": "invalid_probability", "row_fields": {"status": "predicted", "model_probabilities": {"h": -0.2, "d": 0.5, "a": 0.7}}},
+  {"name": "invalid_reason", "row_fields": {"fallback_reason": {"invalid": "type"}}},
+  {"name": "missing_reason", "row_fields": {"status": "missing", "model_probabilities": null}, "remove_row": "fallback_reason"},
+  {"name": "null_reason", "row_fields": {"status": "missing", "model_probabilities": null, "fallback_reason": null}},
+  {"name": "duplicate_prediction", "duplicate_prediction": true},
+  {"name": "invalid_market", "row_fields": {"market": "invalid"}},
+  {"name": "invalid_label", "row_nan": "p2_label"}
+]

@@ -1,0 +1,32 @@
+--- actual-19-fit/source_result_quarantine.py
++++ final-live/source_result_quarantine.py
+@@ -1,12 +1,13 @@
+ """Identify unresolved FD identities for exclusion, never as same-match proofs."""
+ 
+ from collections import defaultdict
+-from datetime import datetime, timedelta
++from datetime import timedelta
+ 
+ from sqlalchemy import select
+ 
+ from zucai.models import Match, Team
+ from zucai.predict.training_sources import actual_result_leagues
++from zucai.sources.apif_stats import instant
+ 
+ 
+ def pending_fd_identity_overlaps(session, frame, identities, links):
+@@ -35,12 +36,12 @@
+             **by_team[row.league, row.home_team_id],
+             **by_team[row.league, row.away_team_id],
+         }
+-        when = datetime.fromisoformat(row.kickoff_utc)
++        when = instant(row.kickoff_utc)
+         return [
+             other
+             for other in candidates.values()
+             if other.match_id != row.match_id
+-            and abs(datetime.fromisoformat(other.kickoff_utc) - when) <= timedelta(hours=3)
++            and abs(instant(other.kickoff_utc) - when) <= timedelta(hours=3)
+         ]
+ 
+     wanted = set(added.match_id) & set(identities)

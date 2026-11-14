@@ -1,0 +1,238 @@
+FFFFF......F..FFFF....                                                   [100%]
+=================================== FAILURES ===================================
+_____ test_retained_import_keeps_the_original_statistics_target_and_scores _____
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_retained_import_keeps_the0/retained.db)
+
+    def test_retained_import_keeps_the_original_statistics_target_and_scores(engine):
+        values = json.loads((FIX / "t10/synthetic_ingest.json").read_text())["fixture"]
+        values.update(provider_match_id=1, competition_code="39", league="英超",
+                      home_provider_id=1, away_provider_id=2,
+                      kickoff_utc=datetime.fromisoformat("2026-11-10T10:00:00Z"))
+        for field in ("full", "half"):
+            values[field] = tuple(values[field])
+        seen = datetime.fromisoformat("2026-11-10T15:00:00Z")
+        with session_scope(engine) as session:
+            jc = session.get(Match, "jc:1")
+            jc.status = "finished"
+            session.add(Result(match_id=jc.match_id, home_goals=0, away_goals=2,
+                               available_utc=seen, available_source="captured"))
+            session.flush()
+            before = dict(session.execute(select(Match.__table__)).mappings().one())
+>           assert import_apif_games(session, [ApiGame(**values)], seen=seen, assume=None,
+                                     aliases=aliases(), retain_results=True, imported_utc=seen)["inserted"] == 1
+E           assert 0 == 1
+
+tests/test_t63_stats_retention.py:111: AssertionError
+_ test_proven_retained_rows_choose_the_original_source_priority[sources0-jc:1] _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_proven_retained_rows_choo0/retained.db)
+sources = ('jc', 'fd', 'fdorg', 'apif'), expected = 'jc:1'
+
+    @pytest.mark.parametrize("sources,expected", [
+        (("jc", "fd", "fdorg", "apif"), "jc:1"),
+        (("fd", "fdorg", "apif"), "fd:1"),
+        (("fdorg", "apif"), "fdorg:1"),
+    ])
+    def test_proven_retained_rows_choose_the_original_source_priority(engine, sources, expected):
+        with session_scope(engine) as session:
+            if "jc" not in sources:
+                session.delete(session.get(Match, "jc:1"))
+            for source in sources:
+                if source != "jc":
+                    add_match(session, source)
+            for source in sources:
+                if source != "apif":
+                    proof(session, "apif:1", source + ":1")
+            before = [dict(row) for row in session.execute(select(Match.__table__)).mappings()]
+            result = link(session)
+>           assert result["linked"] == 1 and result["rejected"] == 0
+E           assert (0 == 1)
+
+tests/test_t63_stats_retention.py:138: AssertionError
+_ test_proven_retained_rows_choose_the_original_source_priority[sources1-fd:1] _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_proven_retained_rows_choo1/retained.db)
+sources = ('fd', 'fdorg', 'apif'), expected = 'fd:1'
+
+    @pytest.mark.parametrize("sources,expected", [
+        (("jc", "fd", "fdorg", "apif"), "jc:1"),
+        (("fd", "fdorg", "apif"), "fd:1"),
+        (("fdorg", "apif"), "fdorg:1"),
+    ])
+    def test_proven_retained_rows_choose_the_original_source_priority(engine, sources, expected):
+        with session_scope(engine) as session:
+            if "jc" not in sources:
+                session.delete(session.get(Match, "jc:1"))
+            for source in sources:
+                if source != "jc":
+                    add_match(session, source)
+            for source in sources:
+                if source != "apif":
+                    proof(session, "apif:1", source + ":1")
+            before = [dict(row) for row in session.execute(select(Match.__table__)).mappings()]
+            result = link(session)
+>           assert result["linked"] == 1 and result["rejected"] == 0
+E           assert (0 == 1)
+
+tests/test_t63_stats_retention.py:138: AssertionError
+_ test_proven_retained_rows_choose_the_original_source_priority[sources2-fdorg:1] _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_proven_retained_rows_choo2/retained.db)
+sources = ('fdorg', 'apif'), expected = 'fdorg:1'
+
+    @pytest.mark.parametrize("sources,expected", [
+        (("jc", "fd", "fdorg", "apif"), "jc:1"),
+        (("fd", "fdorg", "apif"), "fd:1"),
+        (("fdorg", "apif"), "fdorg:1"),
+    ])
+    def test_proven_retained_rows_choose_the_original_source_priority(engine, sources, expected):
+        with session_scope(engine) as session:
+            if "jc" not in sources:
+                session.delete(session.get(Match, "jc:1"))
+            for source in sources:
+                if source != "jc":
+                    add_match(session, source)
+            for source in sources:
+                if source != "apif":
+                    proof(session, "apif:1", source + ":1")
+            before = [dict(row) for row in session.execute(select(Match.__table__)).mappings()]
+            result = link(session)
+>           assert result["linked"] == 1 and result["rejected"] == 0
+E           assert (0 == 1)
+
+tests/test_t63_stats_retention.py:138: AssertionError
+________________ test_transitive_proof_includes_scheduled_nodes ________________
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_transitive_proof_includes0/retained.db)
+
+    def test_transitive_proof_includes_scheduled_nodes(engine):
+        with session_scope(engine) as session:
+            add_match(session, "apif", kickoff="2026-11-10T09:30:00Z")
+            add_match(session, "fdorg")
+            proof(session, "apif:1", "fdorg:1")
+            proof(session, "fdorg:1", "jc:1")
+>           assert link(session)["linked"] == 1
+E           assert 0 == 1
+
+tests/test_t63_stats_retention.py:150: AssertionError
+____________ test_existing_index_remains_on_its_valid_proven_member ____________
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_existing_index_remains_on0/retained.db)
+
+    def test_existing_index_remains_on_its_valid_proven_member(engine):
+        with session_scope(engine) as session:
+            add_match(session, "apif")
+            old = add_index(session, "apif:1")
+            before = {column.name: copy.deepcopy(getattr(old, column.name)) for column in old.__table__.columns}
+            proof(session, "apif:1", "jc:1")
+            result = link(session)
+>           assert result["unchanged"] == 1 and result["rejected"] == 0
+E           assert (0 == 1)
+
+tests/test_t63_stats_retention.py:185: AssertionError
+____________ test_corrupt_same_source_proof_component_fails_closed _____________
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_corrupt_same_source_proof0/retained.db)
+
+    def test_corrupt_same_source_proof_component_fails_closed(engine):
+        with session_scope(engine) as session:
+            add_match(session, "apif")
+            other = add_match(session, "jc", key="jc:2")
+            proof(session, "apif:1", "jc:1")
+            original = session.scalar(select(ResultSourceLink))
+            fields = {column.name: getattr(original, column.name) for column in original.__table__.columns}
+            fields["counterpart_id"] = other.match_id
+            session.add(ResultSourceLink(**fields))
+            session.flush()
+>           with pytest.raises(ValueError, match="同来源"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t63_stats_retention.py:219: Failed
+_ test_proof_only_sale_relationship_schedules_lineups_for_existing_index[apif-False] _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_proof_only_sale_relations0/retained.db)
+source = 'apif', transitive = False
+
+    @pytest.mark.parametrize("source,transitive", [("apif", False), ("fdorg", False), ("fd", True)])
+    def test_proof_only_sale_relationship_schedules_lineups_for_existing_index(engine, source, transitive):
+        with session_scope(engine) as session:
+            add_match(session, source)
+            if transitive:
+                add_match(session, "apif")
+                proof(session, "apif:1", "fd:1")
+                proof(session, "apif:1", "jc:1")
+            else:
+                proof(session, source + ":1", "jc:1")
+            add_index(session, source + ":1")
+            session.add(Odds(match_id="jc:1", pool="had", line=0, selection="h", price=2, snapshot_utc=VERIFIED))
+        rows = list(match_units(engine.url.database, plan("39", "2026", "lineups", NOW), NOW, daily=True))
+>       assert [(row["fixture_id"], row["match_id"], row["phase"]) for row, _ in rows] == [("1", source + ":1", "pregame")]
+E       AssertionError: assert [] == [('1', 'apif:1', 'pregame')]
+E         
+E         Right contains one more item: ('1', 'apif:1', 'pregame')
+E         Use -v to get more diff
+
+tests/test_t63_stats_retention.py:237: AssertionError
+_ test_proof_only_sale_relationship_schedules_lineups_for_existing_index[fdorg-False] _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_proof_only_sale_relations1/retained.db)
+source = 'fdorg', transitive = False
+
+    @pytest.mark.parametrize("source,transitive", [("apif", False), ("fdorg", False), ("fd", True)])
+    def test_proof_only_sale_relationship_schedules_lineups_for_existing_index(engine, source, transitive):
+        with session_scope(engine) as session:
+            add_match(session, source)
+            if transitive:
+                add_match(session, "apif")
+                proof(session, "apif:1", "fd:1")
+                proof(session, "apif:1", "jc:1")
+            else:
+                proof(session, source + ":1", "jc:1")
+            add_index(session, source + ":1")
+            session.add(Odds(match_id="jc:1", pool="had", line=0, selection="h", price=2, snapshot_utc=VERIFIED))
+        rows = list(match_units(engine.url.database, plan("39", "2026", "lineups", NOW), NOW, daily=True))
+>       assert [(row["fixture_id"], row["match_id"], row["phase"]) for row, _ in rows] == [("1", source + ":1", "pregame")]
+E       AssertionError: assert [] == [('1', 'fdorg:1', 'pregame')]
+E         
+E         Right contains one more item: ('1', 'fdorg:1', 'pregame')
+E         Use -v to get more diff
+
+tests/test_t63_stats_retention.py:237: AssertionError
+_ test_proof_only_sale_relationship_schedules_lineups_for_existing_index[fd-True] _
+
+engine = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-463/test_proof_only_sale_relations2/retained.db)
+source = 'fd', transitive = True
+
+    @pytest.mark.parametrize("source,transitive", [("apif", False), ("fdorg", False), ("fd", True)])
+    def test_proof_only_sale_relationship_schedules_lineups_for_existing_index(engine, source, transitive):
+        with session_scope(engine) as session:
+            add_match(session, source)
+            if transitive:
+                add_match(session, "apif")
+                proof(session, "apif:1", "fd:1")
+                proof(session, "apif:1", "jc:1")
+            else:
+                proof(session, source + ":1", "jc:1")
+            add_index(session, source + ":1")
+            session.add(Odds(match_id="jc:1", pool="had", line=0, selection="h", price=2, snapshot_utc=VERIFIED))
+        rows = list(match_units(engine.url.database, plan("39", "2026", "lineups", NOW), NOW, daily=True))
+>       assert [(row["fixture_id"], row["match_id"], row["phase"]) for row, _ in rows] == [("1", source + ":1", "pregame")]
+E       AssertionError: assert [] == [('1', 'fd:1', 'pregame')]
+E         
+E         Right contains one more item: ('1', 'fd:1', 'pregame')
+E         Use -v to get more diff
+
+tests/test_t63_stats_retention.py:237: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t63_stats_retention.py::test_retained_import_keeps_the_original_statistics_target_and_scores
+FAILED tests/test_t63_stats_retention.py::test_proven_retained_rows_choose_the_original_source_priority[sources0-jc:1]
+FAILED tests/test_t63_stats_retention.py::test_proven_retained_rows_choose_the_original_source_priority[sources1-fd:1]
+FAILED tests/test_t63_stats_retention.py::test_proven_retained_rows_choose_the_original_source_priority[sources2-fdorg:1]
+FAILED tests/test_t63_stats_retention.py::test_transitive_proof_includes_scheduled_nodes
+FAILED tests/test_t63_stats_retention.py::test_existing_index_remains_on_its_valid_proven_member
+FAILED tests/test_t63_stats_retention.py::test_corrupt_same_source_proof_component_fails_closed
+FAILED tests/test_t63_stats_retention.py::test_proof_only_sale_relationship_schedules_lineups_for_existing_index[apif-False]
+FAILED tests/test_t63_stats_retention.py::test_proof_only_sale_relationship_schedules_lineups_for_existing_index[fdorg-False]
+FAILED tests/test_t63_stats_retention.py::test_proof_only_sale_relationship_schedules_lineups_for_existing_index[fd-True]

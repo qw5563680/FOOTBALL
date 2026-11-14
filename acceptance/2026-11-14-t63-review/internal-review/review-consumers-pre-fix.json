@@ -1,0 +1,67 @@
+{
+  "scope": "Final targeted T63 consumer/FD retention internal review; read-only product, not Claude review",
+  "reviewed_sha256": {
+    "src/zucai/result_source_groups.py": "ac461d113db2c1cc7d644783411e21a810a0d382a50a2698a33ac781f469ce69",
+    "src/zucai/predict/experiments/history.py": "15c8ff123df691aca935810b653449c10bd1a571bfe5c80636d88fb121093952",
+    "src/zucai/predict/experiments/command.py": "ea734d8b24170498be87fdf4f0ebecb7b19d7ba8c1dc6327639973a98a89dbee",
+    "src/zucai/predict/experiments/parallel.py": "ce3b26b3afcf376a231fa4a5bbceaeaa468ae182b1949bba00eecb8b4ad93d04",
+    "src/zucai/features/injuries.py": "f84f8235ddc807a6b5c17c9233baeeb92d0d37a3b33bfab9ce0bc501464efbd2",
+    "src/zucai/fd_stats_links.py": "73c6e154cf978f5366796c7a8ed47f2af851b85a8cc4f42b575114cf3c758a94",
+    "src/zucai/cloud_feeds.py": "5270a56bdfb6fcc1bb7652a317379350dcb2cad5385b633977994b932033f0fc",
+    "tests/test_t63_stats_consumers.py": "d7da54badbd23c6b60f0ebafc650ae56bf05275143a8cf7501cdd96b04793eaa",
+    "tests/test_t63_fd_stats_retention.py": "9cae81aabfca9d08408eb39b0a7737eb099f37cbefc6aa8efcbd2ce00a139056"
+  },
+  "tests": {
+    "consumers-final.xml": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "21",
+      "time": "2.925",
+      "timestamp": "2026-11-14T07:18:10.307456+00:00",
+      "hostname": "5e80b6da1ed3"
+    },
+    "consumer-boundary.xml": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "2",
+      "skipped": "0",
+      "tests": "3",
+      "time": "2.180",
+      "timestamp": "2026-11-14T07:19:06.692657+00:00",
+      "hostname": "5e80b6da1ed3"
+    }
+  },
+  "findings": [
+    {
+      "severity": "P2 cutoff contract violation in market comparison; normal caller currently appears fixture-unique",
+      "file": "src/zucai/predict/experiments/command.py",
+      "lines": "89-119",
+      "issue": "attach_market caches accepted per-row proof mapping only by match_id; a later-cutoff row authorizes an earlier-cutoff row for same fixture. Both row orders reproduce. Market remains post-fit, no demonstrated model input leak.",
+      "repro": "test_consumer_boundary_review.py::test_market_rows_each_apply_own_proof_cutoff",
+      "expected": {
+        "2026-11-10T08:59Z": false,
+        "2026-11-10T09:01Z": true
+      },
+      "actual": {
+        "2026-11-10T08:59Z": true,
+        "2026-11-10T09:01Z": true
+      },
+      "small_fix": "Key per row/cutoff or revalidate proof at consumption."
+    }
+  ],
+  "passed_checks": [
+    "Product consumers + FD retention/export/restore: 21 passed.",
+    "Independent original/prior view isolation across early-late-early calls passed.",
+    "Proof cutoff strict inequality and earliest-source kickoff clamp inspected; no feature fitter leak found.",
+    "FD complete structural claims/snapshots checked before grouping; reverse/shared/unproven duplicates still reject; restore_result_links precedes restore_fd_links.",
+    "Market attachment is called after evaluate_group completes model/window decisions.",
+    "Scoped Ruff check passed."
+  ],
+  "limitations": [
+    "Did not rerun full suite, only targeted offline fixtures.",
+    "Synthetic duplicate-cutoff row probe exposes helper contract; no current production caller with duplicate IDs established."
+  ],
+  "status": "one issue sent to root; awaiting disposition"
+}

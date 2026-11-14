@@ -1,0 +1,193 @@
+FFF.......                                                               [100%]
+=================================== FAILURES ===================================
+__ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[None] ___
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_0/feeds.db'), PosixPath('/tmp/pytest-of-agen...d4f2fb85c8efeef494d60.csv'), PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_0/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f853491cda0>
+pointer = None
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(
+        setup, tmp_path, monkeypatch, pointer
+    ):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {
+            table: sql(database, f"SELECT * FROM {table}")
+            for table in ("matches", "results", "match_stats")
+        }
+        with sqlite3.connect(database) as db:
+            assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+            check_db(db)
+        assert ingest(setup) == {"inserted": 0, "rejected": 0}
+        archive, _, release = publish(tmp_path, database)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "feeds",
+                "export",
+                "--db",
+                str(database),
+                "--archive",
+                str(archive),
+                "--run-id",
+                "retained",
+            ],
+        )
+        main()
+        work = tmp_path / "restored"
+        work.mkdir()
+        monkeypatch.chdir(work)
+        monkeypatch.setattr(
+            sys, "argv", ["feeds", "verify", "--archive", str(archive), "--run-id", "verify-retained"]
+        )
+        main()
+        restored = work / "data/zucai.db"
+        restore_rows(restored, archive, release=release)
+        assert sql(database, "SELECT * FROM fd_stats_links") == original
+        assert sql(restored, "SELECT * FROM fd_stats_links") == original
+        assert {table: sql(database, f"SELECT * FROM {table}") for table in before} == before
+>       assert {table: sql(restored, f"SELECT * FROM {table}") for table in before} == before
+E       AssertionError: assert {'matches': [...', ...), ...]} == {'matches': [...', ...), ...]}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'results': [('apif:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...), ('jc:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...)]} != {'results': [('jc:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...), ('apif:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...)]}
+E         {'matches': [('apif:1', 'apif', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...), ('jc:1', 'jc', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...)]} != {'matches': [('jc:1', 'jc', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...), (...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+/workspace/work/football-t63/tests/test_t63_fd_stats_retention.py:99: AssertionError
+_ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[fdorg:old] _
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_1/feeds.db'), PosixPath('/tmp/pytest-of-agen...b46bfbe67271eab34d385.csv'), PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_1/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f851e0df4a0>
+pointer = 'fdorg:old'
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(
+        setup, tmp_path, monkeypatch, pointer
+    ):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {
+            table: sql(database, f"SELECT * FROM {table}")
+            for table in ("matches", "results", "match_stats")
+        }
+        with sqlite3.connect(database) as db:
+            assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+            check_db(db)
+        assert ingest(setup) == {"inserted": 0, "rejected": 0}
+        archive, _, release = publish(tmp_path, database)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "feeds",
+                "export",
+                "--db",
+                str(database),
+                "--archive",
+                str(archive),
+                "--run-id",
+                "retained",
+            ],
+        )
+        main()
+        work = tmp_path / "restored"
+        work.mkdir()
+        monkeypatch.chdir(work)
+        monkeypatch.setattr(
+            sys, "argv", ["feeds", "verify", "--archive", str(archive), "--run-id", "verify-retained"]
+        )
+        main()
+        restored = work / "data/zucai.db"
+        restore_rows(restored, archive, release=release)
+        assert sql(database, "SELECT * FROM fd_stats_links") == original
+        assert sql(restored, "SELECT * FROM fd_stats_links") == original
+        assert {table: sql(database, f"SELECT * FROM {table}") for table in before} == before
+>       assert {table: sql(restored, f"SELECT * FROM {table}") for table in before} == before
+E       AssertionError: assert {'matches': [...', ...), ...]} == {'matches': [...', ...), ...]}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'results': [('apif:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...), ('jc:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...)]} != {'results': [('jc:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...), ('apif:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...)]}
+E         {'matches': [('apif:1', 'apif', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...), ('jc:1', 'jc', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...)]} != {'matches': [('jc:1', 'jc', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...), (...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+/workspace/work/football-t63/tests/test_t63_fd_stats_retention.py:99: AssertionError
+_ test_valid_retained_api_proof_preserves_fd_target_replay_and_export[same-fd] _
+
+setup = (PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_2/feeds.db'), PosixPath('/tmp/pytest-of-agen...e48389fed3489223c4eff.csv'), PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_2/aliases.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-487/test_valid_retained_api_proof_2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f851d6cdf70>
+pointer = 'same-fd'
+
+    @pytest.mark.parametrize("pointer", [None, "fdorg:old", "same-fd"])
+    def test_valid_retained_api_proof_preserves_fd_target_replay_and_export(
+        setup, tmp_path, monkeypatch, pointer
+    ):
+        original = retained(setup, pointer=None if pointer == "same-fd" else pointer)
+        database = setup[0]
+        if pointer == "same-fd":
+            mutate(database, "UPDATE matches SET counterpart_id=? WHERE match_id='jc:1'", (FD_ID,))
+        before = {
+            table: sql(database, f"SELECT * FROM {table}")
+            for table in ("matches", "results", "match_stats")
+        }
+        with sqlite3.connect(database) as db:
+            assert validate_fd_links(db)[FD_ID]["match_id"] == "jc:1"
+            check_db(db)
+        assert ingest(setup) == {"inserted": 0, "rejected": 0}
+        archive, _, release = publish(tmp_path, database)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "feeds",
+                "export",
+                "--db",
+                str(database),
+                "--archive",
+                str(archive),
+                "--run-id",
+                "retained",
+            ],
+        )
+        main()
+        work = tmp_path / "restored"
+        work.mkdir()
+        monkeypatch.chdir(work)
+        monkeypatch.setattr(
+            sys, "argv", ["feeds", "verify", "--archive", str(archive), "--run-id", "verify-retained"]
+        )
+        main()
+        restored = work / "data/zucai.db"
+        restore_rows(restored, archive, release=release)
+        assert sql(database, "SELECT * FROM fd_stats_links") == original
+        assert sql(restored, "SELECT * FROM fd_stats_links") == original
+        assert {table: sql(database, f"SELECT * FROM {table}") for table in before} == before
+>       assert {table: sql(restored, f"SELECT * FROM {table}") for table in before} == before
+E       AssertionError: assert {'matches': [...', ...), ...]} == {'matches': [...', ...), ...]}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'results': [('apif:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...), ('jc:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...)]} != {'results': [('jc:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...), ('apif:1', 1, 0, None, None, '2026-11-04T12:00:00.000000Z', ...)]}
+E         {'matches': [('apif:1', 'apif', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...), ('jc:1', 'jc', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...)]} != {'matches': [('jc:1', 'jc', '英超', 1, 2, '2024-10-01T19:00:00.000000Z', ...), (...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+/workspace/work/football-t63/tests/test_t63_fd_stats_retention.py:99: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[None]
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[fdorg:old]
+FAILED tests/test_t63_fd_stats_retention.py::test_valid_retained_api_proof_preserves_fd_target_replay_and_export[same-fd]
+3 failed, 7 passed in 2.58s

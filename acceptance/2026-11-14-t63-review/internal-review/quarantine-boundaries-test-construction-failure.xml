@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="14" time="10.199" timestamp="2026-11-14T07:12:17.436221+00:00" hostname="5e80b6da1ed3"><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[outgoing-apif:1490585]" time="0.522" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[outgoing-fd:USA:20261031:fc-cincinnati:philadelphia-union]" time="0.298" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[remote_incoming-apif:1490585]" time="0.280" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[remote_incoming-fd:USA:20261031:fc-cincinnati:philadelphia-union]" time="0.456" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[scheduled_neighbor-apif:1490585]" time="0.313" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[scheduled_neighbor-fd:USA:20261031:fc-cincinnati:philadelphia-union]" time="0.279" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[bad_alias_object-apif:1490585]" time="0.068"><failure message="ValueError: Attribute 'aliases' does not accept objects of type &lt;class 'dict'&gt;">db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-481/test_blockers_do_not_grant_qua6/saved-mls.db)
+target = 'apif:1490585', kind = 'bad_alias_object'
+
+    @pytest.mark.parametrize('target',[API,FD])
+    @pytest.mark.parametrize('kind',['outgoing','remote_incoming','scheduled_neighbor','bad_alias_object','bad_alias_element'])
+    def test_blockers_do_not_grant_quarantine(db,target,kind):
+        with session_scope(db) as s:
+            row=s.get(Match,target)
+            if kind=='outgoing':
+                row.counterpart_id='jc:nonexistent'
+            elif kind in ('remote_incoming','scheduled_neighbor'):
+                fields={c.name:getattr(row,c.name) for c in row.__table__.columns}
+                fields.update(match_id='jc:remote',source='jc',status='scheduled',counterpart_id=None)
+                if kind=='remote_incoming':
+                    fields.update(league='英超',kickoff_utc='2025-01-01T00:00:00Z',counterpart_id=target)
+                s.add(Match(**fields))
+            else:
+&gt;               s.get(Team,509).aliases={} if kind=='bad_alias_object' else [None]
+                ^^^^^^^^^^^^^^^^^^^^^^^
+
+../t63-review-20261114/internal-review/test_quarantine_boundaries.py:27: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/attributes.py:546: in __set__
+    self.impl.set(
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/attributes.py:1308: in set
+    value = self.fire_replace_event(
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/attributes.py:1323: in fire_replace_event
+    value = fn(
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/events.py:2530: in wrap
+    return fn(target, *arg)
+           ^^^^^^^^^^^^^^^^
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/ext/mutable.py:555: in set_
+    value = cls.coerce(key, value)
+            ^^^^^^^^^^^^^^^^^^^^^^
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/ext/mutable.py:991: in coerce
+    return Mutable.coerce(key, value)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'sqlalchemy.ext.mutable.Mutable'&gt;, key = 'aliases', value = {}
+
+    @classmethod
+    def coerce(cls, key: str, value: Any) -&gt; Optional[Any]:
+        """Given a value, coerce it into the target type.
+    
+        Can be overridden by custom subclasses to coerce incoming
+        data into a particular type.
+    
+        By default, raises ``ValueError``.
+    
+        This method is called in different scenarios depending on if
+        the parent class is of type :class:`.Mutable` or of type
+        :class:`.MutableComposite`.  In the case of the former, it is called
+        for both attribute-set operations as well as during ORM loading
+        operations.  For the latter, it is only called during attribute-set
+        operations; the mechanics of the :func:`.composite` construct
+        handle coercion during load operations.
+    
+    
+        :param key: string name of the ORM-mapped attribute being set.
+        :param value: the incoming value.
+        :return: the method should return the coerced value, or raise
+         ``ValueError`` if the coercion cannot be completed.
+    
+        """
+        if value is None:
+            return None
+        msg = "Attribute '%s' does not accept objects of type %s"
+&gt;       raise ValueError(msg % (key, type(value)))
+E       ValueError: Attribute 'aliases' does not accept objects of type &lt;class 'dict'&gt;
+
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/ext/mutable.py:473: ValueError</failure></testcase><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[bad_alias_object-fd:USA:20261031:fc-cincinnati:philadelphia-union]" time="0.106"><failure message="ValueError: Attribute 'aliases' does not accept objects of type &lt;class 'dict'&gt;">db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-481/test_blockers_do_not_grant_qua7/saved-mls.db)
+target = 'fd:USA:20261031:fc-cincinnati:philadelphia-union'
+kind = 'bad_alias_object'
+
+    @pytest.mark.parametrize('target',[API,FD])
+    @pytest.mark.parametrize('kind',['outgoing','remote_incoming','scheduled_neighbor','bad_alias_object','bad_alias_element'])
+    def test_blockers_do_not_grant_quarantine(db,target,kind):
+        with session_scope(db) as s:
+            row=s.get(Match,target)
+            if kind=='outgoing':
+                row.counterpart_id='jc:nonexistent'
+            elif kind in ('remote_incoming','scheduled_neighbor'):
+                fields={c.name:getattr(row,c.name) for c in row.__table__.columns}
+                fields.update(match_id='jc:remote',source='jc',status='scheduled',counterpart_id=None)
+                if kind=='remote_incoming':
+                    fields.update(league='英超',kickoff_utc='2025-01-01T00:00:00Z',counterpart_id=target)
+                s.add(Match(**fields))
+            else:
+&gt;               s.get(Team,509).aliases={} if kind=='bad_alias_object' else [None]
+                ^^^^^^^^^^^^^^^^^^^^^^^
+
+../t63-review-20261114/internal-review/test_quarantine_boundaries.py:27: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/attributes.py:546: in __set__
+    self.impl.set(
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/attributes.py:1308: in set
+    value = self.fire_replace_event(
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/attributes.py:1323: in fire_replace_event
+    value = fn(
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/events.py:2530: in wrap
+    return fn(target, *arg)
+           ^^^^^^^^^^^^^^^^
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/ext/mutable.py:555: in set_
+    value = cls.coerce(key, value)
+            ^^^^^^^^^^^^^^^^^^^^^^
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/ext/mutable.py:991: in coerce
+    return Mutable.coerce(key, value)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'sqlalchemy.ext.mutable.Mutable'&gt;, key = 'aliases', value = {}
+
+    @classmethod
+    def coerce(cls, key: str, value: Any) -&gt; Optional[Any]:
+        """Given a value, coerce it into the target type.
+    
+        Can be overridden by custom subclasses to coerce incoming
+        data into a particular type.
+    
+        By default, raises ``ValueError``.
+    
+        This method is called in different scenarios depending on if
+        the parent class is of type :class:`.Mutable` or of type
+        :class:`.MutableComposite`.  In the case of the former, it is called
+        for both attribute-set operations as well as during ORM loading
+        operations.  For the latter, it is only called during attribute-set
+        operations; the mechanics of the :func:`.composite` construct
+        handle coercion during load operations.
+    
+    
+        :param key: string name of the ORM-mapped attribute being set.
+        :param value: the incoming value.
+        :return: the method should return the coerced value, or raise
+         ``ValueError`` if the coercion cannot be completed.
+    
+        """
+        if value is None:
+            return None
+        msg = "Attribute '%s' does not accept objects of type %s"
+&gt;       raise ValueError(msg % (key, type(value)))
+E       ValueError: Attribute 'aliases' does not accept objects of type &lt;class 'dict'&gt;
+
+../t48-venv/lib/python3.12/site-packages/sqlalchemy/ext/mutable.py:473: ValueError</failure></testcase><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[bad_alias_element-apif:1490585]" time="0.262" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_blockers_do_not_grant_quarantine[bad_alias_element-fd:USA:20261031:fc-cincinnati:philadelphia-union]" time="0.606" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_scheduled_fd_row_without_result_cannot_suppress_paid_result" time="0.200" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_identity_equal_cutoff_does_not_create_spurious_exclusion" time="0.196" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_window_boundary_is_inclusive_only_at_three_hours[3-True]" time="0.165" /><testcase classname="t63-review-20261114.internal-review.test_quarantine_boundaries" name="test_window_boundary_is_inclusive_only_at_three_hours[3.000277777777778-False]" time="0.131" /></testsuite></testsuites>

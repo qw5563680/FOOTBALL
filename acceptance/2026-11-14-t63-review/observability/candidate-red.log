@@ -1,0 +1,180 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+__ test_outer_candidate_failure_survives_restore_summary_and_digest[training] __
+tests/test_t63_candidate_observability.py:44: in test_outer_candidate_failure_survives_restore_summary_and_digest
+    status = result["source_version_status"]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'source_version_status'
+------------------------------ Captured log call -------------------------------
+ERROR    zucai.cloud_predict:cloud_predict.py:221 芬超 训练失败，继续其他联赛
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 195, in run
+    training = train(
+               ^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 101, in train
+    games, prices, closing, digest = load_corpus(
+                                     ^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 56, in load_corpus
+    games = read_history(
+            ^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/backtest.py", line 95, in read_history
+    raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
+zucai.predict.dixon_coles.InsufficientHistory: 没有已完赛的赛果。可先运行公开样例
+ERROR    zucai.cloud_predict:cloud_predict.py:383 新来源候选冻结失败；已冻结旧版与原实验联赛结果保持原样
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 356, in run
+    candidates, candidate_models, candidate_params = train_candidates(
+                                                     ^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/tests/test_t63_candidate_observability.py", line 33, in fail
+    raise ValueError("synthetic private detail https://example.invalid/?api_key=DO_NOT_PUBLISH")
+ValueError: synthetic private detail https://example.invalid/?api_key=DO_NOT_PUBLISH
+ERROR    zucai.experimental_archive:experimental_archive.py:73 实验数据恢复或计算失败；正式预测已保留
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/experimental_archive.py", line 57, in freeze_parallel
+    release = release_factory()
+              ^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/stats_release.py", line 90, in __init__
+    raise ValueError("Release repository 须为 github.com owner/repo")
+ValueError: Release repository 须为 github.com owner/repo
+_ test_outer_candidate_failure_survives_restore_summary_and_digest[prediction] _
+tests/test_t63_candidate_observability.py:44: in test_outer_candidate_failure_survives_restore_summary_and_digest
+    status = result["source_version_status"]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'source_version_status'
+------------------------------ Captured log call -------------------------------
+ERROR    zucai.cloud_predict:cloud_predict.py:221 芬超 训练失败，继续其他联赛
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 195, in run
+    training = train(
+               ^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 101, in train
+    games, prices, closing, digest = load_corpus(
+                                     ^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 56, in load_corpus
+    games = read_history(
+            ^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/backtest.py", line 95, in read_history
+    raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
+zucai.predict.dixon_coles.InsufficientHistory: 没有已完赛的赛果。可先运行公开样例
+ERROR    zucai.cloud_predict:cloud_predict.py:383 新来源候选冻结失败；已冻结旧版与原实验联赛结果保持原样
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 367, in run
+    batch["input"]["kickoff_date_beijing"]: predict_candidates(
+                                            ^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/tests/test_t63_candidate_observability.py", line 33, in fail
+    raise ValueError("synthetic private detail https://example.invalid/?api_key=DO_NOT_PUBLISH")
+ValueError: synthetic private detail https://example.invalid/?api_key=DO_NOT_PUBLISH
+ERROR    zucai.experimental_archive:experimental_archive.py:73 实验数据恢复或计算失败；正式预测已保留
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/experimental_archive.py", line 57, in freeze_parallel
+    release = release_factory()
+              ^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/stats_release.py", line 90, in __init__
+    raise ValueError("Release repository 须为 github.com owner/repo")
+ValueError: Release repository 须为 github.com owner/repo
+___ test_outer_candidate_failure_survives_restore_summary_and_digest[freeze] ___
+tests/test_t63_candidate_observability.py:44: in test_outer_candidate_failure_survives_restore_summary_and_digest
+    status = result["source_version_status"]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'source_version_status'
+------------------------------ Captured log call -------------------------------
+ERROR    zucai.cloud_predict:cloud_predict.py:221 芬超 训练失败，继续其他联赛
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 195, in run
+    training = train(
+               ^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 101, in train
+    games, prices, closing, digest = load_corpus(
+                                     ^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 56, in load_corpus
+    games = read_history(
+            ^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/backtest.py", line 95, in read_history
+    raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
+zucai.predict.dixon_coles.InsufficientHistory: 没有已完赛的赛果。可先运行公开样例
+ERROR    zucai.cloud_predict:cloud_predict.py:383 新来源候选冻结失败；已冻结旧版与原实验联赛结果保持原样
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 379, in run
+    result = attach_source_versions(
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/source_version_archive.py", line 317, in attach_source_versions
+    verify_source_versions(archive, manifest, run)
+  File "/workspace/work/football-t63/tests/test_t63_candidate_observability.py", line 33, in fail
+    raise ValueError("synthetic private detail https://example.invalid/?api_key=DO_NOT_PUBLISH")
+ValueError: synthetic private detail https://example.invalid/?api_key=DO_NOT_PUBLISH
+ERROR    zucai.experimental_archive:experimental_archive.py:73 实验数据恢复或计算失败；正式预测已保留
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/experimental_archive.py", line 57, in freeze_parallel
+    release = release_factory()
+              ^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/stats_release.py", line 90, in __init__
+    raise ValueError("Release repository 须为 github.com owner/repo")
+ValueError: Release repository 须为 github.com owner/repo
+_____ test_partial_candidate_training_is_visible_without_changing_primary ______
+tests/test_t63_candidate_observability.py:85: in test_partial_candidate_training_is_visible_without_changing_primary
+    status = result["source_version_status"]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'source_version_status'
+------------------------------ Captured log call -------------------------------
+ERROR    zucai.cloud_predict:cloud_predict.py:221 芬超 训练失败，继续其他联赛
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 195, in run
+    training = train(
+               ^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 101, in train
+    games, prices, closing, digest = load_corpus(
+                                     ^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 56, in load_corpus
+    games = read_history(
+            ^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/backtest.py", line 95, in read_history
+    raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
+zucai.predict.dixon_coles.InsufficientHistory: 没有已完赛的赛果。可先运行公开样例
+ERROR    zucai.cloud_predict:cloud_predict.py:221 西甲 训练失败，继续其他联赛
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 195, in run
+    training = train(
+               ^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 101, in train
+    games, prices, closing, digest = load_corpus(
+                                     ^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 56, in load_corpus
+    games = read_history(
+            ^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/backtest.py", line 95, in read_history
+    raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
+zucai.predict.dixon_coles.InsufficientHistory: 没有已完赛的赛果。可先运行公开样例
+ERROR    zucai.source_version_training:source_version_training.py:95 西甲 新来源候选失败，已冻结旧版本保持原样
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/source_version_training.py", line 67, in train_candidates
+    training = trainer(
+               ^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 101, in train
+    games, prices, closing, digest = load_corpus(
+                                     ^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 56, in load_corpus
+    games = read_history(
+            ^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/backtest.py", line 95, in read_history
+    raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
+zucai.predict.dixon_coles.InsufficientHistory: 没有已完赛的赛果。可先运行公开样例
+ERROR    zucai.experimental_archive:experimental_archive.py:73 实验数据恢复或计算失败；正式预测已保留
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/experimental_archive.py", line 57, in freeze_parallel
+    release = release_factory()
+              ^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/stats_release.py", line 90, in __init__
+    raise ValueError("Release repository 须为 github.com owner/repo")
+ValueError: Release repository 须为 github.com owner/repo
+=============================== warnings summary ===============================
+tests/test_t63_candidate_observability.py: 1006 warnings
+  /workspace/work/t48-venv/lib/python3.12/site-packages/penaltyblog/models/dixon_coles.py:257: DeprecationWarning: Setting the shape on a NumPy array has been deprecated in NumPy 2.5.
+  As an alternative, you can create a new view using np.reshape (with copy=False if needed).
+    score_matrix.shape = (max_goals, max_goals)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_t63_candidate_observability.py::test_outer_candidate_failure_survives_restore_summary_and_digest[training]
+FAILED tests/test_t63_candidate_observability.py::test_outer_candidate_failure_survives_restore_summary_and_digest[prediction]
+FAILED tests/test_t63_candidate_observability.py::test_outer_candidate_failure_survives_restore_summary_and_digest[freeze]
+FAILED tests/test_t63_candidate_observability.py::test_partial_candidate_training_is_visible_without_changing_primary

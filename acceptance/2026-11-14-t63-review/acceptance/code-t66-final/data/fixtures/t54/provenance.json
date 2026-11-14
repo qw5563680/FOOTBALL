@@ -1,0 +1,109 @@
+{
+  "archive_branch": "data/football-feeds",
+  "archive_commit": "b492f4d7c501fd8cdbd2694d760f2f13892f796c",
+  "files": {
+    "26163.json": {
+      "bytes": 22539,
+      "selection": "原始文件逐字节保留",
+      "sha256": "afee353e63008919b5a144cab037f06ea48bb4a22a2891919100d54722f1ca3e",
+      "source": "state/sfc/26163.json"
+    },
+    "forecast-fourteen.json": {
+      "bytes": 56665,
+      "selection": "原冻结聚合batch的14场全部预测字段及欧国联模型元信息；仅移除其他联赛模型、无关prospective_evidence并压缩空白；所有保留值不变。包含第3场旧缩写队名预测，不声称旧报告已有第3场有效概率。",
+      "sha256": "b6d1f441c71b1358aefffb63d4bd981fcfa0e5e3036a85d8b12c1fcaa2afefaf",
+      "source": "sfc/26163/history/43198864630-1/sfc.json"
+    },
+    "frozen-thirteen.json": {
+      "bytes": 1603,
+      "selection": "原报告中除第3场外13场的seq/match_id/probabilities，数值不改、不舍入",
+      "sha256": "75d265e85f87ea5aea5cab8eff736afe8ae4100411fc8e29ff6e5f5e911f42da",
+      "source": "sfc/26163/history/43198864630-1/sfc.json"
+    },
+    "jc_catalog.csv": {
+      "bytes": 3006,
+      "selection": "只保留jc:2042694，captured_utc=2026-11-12T10:30:15.851227Z，全部原字段不改",
+      "sha256": "1710bafe78c7fd96ee6118f53dc968a0685b58a93562d5ee5f94df7c1a658ba0",
+      "source": "state/audit/jc_catalog/2026-11.csv"
+    },
+    "matches.jsonl": {
+      "bytes": 3980,
+      "selection": "保留本期14个JC比赛及其精确开球时刻的欧国联APIF候选原始行，不改字段",
+      "sha256": "f993339f82964715007a165506fe928d8a837fe4b2772c3df6da09f526f602fa",
+      "source": "state/matches.jsonl"
+    },
+    "team-investigation.json": {
+      "bytes": 30518,
+      "selection": "7队逐一离线调查登记，含原始证据行、首次提交及未决理由；不作跨源模糊合并",
+      "sha256": "5d2eb40a982fee498e18e05db256cf70acccb1bf345cab53fc2540cef60c3e3a",
+      "source": "multiple archived rows; see source_files and evidence inside file"
+    },
+    "teams.jsonl": {
+      "bytes": 2309,
+      "selection": "保留匹配候选比赛涉及球队的原始行，不改字段",
+      "sha256": "cf49e97a5f933e6250711d45d3b3a41c6d01150eba2ee63b41070c497db7c6c8",
+      "source": "state/teams.jsonl"
+    }
+  },
+  "frozen_report": "sfc/26163/history/43198864630-1/sfc.json",
+  "historical_as_of_utc": "2026-11-12T10:33:56.067019+00:00",
+  "match_ids": [
+    "apif:1528958",
+    "apif:1528959",
+    "apif:1528960",
+    "apif:1528961",
+    "apif:1528962",
+    "apif:1528963",
+    "apif:1528964",
+    "apif:1528965",
+    "apif:1528966",
+    "apif:1528967",
+    "apif:1528968",
+    "apif:1528969",
+    "apif:1528970",
+    "apif:1545613",
+    "apif:1545614",
+    "apif:1545615",
+    "apif:1545654",
+    "apif:1545659",
+    "jc:2042692",
+    "jc:2042693",
+    "jc:2042694",
+    "jc:2042695",
+    "jc:2042696",
+    "jc:2042697",
+    "jc:2042727",
+    "jc:2042728",
+    "jc:2042729",
+    "jc:2042730",
+    "jc:2042731",
+    "jc:2042732",
+    "jc:2042733",
+    "jc:2042734"
+  ],
+  "model_artifact": "models/43198864630-1/欧国联.pkl",
+  "model_not_embedded": true,
+  "model_sha256": "e7e9c5c882c9e510b5cbda7bd32f1e0700056dd3668f806d6d1010eda2fe1365",
+  "notes": "真实2026-11-12归档离线裁剪；不合成来源证据，不改变采集时刻或概率。不含模型二进制；全量模型回放由scripts/verify-t54-archive.py执行。",
+  "repository": "qw5563680/FOOTBALL",
+  "run_id": "43198864630-1",
+  "schema_version": 1,
+  "source_files_sha256": {
+    "feed_manifest.json": "d2949e05dfb0b68d828f4ec663ca5157eab7867f21a94bfb056bf4df6ff2ad5d",
+    "forecasts/2026-11-13/43198864630-1/forecast.json": "77ba32c7ae1a4417475dae4a3280b2502f0e692eefba94ca593c3850daf6c2fe",
+    "forecasts/2026-11-14/43198864630-1/forecast.json": "74aa1794c90fd51070be5d10715f19f3d08d954be5af7381a430792230fda76d",
+    "models/43198864630-1/欧国联.pkl": "e7e9c5c882c9e510b5cbda7bd32f1e0700056dd3668f806d6d1010eda2fe1365",
+    "models/43198864630-1/欧国联.train.json": "5fde8da16575e15cd4279402b80d960563d371abe8e6381c80564f6f7f9a13b2",
+    "sfc/26163/history/43198864630-1/sfc.json": "b6c3bd228afb9d78f4594543448eebb04565ec9061ee849536bf19dc1449b82d",
+    "sfc/26163/manifest.json": "cd4f841d15e2995b54de5182261faf7df0b0e8a00f003338d1d781b498c0b43f",
+    "sfc/26163/sfc.json": "758560cb886f4acdfd9894d71c851735703b7a825986d8e4044315d7266c279e",
+    "state/audit/apif_unmatched_teams.csv": "7c14aecf81586094275ce777bd8ecfd86c0fdb1b2b05cf33f496d06ce8a7e0b8",
+    "state/audit/fd_unmatched_teams.csv": "01ba83bd977dcdf1442315ad8566afce1b7d903abca7b78071c2a99fb9a971ed",
+    "state/audit/jc_catalog/2026-11.csv": "49dfeb4b8632097904b377bf93338451a502b21fc7705ed33030f1b245db2d9b",
+    "state/audit/jc_unmatched_teams.csv": "5bfd85ee5a1e229185dd95f2bbaf3899722079bd338a65a5e8eaec140e80680b",
+    "state/matches.jsonl": "36df6178a15e22a2d301a87fd72e0b481bdb9c89ad687c32d87f96c37821395e",
+    "state/nations_league.json": "d2112dbb2b5a41cb4ca62155f33002d956070354d44e97e299c2cba75045bcc8",
+    "state/sfc/26163.json": "afee353e63008919b5a144cab037f06ea48bb4a22a2891919100d54722f1ca3e",
+    "state/teams.jsonl": "9bba459fb1eb4c0f97c44e519c737f9cd6f23c4a49e226c6369029bc5eba8ca7"
+  }
+}

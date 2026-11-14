@@ -1,0 +1,116 @@
+FF....                                                                   [100%]
+=================================== FAILURES ===================================
+____ test_real_unmapped_fd_overlap_keeps_old_rows_without_claiming_a_match _____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-475/test_real_unmapped_fd_overlap_0/saved-mls.db)
+
+    def test_real_unmapped_fd_overlap_keeps_old_rows_without_claiming_a_match(db):
+        with session_scope(db) as session:
+            before = {
+                table.__tablename__: [dict(r) for r in session.execute(select(table.__table__)).mappings()]
+                for table in (Team, Match, Result)
+            }
+            frame = history(session)
+>           selected = select_training_history(frame, CUTOFF)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t63_fd_identity_quarantine.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/predict/pooled.py:284: in select_training_history
+    reject_cross_source_overlaps(eligible)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =                                             match_id  ...  provider_identity_verified
+0                               ...      True
+3  fd:USA:20261031:san-jose-earthquakes:real-salt...  ...                       False
+
+[4 rows x 23 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc < row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+>                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:1490585 / fd:USA:20261031:fc-cincinnati:philadelphia-union
+
+src/zucai/predict/apif_guard.py:30: ValueError
+______ test_future_fd_result_does_not_remove_the_current_paid_observation ______
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-475/test_future_fd_result_does_not0/saved-mls.db)
+
+    def test_future_fd_result_does_not_remove_the_current_paid_observation(db):
+        with session_scope(db) as session:
+            for result in session.scalars(select(Result).where(Result.match_id.like("fd:%"))):
+                result.available_utc = CUTOFF.isoformat()
+                result.available_source = "captured"
+            frame = history(session)
+            assert set(select_training_history(frame, CUTOFF).source) == {"apif"}
+>           assert set(select_training_history(frame, CUTOFF + pd.Timedelta(seconds=1)).source) == {"fd"}
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t63_fd_identity_quarantine.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/predict/pooled.py:284: in select_training_history
+    reject_cross_source_overlaps(eligible)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =                                             match_id  ...  provider_identity_verified
+0                               ...      True
+3  fd:USA:20261031:san-jose-earthquakes:real-salt...  ...                       False
+
+[4 rows x 23 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc < row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+>                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:1490585 / fd:USA:20261031:fc-cincinnati:philadelphia-union
+
+src/zucai/predict/apif_guard.py:30: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_t63_fd_identity_quarantine.py::test_real_unmapped_fd_overlap_keeps_old_rows_without_claiming_a_match
+FAILED tests/test_t63_fd_identity_quarantine.py::test_future_fd_result_does_not_remove_the_current_paid_observation
+2 failed, 4 passed in 2.40s
