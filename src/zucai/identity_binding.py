@@ -116,6 +116,41 @@ def _category_veto(label, category):
     )
 
 
+def _official_label_conflicts(official, teams):
+    """Every observed label may veto; no label positively establishes identity."""
+    conflicts = {}
+    for side in ("home", "away"):
+        target = teams.get(str(official.get(side)), {})
+        observations = list(target.get("official_name_evidence", []))
+        documented = {item["label"] for item in observations}
+        for label in [target.get("name"), *target.get("official_names", [])]:
+            if label not in documented:
+                observations.append(
+                    dict(
+                        label=label,
+                        match_id=None,
+                        side=side,
+                        provenance=target.get("provenance", []),
+                    )
+                )
+        observations.append(
+            dict(
+                label=official.get(f"{side}_name"),
+                match_id=official["match_id"],
+                side=side,
+                provenance=official.get("provenance", []),
+            )
+        )
+        for observation in observations:
+            label = observation["label"]
+            if isinstance(label, str) and _category_veto(label, target.get("category")):
+                item = dict(
+                    observation, identity_key=str(official[side]), category=target.get("category")
+                )
+                conflicts[_json(item)] = item
+    return [conflicts[key] for key in sorted(conflicts)]
+
+
 def _pair_reasons(source, official, teams, *, diagnostic=False):
     reasons = []
     a, b = _clock(source), _clock(official)
@@ -146,10 +181,10 @@ def _pair_reasons(source, official, teams, *, diagnostic=False):
             reasons.append("category_evidence_missing")
         elif category != target["category"]:
             reasons.append("category_conflict")
-        if _category_veto(source.get(f"{side}_name", ""), category) or (
-            target and _category_veto(target.get("name", ""), target.get("category"))
-        ):
+        if _category_veto(source.get(f"{side}_name", ""), category):
             reasons.append("category_conflict")
+    if not diagnostic and _official_label_conflicts(official, teams):
+        reasons.append("category_conflict")
     return sorted(set(reasons))
 
 
@@ -191,6 +226,48 @@ def _compatible(source, official, known):
         )
         for side in ("home", "away")
     )
+
+
+def _propagate_approval_gaps(entries):
+    """Carry pending root approvals through required anchors, never granting authority."""
+    by_id = {
+        entry["candidate_id"]: entry
+        for entry in entries
+        if entry.get("candidate_id")
+        and entry.get("evidence_status") in {"strict_verified", "conditional_verified"}
+    }
+    origins = {
+        cid: {
+            (cid, reason)
+            for reason in entry.get("approval_gaps", [])
+            if reason != "dependency_approval_pending"
+        }
+        | {
+            (gap["origin_candidate_id"], gap["reason"])
+            for gap in entry.get("dependency_approval_gaps", [])
+        }
+        for cid, entry in by_id.items()
+    }
+    changed = True
+    while changed:
+        changed = False
+        for cid, entry in by_id.items():
+            before = len(origins[cid])
+            for dependency in entry.get("depends_on", []):
+                origins[cid].update(origins.get(dependency, set()))
+            changed |= len(origins[cid]) != before
+    for entry in by_id.values():
+        dependencies = [
+            dict(dependency_id=dependency, origin_candidate_id=origin, reason=reason)
+            for dependency in sorted(set(entry.get("depends_on", [])))
+            for origin, reason in sorted(origins.get(dependency, set()))
+        ]
+        if dependencies:
+            entry["dependency_approval_gaps"] = dependencies
+            entry["approval_gaps"] = sorted(
+                set(entry.get("approval_gaps", [])) | {"dependency_approval_pending"}
+            )
+            entry["evidence_status"] = "conditional_verified"
 
 
 def propose_bindings(
@@ -330,6 +407,10 @@ def propose_bindings(
             ),
         )
         row["reasons"] = sorted(set(row["reasons"]) | set(reasons))
+        if j is not None and "category_conflict" in reasons:
+            conflicts = _official_label_conflicts(counterparts[j], teams)
+            if conflicts:
+                row["category_conflicts"] = conflicts
 
     for i, row in enumerate(sources):
         if _clock(row) is None:
@@ -689,6 +770,7 @@ def propose_bindings(
             if gaps and entry.get("evidence_status") == "strict_verified":
                 entry["evidence_status"] = "conditional_verified"
                 entry["approval_gaps"] = gaps
+    _propagate_approval_gaps([entry for rows in review_groups for entry in rows.values()])
     if diagnostic:
         for rows in output.values():
             for entry in rows.values():

@@ -5,6 +5,7 @@ from collections import defaultdict
 from html import escape
 
 REASONS_ZH = {
+    "dependency_approval_pending": "用作编号锚的候选还有未核准事项，须连同依赖一起核准",
     "cancelled_fixture_not_identity_witness": (
         "双方均记录为取消且没有赛果，这场不作身份见证；不影响其他独立完赛证据"
     ),
@@ -89,6 +90,7 @@ def enrich_register(rows, inputs, result):
                     provider_team_id=candidate["provider_team_id"],
                     name=candidate.get("name", ""),
                     evidence_status=candidate["evidence_status"],
+                    dependency_approval_gaps=candidate.get("dependency_approval_gaps", []),
                     witnesses=[
                         w
                         for proof in candidate.get("evidence", [])
@@ -115,6 +117,8 @@ def enrich_register(rows, inputs, result):
                         reasons_zh=[REASONS_ZH.get(r, r) for r in issue["reasons"]],
                         provenance=source["provenance"],
                     )
+                    if issue.get("category_conflicts"):
+                        item["category_conflicts"] = issue["category_conflicts"]
                     possible[json.dumps(item, sort_keys=True, ensure_ascii=False)] = item
         row["possible_matches"] = list(possible.values())
         row["reasons_zh"] = [REASONS_ZH.get(r, r) for r in row["reasons"]]
@@ -155,7 +159,15 @@ def owner_html(register):
                 )
             for candidate in row["api_candidates"]:
                 label = f"{candidate['name']}（接口编号 {candidate['provider_team_id']}）"
-                parts.append(f"<h3>{escape(label)}</h3><ul>")
+                parts.append(f"<h3>{escape(label)}</h3>")
+                for gap in candidate["dependency_approval_gaps"]:
+                    explanation = (
+                        f"依赖候选 {gap['dependency_id']}；"
+                        f"最初待核候选 {gap['origin_candidate_id']}："
+                        f"{REASONS_ZH.get(gap['reason'], gap['reason'])}"
+                    )
+                    parts.append(f"<p>{escape(explanation)}</p>")
+                parts.append("<ul>")
                 for witness in candidate["witnesses"]:
                     score = ":".join(map(str, witness["score"] or []))
                     label = (
@@ -264,6 +276,12 @@ def owner_markdown(register):
                         "",
                     ]
                 )
+                for gap in candidate["dependency_approval_gaps"]:
+                    page.append(
+                        f"- 依赖候选 `{gap['dependency_id']}`；"
+                        f"最初待核候选 `{gap['origin_candidate_id']}`："
+                        f"{REASONS_ZH.get(gap['reason'], gap['reason'])}。"
+                    )
                 for witness in candidate["witnesses"]:
                     score = ":".join(map(str, witness["score"] or []))
                     opponent = witness["official_opponent"]

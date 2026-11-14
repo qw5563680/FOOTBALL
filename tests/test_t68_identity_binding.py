@@ -1379,3 +1379,123 @@ def test_known_answers_reports_conditional_reproduction_separately(mod):
     assert result["reproduced"] == 0
     assert result["conditional_reproduced"] == 1
     assert result["rows"][0]["outcome"] == "reproduced_conditional"
+
+
+@pytest.mark.parametrize("label_location", ["retained", "current"])
+def test_every_official_label_vetoes_with_provenance(mod, inputs, label_location):
+    proof = dict(path="official/later.json", sha256="c" * 64, pointer="/value/matchResult/1")
+    target = inputs["teams"]["1"]
+    target.update(name="Neutral name", official_team_id="201", official_names=["Neutral name"])
+    if label_location == "retained":
+        target["official_names"].append("Jong Ajax")
+        target["official_name_evidence"] = [
+            dict(label="Jong Ajax", match_id="jc:later", side="home", provenance=[proof])
+        ]
+    else:
+        inputs["official"][0]["home_name"] = "Jong Ajax"
+        inputs["official"][0]["provenance"] = [proof]
+    result = propose(mod, inputs)
+    assert not ready(result)
+    conflicts = [c for row in result["unverified"] for c in row.get("category_conflicts", [])]
+    assert any(c["label"] == "Jong Ajax" and proof in c["provenance"] for c in conflicts)
+
+
+@pytest.mark.parametrize("legacy_anchor", [False, True])
+def test_pending_anchor_creation_keeps_locally_approved_dependents_conditional(
+    mod, inputs, legacy_anchor
+):
+    layered(inputs)
+    for key, team in inputs["teams"].items():
+        team.update(
+            category_status="approved", identity_status="existing_numbered", project_team_id=key
+        )
+    inputs["teams"]["1"]["identity_status"] = "creation_proposed"
+    previous = (
+        {"测试联赛": {"101": dict(canonical="甲队", status="auto_verified")}}
+        if legacy_anchor
+        else {}
+    )
+    result = propose(mod, inputs, previous=previous)
+    entries = result["apif"]["测试联赛"]
+    for key in ["103", "104"]:
+        assert entries[key]["evidence_status"] == "conditional_verified"
+        assert "dependency_approval_pending" in entries[key]["approval_gaps"]
+        assert (
+            dict(
+                dependency_id="t68:apif:98:101:1",
+                origin_candidate_id="t68:apif:98:101:1",
+                reason="canonical_identity_creation_pending",
+            )
+            in entries[key]["dependency_approval_gaps"]
+        )
+    assert entries["102"]["evidence_status"] == "strict_verified"
+    if legacy_anchor:
+        assert entries["101"] == previous["测试联赛"]["101"]
+    inputs["teams"]["1"]["identity_status"] = "existing_numbered"
+    resolved = propose(mod, inputs, previous=previous)["apif"]["测试联赛"]
+    assert resolved["103"]["evidence_status"] == "strict_verified"
+    assert not resolved["103"].get("dependency_approval_gaps")
+
+
+def test_pending_approval_propagates_to_fixed_point_with_root_reason(mod, inputs):
+    layered(inputs)
+    for key, name in [("5", "戊队"), ("6", "己队")]:
+        inputs["teams"][key] = dict(name=name, category="club/men/senior/first")
+    inputs["apif"].extend(
+        [
+            dict(
+                inputs["apif"][0],
+                match_id="apif:13",
+                home="105",
+                away="106",
+                kickoff_utc="2020-06-03T12:00:00Z",
+            ),
+            dict(
+                inputs["apif"][0],
+                match_id="apif:14",
+                home="103",
+                away="106",
+                kickoff_utc="2020-06-03T12:00:00Z",
+                status="NS",
+                score=None,
+            ),
+        ]
+    )
+    inputs["official"].append(
+        dict(
+            inputs["official"][0],
+            match_id="jc:22",
+            home="5",
+            away="6",
+            kickoff_utc="2020-06-03T12:00:00Z",
+        )
+    )
+    for row in inputs["apif"] + inputs["official"]:
+        row["coverage"] = dict(start_utc="2020-05-31T00:00:00Z", end_utc="2020-06-05T00:00:00Z")
+    # Put deeper dependents first in output key ordering, requiring more than one pass.
+    renumber = dict(
+        zip(
+            ["101", "102", "103", "104", "105", "106"],
+            ["901", "902", "801", "802", "701", "702"],
+            strict=True,
+        )
+    )
+    for row in inputs["apif"]:
+        row["home"], row["away"] = renumber[row["home"]], renumber[row["away"]]
+    for key, team in inputs["teams"].items():
+        team.update(
+            category_status="approved", identity_status="existing_numbered", project_team_id=key
+        )
+    inputs["teams"]["1"]["identity_status"] = "creation_proposed"
+    result = propose(mod, inputs)
+    entry = result["apif"]["测试联赛"]["701"]
+    assert entry["layer"] == 3
+    assert entry["evidence_status"] == "conditional_verified"
+    assert (
+        dict(
+            dependency_id="t68:apif:98:801:3",
+            origin_candidate_id="t68:apif:98:901:1",
+            reason="canonical_identity_creation_pending",
+        )
+        in entry["dependency_approval_gaps"]
+    )

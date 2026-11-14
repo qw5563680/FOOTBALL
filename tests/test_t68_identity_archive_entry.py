@@ -448,3 +448,41 @@ def test_consistent_cancellation_is_ineligible_not_global_identity_conflict(arch
     assert any("cancelled_fixture_not_identity_witness" in i["reasons"] for i in inputs["issues"])
     result = replay(archive, archive.parent / "cancelled-out", leagues=["48"])
     assert not any(r["candidate_ids"] for r in result["official_register"]["rows"])
+
+
+def test_later_reserve_label_blocks_real_replay_independently_of_observation_order(archive):
+    from copy import deepcopy
+
+    path = archive / "state/catalogue/catalogue/jc/2026-10/2026-10-31-p1.json"
+    document = json.loads(path.read_bytes())
+    later = dict(document["value"]["matchResult"][0], matchId=2042405, homeTeam="Jong Ajax")
+    document["value"]["matchResult"].append(later)
+    document["value"]["total"] = 2
+    meta = json.loads(path.with_suffix(".json.meta.json").read_bytes())
+    head = json.loads((archive / "state/catalogue/heads/jc-heads/2042404.json").read_bytes())
+    head["value"].update(sportteryMatchId=2042405, matchDateTime="2026-10-31 08:15")
+    raw(
+        archive,
+        "state/catalogue/heads/jc-heads/2042405.json",
+        head,
+        kickoffs.API + "getMatchHeadV1.qry?source=web&sportteryMatchId=2042405",
+    )
+    for reverse in (False, True):
+        current = deepcopy(document)
+        if reverse:
+            current["value"]["matchResult"].reverse()
+        raw(archive, path.relative_to(archive), current, meta["url"])
+        seal(archive)
+        result = replay(archive, archive.parent / f"label-order-{reverse}", leagues=["48"])
+        row = next(r for r in result["official_register"]["rows"] if r["official_team_id"] == "849")
+        assert row["candidate_ids"] == []
+        assert "category_conflict" in row["reasons"]
+        conflicts = [
+            c for issue in result["unverified"] for c in issue.get("category_conflicts", [])
+        ]
+        assert any(
+            c["label"] == "Jong Ajax"
+            and c["match_id"] == "jc:2042405"
+            and any(p["path"] == str(path.relative_to(archive)) for p in c["provenance"])
+            for c in conflicts
+        )

@@ -128,6 +128,12 @@ def associate_official(rows, tables, categories, manifest, observed_utc):
         teams[key] = dict(
             name=first[f"{side}_name"],
             official_names=sorted({r[f"{s}_name"] for r, s in entries}),
+            official_name_evidence=[
+                dict(
+                    label=r[f"{s}_name"], match_id=r["match_id"], side=s, provenance=r["provenance"]
+                )
+                for r, s in entries
+            ],
             official_team_id=first[f"{side}_source_id"],
             project_team_id=tid,
             project_name=projects[tid]["name"] if tid else None,
