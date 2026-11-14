@@ -73,6 +73,23 @@ def prediction_source_lines(run):
             "旧冻结未记录数据提交与竞彩更新时间；"
             f"输入清单 SHA256：{_text(run.get('feed_manifest_sha256'))}。"
         )
+    if status := run.get("source_version_status"):
+        label = {"complete": "成功", "partial": "部分失败", "failed": "失败"}[status["status"]]
+        lines.append(
+            f"新来源候选：{label}；阶段 {_text(status['stage'])}；"
+            f"记录时间 {_local(status['recorded_utc'])}（北京时间）。"
+        )
+        if status["reason"]:
+            lines.append(
+                f"候选失败原因：`{status['reason']}`；"
+                f"异常类别 {_text(status['error_type'])}；"
+                f"受影响联赛：{'、'.join(status['failed_leagues'])}。"
+            )
+        lines.append(
+            "候选附件已冻结；训练失败的联赛保留排除行。"
+            if status["artifacts_frozen"]
+            else "本次未冻结新来源候选附件，缺少对应的候选预测；已冻结主版本保持原样。"
+        )
     return lines + ([""] if lines else [])
 
 

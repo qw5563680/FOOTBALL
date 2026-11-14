@@ -18,7 +18,13 @@ from zucai.predict.parameters import (
     read_parameters,
     resolve_parameters,
 )
-from zucai.predict.pooled import POOL, SOURCES, configuration, default_scope
+from zucai.predict.pooled import (
+    POOL,
+    SOURCES,
+    configuration,
+    default_scope,
+    select_training_history,
+)
 from zucai.predict.seasons import season_bounds
 
 
@@ -181,6 +187,11 @@ def train(
     for key, value in definition.items():
         setattr(model, key, value)
     model.save(output)
+    identity_exclusions = (
+        select_training_history(training, cutoff).attrs.get("unverified_fd_identity_overlaps", [])
+        if training.attrs.get("pending_fd_identity_overlaps")
+        else []
+    )
     return {
         **definition,
         "model_name": "dixon-coles",
@@ -189,6 +200,7 @@ def train(
         "sources": model.sources,
         "training_source_counts": model.training_source_counts,
         "training_rows": model.training_rows,
+        **({"source_identity_exclusions": identity_exclusions} if identity_exclusions else {}),
         "availability_basis": model.availability_basis,
         "assumed_training_share": model.assumed_training_share,
         "replayed_training_share": model.replayed_training_share,

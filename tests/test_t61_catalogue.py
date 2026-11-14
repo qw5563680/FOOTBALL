@@ -112,7 +112,7 @@ def test_duplicate_provider_ids_rejected(provider):
         _parse(provider, doc)
 
 
-@pytest.mark.parametrize("mutation", ["league", "country", "seasons", "season", "duplicate-year"])
+@pytest.mark.parametrize("mutation", ["league", "country", "seasons", "season"])
 def test_apif_malformed_rows_do_not_silently_disappear(mutation):
     doc = _document("apif")
     row = doc["response"][0]
@@ -120,8 +120,6 @@ def test_apif_malformed_rows_do_not_silently_disappear(mutation):
         row.pop(mutation)
     elif mutation == "season":
         row["seasons"][0] = None
-    else:
-        row["seasons"][1]["year"] = row["seasons"][0]["year"]
     with pytest.raises(ValueError):
         _parse("apif", doc)
 

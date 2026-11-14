@@ -1,14 +1,53 @@
 """Read-only exact-ID history across already linked provider rows, experiment only."""
 
 from collections import defaultdict
+from copy import copy
 
 from zucai.features.stats import StatsFeatures
+from zucai.predict.base import utc
+from zucai.result_source_groups import merge_known_result_groups
+from zucai.result_source_links import load_result_links
 
 PRIORITY = {"jc": 0, "fd": 1, "fdorg": 2, "apif": 3}
 
 
-def unified_history(session, *, provider):
-    builder = StatsFeatures(session, provider=provider)
+class _CutoffFeatures(StatsFeatures):
+    def __init__(self, session, *, provider):
+        super().__init__(session, provider=provider)
+        self._original = copy(self)
+        self._links = load_result_links(session)
+        self._views = {}
+
+    def _view(self, cutoff):
+        links = tuple(
+            link for link in self._links if cutoff is not None and utc(link[2]) < utc(cutoff)
+        )
+        if links not in self._views:
+            view, games = _aligned(self._original, links, cutoff)
+            view._original, view._links, view._views = self._original, self._links, self._views
+            self._views[links] = view, games
+        return self._views[links]
+
+    def build(self, target, *, as_of, **kwargs):
+        game = self._original.matches.get(target["match_id"], target)
+        cutoff = min(utc(as_of), utc(game["kickoff_utc"]))
+        view, _ = self._view(cutoff)
+        aligned = view.matches.get(target["match_id"], game)
+        cutoff = min(cutoff, utc(aligned.get("earliest_kickoff_utc", cutoff)))
+        view, _ = self._view(cutoff)
+        return StatsFeatures.build(view, target, as_of=cutoff, **kwargs)
+
+
+def unified_history(session, *, provider, as_of=None):
+    """Choose label representatives at the model cutoff; features recheck their own cutoff."""
+    return _CutoffFeatures(session, provider=provider)._view(as_of)
+
+
+def _aligned(original, links, cutoff):
+    builder = copy(original)
+    builder.matches = dict(original.matches)
+    builder.histories = original.histories.copy()
+    builder.times = dict(original.times)
     games = {key: game for key, game in builder.matches.items() if game["status"] == "finished"}
     parents = {key: key for key in games}
 
@@ -34,6 +73,7 @@ def unified_history(session, *, provider):
             and abs((game["kickoff_utc"] - games[other]["kickoff_utc"]).total_seconds()) <= 3 * 3600
         ):
             parents[root(key)] = root(other)
+    merge_known_result_groups(parents, builder.matches, links, cutoff)
     groups = defaultdict(list)
     for key in games:
         groups[root(key)].append(games[key])

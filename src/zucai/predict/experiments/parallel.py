@@ -75,7 +75,7 @@ def compute(session, targets, *, cutoff):
     from zucai.predict.experiments.intensity import StatsIntensity, complete
 
     at = utc(cutoff)
-    features = {p: unified_history(session, provider=p) for p in ("fd", "apif")}
+    features = {p: unified_history(session, provider=p, as_of=at) for p in ("fd", "apif")}
     labels = {r.match_id: r for r in session.scalars(select(Result))}
     rows = {
         (r["match_id"], r["model_name"]): r

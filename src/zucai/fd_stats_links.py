@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from sqlalchemy import select
 
 from zucai.models import FdStatsLink, Match, Team
+from zucai.result_source_links import _archive_context, _stored_rows, _validate_rows
 from zucai.sources.apif_stats import instant
 from zucai.sources.fd_ingest import fd_match_id
 from zucai.sources.teams import normalize_team
@@ -128,7 +129,7 @@ def canonical_fd_sides(teams, aliases, league, home_raw, away_raw):
     return tuple(ids)
 
 
-def _unique_match(matches, league, kickoff, pair):
+def _unique_match(matches, league, kickoff, pair, *, fd_counterpart=None):
     window = [
         m
         for m in matches
@@ -136,16 +137,65 @@ def _unique_match(matches, league, kickoff, pair):
     ]
     related = [m for m in window if set(pair) & {m["home_team_id"], m["away_team_id"]}]
     direct = [m for m in related if (m["home_team_id"], m["away_team_id"]) == pair]
-    if len(direct) != 1 or len(related) != 1 or direct[0]["source"] != "jc":
+    targets = [m for m in direct if m["source"] == "jc"]
+    if len(targets) != 1 or len(related) != len(direct):
         raise ValueError("FD 同联赛三小时内主客反向、共享球队或候选不唯一")
-    match = direct[0]
-    if match.get("counterpart_id") and not match["counterpart_id"].startswith("fdorg:"):
-        raise ValueError("FD 目标已有其他来源 counterpart 声明")
+    match = targets[0]
+    members = match.get("result_group", {match["match_id"]})
+    if any(
+        m["match_id"] != match["match_id"]
+        and (m["source"] not in {"apif", "fdorg"} or m["match_id"] not in members)
+        for m in related
+    ):
+        raise ValueError("FD 同联赛三小时内主客反向、共享球队或候选不唯一")
+    pointer = match.get("counterpart_id")
+    if pointer:
+        if pointer == fd_counterpart:
+            if any(
+                other["match_id"] == fd_counterpart
+                or (
+                    other["match_id"] != match["match_id"]
+                    and other.get("counterpart_id") == fd_counterpart
+                )
+                for other in matches
+            ):
+                raise ValueError("FD counterpart 声明不唯一")
+        elif not pointer.startswith("fdorg:"):
+            raise ValueError("FD 目标已有其他来源 counterpart 声明")
     return match
 
 
 def _model_dict(model, columns):
     return {key: getattr(model, key) for key in columns}
+
+
+def _attach_result_groups(db, matches):
+    """Read complete valid proof components; stale snapshots grant no identity."""
+    rows = _stored_rows(db)
+    if not rows:
+        return
+    current, teams = _archive_context(db)
+    _validate_rows(rows, current, teams)
+    groups = {}
+    for row in rows:
+        left, right = row["provider_match_id"], row["counterpart_id"]
+        if any(
+            current[key][field] != row[field]
+            for key in (left, right)
+            for field in ("league", "home_team_id", "away_team_id")
+        ) or any(
+            current[key]["kickoff_utc"] != row[field]
+            for key, field in (
+                (left, "provider_kickoff_utc"),
+                (right, "counterpart_kickoff_utc"),
+            )
+        ):
+            continue
+        members = groups.get(left, frozenset({left})) | groups.get(right, frozenset({right}))
+        for member in members:
+            groups[member] = members
+    for match in matches:
+        match["result_group"] = groups.get(match["match_id"], frozenset({match["match_id"]}))
 
 
 def _session_context(session):
@@ -165,6 +215,7 @@ def _session_context(session):
         )
         for m in session.scalars(select(Match))
     ]
+    _attach_result_groups(session.connection().connection.driver_connection, matches)
     return teams, matches
 
 
@@ -218,10 +269,22 @@ def _validate_link(link, teams, matches):
             raise ValueError("FD 关联 division 无效")
         if fd_match_id(game) != link["provider_fixture_id"]:
             raise ValueError("FD 关联 provider fixture ID 不符")
-        match = _unique_match(matches, link["league"], kickoff, pair)
+        original_pointer = evidence["counterpart_id"]
+        # A later result import may fill an empty pointer with this exact FD
+        # identity. Keep the original evidence; never replace a prior fdorg link.
+        match = _unique_match(
+            matches,
+            link["league"],
+            kickoff,
+            pair,
+            fd_counterpart=link["provider_fixture_id"] if original_pointer is None else None,
+        )
         if (
             match["match_id"] != link["match_id"]
-            or match["counterpart_id"] != evidence["counterpart_id"]
+            or match["counterpart_id"] != original_pointer
+            and not (
+                original_pointer is None and match["counterpart_id"] == link["provider_fixture_id"]
+            )
         ):
             raise ValueError("FD 关联目标或原 counterpart 不符")
         observations = evidence["observations"]
@@ -284,6 +347,7 @@ def validate_fd_links(db):
             "counterpart_id",
         ),
     )
+    _attach_result_groups(db, matches)
     result, targets = {}, set()
     for link in links:
         _validate_link(link, teams, matches)
@@ -317,8 +381,11 @@ def resolve_fd_match(session, game, league, metadata, aliases, *, persist=True, 
     if FD_LEAGUES.get(game.div_code) != league:
         raise ValueError("FD division 与联赛不符")
     provider_id = fd_match_id(game)
+    old = session.get(FdStatsLink, provider_id)
     direct = session.get(Match, provider_id)
     if direct is not None:
+        if old is not None:
+            raise ValueError("FD 统计关联与既有 FD 比赛冲突")
         if (
             direct.source != "fd"
             or direct.league != league
@@ -337,11 +404,19 @@ def resolve_fd_match(session, game, league, metadata, aliases, *, persist=True, 
         ):
             raise ValueError("FD 已知 counterpart 不唯一或联赛时间不符")
         _validate_legacy_aliases(session, counterparts[0], game, league, aliases, context)
-        return counterparts[0]
+        if old is None:
+            return counterparts[0]
+        # An existing proof still owns its observation history after a result
+        # import fills the pointer; the legacy shortcut must not bypass it.
     teams, matches = context if context is not None else _session_context(session)
     pair = canonical_fd_sides(teams, aliases, league, game.home_raw, game.away_raw)
-    target = _unique_match(matches, league, game.kickoff_utc, pair)
-    old = session.get(FdStatsLink, provider_id)
+    target = _unique_match(
+        matches,
+        league,
+        game.kickoff_utc,
+        pair,
+        fd_counterpart=provider_id if old is not None else None,
+    )
     claimed = session.scalar(select(FdStatsLink).where(FdStatsLink.match_id == target["match_id"]))
     if claimed is not None and claimed.provider_fixture_id != provider_id:
         raise ValueError("FD 目标已由另一 provider fixture 占用")

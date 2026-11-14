@@ -73,9 +73,10 @@ def test_audit_is_read_only_deterministic_and_preserves_both_evidence_versions(t
     assert row["apif_available_utc"] == "2026-09-02T18:00:00Z"
     assert row["comparison_available_utc"] == "2026-09-03T14:00:00Z"
     assert row["comparison_available_source"] == "published"
-    consistent = next(row for row in rows if row["apif_match_id"] == "apif:consistent")
-    assert consistent["classification"] == "consistent"
-    assert consistent["kickoff_delta_seconds"] == "0"
+    assert summary["rows"] == len(rows) == 1
+    assert summary["comparison_rows"] == 2
+    assert summary["classifications"]["consistent"] == 1
+    assert all(row["classification"] != "consistent" for row in rows)
     original_csv = destination.read_bytes()
     assert audit(path, destination)[0] == summary
     assert destination.read_bytes() == original_csv
@@ -143,15 +144,19 @@ def test_names_do_not_link_different_stored_team_ids(tmp_path):
     summary, rows = audit(database(tmp_path, "same_names_different_ids"), tmp_path / "audit.csv")
     assert summary["matched"] == summary["unverified"] == 0
     assert summary["unmatched"] == 2
-    assert {row["reason"] for row in rows} == {"no_comparison_candidate", "no_apif_candidate"}
+    assert summary["reasons"] == {"no_comparison_candidate": 1, "no_apif_candidate": 1}
+    assert summary["comparison_rows"] == 2
+    assert summary["rows"] == 0
+    assert rows == []
 
 
 def test_missing_result_is_not_an_equal_or_conflicting_score(tmp_path):
     summary, rows = audit(database(tmp_path, "comparison_result_missing"), tmp_path / "audit.csv")
     assert summary["matched"] == summary["conflicts"] == summary["unverified"] == 0
     assert summary["unmatched"] == 1
-    assert rows[0]["reason"] == "comparison_result_missing"
-    assert rows[0]["comparison_score"] == ""
+    assert summary["reasons"] == {"comparison_result_missing": 1}
+    assert summary["comparison_rows"] == 1
+    assert rows == []
 
 
 def test_each_comparison_source_is_a_separate_pair(tmp_path):
@@ -159,7 +164,9 @@ def test_each_comparison_source_is_a_separate_pair(tmp_path):
     assert summary["matched"] == 3
     assert summary["conflicts"] == 1
     assert summary["unverified"] == summary["unmatched"] == 0
-    assert {row["comparison_source"] for row in rows} == {"fd", "fdorg", "jc"}
+    assert len(rows) == 1
+    assert summary["comparison_rows"] == 3
+    assert summary["classifications"]["consistent"] == 2
 
 
 @pytest.mark.parametrize("case", FIXTURE["binding_cases"])
@@ -205,8 +212,9 @@ def test_old_database_without_apif_results_still_reports_existing_result(tmp_pat
     assert summary["status"] == "no_apif_results"
     assert summary["matched"] == 0
     assert summary["unmatched"] == 1
-    assert rows[0]["comparison_match_id"] == "fd:old"
-    assert rows[0]["comparison_available_utc"] == rows[0]["comparison_available_source"] == ""
+    assert summary["comparison_rows"] == 1
+    assert summary["reasons"] == {"apif_result_missing": 1}
+    assert rows == []
 
 
 @pytest.mark.parametrize("has_schema", [False, True])

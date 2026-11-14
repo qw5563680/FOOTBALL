@@ -349,14 +349,19 @@ def run(
         publish_forecasts(archive, stage, result, before_commit=check_snapshot_and_deadlines)
         # The approved legacy stream is already immutable. Source candidates use
         # the identical training/prediction cutoffs and never replace that stream.
+        candidate_stage = "training"
         try:
-            from zucai.source_version_archive import attach_source_versions
+            from zucai.source_version_archive import (
+                attach_source_versions,
+                record_source_version_failure,
+            )
             from zucai.source_version_training import predict_candidates, train_candidates
 
             candidates, candidate_models, candidate_params = train_candidates(
                 database, stage, run_id, cutoff, config, trainer=train
             )
             if candidates:
+                candidate_stage = "prediction"
                 candidate_engine = get_engine(database)
                 try:
                     with candidate_engine.connect() as connection:
@@ -376,11 +381,18 @@ def run(
                             }
                 finally:
                     candidate_engine.dispose()
+                candidate_stage = "freeze"
                 result = attach_source_versions(
                     archive, stage, run_id, candidates, documents, clock=_now
                 )
-        except Exception:
+        except Exception as exc:
             LOG.exception("新来源候选冻结失败；已冻结旧版与原实验联赛结果保持原样")
+            try:
+                result = record_source_version_failure(
+                    archive, run_id, candidate_stage, exc, clock=_now
+                )
+            except Exception:
+                LOG.exception("新来源候选失败状态写入失败；已冻结主运行保持原样")
         # Production is frozen first; experimental restoration/fitting cannot roll it back.
         parlay_injuries = {}
         try:

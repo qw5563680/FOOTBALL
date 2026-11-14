@@ -101,6 +101,8 @@ def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
     model = DixonColes.load(archive / good["model_path"])
     assert model.sources == ["fd", "jc"]
     candidate = result["source_versions"]["leagues"]["英超"]
+    assert result["source_version_status"]["status"] == "complete"
+    assert result["source_version_status"]["artifacts_frozen"] is True
     assert candidate["status"] == "trained"
     assert candidate["p2_label"] == "实验" and candidate["paper_eligible"] is False
     assert candidate["sources"] == ["apif", "fd", "fdorg", "jc"]
@@ -139,6 +141,7 @@ def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
     assert all(p.read_bytes() == data for p, data in before.items())
     assert params.read_bytes() == params_before
     text = summary.read_text()
+    assert "新来源候选：成功" in text
     assert text.startswith("非购买建议 · BET 禁用 · P2 标签含义见 README\n")
     assert "竞彩数据非今日" in text
     assert "英超" in text and "芬超" in text and "缺少同来源同联赛的模型" in text
@@ -200,6 +203,10 @@ def test_failed_source_candidate_freezes_exclusions_and_preserves_primary(
     assert result["leagues"]["英超"]["status"] == "trained"
     assert result["leagues"]["英超"]["p2_label"] == "可用（旧规，考核中）"
     assert result["source_versions"]["leagues"]["英超"]["status"] == "failed"
+    assert result["source_version_status"]["status"] == "failed"
+    assert result["source_version_status"]["stage"] == "training"
+    assert result["source_version_status"]["failed_leagues"] == ["英超"]
+    assert result["source_version_status"]["artifacts_frozen"] is True
     for forecast in result["forecasts"].values():
         primary = load_batch(archive / forecast["path"] / "forecast.json")
         candidate = json.loads((archive / forecast["source_versions_path"]).read_bytes())

@@ -384,6 +384,73 @@ def test_final_verification_failure_restores_the_primary_manifest(tmp_path, monk
     verify_forecasts(archive)
 
 
+@pytest.mark.parametrize(
+    "attack", ["success_without_artifacts", "wrong_stage", "private_reason", "wrong_leagues"]
+)
+def test_candidate_failure_metadata_is_validated_without_artifacts(tmp_path, attack):
+    archive, _, run, _, _ = prepared(tmp_path)
+    module = importlib.import_module("zucai.source_version_archive")
+    before = _snapshot(archive)
+    failed = module.record_source_version_failure(
+        archive, run["run_id"], "prediction", ValueError("private"), clock=lambda: PUBLISHED
+    )
+    assert failed["source_version_status"]["artifacts_frozen"] is False
+    assert failed["source_version_status"]["error_type"] == "ValueError"
+    assert all(
+        (archive / name).read_bytes() == data for name, data in before.items() if name != MANIFEST
+    )
+    manifest = verify_forecasts(archive)
+    status = manifest["runs"][run["run_id"]]["source_version_status"]
+    if attack == "success_without_artifacts":
+        status.update(status="complete", artifacts_frozen=True)
+    elif attack == "wrong_stage":
+        status["stage"] = "unknown"
+    elif attack == "private_reason":
+        status["reason"] = "https://example.invalid/?api_key=private"
+    else:
+        status["failed_leagues"] = []
+    _json(archive / MANIFEST, manifest)
+    with pytest.raises(ValueError, match="来源候选"):
+        verify_forecasts(archive)
+
+
+def test_frozen_source_candidate_status_cannot_be_replaced_by_failure(tmp_path):
+    values = prepared(tmp_path)
+    archive, _, run, _, _ = values
+    attached = attach(*values)
+    assert attached["source_version_status"]["status"] == "complete"
+    before = _snapshot(archive)
+    module = importlib.import_module("zucai.source_version_archive")
+    with pytest.raises(ValueError, match="已冻结"):
+        module.record_source_version_failure(
+            archive, run["run_id"], "freeze", ValueError("private"), clock=lambda: PUBLISHED
+        )
+    assert _snapshot(archive) == before
+
+
+def test_candidate_status_write_failure_preserves_primary(tmp_path, monkeypatch):
+    archive, _, run, _, _ = prepared(tmp_path)
+    before = _snapshot(archive)
+    module = importlib.import_module("zucai.source_version_archive")
+    original = module.verify_forecasts
+    calls = 0
+
+    def reject_status(path):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ValueError("synthetic status verification failure")
+        return original(path)
+
+    monkeypatch.setattr(module, "verify_forecasts", reject_status)
+    with pytest.raises(ValueError, match="synthetic status verification failure"):
+        module.record_source_version_failure(
+            archive, run["run_id"], "prediction", ValueError("private"), clock=lambda: PUBLISHED
+        )
+    assert _snapshot(archive) == before
+    verify_forecasts(archive)
+
+
 @pytest.mark.parametrize("target", ["model", "params", "destination"])
 def test_candidate_paths_cannot_follow_symlinks_or_replace_existing_files(tmp_path, target):
     values = prepared(tmp_path)

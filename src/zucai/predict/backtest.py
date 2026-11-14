@@ -99,7 +99,9 @@ def read_history(
         raise ValueError("存在多个来源，请用 --source 显式选择来源范围")
     frame.attrs["sources"] = sources or sorted(frame.source.unique())
     from zucai.predict.training_sources import actual_result_leagues
+    from zucai.sources.fd_apif_counterpart import verified_training_links
 
+    frame.attrs["verified_apif_fd_links"] = verified_training_links(session, frame.match_id)
     legacy = source_selection == "legacy" or (
         source_selection is None
         and (
@@ -109,8 +111,9 @@ def read_history(
         )
     )
     if legacy:
-        # PR136 preserves both the old seven and the European model definition.
-        # New provider proofs and cutoff selection cannot change their old corpus.
+        # PR136 preserves the seven old-policy domestic streams. The European
+        # pool retains priority/availability rules, but earlier paid arrivals can
+        # expand its corpus before a later JC result replaces that representative.
         from zucai.predict.pooled import (
             legacy_linked_representatives,
             linked_representatives,
@@ -184,6 +187,11 @@ def read_history(
         from zucai.result_source_links import load_result_links
 
         frame.attrs["verified_result_links"].extend(load_result_links(session))
+        from zucai.source_result_quarantine import pending_fd_identity_overlaps
+
+        frame.attrs["pending_fd_identity_overlaps"] = pending_fd_identity_overlaps(
+            session, frame, identities, frame.attrs["verified_result_links"]
+        )
         if training_leagues is not None:
             frame.attrs["training_leagues"] = sorted(training_leagues)
         checkable = source_eligible_history(frame)

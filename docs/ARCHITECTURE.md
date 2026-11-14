@@ -28,10 +28,28 @@ record/load/export/restore 均校验引用与组件唯一性。旧快照缺文�
 APIF 的 T63 导入路径即使存在旧来源同场行，也保存独立 APIF 比分。新的捕获/修正和身份/关联证明
 以实际导入核验时刻为下限，旧响应 sidecar 时间只保留为捕获证据，不能倒填今日才确认的映射。
 `source_result_reconcile` 在每日采集后核对当前存量身份与关系，只写证明表；未结算锚可以连接实体但不是赛果。
-`source_results_audit` 只读输出逐场比分/开球审计，绝不写训练取舍或数据库。
+`source_results_audit` 只读输出比分/开球冲突及身份未核实的待处理行，绝不写训练取舍或数据库；
+一致和缺配对保留汇总计数，`comparison_rows` 为完整比较分母，`rows` 为 CSV 数据行数。
+T66 的单边占位 APIF→FD 关系仅作完整数据库校验后的旧代表证据，不能产生 T63 双边规范身份证明。
+
+`source_result_quarantine` 另处理新增 APIF 与旧 FD 的未核实身份重叠：完整库中双向候选唯一、
+无其他声明或核验关系、同向恰一队 ID 相同，且 FD 另一队没有该联赛 APIF 绑定时，只列为疑问。
+两行均已在拟合截点前可知才排除新增 APIF，保留既有 FD；FD 尚不可知时不提前排除 APIF。
+不建同场证明、不改球队/赛果/时间；绑定冲突、反向、多候选和无完整库证据仍由原保护拒绝。
+训练 JSON 的 `source_identity_exclusions` 与审计 `unverified_fd_identity_overlap` 明列这些行。
+七个旧规版本与欧战 legacy 路径不使用该排除逻辑。
+
+技术索引的同场多行只按当前有效 `ResultSourceLink` 组件识别；新索引仍按 JC/FD/FDORG/APIF
+优先级选一个目标，既有索引目标保持。组件内供应商 fixture ID、完整图占用和反向/共享球队
+仍须一致。赛前阵容用实际截止已生效的证明追溯竞彩在售资格，不补旧 counterpart。
+既有 FD 统计关联同样验证完整证明组件并保留原 JC 目标；恢复先加载赛果关联证明，再验证 FD 统计关联。
+实验统计历史、伤停和单独的市场比较也读取有效证明。历史标签按模型截止选代表，统计/伤停特征
+按每次 `build` 的实际赛前截止重新取得只读视图，证明等于或晚于截止均不启用；不能用模型总截止
+的较晚证明替早期样本合并身份。无显式截止的旧离线实验历史入口保守不启用新增证明。
+市场关联只用于拟合完成后的比较，不进入球队模型。
 
 七个旧规可用联赛保留完整原 `params.json` 条目。`read_history` 默认对 T63 的纯 `fd,jc` 输入和欧战池
-采用原读取/去重语义；`source_selection="cutoff"` 可显式选择新语义。欧战池不因国内新来源政策改变语料。
+采用原读取/去重语义；`source_selection="cutoff"` 可显式选择新语义。欧战池保留原优先级/可知时间规则；付费赛果先于竞彩到达时会更早使用付费行，竞彩到达后替换代表且不重复计数。静态归档相同不等于所有到达顺序下语料不变。
 原七联赛拟合/预测须在相同归档、截点与 main 独立进程逐项比较，不能仅以参数未改声称不变。
 
 欧战原物化去重之后，只有触及当前语料的有效 `ResultSourceLink` 才启用额外的时标兼容选择：
@@ -47,6 +65,9 @@ APIF 的 T63 导入路径即使存在旧来源同场行，也保存独立 APIF �
 `cloud_predict` 先按原子归档流程冻结主批，再由 `source_version_training` 以原截点训练七个候选。
 `source_version_archive` 保存 `models/{run_id}/*.source-expanded.pkl`、训练 JSON、候选参数及每个主批旁的
 完整 `source_versions.json`，校验同 ID/同截点、定义、模型哈希与失败排除记录；候选失败不改变主批或 LATEST。
+主运行清单另存 `source_version_status`：complete/partial/failed、失败阶段、固定原因码、异常类别、
+失败联赛、是否实际冻结候选附件和记录 UTC。恢复时验证状态与附件一致；日报及运行摘要显示，
+不公布原始异常文本。外层训练/预测/冻结失败仅记录状态，不生成伪候选；主批文件逐字节保留。
 `forecast_publication` 为候选文件单独核对远端 path/SHA 和推送后时间，attached 时间不等于 published。
 
 新批次顶层 `model_definition_schema=1` 要求模型及每条预测完整携带 definition、variant 和 paper 标记，
@@ -59,6 +80,80 @@ APIF 的 T63 导入路径即使存在旧来源同场行，也保存独立 APIF �
 七个桥接 route 的 import 模式不等于权限开放：regular season 只读 `result_seasons_available` 的核准年，
 date 解析另需 `result_daily_verified=true`，并逐行检查返回的赛季。两个配置和 daily/backfill 开关仍须审查者核准。
 identity-only 客户端继续提供旧身份索引，不获得赛果下载权。
+
+## T66 FD 导入校验与补采
+
+`fd_stats_links` 的原身份、别名和原始 counterpart 证据保持不变。赛果导入将空的竞彩
+counterpart 补为同一 `provider_fixture_id` 时，校验认可该一致状态；不同FD键、其他来源、
+原fdorg被替换、反向、共享球队、窗口外或多候选继续拒绝。同一FD键存在其他直接行或其他声明时也拒绝。
+已有proof时，统计解析不得因出现精确counterpart而走旧路径提前返回；新原件观察按原规则追加，
+`store_rows` 与 `check_stats` 对有proof的技术行始终核验捕获时刻、SHA和位置。
+没有proof的既有fd/counterpart归档保持兼容，不新增数据库表。
+
+迟到FD与现存APIF行的同场关系保存在原APIF行的 `counterpart_id`，不修改原球队ID、比分、半场比分或可知时间。
+只接受同联赛三小时内、双方方向一致且候选双向唯一的关系：两方规范球队相同，或APIF恰有一方为未绑定的
+`apif:team:<id>`、另一方规范球队同向相同。后一种只是这场比赛的证据，不把未知球队注册成全局别名。
+主客反向、另一个已知对手、重复候选、既有冲突声明继续拒绝；双方都未知不建立关系。
+欧战读取仍按 `jc > fd > fdorg > apif` 选择一条代表，未证明的重叠仍走原拒绝守卫。
+导出/恢复重新核验新增APIF到FD关系，防止篡改身份后继续使用已保存指针。
+已知方的供应商绑定须在全部球队中唯一；占位方若后来有明确绑定，不得与FD对侧矛盾。
+训练读取先在完整数据库中核验这些关系，再筛取完赛代表，不能因只看有赛果行而漏掉未完赛的竞争候选。
+
+`fd_due` 按周一开始的UTC自然周判断，本周还没有成功证据就在首个实际运行班次采集，失败则后续班次补采。
+成功限定为非空、全部已核验联赛的文件下载并导入完成，没有整联赛失败；单行拒收或疑似重复不影响回执。
+成功后保存 `state/fd_collection.json`，
+字段为 `version=1` 与 `last_successful_run_started_utc`；它不是文件捕获时刻，也不表示预测有效。
+整联赛失败不推进、不擦除原成功状态；行级partial仍保留审计警告；其他来源失败不否定FD文件批次完成。
+本周成功后不再下载，到了下周一立即重新到期；跨年也按UTC周一边界，不按距补采日满七天漂移。
+该可选文件进入feeds白名单与SHA，导出/恢复严格核验字段、UTC时间及不得晚于归档创建时刻；
+恢复不含此文件的旧快照会移除较新的本地回执，避免上次未发布的成功状态抑制补采。
+独立调度判断遇无效或未来回执会要求重试；档案本身有坏回执时仍拒绝恢复，不能绕过档案完整性。
+
+已有FD统计复用步骤覆盖正常apis的早、晚班，仍只读取本班raw目录；无目录即不执行，体育请求为零。
+该步骤使用 `<run>-<attempt>-fd` 批次名，避免晚班API统计与FD统计先后发布时冲突覆盖同名校验附件。
+晚班API端点、预算、模型和来源范围不变。
+正常完整成功后该FD复用每周只运行一次；失败班次已下载的部分原件仍保留并复用，重试可能增加附件。
+工作目录每次新建，feeds恢复不恢复原raw目录，因此本周跳过FD采集的班次没有FD原件可再次打包。
+
+## T65 真实目录校验与待审对照
+
+API-Football 的单个赛季日期字符串格式错误、日期年超出固定 1900–2100 范围或起止倒置，
+仅将该赛季两端日期置空；`warnings` 保存赛事 ID、赛季年份、原值和原因，并汇总到运行摘要。
+赛事/年份及权限语义保留，日期警告不会把 `access=unverified` 变成已授权。
+同赛事重复年份保留一个 `status=conflict/access=conflict` 占位，日期与覆盖率不任选一条；
+警告保存全部 `original_records`、`raw_sha256`、`raw_path` 与 `record_pointers`。
+每条原记录仍先做完整结构校验，缺字段、错误数据类型、重复赛事 ID 及非 JSON 继续整份拒收。
+`raw_season_count` 与规范化年份数分列；冲突年份不作可读赛季，回填规划的 `excluded` 明列排除原因，
+显式指定这些年份也不能绕过排除。其他年份和赛事正常解析。
+
+竞彩严格识别真实零页（页数、页号、页大小、结果数均为零、空比赛数组、合法 `leagueList`），
+同时兼容旧离线样本。官方字典独立保存为 `state/catalogue/<run>/jc-leagues.json`，
+逐项记录 ID、简称、全称与首次观察运行、日期、捕获 UTC、原件路径和 SHA；跨页字典冲突拒绝。
+该文件纳入 feeds 路径白名单及 SHA 导出/恢复，不新增数据库表，也不导入比赛或比分。
+
+`catalogue_replay` 调用与线上相同的分页验证、字典聚合和总表对照。
+写入前验证原运行摘要、12 月窗口、完整日期/分页、URL 参数、HTTP 状态、捕获时刻、原件 SHA 及重复身份。
+只能新建运行目录，保留原捕获时间，另记 `replayed_utc`、源运行与源摘要 SHA；
+`requests=0` 与 `replayed_pages` 分列，不改源目录、数据库或 `latest.json`。
+
+90 行注册表增加 `official_catalogue` 与 `api_catalogue_proposal`，包含手工明确对照、
+目录字段、查找名称、原件证据及双方场数/日期口径。官方 `proposed_status=verified` 只是
+实现者的待审提案，`status=candidate/review_status=pending` 不授予任何下载权限。
+`catalogue_mappings` 只按明确 ID 核对完整官方名称，名称改变或语义歧义列为待决定，
+没有观察到比赛单独披露；保留旧简称核对以便比较。升降级、赛事改制及泛化名称不自动拆分。
+API 候选路由 `daily=false/backfill=false/seasons_available=[]`，
+`catalogue_seasons` 只是原件列出的年份。
+PR #135 的 2026-11-14 审查逐 ID 核准了其中 62 个 provider 身份（审查文字写 60，明细实际 62），
+按所有者合并 PR #136 后的任务修订，仅 `backfill=true`、`daily=false`；
+账号权限仍为 `access_status=unverified/seasons_available=[]`。
+40/62/71/850/916 仍是禁用候选。明确一对一的总表映射随审查转核准，时期或多 ID 归属歧义继续候选，
+官方14类所有者待决定事项不被 provider 身份核准替代。
+导入路由的 `config.league` 使用固定中文项目名，同一 provider 的 import 路由不得重名；
+官方泛称「国际赛」「杯赛」「世预赛」只作对照，不覆盖项目细分的赛事名。
+`daily_provider_config()` 统一供日期导入及候选别名生成使用，保留原11个普通每日路由及欧国联特殊日期行为；
+历史导入仍取完整核准范围。新路由不因出现在日期原件中而进入数据库、拒收审计或候选队列，
+也不会因新赛事的拒收状态抑制旧赛事候选。不同原件仍保存各自真实 SHA，不抹除来源差异。
+T68 后续逐赛事完成球队绑定并开启每日采集，本单不执行真实回填。
 
 ## T61 目录、核准映射与历史下载
 
@@ -148,7 +243,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 
 | `zucai/cloud_api_backfill.py` | 仅手动的欧战及 apif 九联赛历史范围、欧战联合核验、配额守卫、分赛事赛季入库与前后对齐统计 |
 | `zucai/sources/cup_identity.py` | 欧战运行期数字 ID 桥接与 T09/T10 主客方向图；证据写审计 CSV，未知身份保持来源编号 |
-| `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
+| `zucai/cloud_apis.py` | hosted API 编排、FD成功日期补采、独立窗口失败与跨运行配额 |
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
 | `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
 | `zucai/scoreboard/` | 冻结预测与赛果配对、三列概率评分、五种虚拟账户、稳健性统计与文本记分板；不训练或联网 |

@@ -57,8 +57,105 @@ def _sha(value):
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
+def _frozen_status(outcomes):
+    failed = sorted(league for league, result in outcomes.items() if result["status"] == "failed")
+    return {
+        "status": "failed" if len(failed) == len(outcomes) else "partial" if failed else "complete",
+        "stage": "training" if failed else "complete",
+        "reason": "candidate_training_failed" if failed else None,
+        "failed_leagues": failed,
+        "artifacts_frozen": True,
+        "error_type": None,
+    }
+
+
+def _validate_status(run):
+    status = run.get("source_version_status")
+    if status is None:  # Older archives predate the explicit attempt status.
+        return
+    if not isinstance(status, dict) or set(status) != {
+        "status",
+        "stage",
+        "reason",
+        "failed_leagues",
+        "artifacts_frozen",
+        "error_type",
+        "recorded_utc",
+    }:
+        raise ValueError("来源候选状态结构无效")
+    if _timestamp(status["recorded_utc"]) < _timestamp(run["generated_utc"]):
+        raise ValueError("来源候选状态不得早于主运行冻结")
+    if "source_versions" in run:
+        expected = _frozen_status(run["source_versions"]["leagues"])
+    else:
+        stage = status["stage"]
+        if stage not in {"training", "prediction", "freeze"} or status["error_type"] not in {
+            "ValueError",
+            "OSError",
+            "RuntimeError",
+            "Exception",
+        }:
+            raise ValueError("来源候选失败阶段或异常类别无效")
+        expected = dict(
+            status="failed",
+            stage=stage,
+            reason=f"candidate_{stage}_failed",
+            failed_leagues=sorted(set(run["leagues"]) & LEGACY_LEAGUES),
+            artifacts_frozen=False,
+            error_type=status["error_type"],
+        )
+        if not expected["failed_leagues"]:
+            raise ValueError("来源候选失败状态缺少适用联赛")
+    if (
+        any(status[key] != value for key, value in expected.items())
+        or type(status["artifacts_frozen"]) is not bool
+    ):
+        raise ValueError("来源候选状态与实际冻结产物不符")
+
+
+def record_source_version_failure(archive, run_id, stage, error, *, clock=None):
+    """Record a terminal attempt without creating artifacts or altering primary bytes.
+
+    Only fixed reason codes and exception categories are public; exception text
+    may contain credentials or private paths and stays out of the manifest.
+    """
+    archive = Path(archive)
+    manifest = verify_forecasts(archive)
+    if manifest is None or run_id not in manifest["runs"]:
+        raise ValueError("来源候选失败只能记录到已经冻结的主运行")
+    before = (archive / MANIFEST).read_bytes()
+    run = manifest["runs"][run_id]
+    if "source_versions" in run or "source_version_status" in run:
+        raise ValueError("来源候选状态已冻结，不允许覆盖")
+    error_type = next(
+        (kind.__name__ for kind in (ValueError, OSError, RuntimeError) if isinstance(error, kind)),
+        "Exception",
+    )
+    instant = clock() if clock else datetime.now(UTC)
+    run["source_version_status"] = {
+        "status": "failed",
+        "stage": stage,
+        "reason": f"candidate_{stage}_failed",
+        "failed_leagues": sorted(set(run["leagues"]) & LEGACY_LEAGUES),
+        "artifacts_frozen": False,
+        "error_type": error_type,
+        "recorded_utc": instant.isoformat(),
+    }
+    _validate_status(run)
+    if (archive / MANIFEST).read_bytes() != before:
+        raise ValueError("主清单在来源候选状态记录期间发生变化")
+    _atomic_write(archive / MANIFEST, _raw(manifest))
+    try:
+        verify_forecasts(archive)
+    except BaseException:
+        _atomic_write(archive / MANIFEST, before)
+        raise
+    return copy.deepcopy(run)
+
+
 def source_version_files(run_id, run):
     """Whitelist the optional extension without changing legacy manifest schemas."""
+    _validate_status(run)
     extension = run.get("source_versions")
     if extension is None:
         if any(
@@ -272,7 +369,7 @@ def attach_source_versions(archive, stage, run_id, outcomes, documents, *, clock
         raise ValueError("来源候选只能附加到已经冻结的主运行")
     before = (archive / MANIFEST).read_bytes()
     run = manifest["runs"][run_id]
-    if "source_versions" in run:
+    if "source_versions" in run or "source_version_status" in run:
         raise ValueError("来源候选已冻结，不允许重复附加")
     if not isinstance(documents, dict) or set(documents) != set(run["forecasts"]):
         raise ValueError("来源候选必须覆盖本次主运行全部预测日期")
@@ -314,6 +411,13 @@ def attach_source_versions(archive, stage, run_id, outcomes, documents, *, clock
         for forecast in run["forecasts"].values():
             instant = clock() if clock else datetime.now(UTC)
             forecast["source_versions_attached_utc"] = _timestamp(instant.isoformat()).isoformat()
+        run["source_version_status"] = {
+            **_frozen_status(outcomes),
+            "recorded_utc": max(
+                forecast["source_versions_attached_utc"] for forecast in run["forecasts"].values()
+            ),
+        }
+        _validate_status(run)
         verify_source_versions(archive, manifest, run)
         if (archive / MANIFEST).read_bytes() != before:
             raise ValueError("主清单在来源候选附加期间发生变化")

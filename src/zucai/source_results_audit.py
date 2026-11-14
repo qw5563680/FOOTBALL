@@ -135,6 +135,16 @@ def _read(database):
     for row in rows:
         row["when"] = _utc(row["kickoff_utc"])
         row["binding_reason"] = _provider_binding_reason(row, teams, owners)
+        row["unbound_apif_team_ids"] = {
+            team_id
+            for team_id in (row["home_team_id"], row["away_team_id"])
+            if team_id in teams
+            and isinstance(teams[team_id]["aliases"], list)
+            and all(
+                isinstance(alias, str) and not alias.startswith(f"apif:{row['league']}:team:")
+                for alias in teams[team_id]["aliases"]
+            )
+        }
     return rows
 
 
@@ -163,13 +173,28 @@ def _pair(row):
     return row["home_team_id"], row["away_team_id"]
 
 
+def _unmapped_fd_side(apif, other):
+    if other["source"] != "fd" or apif["league"] != other["league"]:
+        return False
+    pair, old = _pair(apif), _pair(other)
+    equal = [pair[side] == old[side] for side in (0, 1)]
+    return (
+        sum(equal) == 1
+        and not (pair[0] == old[1] or pair[1] == old[0])
+        and old[equal.index(False)] in other.get("unbound_apif_team_ids", set())
+    )
+
+
 class _Index:
     def __init__(self, rows):
         self.by_id = {row["match_id"]: row for row in rows}
         self.by_pair = defaultdict(list)
+        self.by_team = defaultdict(dict)
         self.claims = defaultdict(list)
         for row in rows:
             self.by_pair[(row["league"], row["source"], frozenset(_pair(row)))].append(row)
+            for team in _pair(row):
+                self.by_team[row["league"], row["source"], team][row["match_id"]] = row
             if row["counterpart_id"]:
                 self.claims[row["counterpart_id"]].append(row["match_id"])
 
@@ -189,6 +214,19 @@ class _Index:
                         and abs((row["when"] - other["when"]).total_seconds()) <= WINDOW_SECONDS
                     ):
                         candidates.add(other["match_id"])
+            # This is an unresolved candidate, never a match or a binding.
+            for source in sources:
+                if {row["source"], source} != {"apif", "fd"}:
+                    continue
+                for team in _pair(row):
+                    for other in self.by_team[row["league"], source, team].values():
+                        api, fd = (row, other) if row["source"] == "apif" else (other, row)
+                        if (
+                            _unmapped_fd_side(api, fd)
+                            and other["when"] is not None
+                            and abs((row["when"] - other["when"]).total_seconds()) <= WINDOW_SECONDS
+                        ):
+                            candidates.add(other["match_id"])
         linked = [*self.claims[row["match_id"]]]
         if row["counterpart_id"]:
             linked.append(row["counterpart_id"])
@@ -224,6 +262,8 @@ def _pair_reason(apif, other):
         return "league_mismatch"
     if _pair(apif) == tuple(reversed(_pair(other))):
         return "reversed_home_away"
+    if _unmapped_fd_side(apif, other):
+        return "unverified_fd_identity_overlap"
     if _pair(apif) != _pair(other):
         return "team_id_mismatch"
     if abs((other["when"] - apif["when"]).total_seconds()) > WINDOW_SECONDS:
@@ -234,6 +274,8 @@ def _pair_reason(apif, other):
 def _basis(apif, other):
     if apif["counterpart_id"] == other["match_id"] or other["counterpart_id"] == apif["match_id"]:
         return "counterpart"
+    if _unmapped_fd_side(apif, other):
+        return "shared_team_id_candidate"
     return "exact_team_ids_unique"
 
 
@@ -339,7 +381,8 @@ def _audit_rows(matches):
             basis = _basis(apif, other)
             if reason:
                 # Exact ID candidates have not earned a unique-match claim here.
-                basis = "counterpart" if basis == "counterpart" else "exact_team_ids_candidate"
+                if basis == "exact_team_ids_unique":
+                    basis = "exact_team_ids_candidate"
                 rows.append(_record(apif, other, "unverified", reason, basis))
             elif not other["result_id"]:
                 rows.append(_record(apif, other, "unmatched", "comparison_result_missing", basis))
@@ -388,8 +431,10 @@ def audit_source_results(database, destination):
     """Atomically write a current audit CSV and return JSON-compatible summary counts.
 
     ``matched`` includes consistent and conflicting verified pairs; ``conflicts``
-    is its differing-score/time subset. ``unmatched`` and ``unverified`` count
-    separate CSV rows (missing results/candidates and rejected candidates).
+    is its differing-score/time subset. All counts describe the full comparison;
+    ``comparison_rows`` is that denominator. ``rows`` counts only the actionable
+    CSV data rows: score/time conflicts and unverified identities. Consistent
+    pairs and missing results/candidates remain in summary counts only.
     Existing availability values, including NULL, are copied without inference.
     An empty SQLite database and schemas lacking optional legacy columns work.
     API rows require current unique league/provider numeric team bindings, with
@@ -410,7 +455,8 @@ def audit_source_results(database, destination):
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, FIELDS)
     writer.writeheader()
-    writer.writerows(rows)
+    actionable = [row for row in rows if row["classification"] not in {"consistent", "unmatched"}]
+    writer.writerows(actionable)
     destination.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write(destination, output.getvalue().encode("utf-8"))
     counts = Counter(row["classification"] for row in rows)
@@ -418,7 +464,8 @@ def audit_source_results(database, destination):
     matched = len(rows) - unmatched - unverified
     return {
         "status": "complete" if apif_count else "no_apif_results",
-        "rows": len(rows),
+        "rows": len(actionable),
+        "comparison_rows": len(rows),
         "apif_results": apif_count,
         "comparison_results": comparison_count,
         "matched": matched,

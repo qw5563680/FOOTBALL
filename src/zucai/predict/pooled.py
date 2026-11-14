@@ -78,7 +78,16 @@ def _linked_groups(frame, *, as_of=None):
     for row in () if legacy else frame.itertuples():
         if row.counterpart_id not in indexed.index:
             continue
+        if frozenset((row.match_id, row.counterpart_id)) in timed_pairs:
+            # Complete T63 proofs are validated by their own loader and obey
+            # their recorded cutoff below; a legacy pointer adds no authority.
+            continue
         other = indexed.loc[row.counterpart_id]
+        if row.source == "apif" and other.source == "fd":
+            if (row.match_id, row.counterpart_id) not in frame.attrs.get(
+                "verified_apif_fd_links", ()
+            ):
+                raise ValueError("apif→fd 同场关系须经完整数据库身份与声明核验")
         if (row.league, row.home, row.away) == (other.league, other.home, other.away) and abs(
             row.kickoff_utc - other.kickoff_utc
         ) <= timedelta(hours=3):
@@ -142,18 +151,43 @@ def linked_representatives(frame, *, groups=None):
 
 
 def legacy_linked_representatives(frame, *, retain_links=False):
-    """The pre-T63 materialized view, retained for the unchanged European model."""
+    """Legacy priority view, including fully rechecked T66 FD relations."""
     rank = {source: i for i, source in enumerate(SOURCES)}
     indexed = frame.set_index("match_id")
+    from zucai.sources.fd_apif_counterpart import FixtureIdentity, same_fixture_identity
+
+    # Names here come from the unique Team table, so exact equality represents
+    # the same stored ID. Keep the original fields and all unknown team labels.
+    identities = [
+        FixtureIdentity(
+            row.match_id,
+            row.source,
+            row.league,
+            row.home,
+            row.away,
+            row.kickoff_utc,
+            row.counterpart_id if isinstance(row.counterpart_id, str) else None,
+        )
+        for row in frame.itertuples()
+    ]
+    by_id = {row.match_id: row for row in identities}
+    names = {name: name for row in identities for name in (row.home_team_id, row.away_team_id)}
     excluded = set()
     old_links = []
     for row in frame.itertuples():
         if row.counterpart_id not in indexed.index:
             continue
         other = indexed.loc[row.counterpart_id]
-        if (row.league, row.home, row.away) != (other.league, other.home, other.away) or abs(
-            row.kickoff_utc - other.kickoff_utc
-        ) > timedelta(hours=3):
+        if row.source == "apif" and other.source == "fd":
+            if (row.match_id, row.counterpart_id) not in frame.attrs.get(
+                "verified_apif_fd_links", ()
+            ) or not same_fixture_identity(by_id[row.counterpart_id], by_id[row.match_id], names):
+                raise ValueError("apif→fd 同场关系须经完整数据库身份与声明核验")
+        elif (row.league, row.home, row.away) != (
+            other.league,
+            other.home,
+            other.away,
+        ) or abs(row.kickoff_utc - other.kickoff_utc) > timedelta(hours=3):
             continue
         left, right = rank[row.source], rank[other.source]
         if left != right:
@@ -247,6 +281,10 @@ def select_training_history(frame, as_of):
         eligible = eligible.loc[~eligible.match_id.isin(withheld)].copy()
         eligible.attrs["unresolved_score_conflict_rows"] = sorted(withheld)
         eligible = linked_representatives(eligible, groups=groups)
+        if not frame.attrs.get("legacy_source_policy"):
+            from zucai.source_result_quarantine import exclude_pending_fd_overlaps
+
+            eligible = exclude_pending_fd_overlaps(eligible)
     reject_cross_source_overlaps(eligible)
     return eligible
 

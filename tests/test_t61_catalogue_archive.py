@@ -20,6 +20,7 @@ CATALOGUE_FILES = (
     "state/catalogue/run-1/fd.json",
     "state/catalogue/run-1/summary.json",
     "state/catalogue/run-1/jc.json",
+    "state/catalogue/run-1/jc-leagues.json",
     "state/catalogue/run-1/jc/2026-10/2026-10-31-p1.json",
     "state/catalogue/run-1/jc/2026-10/2026-10-31-p1.json.meta.json",
 )
