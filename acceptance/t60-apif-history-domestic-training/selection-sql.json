@@ -1,0 +1,8 @@
+[
+  "PRAGMA query_only=ON",
+  "BEGIN",
+  "SELECT matches.match_id, matches.source, matches.league, matches.counterpart_id, matches.kickoff_utc, results.available_utc, results.available_source, teams_1.name AS home, teams_2.name AS away, results.home_goals, results.away_goals \nFROM matches JOIN results ON results.match_id = matches.match_id JOIN teams AS teams_1 ON teams_1.id = matches.home_team_id JOIN teams AS teams_2 ON teams_2.id = matches.away_team_id \nWHERE matches.status = ? AND matches.league = ? AND matches.source IN (?, ?) ORDER BY matches.kickoff_utc, matches.match_id",
+  "PRAGMA query_only=ON",
+  "BEGIN",
+  "SELECT matches.match_id, matches.source, matches.league, matches.counterpart_id, matches.kickoff_utc, results.available_utc, results.available_source, teams_1.name AS home, teams_2.name AS away, results.home_goals, results.away_goals \nFROM matches JOIN results ON results.match_id = matches.match_id JOIN teams AS teams_1 ON teams_1.id = matches.home_team_id JOIN teams AS teams_2 ON teams_2.id = matches.away_team_id \nWHERE matches.status = ? AND matches.league = ? AND matches.source IN (?, ?) ORDER BY matches.kickoff_utc, matches.match_id"
+]

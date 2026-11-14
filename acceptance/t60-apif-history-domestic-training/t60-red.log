@@ -1,0 +1,255 @@
+FFF......FFF..F.....F                                                    [100%]
+=================================== FAILURES ===================================
+_ test_committed_source_policy_is_explicit_and_independent_of_collector_registry _
+
+    def test_committed_source_policy_is_explicit_and_independent_of_collector_registry():
+>       from zucai.predict.training_sources import apif_history_sources
+E       ModuleNotFoundError: No module named 'zucai.predict.training_sources'
+
+tests/test_apif_domestic_training.py:59: ModuleNotFoundError
+______ test_only_existing_linked_representative_is_retained[\u97e9\u804c] ______
+
+domestic_db = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-192/test_only_existing_linked_repr0/source.db), PosixPath('/tmp/pytest-of-agent/pytest-192/test_only_existing_linked_repr0/source.db'))
+league = '韩职'
+
+    @pytest.mark.parametrize("league", PAIRS)
+    def test_only_existing_linked_representative_is_retained(domestic_db, league):
+        engine, _ = domestic_db
+        with session_scope(engine) as session:
+            _complete_counterpart(session, league)
+        with session_scope(engine) as session:
+>           history = read_history(session, league, "apif,jc")
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_apif_domestic_training.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/predict/backtest.py:81: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =         match_id source league  ...            away  home_goals  away_goals
+0    apif:828193   apif     韩职  ...  apif:...      1           0
+60  apif:1647395   apif     韩职  ...            浦项制铁           2           2
+
+[61 rows x 11 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc < row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+>                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:1647394 / jc:2042585
+
+src/zucai/predict/apif_guard.py:30: ValueError
+______ test_only_existing_linked_representative_is_retained[\u6fb3\u8d85] ______
+
+domestic_db = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-192/test_only_existing_linked_repr1/source.db), PosixPath('/tmp/pytest-of-agent/pytest-192/test_only_existing_linked_repr1/source.db'))
+league = '澳超'
+
+    @pytest.mark.parametrize("league", PAIRS)
+    def test_only_existing_linked_representative_is_retained(domestic_db, league):
+        engine, _ = domestic_db
+        with session_scope(engine) as session:
+            _complete_counterpart(session, league)
+        with session_scope(engine) as session:
+>           history = read_history(session, league, "apif,jc")
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_apif_domestic_training.py:73: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/predict/backtest.py:81: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =         match_id source league  ...            away  home_goals  away_goals
+0    apif:924516   apif     澳超  ...  apif:...      2           1
+60  apif:1593702   apif     澳超  ...            布里斯班           1           2
+
+[61 rows x 11 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc < row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+>                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:1593701 / jc:2042586
+
+src/zucai/predict/apif_guard.py:30: ValueError
+__ test_configured_domestic_history_rejects_undeclared_sources[apif,jc,other] __
+
+domestic_db = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-192/test_configured_domestic_histo0/source.db), PosixPath('/tmp/pytest-of-agent/pytest-192/test_configured_domestic_histo0/source.db'))
+source = 'apif,jc,other'
+
+    @pytest.mark.parametrize("source", ["apif,jc,other", "apif,jc,fd", "apif,jc,fdorg"])
+    def test_configured_domestic_history_rejects_undeclared_sources(domestic_db, source):
+        engine, _ = domestic_db
+>       with session_scope(engine) as session, pytest.raises(ValueError, match="来源"):
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_apif_domestic_training.py:101: Failed
+___ test_configured_domestic_history_rejects_undeclared_sources[apif,jc,fd] ____
+
+domestic_db = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-192/test_configured_domestic_histo1/source.db), PosixPath('/tmp/pytest-of-agent/pytest-192/test_configured_domestic_histo1/source.db'))
+source = 'apif,jc,fd'
+
+    @pytest.mark.parametrize("source", ["apif,jc,other", "apif,jc,fd", "apif,jc,fdorg"])
+    def test_configured_domestic_history_rejects_undeclared_sources(domestic_db, source):
+        engine, _ = domestic_db
+>       with session_scope(engine) as session, pytest.raises(ValueError, match="来源"):
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_apif_domestic_training.py:101: Failed
+__ test_configured_domestic_history_rejects_undeclared_sources[apif,jc,fdorg] __
+
+domestic_db = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-192/test_configured_domestic_histo2/source.db), PosixPath('/tmp/pytest-of-agent/pytest-192/test_configured_domestic_histo2/source.db'))
+source = 'apif,jc,fdorg'
+
+    @pytest.mark.parametrize("source", ["apif,jc,other", "apif,jc,fd", "apif,jc,fdorg"])
+    def test_configured_domestic_history_rejects_undeclared_sources(domestic_db, source):
+        engine, _ = domestic_db
+>       with session_scope(engine) as session, pytest.raises(ValueError, match="来源"):
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_apif_domestic_training.py:101: Failed
+__________ test_real_archive_season_boundaries_and_fixture_provenance __________
+
+    def test_real_archive_season_boundaries_and_fixture_provenance():
+        proof = json.loads((FIXTURE / "provenance.json").read_text())
+        assert hashlib.sha256((FIXTURE / "history.jsonl").read_bytes()).hexdigest() == proof["history_sha256"]
+        for league, seasons in proof["season_bounds"].items():
+            for season, summary in seasons.items():
+>               assert season_for(summary["min_utc"], league) == season
+E               AssertionError: assert '2122' == '2022'
+E                 
+E                 - 2022
+E                 ?  ^
+E                 + 2122
+E                 ?  ^
+
+tests/test_apif_domestic_training.py:132: AssertionError
+______ test_daily_restored_real_identities_predict_both_domestic_leagues _______
+
+domestic_db = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-192/test_daily_restored_real_ident0/source.db), PosixPath('/tmp/pytest-of-agent/pytest-192/test_daily_restored_real_ident0/source.db'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-192/test_daily_restored_real_ident0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f368283fb60>
+
+    def test_daily_restored_real_identities_predict_both_domestic_leagues(domestic_db, tmp_path, monkeypatch):
+        from zucai import cloud_predict
+    
+        engine, path = domestic_db
+        archive = tmp_path / "archive"
+        export_feeds(path, archive, date(2026, 11, 7), "fixture-replay")
+        restore = cloud_predict.restore_feeds
+    
+        def restore_historical_slate(source, destination):
+            feed = restore(source, destination)
+            replay_engine = get_engine(destination)
+            try:
+                # A test-only historical-flow replay after normal archive validation:
+                # retain all score/availability fields and change only these statuses.
+                with session_scope(replay_engine) as session:
+                    for jc, _ in PAIRS.values():
+                        session.get(Match, jc).status = "scheduled"
+            finally:
+                replay_engine.dispose()
+            return feed
+    
+        monkeypatch.setattr(cloud_predict, "restore_feeds", restore_historical_slate)
+        params = tmp_path / "params.json"
+        params.write_text(json.dumps({"schema_version": 1, "leagues": {league: {"half_life_days": 365, "selection_as_of_utc": "2026-01-01T00:00Z", "sources": ["apif", "jc"], "p2_ready": False} for league in PAIRS}}))
+        monkeypatch.setattr(cloud_predict, "_now", lambda: NOW)
+>       result = cloud_predict.run(archive, params, "offline-domestic", sporttery_status="skipped")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_apif_domestic_training.py:175: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive = PosixPath('/tmp/pytest-of-agent/pytest-192/test_daily_restored_real_ident0/archive')
+params = PosixPath('/tmp/pytest-of-agent/pytest-192/test_daily_restored_real_ident0/params.json')
+run_id = 'offline-domestic', sporttery_status = 'skipped'
+sporttery_publish_status = None, feed_commit = None
+
+    def run(
+        archive: Path,
+        params: Path | None,
+        run_id: str,
+        *,
+        sporttery_status="unknown",
+        sporttery_publish_status=None,
+        feed_commit=None,
+    ) -> dict:
+        archive, params = Path(archive).resolve(), parameters_path(params)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", run_id):
+            raise ValueError("无效 run ID")
+        old = verify_forecasts(archive)
+        if old and run_id in old["runs"]:
+            raise ValueError(f"run ID 已存在：{run_id}")
+        if not params.is_file():
+            raise ValueError(f"参数文件不存在：{params}")
+        config, params_sha = read_parameters(params)
+        if not config["leagues"]:
+            raise ValueError("参数文件没有联赛条目")
+        for league, entry in config["leagues"].items():
+            _component(league)
+            allowed = set(SOURCES) if league == POOL else {"jc", "fd"}
+            if league == NATIONS_LEAGUE:
+                allowed = {"jc", "apif"}
+            if not entry.get("sources") or not set(entry["sources"]) <= allowed:
+>               raise ValueError(f"{league} 的训练来源必须显式配置且仅限 {' / '.join(sorted(allowed))}")
+E               ValueError: 韩职 的训练来源必须显式配置且仅限 fd / jc
+
+src/zucai/cloud_predict.py:154: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_apif_domestic_training.py::test_committed_source_policy_is_explicit_and_independent_of_collector_registry
+FAILED tests/test_apif_domestic_training.py::test_only_existing_linked_representative_is_retained[\u97e9\u804c]
+FAILED tests/test_apif_domestic_training.py::test_only_existing_linked_representative_is_retained[\u6fb3\u8d85]
+FAILED tests/test_apif_domestic_training.py::test_configured_domestic_history_rejects_undeclared_sources[apif,jc,other]
+FAILED tests/test_apif_domestic_training.py::test_configured_domestic_history_rejects_undeclared_sources[apif,jc,fd]
+FAILED tests/test_apif_domestic_training.py::test_configured_domestic_history_rejects_undeclared_sources[apif,jc,fdorg]
+FAILED tests/test_apif_domestic_training.py::test_real_archive_season_boundaries_and_fixture_provenance
+FAILED tests/test_apif_domestic_training.py::test_daily_restored_real_identities_predict_both_domestic_leagues

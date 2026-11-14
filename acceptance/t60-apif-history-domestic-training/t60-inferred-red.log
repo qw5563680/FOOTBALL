@@ -1,0 +1,24 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_inferred_source_does_not_admit_an_unknown_provider ____________
+
+domestic_db = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-199/test_inferred_source_does_not_0/source.db), PosixPath('/tmp/pytest-of-agent/pytest-199/test_inferred_source_does_not_0/source.db'))
+
+    def test_inferred_source_does_not_admit_an_unknown_provider(domestic_db):
+        engine, _ = domestic_db
+        with session_scope(engine) as session:
+            matches = list(session.scalars(select(Match).where(Match.league == "韩职")))
+            original = matches[0]
+            score = session.get(Result, original.match_id)
+            for match in matches:
+                match.league = "fixture-other"
+            session.add(Match(match_id="unknown:fixture", source="unknown", league="韩职", home_team_id=original.home_team_id, away_team_id=original.away_team_id, kickoff_utc=original.kickoff_utc, status="finished"))
+            session.flush()
+            session.add(Result(match_id="unknown:fixture", home_goals=score.home_goals, away_goals=score.away_goals, available_utc=score.available_utc, available_source=score.available_source))
+>       with session_scope(engine) as session, pytest.raises(ValueError, match="来源"):
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_apif_domestic_training.py:180: Failed
+=========================== short test summary info ============================
+FAILED tests/test_apif_domestic_training.py::test_inferred_source_does_not_admit_an_unknown_provider
