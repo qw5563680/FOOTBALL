@@ -92,7 +92,8 @@ T61 只读目录由审查者在 Actions 运行：`python -m zucai.cloud_feeds pr
 竞彩过去12个完整北京时间月目录改用 `--probe-kind jc-catalogue`，仅限 `football-local` 自托管运行器。
 T68 补开球时刻先离线生成清单：`python -m zucai.jc_catalogue_kickoffs plan --archive ../cloud-data --out work/t68-head-plan.json`。
 由审查者在同一自托管 Actions 以 `operation=probe`、`options={"probe_kind":"jc-kickoffs","max_requests":5}`
-先试最早的5场；成功原件复核后另开批次提高上限（最大7000），失败保留待核，恢复后仅请求缺项。
+先试最早的5场，首个失败即停；成功原件复核后另开批次提高上限（最大7000）。全量连续3次失败即停，
+成功返回会重置连续计数；剩余标为未请求，恢复后仅续取缺项。
 对应命令为 `python -m zucai.cloud_feeds probe --probe-kind jc-kickoffs --max-requests 5 --archive ../cloud-data --run-id <新批次>`。
 此工具只保存官方时间原件，不修改比赛表或批准球队绑定；泛称赛事的关联设计已审，实现在后续B段PR交付。
 已保存的竞彩目录可离线重算：`python -m zucai.catalogue_replay --source-dir ../cloud-data/state/catalogue/43539673769-1 --out-dir ../t65-replay --run-id t65-offline-1`；只写新目录，不请求接口、不更新正式 `latest.json`。

@@ -97,6 +97,7 @@ python -m zucai.cloud_feeds probe --probe-kind jc-kickoffs --archive ../cloud-da
   沿用 `operation=probe`，新增 `options.probe_kind=jc-kickoffs` 入口；其请求上限来自 `max_requests`。
 - 先导选待取清单中最早日期的最多5场（覆盖约一年前），每个请求前限速≥1秒；必须取得可复核成功原件才允许后续全量。
   先导失败、空响应或不返回旧比赛时保留失败原因并停止扩量；不能把失败当无比赛跳过。
+  已通过先导的全量阶段连续3次非成功即停（HTTP/解析/网络失败共同计数，成功清零），余项标未请求并可下次续跑。
 - 原件接口 `getMatchHeadV1.qry?source=web&sportteryMatchId=<官方ID>`；复用 `SportteryResults._head_time` 的主客体彩编号、竞彩ID和北京日期核对，详情供应商 `matchId` 不作竞彩ID。
   只读头部时间，不覆盖旧比分。日期/编号/主客不一致、非法时刻、HTTP失败或重复矛盾响应一律待核，不换队、不改日期来适配。
 - 限速、Referer、接口/robots依据沿用 `docs/DATA_SOURCES.md` 第1节与 T14 访问复核；本轮新请求只允许审查者 Actions，
@@ -104,6 +105,8 @@ python -m zucai.cloud_feeds probe --probe-kind jc-kickoffs --archive ../cloud-da
 - 归档 `state/catalogue/<run>/jc-heads/<竞彩ID>.json` 与同名 `.meta.json`；另存 `jc-kickoff-plan.json`、`jc-kickoffs.json`。
   清单含固定目录/注册表SHA、已有时刻证据、待取ID、成功/冲突/失败/未请求状态、真实捕获时间、原件哈希与指针；纳入manifest白名单及恢复。
 - 恢复后只跳过SHA和身份再次核对通过的成功原件；断点不把“曾尝试”当完成。全量只续跑缺项，重复成功原件不重复调用。
+- 同ID库内证据首次保存后固定复用，不继续采纳当前库/manifest变化；无缓存时最多新增一份core及一份manifest，当前固定输入共21,386,943字节。已有多缓存全部保留参与冲突，不删旧证据；后来的缺项改取官方head。
+- 总manifest的collection只写计数/停止原因/明细路径及SHA；下一次正常sync/apis精确移除旧jc-kickoffs状态，其它provider摘要不丢。
 - 离线测试仅用 `data/fixtures/`：成功、编号不符、主客反转、日期不符、HTTP失败、旧比赛空返回、损坏SHA、试采失败阻止全量及重复0请求。
 
 ## 3. 一条新绑定什么时候可以提案

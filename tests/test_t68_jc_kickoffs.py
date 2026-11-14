@@ -794,7 +794,7 @@ def test_db_core_is_deduplicated_across_manifest_changes_and_reverified(tmp_path
         export_feeds(database, archive, date(2026, 11, 1), batch)
     cores = list((archive / "state/catalogue").glob("*/jc-db-matches.jsonl"))
     assert len(cores) == 1
-    assert len(list((archive / "state/catalogue").glob("*/jc-db-manifests/*.json"))) == 2
+    assert len(list((archive / "state/catalogue").glob("*/jc-db-manifests/*.json"))) == 1
     cores[0].write_bytes(cores[0].read_bytes() + b" ")
     with pytest.raises(ValueError, match="SHA"):
         module.plan_kickoffs(archive)
@@ -992,3 +992,259 @@ def test_untrusted_or_empty_schedule_does_not_create_permanent_hold(tmp_path, mo
     save_json(path.with_suffix(".json.meta.json"), meta)
     plan = module.plan_kickoffs(archive)
     assert len(plan["verified"]) == 1 and plan["pending"] == []
+
+
+def register_head(sid, *, status=200, clock="2026-10-31 23:15"):
+    raw = json.loads((HEADS / "success.json").read_bytes())
+    raw["value"].update(sportteryMatchId=sid, matchDateTime=clock)
+    responses.add(
+        responses.GET,
+        API + "getMatchHeadV1.qry",
+        json=raw,
+        status=status,
+        match=[
+            responses.matchers.query_param_matcher({"source": "web", "sportteryMatchId": str(sid)})
+        ],
+    )
+
+
+def successful_pilot(root, module, ids):
+    catalogue(root, ids)
+    for sid in ids[:5]:
+        register_head(sid)
+    assert module.collect_kickoffs(root / "zucai.db", "pilot")["pilot_verified"] is True
+
+
+@responses.activate
+def test_continuation_stops_after_three_failures_and_retries_remaining(tmp_path, module):
+    ids = tuple(range(2042404, 2042421))
+    successful_pilot(tmp_path, module, ids)
+    for sid in ids[5:7]:
+        register_head(sid)
+    for sid in ids[7:10]:
+        register_head(sid, status=403)
+    report = module.collect_kickoffs(tmp_path / "zucai.db", "blocked", max_requests=1200)
+    assert report["requests"] == 5 and report["failed_count"] == 3
+    assert report["success_count"] == 7 and report["not_requested_count"] == 7
+    assert report["stop_reason"] == "consecutive_failures"
+    assert report["consecutive_failures"] == 3
+    assert [r["match_id"] for r in report["rows"] if r["status"] == "failed"] == list(ids[7:10])
+    assert [r["match_id"] for r in report["rows"] if r["status"] == "not_requested"] == list(
+        ids[10:]
+    )
+    responses.reset()
+    for sid in ids[7:]:
+        register_head(sid)
+    resumed = module.collect_kickoffs(tmp_path / "zucai.db", "resume-after-stop", max_requests=1200)
+    assert resumed["requests"] == 10 and resumed["success_count"] == len(ids)
+    assert resumed["failed_count"] == 0 and resumed["not_requested_count"] == 0
+    assert resumed["consecutive_failures"] == 0 and resumed["stop_reason"] is None
+
+
+@responses.activate
+def test_continuation_success_resets_consecutive_failures(tmp_path, module):
+    ids = tuple(range(2042404, 2042417))
+    successful_pilot(tmp_path, module, ids)
+    for sid, status in zip(ids[5:11], (403, 403, 200, 403, 403, 200), strict=True):
+        register_head(sid, status=status)
+    report = module.collect_kickoffs(tmp_path / "zucai.db", "reset", max_requests=6)
+    assert report["requests"] == 6 and report["failed_count"] == 4
+    assert report["consecutive_failures"] == 0
+    assert report["stop_reason"] == "request_budget"
+    assert report["not_requested_count"] == 2
+
+
+@responses.activate
+def test_network_parse_and_http_failures_share_continuation_limit(tmp_path, module):
+    from requests import ConnectionError
+
+    ids = tuple(range(2042404, 2042414))
+    successful_pilot(tmp_path, module, ids)
+    responses.add(
+        responses.GET, API + "getMatchHeadV1.qry", body=ConnectionError("offline failure")
+    )
+    responses.add(responses.GET, API + "getMatchHeadV1.qry", body=b"not-json", status=200)
+    register_head(ids[7], status=403)
+    report = module.collect_kickoffs(tmp_path / "zucai.db", "mixed-failures", max_requests=1200)
+    assert report["requests"] == 3 and report["failed_count"] == 3
+    assert report["not_requested_count"] == 2
+    assert report["consecutive_failures"] == 3 and report["stop_reason"] == "consecutive_failures"
+    assert len([r for r in report["rows"] if r["status"] == "failed"]) == 3
+
+
+@responses.activate
+def test_initial_pilot_reports_first_failure_stop(tmp_path, module):
+    catalogue(tmp_path, tuple(range(2042404, 2042414)))
+    register_head(2042404, status=403)
+    report = module.collect_kickoffs(tmp_path / "zucai.db", "pilot-failed")
+    assert report["requests"] == 1 and report["failed_count"] == 1
+    assert report["not_requested_count"] == 9
+    assert report["stop_reason"] == "pilot_failed" and report["consecutive_failures"] == 1
+
+
+@responses.activate
+def test_probe_collection_is_compact_and_does_not_poison_next_daily_run(
+    tmp_path, module, monkeypatch
+):
+    from zucai.cloud_feeds import main
+
+    archive = seed_cloud_archive(tmp_path)
+    catalogue(tmp_path, (2042404, 2042405, 2042406))
+    providers = {
+        "apif": {"status": "complete", "keep": "apif-state"},
+        "fdorg": {"status": "complete", "keep": "fdorg-state"},
+    }
+    export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 1), "before", collection=providers)
+    work = tmp_path / "probe-cli"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "feeds",
+            "probe",
+            "--probe-kind",
+            "jc-kickoffs",
+            "--archive",
+            str(archive),
+            "--run-id",
+            "partial-probe",
+            "--max-requests",
+            "1",
+        ],
+    )
+    register_head(2042404)
+    main()
+    meta = archive_info(archive)
+    summary = meta["collection"]["jc-kickoffs"]
+    assert summary["status"] == "partial" and summary["requests"] == 1
+    assert len(json.dumps(summary)) < 1000
+    assert not {"rows", "selected", "pending", "pilot_ids", "evidence"} & summary.keys()
+    report = archive / summary["report_path"]
+    assert hashlib.sha256(report.read_bytes()).hexdigest() == summary["report_sha256"]
+    assert len(json.loads(report.read_bytes())["rows"]) == 3
+    assert {key: meta["collection"][key] for key in providers} == providers
+    monkeypatch.setattr(
+        "zucai.cloud_apis.collect_apis",
+        lambda *args, **kwargs: {"apif": {"status": "complete", "keep": "new-api-state"}},
+    )
+    daily = tmp_path / "daily"
+    daily.mkdir()
+    monkeypatch.chdir(daily)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["feeds", "apis", "--archive", str(archive), "--run-id", "next-day", "--days", "0"],
+    )
+    main()
+    restored = archive_info(archive)
+    assert restored["collection_status"] == "complete"
+    assert "jc-kickoffs" not in restored["collection"]
+    assert restored["collection"]["fdorg"] == providers["fdorg"]
+    assert restored["collection"]["apif"]["keep"] == "new-api-state"
+    assert report.is_file()  # Historical evidence survives removal of transient run status.
+
+
+@responses.activate
+def test_first_db_snapshot_remains_fixed_as_library_grows(tmp_path, module):
+    import sqlite3
+
+    archive = verified_db_archive(tmp_path)
+    catalogue(tmp_path, (2042404, 2042405))
+    export_feeds(tmp_path / "seed.db", archive, date(2026, 11, 1), "two-selected")
+    first = tmp_path / "first/data/zucai.db"
+    restore_feeds(archive, first)
+    register_head(2042405, status=403)
+    module.collect_kickoffs(first, "cache-once", archive=archive)
+    export_feeds(first, archive, date(2026, 11, 1), "cache-once")
+    cached = list((archive / "state/catalogue").glob("*/jc-db-matches.jsonl"))
+    assert len(cached) == 1
+    cached_bytes = cached[0].read_bytes()
+    with sqlite3.connect(first) as db:
+        db.execute(
+            "INSERT INTO teams(id,name,aliases) VALUES(?,?,?)", (3, "New unrelated team", "[]")
+        )
+        db.execute(
+            "INSERT INTO matches(match_id,source,league,home_team_id,away_team_id,"
+            "kickoff_utc,status,result_provider,result_checked_utc) VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                "jc:2042405",
+                "jc",
+                "英联赛杯",
+                1,
+                2,
+                "2026-10-31T15:15:00Z",
+                "finished",
+                "jc",
+                "2026-11-01T01:00:00Z",
+            ),
+        )
+        db.execute(
+            "INSERT INTO results(match_id,home_goals,away_goals,available_utc,available_source) "
+            "VALUES(?,?,?,?,?)",
+            ("jc:2042405", 1, 3, "2026-11-01T01:00:00Z", "captured"),
+        )
+    export_feeds(first, archive, date(2026, 11, 1), "library-grew")
+    plan = module.plan_kickoffs(archive)
+    assert [r["match_id"] for r in plan["verified"]] == [2042404]
+    assert [r["match_id"] for r in plan["pending"]] == [2042405]
+    second = tmp_path / "second/data/zucai.db"
+    restore_feeds(archive, second)
+    register_head(2042405)
+    report = module.collect_kickoffs(second, "use-official-head", archive=archive)
+    assert report["requests"] == 1 and report["success_count"] == 2
+    assert (
+        next(r for r in report["rows"] if r["match_id"] == 2042405)["evidence"][0]["basis"]
+        == "jc_head_raw_verified"
+    )
+    export_feeds(second, archive, date(2026, 11, 1), "use-official-head")
+    assert list((archive / "state/catalogue").glob("*/jc-db-matches.jsonl")) == cached
+    assert cached[0].read_bytes() == cached_bytes
+    assert len(list((archive / "state/catalogue").glob("*/jc-db-manifests/*.json"))) == 1
+
+
+@responses.activate
+def test_older_multiple_db_caches_still_participate_in_conflicts(tmp_path, module):
+    import shutil
+    import sqlite3
+
+    first_root = tmp_path / "old-first"
+    first_root.mkdir()
+    archive = verified_db_archive(first_root)
+    first = first_root / "work/data/zucai.db"
+    restore_feeds(archive, first)
+    module.collect_kickoffs(first, "first-cache", archive=archive)
+    export_feeds(first, archive, date(2026, 11, 1), "first-cache")
+    second_root = tmp_path / "old-second"
+    second_root.mkdir()
+    second_archive = verified_db_archive(second_root)
+    with sqlite3.connect(second_root / "seed.db") as db:
+        db.execute(
+            "UPDATE matches SET kickoff_utc=? WHERE match_id=?",
+            ("2026-10-31T15:30:00Z", "jc:2042404"),
+        )
+    export_feeds(second_root / "seed.db", second_archive, date(2026, 11, 1), "other-old-snapshot")
+    second = second_root / "work/data/zucai.db"
+    restore_feeds(second_archive, second)
+    module.collect_kickoffs(second, "second-cache", archive=second_archive)
+    second_core = next((second.parent / "state/catalogue").glob("*/jc-db-matches.jsonl")).parent
+    shutil.copytree(second_core, archive / "state/catalogue" / second_core.name)
+    before = module.plan_kickoffs(archive)
+    assert (
+        before["verified"] == []
+        and before["pending"][0]["reason"] == "conflicting_jc_kickoff_evidence"
+    )
+    assert len(before["pending"][0]["evidence"]) == 2
+    register_head(2042404)
+    assert (
+        module.collect_kickoffs(first, "old-cache-conflict", archive=archive)["failed_count"] == 1
+    )
+    export_feeds(first, archive, date(2026, 11, 1), "old-cache-conflict")
+    assert len(list((archive / "state/catalogue").glob("*/jc-db-matches.jsonl"))) == 2
+    assert len(list((archive / "state/catalogue").glob("*/jc-db-manifests/*.json"))) == 2
+    fresh = tmp_path / "fresh/data/zucai.db"
+    restore_feeds(archive, fresh)
+    restored = module.plan_kickoffs(fresh.parent)
+    assert restored["verified"] == []
+    assert restored["pending"][0]["reason"] == "conflicting_jc_kickoff_evidence"

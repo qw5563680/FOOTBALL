@@ -307,15 +307,6 @@ def _database_evidence(
     from zucai.cloud_feeds import TABLES
 
     sources = []
-    if (root / "feed_manifest.json").is_file():
-        sources.append(
-            (
-                root / "feed_manifest.json",
-                root / "state/matches.jsonl",
-                root / "state/teams.jsonl",
-                ALIASES_PATH,
-            )
-        )
     for manifest in sorted((root / "state/catalogue").glob("*/jc-db-manifests/*.json")):
         if re.fullmatch(r"[0-9a-f]{64}\.json", manifest.name):
             folder = manifest.parent.parent
@@ -327,6 +318,18 @@ def _database_evidence(
                     folder / "jc-db-aliases.json",
                 )
             )
+    # The first archived source is the fixed DB evidence for this catalogue.
+    # Keep every older cache in conflict checks, but never adopt a growing live
+    # database or a new probe manifest once that evidence has been archived.
+    if not sources and (root / "feed_manifest.json").is_file():
+        sources.append(
+            (
+                root / "feed_manifest.json",
+                root / "state/matches.jsonl",
+                root / "state/teams.jsonl",
+                ALIASES_PATH,
+            )
+        )
     output, issues = defaultdict(list), []
     page_hashes = {page["path"]: page["sha256"] for page in catalogue["pages"]}
     page_metadata_hashes = {page["path"]: page["metadata_sha256"] for page in catalogue["pages"]}
@@ -696,6 +699,9 @@ def collect_kickoffs(
         started_utc=datetime.now(UTC).isoformat(),
         max_requests=max_requests,
         requests=0,
+        consecutive_failures=0,
+        failure_limit=3 if pilot_before else 1,
+        stop_reason=None,
         pilot_verified=False,
         pilot_ids=[row["match_id"] for row in plan["pilot"]],
         rows=list(plan["verified"]),
@@ -741,10 +747,13 @@ def collect_kickoffs(
             if row["reason"] == "conflicting_jc_kickoff_evidence":
                 raise ValueError("conflicting_jc_kickoff_evidence requires review")
             result.update(status="success", kickoff_utc=result["evidence"][0]["kickoff_utc"])
+            report["consecutive_failures"] = 0
         except (RequestException, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             result["reason"] = str(exc)
-            if not pilot_before:
+            report["consecutive_failures"] += 1
+            if report["consecutive_failures"] >= report["failure_limit"]:
                 stopped = True
+                report["stop_reason"] = "consecutive_failures" if pilot_before else "pilot_failed"
         report["rows"].append(result)
         _write(folder / "jc-kickoffs.json", report)
     attempted = {row["match_id"] for row in report["rows"]}
@@ -756,6 +765,8 @@ def collect_kickoffs(
     report["success_count"] = sum(row["status"] == "success" for row in report["rows"])
     report["failed_count"] = sum(row["status"] == "failed" for row in report["rows"])
     report["not_requested_count"] = sum(row["status"] == "not_requested" for row in report["rows"])
+    if report["not_requested_count"] and report["stop_reason"] is None:
+        report["stop_reason"] = "request_budget"
     report["skipped_verified_count"] = len(plan["verified"])
     report["selected_count"] = plan["selected_count"]
     report["pilot_verified"] = (
@@ -776,6 +787,29 @@ def collect_kickoffs(
     return report
 
 
+def collection_summary(report: dict, root: Path) -> dict:
+    """Keep the per-run manifest small; row evidence stays in its hashed report."""
+    path = f"state/catalogue/{report['run_id']}/jc-kickoffs.json"
+    keys = (
+        "status",
+        "run_id",
+        "requests",
+        "selected_count",
+        "success_count",
+        "failed_count",
+        "not_requested_count",
+        "skipped_verified_count",
+        "consecutive_failures",
+        "failure_limit",
+        "stop_reason",
+    )
+    return dict(
+        {key: report[key] for key in keys},
+        report_path=path,
+        report_sha256=_sha((root / path).read_bytes()),
+    )
+
+
 def write_summary(report: dict) -> None:
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
@@ -784,7 +818,8 @@ def write_summary(report: dict) -> None:
                 f"Selected {report['selected_count']}; success {report['success_count']}; "
                 f"failed {report['failed_count']}; not requested {report['not_requested_count']}; "
                 f"verified skips {report['skipped_verified_count']}; "
-                f"requests {report['requests']}.\n"
+                f"requests {report['requests']}; stop {report['stop_reason'] or 'complete'}; "
+                f"consecutive failures {report['consecutive_failures']}.\n"
             )
 
 

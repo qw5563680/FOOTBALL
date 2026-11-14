@@ -33,7 +33,7 @@ Interfaces: `plan_kickoffs(archive: Path) -> dict`；`collect_kickoffs(database,
 - [x] 测试先写：只选新路由1083+泛称179的同ID缺时刻集；有可核验时刻不请求；主客ID/日期/HTTP/SHA错误不成功；重复0请求；未有先导成功记录不能全量。
 - [x] 跑红测试，再实现复用 `_head_time`、≥1秒限速、仅self-hosted workflow_dispatch入口；前5最早历史ID先导。
 - [x] 归档 `state/catalogue/<run>/jc-heads/<id>.json(.meta.json)`、`jc-kickoff-plan.json`、`jc-kickoffs.json`，加入manifest导出恢复白名单。失败记录不当成功游标。
-- [x] 用fixtures验证collector、CLI、导出恢复与工作流路由；定向149通过，内部独立复查135通过，全量4103通过；ruff check/format通过。固定输入146复用、1116待取，真实先导尚未执行。
+- [x] 用fixtures验证collector、CLI、导出恢复与工作流路由；第二轮定向156通过，内部独立复查156通过，全量4110通过；ruff check/format通过。固定输入146复用、1116待取，真实先导尚未执行。全量三连败停止、manifest摘要与历史状态清除、首份固定DB缓存已按第二轮复审补测。
 
 ### Task 2: 严格绑定提案与正式目标范围
 

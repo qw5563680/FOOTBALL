@@ -874,6 +874,10 @@ def main():
             options["archive"] = archive
         result = collector(target, args.run_id, **options)
         summary_collection = result.get("collection", "apif")
+        if args.probe_kind == "jc-kickoffs":
+            from zucai.jc_catalogue_kickoffs import collection_summary
+
+            result = collection_summary(result, target.parent)
         collection = {summary_collection: result}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "backfill":
@@ -934,7 +938,19 @@ def main():
             collection[owner]["source_results_audit"] = audit
         for result in collection.values():
             result.update(run_id=args.run_id, observed_utc=datetime.now(UTC).isoformat())
-        published_collection = {**meta.get("collection", {}), **collection}
+        previous = {
+            name: result
+            for name, result in meta.get("collection", {}).items()
+            if name != "jc-kickoffs"
+        }
+        published_collection = {**previous, **collection}
+    elif args.command == "probe" and args.probe_kind == "jc-kickoffs":
+        previous = {
+            name: result
+            for name, result in meta.get("collection", {}).items()
+            if name != "jc-kickoffs"
+        }
+        published_collection = {**previous, **collection}
     manifest = export_feeds(target, archive, day, args.run_id, collection=published_collection)
     if args.command == "backfill":
         from zucai.forecast_archive import verify_forecasts
