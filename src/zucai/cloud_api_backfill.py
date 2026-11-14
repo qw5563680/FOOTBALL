@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from zucai.cloud_apis import failure_reason
+from zucai.league_registry import provider_config
 from zucai.sources.api_football import APIF_LEAGUE_IDS, LEAGUES, ApiFootball
 from zucai.sources.apif_command import ALIASES as APIF_ALIASES
 from zucai.sources.apif_command import fetch_apif
@@ -30,6 +31,14 @@ from zucai.sources.football_data import read_json
 from zucai.sources.football_data_org import FootballDataOrg
 
 LOG = logging.getLogger(__name__)
+_DEFAULT_CONFIG_PATHS = {"apif": LEAGUES, "fdorg": COMPETITIONS}
+
+
+def _config(provider):
+    path = COMPETITIONS if provider == "fdorg" else LEAGUES
+    if path != _DEFAULT_CONFIG_PATHS[provider]:
+        return read_json(path)  # Explicit offline path injection retains its existing semantics.
+    return provider_config(provider)
 
 
 def _year(value, default):
@@ -43,7 +52,7 @@ def _year(value, default):
 def api_backfill_scopes(provider, codes=None, first=None, last=None, *, today=None):
     if provider not in CUP_CODES:
         raise ValueError("API 回填来源仅支持 fdorg / apif")
-    config = read_json(COMPETITIONS if provider == "fdorg" else LEAGUES)
+    config = _config(provider)
     allowed_codes = (
         CUP_CODES[provider]
         if provider == "fdorg"
@@ -104,18 +113,37 @@ def _existing_apif_aliases(database, aliases, leagues):
 def collect_api_backfill(
     database: Path, run_id: str, *, provider, codes=None, first=None, last=None
 ):
+    return collect_planned_api_backfill(
+        database,
+        run_id,
+        provider=provider,
+        scopes=api_backfill_scopes(provider, codes, first, last),
+    )
+
+
+def collect_planned_api_backfill(
+    database: Path,
+    run_id: str,
+    *,
+    provider,
+    scopes,
+    source=None,
+    raw_root=None,
+    status_probe=True,
+):
+    """Shared importer; the caller must validate the approved plan before constructing a source."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*", run_id):
         raise ValueError("无效 run ID")
-    scopes = api_backfill_scopes(provider, codes, first, last)
     before = league_counts(database, provider)
-    raw, audit = database.parent / "raw", database.parent / "state/audit"
+    raw = Path(raw_root) if raw_root is not None else database.parent / "raw"
+    audit = database.parent / "state/audit"
     store = RawStore(raw)
-    source = (
+    source = source or (
         FootballDataOrg(store=store)
         if provider == "fdorg"
         else ApiFootball(
             store=store,
-            leagues=read_json(LEAGUES),
+            leagues=_config("apif"),
             quota_path=database.parent / "state/api_football_quota.json",
             reserve=10,
         )
@@ -132,11 +160,7 @@ def collect_api_backfill(
         failed_scopes=[],
         errors=[],
     )
-    names = (
-        CUP_CODES[provider]
-        if provider == "fdorg"
-        else {code: config["league"] for code, config in source.leagues.items()}
-    )
+    names = {code: config["league"] for code, config in _config(provider).items()}
     captures, pending = [], []
 
     def failed(item, exc):
@@ -167,7 +191,7 @@ def collect_api_backfill(
             )
             report["status_requests"] = 0
             try:
-                if source.quota._read()["status_free"] is True:
+                if status_probe and source.quota._read()["status_free"] is True:
                     source.status()
             except Exception as exc:
                 report["status"] = "partial"

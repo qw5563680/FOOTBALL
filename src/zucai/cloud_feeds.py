@@ -72,12 +72,21 @@ CANDIDATE_REVIEW_FILE = (
     rf"{CANDIDATE_REVIEW_DIR}/{CANDIDATE_REVIEW_RUN_ID}/"
     r"(?:plan|identity_inventory|review|operation)\.json"
 )
+CATALOGUE_RUN_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}"
+CATALOGUE_DATE = rf"{MONTH}-(?:0[1-9]|[12][0-9]|3[01])"
+CATALOGUE_FILE = (
+    rf"state/catalogue/(?:(?:latest|backfill-checkpoint)\.json|{CATALOGUE_RUN_ID}/(?:"
+    r"(?:apif(?:-raw|-meta)?|fdorg(?:-raw|-meta)?|fd|jc|summary|backfill)\.json|"
+    rf"jc/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?|"
+    rf"backfill/(?:api-football|football-data-org|football-data-co-uk)/{CATALOGUE_DATE}/"
+    r"[A-Za-z0-9_][A-Za-z0-9_.-]*_[0-9]{12}Z_[0-9a-f]{32}\.(?:json|csv|txt)(?:\.meta\.json)?))"
+)
 STATE_FILE = (
     r"state/(?:(?:api_football_quota|nations_league)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif|jc)\.json|publication/(?:forecast|sfc)_history\.json)"
-    rf"|{CANDIDATE_REVIEW_FILE}"
+    rf"|{CANDIDATE_REVIEW_FILE}|{CATALOGUE_FILE}"
 )
 VIEW = """
 WITH triples AS (
@@ -132,6 +141,28 @@ def _candidate_review_files(root: Path) -> list[Path]:
             if not path.is_file():
                 raise ValueError("竞彩候选核验审计文件无效")
             files.append(path)
+    return files
+
+
+def _catalogue_files(root: Path) -> list[Path]:
+    """Reject symlinks and list all owned state, including unexported runtime aliases."""
+    folder = root
+    for part in ("state", "catalogue"):
+        folder /= part
+        if folder.is_symlink():
+            raise ValueError("赛事目录不允许符号链接")
+        if not folder.exists():
+            return []
+        if not folder.is_dir():
+            raise ValueError("赛事目录路径无效")
+    files = []
+    for path in sorted(folder.rglob("*")):
+        if path.is_symlink():
+            raise ValueError("赛事目录不允许符号链接")
+        if path.is_file():
+            files.append(path)
+        elif re.fullmatch(CATALOGUE_FILE, path.relative_to(root).as_posix()):
+            raise ValueError("赛事目录证据文件无效")
     return files
 
 
@@ -227,6 +258,8 @@ def export_feeds(
         raise ValueError("采集数据库缺失")
     _candidate_review_files(source.parent)
     _candidate_review_files(archive)
+    _catalogue_files(source.parent)
+    _catalogue_files(archive)
     pending = pending_results(source)
     archive.mkdir(parents=True, exist_ok=True)
     previous = set(archive_info(archive)["files"]) if (archive / MANIFEST).is_file() else set()
@@ -360,6 +393,7 @@ def archive_info(archive: Path) -> dict:
     if meta["version"] not in (1, 2):
         raise ValueError("不支持的云端归档版本")
     _candidate_review_files(archive)
+    _catalogue_files(archive)
     for key, want in meta["files"].items():
         if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
             rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
@@ -387,6 +421,7 @@ def archive_info(archive: Path) -> dict:
 def restore_feeds(archive: Path, dest: Path) -> dict:
     meta = archive_info(archive)
     previous_reviews = _candidate_review_files(dest.parent)
+    previous_catalogues = _catalogue_files(dest.parent)
     dest.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=dest.parent) as temporary:
         dbfile = Path(temporary) / "feeds.db"
@@ -459,7 +494,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                     raise ValueError("竞彩审计分片路径超出恢复目录")
                 if path.relative_to(dest.parent).as_posix() not in meta["files"]:
                     path.unlink()
-        for path in previous_reviews:
+        for path in (*previous_reviews, *previous_catalogues):
             if path.relative_to(dest.parent).as_posix() not in meta["files"]:
                 path.unlink()
         for name in ("unmatched_teams.csv", "rejected_results.csv"):
@@ -591,12 +626,22 @@ def main():
     parser.add_argument("--seasons", help="probe 的年份；identity 默认 2025,2026")
     parser.add_argument(
         "--probe-kind",
-        choices=("seasons", "leagues", "stats"),
+        choices=("seasons", "leagues", "stats", "catalogue", "jc-catalogue"),
         help="仅 probe：赛季权限、桥接元数据或技术数据",
     )
     parser.add_argument("--per-scope", type=int, help="仅 stats probe：每联赛季最多抽样场数")
     parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
     parser.add_argument("--to", dest="last", help="仅 backfill：终止年或赛季，如 2026 / 2627")
+    parser.add_argument(
+        "--catalogue", action="store_true", help="仅 backfill：按已核验目录赛季回填"
+    )
+    parser.add_argument("--max-requests", type=int, help="仅 catalogue backfill：本批请求上限")
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="仅 catalogue backfill：继续已归档游标（默认开启）",
+    )
     relink = parser.add_mutually_exclusive_group()
     relink.add_argument(
         "--relink-fdorg",
@@ -609,6 +654,14 @@ def main():
         help="仅 Actions 手动 backfill：只补独立 API 与后到竞彩的链接，不采集",
     )
     args = parser.parse_args()
+    if args.catalogue and (args.command != "backfill" or args.relink_jc or args.relink_fdorg):
+        parser.error("--catalogue 仅供非 relink 的 backfill 使用")
+    if (args.max_requests is not None or args.resume is not None) and not (
+        args.command == "backfill" and args.catalogue
+    ):
+        parser.error("--max-requests / --resume / --no-resume 仅供 --catalogue backfill 使用")
+    if args.max_requests is not None and not 1 <= args.max_requests <= 7000:
+        parser.error("--max-requests 必须在 1–7000 之间")
     if args.relink_fdorg or args.relink_jc:
         if args.command != "backfill" or any(
             v is not None
@@ -646,7 +699,25 @@ def main():
         from zucai.cloud_probe import require_probe_actions
 
         require_probe_actions()
-    if args.command in {"probe", "identity"}:
+    if args.command == "probe" and args.probe_kind in {"catalogue", "jc-catalogue"}:
+        if any(value is not None for value in (args.leagues, args.seasons, args.per_scope)):
+            parser.error("目录 probe 不接受 --leagues / --seasons / --per-scope")
+        if args.probe_kind == "jc-catalogue":
+            if args.source is not None:
+                parser.error("JC 目录 probe 不接受 --source")
+            from zucai.cloud_jc_catalogue import require_jc_catalogue_actions
+
+            require_jc_catalogue_actions()
+        else:
+            if args.source not in (None, "apif"):
+                parser.error("API 目录 probe 的 --source 仅支持 apif")
+            if (
+                os.environ.get("GITHUB_ACTIONS") != "true"
+                or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+                or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"
+            ):
+                raise ValueError("API catalogue 仅允许 github-hosted Actions workflow_dispatch")
+    elif args.command in {"probe", "identity"}:
         from zucai.cloud_probe import probe_scopes, require_probe_actions
 
         if args.source not in (None, "apif"):
@@ -676,6 +747,7 @@ def main():
     archive = args.archive.resolve()
     day = args.through or datetime.now(BEIJING).date()
     collection = None
+    summary_collection = "apif"
     if args.command in {"sync", "apis", "verify", "backfill", "probe", "identity", "reconcile"}:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
@@ -722,6 +794,12 @@ def main():
         if args.command == "identity":
             from zucai.cloud_identity import collect_identity as collector
             from zucai.cloud_identity import write_identity_summary as identity_summary
+        elif args.probe_kind == "catalogue":
+            from zucai.cloud_catalogue import collect_catalogue as collector
+            from zucai.cloud_catalogue import write_summary as identity_summary
+        elif args.probe_kind == "jc-catalogue":
+            from zucai.cloud_jc_catalogue import collect_jc_catalogue as collector
+            from zucai.cloud_jc_catalogue import write_summary as identity_summary
         elif args.probe_kind == "stats":
             from zucai.cloud_stats_probe import collect_stats_probe as collector
             from zucai.cloud_stats_probe import write_stats_probe_summary as identity_summary
@@ -731,12 +809,15 @@ def main():
         else:
             from zucai.cloud_probe import collect_probe as collector
             from zucai.cloud_probe import write_probe_summary as identity_summary
-        options = dict(codes=args.leagues)
+        catalogue_probe = args.probe_kind in {"catalogue", "jc-catalogue"}
+        options = {} if catalogue_probe else dict(codes=args.leagues)
         if args.probe_kind == "stats":
             options["per_scope"] = args.per_scope
-        if args.probe_kind != "leagues":
+        if not catalogue_probe and args.probe_kind != "leagues":
             options["seasons"] = args.seasons
-        collection = {"apif": collector(target, args.run_id, **options)}
+        result = collector(target, args.run_id, **options)
+        summary_collection = result.get("collection", "apif")
+        collection = {summary_collection: result}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "backfill":
         provider = "jc" if args.relink_jc else args.source or "fd"
@@ -749,6 +830,17 @@ def main():
             from zucai.sources.fd_counterpart import relink_fdorg
 
             result = relink_fdorg(target)
+        elif args.catalogue:
+            from zucai.cloud_catalogue_backfill import collect_catalogue_backfill
+
+            result = collect_catalogue_backfill(
+                target,
+                args.run_id,
+                provider=provider,
+                **options,
+                max_requests=args.max_requests if args.max_requests is not None else 500,
+                resume=args.resume if args.resume is not None else True,
+            )
         elif provider == "fd":
             from zucai.cloud_backfill import collect_backfill
 
@@ -782,6 +874,8 @@ def main():
             from zucai.sources.jc_counterpart import write_summary
         elif args.relink_fdorg:
             from zucai.sources.fd_counterpart import write_summary
+        elif args.catalogue:
+            from zucai.cloud_catalogue_backfill import write_summary
         elif provider == "fd":
             from zucai.cloud_backfill import write_summary
         else:
@@ -798,7 +892,7 @@ def main():
         with TemporaryDirectory(prefix="apif-probe-verify-") as temporary:
             restore_feeds(archive, Path(temporary) / "data/zucai.db")
         verify_forecasts(archive)
-        identity_summary(collection["apif"])
+        identity_summary(collection[summary_collection])
         if args.command == "reconcile":
             from zucai.sources.jc_identity import write_summary as jc_identity_summary
 

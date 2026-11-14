@@ -8,11 +8,13 @@ from collections import defaultdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from zucai.league_registry import provider_config
 from zucai.sources.fd_ingest import _canonical
 from zucai.sources.fdorg_verify import _active
 from zucai.sources.football_data import CONFIG_ROOT, read_json
 
 LEAGUES = CONFIG_ROOT / "api_football/leagues.json"
+_DEFAULT_LEAGUES = LEAGUES
 ALIASES = CONFIG_ROOT / "team_aliases/api_football.json"
 FDORG_ALIASES = CONFIG_ROOT / "team_aliases/football_data_org.json"
 
@@ -131,7 +133,7 @@ def observed_games(data, aliases):
 
 
 def selected_leagues(codes):
-    config = read_json(LEAGUES)
+    config = provider_config("apif") if LEAGUES == _DEFAULT_LEAGUES else read_json(LEAGUES)
     ids = codes.split(",")
     if not ids or len(ids) != len(set(ids)) or any(code not in config for code in ids):
         raise ValueError("leagues 须为不重复的已配置 APIF 联赛 ID")

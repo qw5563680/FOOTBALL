@@ -9,6 +9,7 @@ from pathlib import Path
 
 import requests
 
+from zucai.league_registry import daily_codes, provider_config
 from zucai.nations import collect_editions
 from zucai.sources.api_common import CredentialError, LocalValidationError
 from zucai.sources.api_football import ApiFootball, ApifResponseError
@@ -17,13 +18,14 @@ from zucai.sources.apif_quota import DailyQuota
 from zucai.sources.base import RawStore, _atomic_write
 from zucai.sources.cup_identity import CUP_LEAGUES, league_counts
 from zucai.sources.fd_ingest import fetch_fd
-from zucai.sources.fdorg_command import COMPETITIONS, _requests, fetch_fdorg
+from zucai.sources.fdorg_command import _requests, fetch_fdorg
 from zucai.sources.football_data import LEAGUES_PATH, read_json, verified_league
 from zucai.sources.football_data_org import FdorgHttpError, FootballDataOrg
 from zucai.stats_release import ReleaseHttpError
 
 LOG = logging.getLogger(__name__)
-COMPETITION_CODES = "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA,CL"
+COMPETITION_CODES = ",".join(daily_codes("fdorg"))
+_DEFAULT_FD_LEAGUES = LEAGUES_PATH
 
 
 def fd_due(now, slot):
@@ -125,7 +127,13 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
     # Higher-priority FD is imported first; a bad league does not stop other scopes.
     if fd_due(now, slot):
         try:
-            scopes = list(fd_scopes(today, read_json(LEAGUES_PATH)))
+            if LEAGUES_PATH == _DEFAULT_FD_LEAGUES:
+                config = provider_config("fd")
+                allowed = daily_codes("fd")
+                config = {code: entry for code, entry in config.items() if code in allowed}
+            else:
+                config = read_json(LEAGUES_PATH)
+            scopes = list(fd_scopes(today, config))
         except Exception as exc:
             scopes = []
             _failed(reports["fd"], "configuration", exc)
@@ -146,7 +154,7 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
     try:
         source = FootballDataOrg(store=RawStore(raw))
         scopes = _requests(
-            COMPETITION_CODES, None, days, None, False, today, read_json(COMPETITIONS)
+            COMPETITION_CODES, None, days, None, False, today, provider_config("fdorg")
         )
         for scope in scopes:
             try:

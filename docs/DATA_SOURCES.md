@@ -1,5 +1,34 @@
 # 数据源说明
 
+## T61 总目录（2026-11-14实现前核查）
+
+北京时间 2026-11-14 08:02（UTC 00:02），匿名读取API根目录的 robots：
+`https://v3.football.api-sports.io/robots.txt` HTTP403，
+`https://api.football-data.org/robots.txt` HTTP404。
+前者无法取得规则，后者没有该文件；均不解释为任意网页抓取许可，没有为robots附加密钥。
+公开网站的robots在当前网络/浏览连接中不可读，不能据此声称已经核验其网页抓取权限。
+原件及HTTP/SHA记录在T61独立验收数据分支 `public-policies/manifest.json`，无凭据。
+
+实际通过联网浏览读取 [API-Football条款](https://www.api-football.com/terms) 与
+[football-data.org注册页所载条款](https://www.football-data.org/client/register)。
+前者要求遵守账号和速率限制、不转售原始数据；字段覆盖说明不保证每场/每季实际可得。
+后者要求保护单应用凭据、合理使用与来源署名；原有署名保留。
+本单只实现已订阅API的文档端点，不绕过访问限制、不抓网页体育数据、不新购服务。
+开发测试没有使用正式key，也未调用真实 `/leagues`、`/competitions`、fixtures或竞彩赛果；真实结果由审查者Actions生成。
+
+目录probe每次各请求一次 APIF `/leagues` 与 FDORG `/v4/competitions`，不追加status请求；
+沿用API节流及配额。原件安全检查在归档前进行，响应若回显任一凭据则不保存。
+APIF seasons中的技术coverage对象不等于赛程/赛果布尔字段；缺失保留null。
+FDORG `numberOfAvailableSeasons` 仅是数量，当前season之外的年份不倒推。
+API列出的年份均先标 `access=unverified`；历史导入成功/拒绝记录才能证明该次实际权限。
+FD只列已核实DIV；D2保留未核准。FD静态清单默认没有完整历史年份，不编造季列表，
+须在 `catalogue_seasons` 配置PR中附明确年份证据。旧FD历史回填保持原行为。
+
+竞彩目录复用既有官方逐日赛果分页和请求间隔/robots结论，只取leagueId、名称、场数，不导入比分，
+不调用额外头信息接口；跨12完整月逐日枚举是现有接口的必要粒度。页面fetch计数不冒充底层HTTP重试次数。
+90行来源别名精确对照，日职等重名保留歧义，不自动取舍。A/B/C未核准映射不得回填或每日导入；
+各接口无目录/无年份/未实测分别列明，不写成“接口无”。固定归档的真实覆盖表见T61验收说明。
+
 所有接口和页面结构都可能变化。标「需验证」的条目在实现时先抓一次真实响应确认，并把裁剪后的样本放进 `data/fixtures/`。
 
 ## 1. 中国竞彩网 sporttery.cn（竞彩官方）

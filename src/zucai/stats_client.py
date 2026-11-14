@@ -4,11 +4,35 @@ import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
-from zucai.sources.api_football import API, APIF_INDEX_LEAGUE_IDS, APIF_LEAGUE_IDS, ApiFootball
+from zucai.sources.api_football import API, ApiFootball
 from zucai.sources.apif_quota import QuotaExceeded
 from zucai.sources.apif_stats import instant
 
-ALLOWED_LEAGUES = APIF_INDEX_LEAGUE_IDS | APIF_LEAGUE_IDS
+# T61 approves fixtures/results independently. Technical statistics retain their
+# previously reviewed 19-league permission boundary; a registry PR cannot expand it.
+ALLOWED_LEAGUES = frozenset(
+    {
+        2,
+        3,
+        848,
+        98,
+        292,
+        188,
+        113,
+        103,
+        244,
+        119,
+        253,
+        169,
+        39,
+        140,
+        135,
+        78,
+        61,
+        88,
+        94,
+    }
+)
 INJURY_LEAGUES = {39, 140, 135, 78, 61, 88, 119, 113, 103, 253, 188}
 DETAILS = ("statistics", "events", "lineups", "players")
 

@@ -16,6 +16,7 @@ from urllib.robotparser import RobotFileParser
 import requests
 from requests.adapters import HTTPAdapter
 
+from zucai.league_registry import provider_config
 from zucai.sources.base import RateLimiter, RawStore, make_session
 from zucai.sources.fd_ingest import COUNT_KEYS, fetch_fd
 from zucai.sources.football_data import (
@@ -23,7 +24,6 @@ from zucai.sources.football_data import (
     ROOT_URL,
     FootballDataCoUk,
     csv_url,
-    read_json,
     verified_league,
 )
 
@@ -164,18 +164,28 @@ def _request_audit(path, run_id, records):
         writer.writerows({"run_id": run_id, **row} for row in records)
 
 
-def collect_backfill(database: Path, run_id: str, *, codes=None, first=None, last=None):
+def collect_backfill(
+    database: Path,
+    run_id: str,
+    *,
+    codes=None,
+    first=None,
+    last=None,
+    _scopes=None,
+    _source=None,
+    _raw_root=None,
+):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*", run_id):
         raise ValueError("无效 run ID")
-    config = read_json(LEAGUES_PATH)
-    scopes = backfill_scopes(config, codes, first, last)
+    config = provider_config("fd")
+    scopes = backfill_scopes(config, codes, first, last) if _scopes is None else _scopes
     before = _result_counts(database)
     audit = database.parent / "state/audit"
-    raw = database.parent / "raw"
-    session = make_session()
+    raw = Path(_raw_root) if _raw_root is not None else database.parent / "raw"
+    session = make_session() if _source is None else _source.session
     observer = _ObservedAdapter()
     session.mount("https://", observer)
-    source = FootballDataCoUk(store=RawStore(raw), session=session, leagues=config)
+    source = _source or FootballDataCoUk(store=RawStore(raw), session=session, leagues=config)
     report = dict.fromkeys(COUNT_KEYS, 0)
     report.update(
         status="complete",

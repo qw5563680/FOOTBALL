@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 from zucai.db import get_engine, init_db, session_scope
+from zucai.league_registry import provider_config
 from zucai.sources.base import RawStore, _atomic_write
 from zucai.sources.cup_identity import (
     capture_cup_history,
@@ -24,6 +25,7 @@ from zucai.sources.football_data_org import FootballDataOrg
 
 LOG = logging.getLogger(__name__)
 COMPETITIONS = CONFIG_ROOT / "football_data_org/competitions.json"
+_DEFAULT_COMPETITIONS = COMPETITIONS
 ALIASES = CONFIG_ROOT / "team_aliases/football_data_org.json"
 
 
@@ -168,7 +170,12 @@ def fetch_fdorg(
     audit_dir="data",
 ):
     """Commit each response separately and return its row-level audit."""
-    competitions, aliases = read_json(COMPETITIONS), read_json(aliases_path or ALIASES)
+    competitions = (
+        provider_config("fdorg")
+        if COMPETITIONS == _DEFAULT_COMPETITIONS
+        else read_json(COMPETITIONS)
+    )
+    aliases = read_json(aliases_path or ALIASES)
     path = Path(raw_file) if raw_file is not None else None
     replay_meta = read_json(path.with_suffix(path.suffix + ".meta.json")) if path else None
     today = (

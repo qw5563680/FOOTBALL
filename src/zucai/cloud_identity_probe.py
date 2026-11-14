@@ -1,4 +1,4 @@
-"""Actions-only metadata confirmation for the seven candidate identity leagues."""
+"""Actions-only metadata confirmation for reviewed identity-only league routes."""
 
 import csv
 import json
@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from zucai.cloud_apis import failure_reason
 from zucai.cloud_probe import append_csv, require_probe_actions
+from zucai.league_registry import provider_config, provider_ids
 from zucai.sources.api_football import (
     API,
     APIF_IDENTITY_LEAGUE_IDS,
@@ -17,6 +18,7 @@ from zucai.sources.api_football import (
 from zucai.sources.base import RawStore
 from zucai.sources.football_data import read_json
 
+_DEFAULT_LEAGUES = LEAGUES
 FIELDS = (
     "run_id",
     "observed_utc",
@@ -32,18 +34,22 @@ FIELDS = (
 
 
 def identity_codes(codes=None):
-    configured = read_json(LEAGUES)
-    selected = sorted(map(str, APIF_IDENTITY_LEAGUE_IDS)) if codes is None else codes.split(",")
+    if LEAGUES == _DEFAULT_LEAGUES:
+        configured = provider_config("apif")
+        allowed = {str(code) for code in provider_ids("apif", "identity_only")}
+    else:
+        configured = read_json(LEAGUES)
+        allowed = {str(code) for code in APIF_IDENTITY_LEAGUE_IDS}
+    selected = sorted(allowed) if codes is None else codes.split(",")
     if (
         not selected
         or len(selected) != len(set(selected))
         or any(
-            code not in {str(k) for k in APIF_IDENTITY_LEAGUE_IDS}
-            or configured.get(code, {}).get("identity_only") is not True
+            code not in allowed or configured.get(code, {}).get("identity_only") is not True
             for code in selected
         )
     ):
-        raise ValueError("identity 仅支持七个 identity-only 桥接联赛，不得重复")
+        raise ValueError("identity 仅支持已核准 identity-only 桥接联赛，不得重复")
     return {code: configured[code] for code in selected}
 
 

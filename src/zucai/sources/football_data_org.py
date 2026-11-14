@@ -14,9 +14,10 @@ from urllib.parse import urlencode
 import requests
 from requests.adapters import HTTPAdapter
 
+from zucai.league_registry import provider_config
 from zucai.sources.api_common import ApiGame, CredentialError
 from zucai.sources.base import RateLimiter, RawStore, Source, make_session
-from zucai.sources.football_data import CONFIG_ROOT, read_json
+from zucai.sources.football_data import CONFIG_ROOT
 
 COMPETITIONS_PATH = CONFIG_ROOT / "football_data_org/competitions.json"
 API = "https://api.football-data.org/v4"
@@ -140,7 +141,7 @@ def _filter_items(value):
     return {str(v).strip() for v in items if str(v).strip()}
 
 
-def _document(raw, scope):
+def _document(raw, scope, league_codes=None):
     """Whole-file scope contradictions abort the batch; malformed records go to the row audit."""
     try:
         doc = json.loads(raw)
@@ -172,7 +173,8 @@ def _document(raw, scope):
                 raise ValueError("响应 filters 与请求不符")
         if filters.get("competitions") is not None:
             supplied = _filter_items(filters["competitions"])
-            if {LEAGUE_CODES.get(item, item) for item in supplied} != set(scope.codes):
+            lookup = LEAGUE_CODES if league_codes is None else league_codes
+            if {lookup.get(item, item) for item in supplied} != set(scope.codes):
                 raise ValueError("响应 filters.competitions 与请求不符")
         if filters.get("status") is not None:
             expected = {scope.status} if scope.status else set()
@@ -297,7 +299,14 @@ class FootballDataOrg(Source[ApiGame]):
         if session is None:
             # Each actual GET must count, including the one permitted retry after 429.
             self.session.mount("https://", HTTPAdapter(max_retries=0))
-        self.competitions = read_json(COMPETITIONS_PATH) if competitions is None else competitions
+        self.competitions = provider_config("fdorg") if competitions is None else competitions
+        self.league_codes = dict(LEAGUE_CODES)
+        for code, config in self.competitions.items():
+            if type(config.get("api_id")) is int and config["api_id"] > 0:
+                provider_id = str(config["api_id"])
+                if provider_id in self.league_codes and self.league_codes[provider_id] != code:
+                    raise ValueError("赛事数字 ID 对应多个配置代码")
+                self.league_codes[provider_id] = code
         self.request_count = 0
         self.remaining_quota: int | None = None
         self.rate_events: list[dict] = []
@@ -305,7 +314,7 @@ class FootballDataOrg(Source[ApiGame]):
         self._sleep = sleep
 
     def _league(self, code):
-        if isinstance(code, str) and code in LEAGUE_CODES.values():
+        if isinstance(code, str) and re.fullmatch(r"[A-Z][A-Z0-9]*", code):
             entry = self.competitions.get(code)
             if (
                 isinstance(entry, dict)
@@ -411,7 +420,7 @@ class FootballDataOrg(Source[ApiGame]):
         return games
 
     def _parse(self, raw, scope):
-        rows, top, season_filter = _document(raw, scope)
+        rows, top, season_filter = _document(raw, scope, self.league_codes)
         digest = hashlib.sha256(raw).hexdigest()
         ids = Counter(_id(row.get("id")) for row in rows if isinstance(row, dict))
         games, rejected = [], []

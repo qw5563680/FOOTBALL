@@ -13,9 +13,10 @@ from urllib.parse import urlencode
 
 from zucai.cloud_apis import failure_reason
 from zucai.cloud_probe import probe_scopes, require_probe_actions
-from zucai.sources.api_football import API, APIF_IDENTITY_LEAGUE_IDS, APIF_LEAGUE_IDS, ApiFootball
+from zucai.sources.api_football import API, ApiFootball
 from zucai.sources.apif_quota import QuotaExceeded
 from zucai.sources.base import RawStore
+from zucai.stats_client import ALLOWED_LEAGUES
 from zucai.stats_probe import (
     DETAIL_ENDPOINTS,
     FIELDS,
@@ -24,7 +25,7 @@ from zucai.stats_probe import (
     sample_fixtures,
 )
 
-ALLOWED = APIF_IDENTITY_LEAGUE_IDS | APIF_LEAGUE_IDS | {2}
+ALLOWED = ALLOWED_LEAGUES
 DEFAULT_SEASONS = "2022,2024,2026"
 DEFAULT_PER_SCOPE = 1
 MAX_REQUESTS = 500

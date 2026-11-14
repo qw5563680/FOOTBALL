@@ -13,17 +13,18 @@ from urllib.parse import urlencode
 import requests
 from requests.adapters import HTTPAdapter
 
+from zucai.league_registry import provider_config, provider_ids
 from zucai.sources.api_common import ApiGame, LocalValidationError
 from zucai.sources.apif_quota import DailyQuota
 from zucai.sources.base import RateLimiter, RawStore, Source, _atomic_write
-from zucai.sources.football_data import CONFIG_ROOT, read_json
+from zucai.sources.football_data import CONFIG_ROOT
 from zucai.sources.football_data_org import _goals, _id, _team, safe_json_for_archive
 
 API = "https://v3.football.api-sports.io"
 LEAGUES = CONFIG_ROOT / "api_football/leagues.json"
-APIF_LEAGUE_IDS = frozenset({3, 848, 98, 292, 188, 113, 103, 244, 119, 253, 169})
-APIF_IDENTITY_LEAGUE_IDS = frozenset({39, 140, 135, 78, 61, 88, 94})
-APIF_INDEX_LEAGUE_IDS = APIF_IDENTITY_LEAGUE_IDS | {2}
+APIF_LEAGUE_IDS = provider_ids("apif")
+APIF_IDENTITY_LEAGUE_IDS = provider_ids("apif", "identity_only")
+APIF_INDEX_LEAGUE_IDS = APIF_IDENTITY_LEAGUE_IDS | provider_ids("apif", "index_only")
 STATES = {
     "FT",
     "AET",
@@ -87,7 +88,7 @@ class ApiFootball(Source[ApiGame]):
         if session is None:
             self.session.mount("https://", HTTPAdapter(max_retries=0))
             self.session.headers["User-Agent"] = "ZucaiResearch/0.1"
-        configured = read_json(LEAGUES) if leagues is None else leagues
+        configured = provider_config("apif") if leagues is None else leagues
         self.leagues = {
             code: config
             for code, config in configured.items()

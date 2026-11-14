@@ -4,11 +4,14 @@ import csv
 import io
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 
+from zucai.league_registry import provider_config
 from zucai.sources.base import _atomic_write
 from zucai.sources.cup_identity import alignment_counts
 from zucai.sources.fd_ingest import WINDOW
 from zucai.sources.fd_verify import _read_official, _utc
+from zucai.sources.football_data import CONFIG_ROOT, read_json
 
 FIELDS = (
     "provider_match_id",
@@ -64,7 +67,27 @@ def record_scope(path, code, league, season, *, raw_sha256="", complete=False, s
     _atomic_write(path, buffer.getvalue().encode("utf-8"))
 
 
-def record_matches(path, captures):
+def record_matches(path, captures, *, leagues_path=None):
+    from zucai.sources.api_football import LEAGUES
+
+    configured_path = Path(leagues_path if leagues_path is not None else LEAGUES)
+    config = (
+        provider_config("apif")
+        if configured_path.resolve() == (CONFIG_ROOT / "api_football/leagues.json").resolve()
+        else read_json(configured_path)
+    )
+    captures = tuple(captures)
+    # Validate every route before writing either audit; a new reviewed mapping
+    # must not depend on duplicating its ID into the obsolete legacy config file.
+    for capture in captures:
+        code = str(capture["scope"]["league_id"])
+        if code not in config:
+            raise ValueError(f"{code} 身份审计赛事尚未核准")
+        if any(
+            str(game.competition_code) != code or game.league != config[code]["league"]
+            for game in capture["games"]
+        ):
+            raise ValueError("身份审计比赛与核准赛事范围不符")
     records = {}
     if path.exists():
         with path.open(encoding="utf-8", newline="") as stream:
@@ -101,10 +124,6 @@ def record_matches(path, captures):
         if not path.exists() or path.read_bytes() != encoded:
             path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(path, encoded)
-    from zucai.sources.api_football import LEAGUES
-    from zucai.sources.football_data import read_json
-
-    config = read_json(LEAGUES)
     for capture in captures:
         code = str(capture["scope"]["league_id"])
         record_scope(

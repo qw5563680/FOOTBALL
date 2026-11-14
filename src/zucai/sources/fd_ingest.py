@@ -14,6 +14,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import IntegrityError
 
 from zucai.db import get_engine, init_db, session_scope
+from zucai.league_registry import provider_config
 from zucai.models import ClosingOdds, Match, Result, Team
 from zucai.sources.base import RawStore
 from zucai.sources.fd_audit import append_unique
@@ -374,7 +375,12 @@ def fetch_fd(
         raise ValueError("country须给出有效--from-season和--to-season")
     if raw_file and div and len(seasons) != 1:
         raise ValueError("单一原件回放只接受一个season")
-    leagues, aliases = read_json(leagues_path), read_json(aliases_path)
+    leagues = (
+        provider_config("fd")
+        if Path(leagues_path).resolve() == LEAGUES_PATH.resolve()
+        else read_json(leagues_path)
+    )
+    aliases = read_json(aliases_path)
     code = div or country
     verified_league(leagues, code)
     source = FootballDataCoUk(store=RawStore(raw_root), leagues=leagues, div_code=code)

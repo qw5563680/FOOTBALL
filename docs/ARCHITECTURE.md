@@ -1,5 +1,32 @@
 # 架构说明
 
+## T61 目录、核准映射与历史下载
+
+`league_registry.py` 读取 `data/league_map.json`：90个总表行与原始中文名称无损保存；
+provider route 分别记录核准状态、A/B/C组、import/identity_only/index_only/nations模式、daily/backfill开关。
+默认适配器和命令改读该配置；显式离线配置注入仍保留。原有 APIF 11导入＋7身份＋1索引及特殊欧国联5、
+FDORG 10赛事、FD 15核实DIV行为不扩张；FD D2继续拒绝。特殊欧国联日程沿原逻辑，目录普通回填不混入。
+新增核准路线不用再修改硬编码集合；FDORG新数字ID可由 `config.api_id` 提供，冲突拒绝。
+比赛赛程/赛果授权与技术统计授权分开：`stats_client.ALLOWED_LEAGUES` 保留旧19项技术范围，
+新增映射不自动开放射门、阵容、伤停等接口，也不扩大技术回填计划。
+
+`cloud_catalogue` 只读获取两个API总目录并写原件、元数据、规范化解析和独立服务状态；
+`cloud_jc_catalogue` 只读枚举过去12完整北京时间月的逐日分页，保留来源赛事ID、名称、场数及精确交叉表。
+API目录只能hosted Actions，JC只能self-hosted `football-local` Actions；均为手动probe。
+`latest.json` 按提供商指向最近成功解析的目录，部分失败不会清除其他提供商先前成功证据。
+目录可见不代表账号权限；无时段/年份证据不造值。
+
+`cloud_catalogue_backfill` 在联网前校验映射、目录SHA、显式赛季范围；再复用既有导入器，
+保留来源优先、球队身份、拒绝与待核记录。失败和分页均计入运行上限，APIF仍过耐久每日预算并保留500请求。
+成功导入范围才进入 `state/catalogue/backfill-checkpoint.json`；恢复时原件SHA须仍有效才跳过。
+游标是已成功处理过的快照，不意味着进行中赛季已经结束；全季刷新用 `--no-resume`，每日增量独立执行。
+
+新增证据布局：`state/catalogue/<run>/{apif,fdorg,fd,jc,summary,backfill}.json`；
+API探测原件 `*-raw.json` / `*-meta.json`，JC原件 `jc/<月>/<日>-pN.json` 及sidecar，
+回填原件 `backfill/<来源>/<日>/<原件>` 及sidecar。各批次不得覆盖；路径白名单和SHA加入feeds manifest。
+任何层级符号链接拒绝；恢复旧快照时删除工作副本中较晚的目录证据和游标，避免未来游标残留。
+SQLite schema、模型参数、概率、冻结预测及账本格式不变。
+
 ## 总体流程
 
 ```
