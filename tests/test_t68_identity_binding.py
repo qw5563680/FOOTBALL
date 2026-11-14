@@ -1102,8 +1102,9 @@ def test_review_stats_index_respects_formal_time_scope(tmp_path, year, expected)
     engine.dispose()
 
 
-@pytest.mark.parametrize("case", ["bridge", "database", "infer", "target_anchor"])
-def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
+@pytest.mark.parametrize("case", ["bridge", "infer", "target_anchor"])
+def test_review_cup_cannot_remove_scope_without_independent_legacy_proof(tmp_path, case):
+    from dataclasses import replace
     from datetime import datetime
 
     from zucai.db import get_engine, init_db, session_scope
@@ -1113,7 +1114,7 @@ def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
 
     fixture = json.loads((FIXTURE.parents[2] / "t20/identity.json").read_text())
     aliases = deepcopy(fixture["domestic_aliases"])
-    # Only one typed ID; an old inference pass must not use it to infer its opponent either.
+    # Only one typed ID; it cannot choose among otherwise ambiguous fixtures.
     aliases["合成国内联赛"].pop("9102")
     entry = aliases["合成国内联赛"]["9101"]
     entry["binding_scope"] = dict(
@@ -1134,7 +1135,7 @@ def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
                 Team(
                     id=1,
                     name="合成甲",
-                    aliases=["apif:欧罗巴:team:9101"] if case == "database" else [],
+                    aliases=[],
                 ),
                 Team(id=2, name="合成乙", aliases=[]),
             ]
@@ -1152,7 +1153,7 @@ def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
             )
         )
     engine.dispose()
-    if case in {"bridge", "database"}:
+    if case == "bridge":
         output = _bridge("apif", database, "欧罗巴", {"9101": "Alpha"}, aliases)
         assert not output.get("9101", {}).get("canonical")
         return
@@ -1161,6 +1162,9 @@ def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
         row["kickoff_utc"] = datetime.fromisoformat(row["kickoff_utc"])
         row["full"], row["half"] = tuple(row["full"]), tuple(row["half"])
         games.append(ApiGame(provider="apif", league="欧罗巴", **row))
+    games.append(
+        replace(games[0], provider_match_id=90002, home_provider_id=9103, away_provider_id=9104)
+    )
     capture = dict(
         games=games,
         scope={"league_id": "3", "season": 2024},

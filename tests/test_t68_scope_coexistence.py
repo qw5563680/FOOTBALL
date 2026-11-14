@@ -111,6 +111,16 @@ def test_inactive_legacy_entry_cannot_unlock_scoped_only_cup(tmp_path, legacy_st
         with pytest.raises(ValueError, match="别名状态无效"):
             resolve_cup_aliases("apif", db, aliases, [capture], tmp_path / "audit")
         return
+    # With no independent unique fixture, the scoped entry cannot act as an
+    # anchor to choose one of two otherwise compatible source games.
+    capture["games"].append(
+        replace(
+            capture["games"][0],
+            provider_match_id=90002,
+            home_provider_id=9103,
+            away_provider_id=9104,
+        )
+    )
     result = resolve_cup_aliases("apif", db, aliases, [capture], tmp_path / "audit")
     assert all(result[league][key]["canonical"] is None for key in ("9101", "9102"))
 

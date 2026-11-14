@@ -127,8 +127,13 @@ def _persisted_bindings(database, provider, league):
 
 
 def _bridge(provider, database, league, labels, aliases):
-    entries = deepcopy(aliases.get(league, {}))
-    scoped = _scoped_ids(provider, aliases)
+    # The old bridge sees only old evidence. Keep scoped rows in `aliases` for
+    # conflict validation, but never let them authorize this runtime fallback.
+    entries = {
+        key: deepcopy(entry)
+        for key, entry in aliases.get(league, {}).items()
+        if provider != "apif" or "binding_scope" not in entry
+    }
     known = defaultdict(list)
     legacy = defaultdict(list)
     for source_league, records in aliases.items():
@@ -143,24 +148,19 @@ def _bridge(provider, database, league, labels, aliases):
                     known[key].append((source_league, name))
                     if provider != "apif" or "binding_scope" not in records[key]:
                         legacy[key].append((source_league, name))
-    # Runtime fallback may still use an independent old authorization. Do not
-    # strip a scoped entry to create that authorization or mutate the input file.
-    for key in labels:
-        if key in legacy and provider == "apif" and "binding_scope" in entries.get(key, {}):
-            del entries[key]
     base_sha = hashlib.sha256(json.dumps(aliases, sort_keys=True).encode()).hexdigest()
     for key, record in _persisted_bindings(database, provider, league).items():
         if key not in labels:
             continue
         known[key].append((league, record["canonical"]))
         legacy[key].append((league, record["canonical"]))
-        if key not in scoped and not _canonical({league: entries}, league, key):
+        if not _canonical({league: entries}, league, key):
             entries[key] = {"name": labels[key], **record}
     for names in known.values():
         if len({name for _, name in names}) != 1:
             raise ValueError("跨联赛的同源数字球队 ID 存在规范名冲突")
     for key, names in legacy.items():
-        if key not in scoped and not _canonical({league: entries}, league, key):
+        if not _canonical({league: entries}, league, key):
             entries[key] = dict(
                 name=labels[key],
                 canonical=names[0][1],
@@ -175,26 +175,23 @@ def _bridge(provider, database, league, labels, aliases):
                     )
                 ],
             )
-    _active({league: entries}, league)
+    if provider == "apif":
+        _check_inferred_names(aliases, league, entries)
+    else:
+        _active({league: entries}, league)
     return entries
 
 
-def _scoped_ids(provider, aliases):
-    # Legacy bridges and graphs cannot retain the new category/time authorization.
-    # A scope constrains its own entry, not an independent active legacy entry.
-    scoped = {
-        key
-        for records in aliases.values()
-        for key, entry in records.items()
-        if provider == "apif" and "binding_scope" in entry
-    }
-    legacy = {
-        key
-        for records in aliases.values()
-        for key, entry in records.items()
-        if "binding_scope" not in entry and entry.get("status") in {"approved", "auto_verified"}
-    }
-    return scoped - legacy
+def _check_inferred_names(aliases, league, entries):
+    """Scoped rows still veto conflicting names, without supplying graph anchors."""
+    for source_league, records in aliases.items():
+        for key in entries.keys() & records.keys():
+            old = _canonical(aliases, source_league, key)
+            inferred = _canonical({league: entries}, league, key)
+            if old and inferred and old != inferred:
+                raise ValueError("跨联赛的同源数字球队 ID 存在规范名冲突")
+    # Include scoped target rows absent from the capture in the reverse map.
+    _active({league: {**aliases.get(league, {}), **entries}}, league)
 
 
 def _audit_aliases(path, rows):
@@ -266,12 +263,6 @@ def resolve_cup_aliases(provider, database, aliases, captures, audit_dir):
             or not any(abs(g.kickoff_utc - _utc(j["kickoff_utc"])) <= WINDOW for g in games)
             for j in jc
         )
-        if _scoped_ids(provider, aliases) & labels.keys() or _scoped_ids(
-            provider, {league: entries}
-        ):
-            # Do not remove scoped rows from the competitor graph or let a scoped
-            # anchor infer other IDs. Preserve explicit entries for per-game guards.
-            valid = False
         if valid and provider == "fdorg":
             identity = [
                 _Fixture(
@@ -298,6 +289,13 @@ def resolve_cup_aliases(provider, database, aliases, captures, audit_dir):
                             proof.update(provenance[mid])
         elif valid:
             entries = infer_aliases(games, jc, aliases=entries, provenance=provenance)
+        if provider == "apif":
+            _check_inferred_names(aliases, league, entries)
+            for key, entry in aliases.get(league, {}).items():
+                if "binding_scope" in entry and not _canonical({league: entries}, league, key):
+                    # No independent legacy proof: retain only this entry's own
+                    # authority so downstream per-game scope checks still apply.
+                    entries[key] = deepcopy(entry)
         for key, label in labels.items():
             if not _canonical({league: entries}, league, key):
                 entries[key] = dict(
