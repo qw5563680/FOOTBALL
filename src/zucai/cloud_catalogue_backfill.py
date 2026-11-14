@@ -67,17 +67,18 @@ def _catalogue(root, provider):
 
 
 def _years(row):
-    result = set()
+    result, seen = set(), set()
     if not isinstance(row.get("seasons"), list):
         raise ValueError("目录缺少赛季列表")
     for season in row["seasons"]:
         year = season.get("year")
-        if type(year) is not int or not 1900 <= year <= 9999 or year in result:
+        if type(year) is not int or not 1900 <= year <= 9999 or year in seen:
             raise ValueError("目录赛季无效或重复")
+        seen.add(year)
         # Explicit absence is different from missing coverage metadata.
         if season.get("fixtures") is False and season.get("results") is False:
             continue
-        if season.get("access") == "denied":
+        if season.get("status") == "conflict" or season.get("access") in {"denied", "conflict"}:
             continue
         result.add(year)
     return result
@@ -115,7 +116,7 @@ def catalogue_scopes(root, provider, codes=None, first=None, last=None, *, regis
     if start is not None and end is not None and start > end:
         raise ValueError("赛季起点晚于终点")
     catalogue, pointer = _catalogue(Path(root), provider)
-    scopes, missing = [], []
+    scopes, missing, excluded = [], [], []
     for code in selected:
         row, config = catalogue.get(code), eligible[code]["config"]
         if row is None:
@@ -124,6 +125,11 @@ def catalogue_scopes(root, provider, codes=None, first=None, last=None, *, regis
         if config.get("api_name") and config["api_name"] != row.get("name"):
             raise ValueError(f"{code} 目录名称与已核准映射不符，须人工核对")
         years = _years(row)
+        excluded.extend(
+            dict(code=code, season=season["year"], reason="目录同年记录冲突；禁止回填")
+            for season in row["seasons"]
+            if season.get("status") == "conflict" or season.get("access") == "conflict"
+        )
         # /competitions gives currentSeason only. Add only prior successful probes,
         # never infer years from numberOfAvailableSeasons or earliest_season.
         if provider == "fdorg":
@@ -164,6 +170,7 @@ def catalogue_scopes(root, provider, codes=None, first=None, last=None, *, regis
         provider=provider,
         scopes=scopes,
         missing=missing,
+        excluded=excluded,
         catalogue_sha256=pointer["sha256"],
         catalogue_path=pointer["path"],
         registry_sha256=_sha(_bytes(registry)),
