@@ -42,6 +42,8 @@ manifest v2 的 `technical_data.version=3` 增加伤停分片行数和 SHA256；
 重复原件不重复写入，空值不覆盖有效值，更正保留旧版本，审计随数据分支归档。
 额外 fd 统计关联使用可选的哈希列入清单文件 `state/fd_stats_links.jsonl`，先于技术行恢复；
 旧归档没有该文件仍可恢复，T31/T32/T38 行分片格式不变。
+T66 修复后，先有统计关联、后导入赛果时，原本为空的竞彩 counterpart 可以补为该关联的同一 FD 编号；
+原有 fdorg 关系不替换，原统计证据不重写。后续新统计仍追加真实原件观察并逐行校验，不能因编号相同跳过证据。
 历史技术行 available_utc 留空、标 backfilled；伤停按下节的真实抓取时间区分。FT 与含加时分开，半场统计不可得，不补造数据。
 
 ## T33 技术特征实验（第一轮）
@@ -223,7 +225,7 @@ gate 对其他操作不生效。原来的三条 cron 均保留，不保证准点
 | job | 运行器 | 时间 / 范围 |
 | --- | --- | --- |
 | `schedule-gate` | `ubuntu-latest` | 15:40 班或手动 daily 勾选 gate 时读取 `state/sfc/` 判定；不请求体育数据 |
-| `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
+| `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 距上次完整成功采集满 7 个 UTC 自然日时拉已核验联赛当季，无成功记录则本班补采，假设延时仍为 3h |
 | `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 官方在售赛程与赛果 `sync` 后，分别单次请求 `/sfc/` 与 `/jczq/` 根页，归档并关联当期14场；未配置时整个 job 显示 skipped |
 | `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告；随后生成未截止期次的14场诊断 |
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
@@ -577,7 +579,7 @@ Release 中每日实验 JSON 与冻结文件同字节；是否及时发布以 fo
 现有 predict job 使用已有 `contents: write` 的 GITHUB_TOKEN，没有新 job / 权限 / 体育数据请求。
 
 日常 apif 技术行在比赛已完赛且实际捕获晚于开球+2小时后记录 `captured/available_utc`。
-周一早班额外**离线读取本班已经下载的 fd CSV**（不再请求文件），用同样条件保存射正等统计；
+当班若下载了 fd CSV，就额外**离线读取本班已经下载的文件**（包括晚班补采，不再请求文件），用同样条件保存射正等统计；
 只沿已经核验的 `jc.counterpart_id=fd:<id>` 附着，不创建比赛/球队、不按名字匹配。
 历史回填仍全部 `backfilled`，原有相同值/相同原件不重新标时间。fd 每周一次、apif 日常增量的可用节奏不同，
 目标完整窗口已在截点前捕获、且有至少11场合格的回放训练样本时才可能出预测；不保证首日所有联赛都有结果。
@@ -998,7 +1000,10 @@ python -m zucai tune --league 欧战 --db data/zucai.db --params-file work/cups-
 
 新模型的 `sources` 表示选择的来源范围，`training_source_counts` 表示截点前实际参与拟合的场数。
 T06 对范围内来源可预测，冻结格式升级为 schema 2；旧单来源模型与 schema 1 报告仍能读取。
-T14 已接入周一早班采集和数据分支恢复；历史原始 CSV 仍只保存在采集环境或 Actions artifact。
+T14 已接入日常采集和数据分支恢复；T66 改为按成功日期补采，不再依赖周一早班。
+可选 `state/fd_collection.json` 记录完整成功批次的 UTC 开始时刻，随 feeds 哈希导出恢复；
+失败、partial 或无范围不更新，旧归档恢复会清掉较新本地回执。成功后不足7个UTC自然日不重复下载。
+历史原始 CSV 仍只保存在采集环境或 Actions artifact，手动子集回填不记成完整日常成功。
 [时区及数据限制](docs/DATA_SOURCES.md#4-football-datacouk历史赛果与收盘赔率t08) ·
 [真实数据验收与缺口](reports/2026-11-02-t08-acceptance/README.md)。
 

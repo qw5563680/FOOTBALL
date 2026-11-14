@@ -353,7 +353,12 @@ def test_actual_start_slot_and_prediction_for_both_crons(tmp_path, case):
     argv = capture.read_text().splitlines()
     assert argv[argv.index("--slot") + 1] == "auto"
     assert fd_due(now, case["slot"]) is case["fd"]
-    assert fd_due(now + timedelta(days=1), case["slot"]) is False
+    assert fd_due(now + timedelta(days=1), case["slot"]) is True
+    receipt = tmp_path / "fd_collection.json"
+    receipt.write_text(
+        json.dumps({"version": 1, "last_successful_run_started_utc": now.isoformat()})
+    )
+    assert fd_due(now + timedelta(days=1), case["slot"], receipt) is False
     test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
         "schedule", "", case["cron"], "success", False, True
     )

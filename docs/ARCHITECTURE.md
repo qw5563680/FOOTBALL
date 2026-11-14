@@ -1,5 +1,26 @@
 # 架构说明
 
+## T66 FD 导入校验与补采
+
+`fd_stats_links` 的原身份、别名和原始 counterpart 证据保持不变。赛果导入将空的竞彩
+counterpart 补为同一 `provider_fixture_id` 时，校验认可该一致状态；不同FD键、其他来源、
+原fdorg被替换、反向、共享球队、窗口外或多候选继续拒绝。同一FD键存在其他直接行或其他声明时也拒绝。
+已有proof时，统计解析不得因出现精确counterpart而走旧路径提前返回；新原件观察按原规则追加，
+`store_rows` 与 `check_stats` 对有proof的技术行始终核验捕获时刻、SHA和位置。
+没有proof的既有fd/counterpart归档保持兼容，不新增数据库表。
+
+`fd_due` 按上次完整成功批次开始时刻计算UTC自然日差，满7天或没有成功证据时采集，与星期及早晚班无关。
+只有非空、全部完成且无拒收/疑似重复的FD批次才保存 `state/fd_collection.json`，
+字段为 `version=1` 与 `last_successful_run_started_utc`；它不是文件捕获时刻，也不表示预测有效。
+失败和partial不推进、不擦除原成功状态；其他来源失败不否定已完整成功的FD批次。
+该可选文件进入feeds白名单与SHA，导出/恢复严格核验字段、UTC时间及不得晚于归档创建时刻；
+恢复不含此文件的旧快照会移除较新的本地回执，避免上次未发布的成功状态抑制补采。
+独立调度判断遇无效或未来回执会要求重试；档案本身有坏回执时仍拒绝恢复，不能绕过档案完整性。
+
+已有FD统计复用步骤覆盖正常apis的早、晚班，仍只读取本班raw目录；无目录即不执行，体育请求为零。
+该步骤使用 `<run>-<attempt>-fd` 批次名，避免晚班API统计与FD统计先后发布时冲突覆盖同名校验附件。
+晚班API端点、预算、模型和来源范围不变。
+
 ## T61 目录、核准映射与历史下载
 
 `league_registry.py` 读取 `data/league_map.json`：90个总表行与原始中文名称无损保存；
@@ -88,7 +109,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 
 | `zucai/cloud_api_backfill.py` | 仅手动的欧战及 apif 九联赛历史范围、欧战联合核验、配额守卫、分赛事赛季入库与前后对齐统计 |
 | `zucai/sources/cup_identity.py` | 欧战运行期数字 ID 桥接与 T09/T10 主客方向图；证据写审计 CSV，未知身份保持来源编号 |
-| `zucai/cloud_apis.py` | hosted API 编排、UTC 周一早班 fd、独立窗口失败与跨运行配额 |
+| `zucai/cloud_apis.py` | hosted API 编排、FD成功日期补采、独立窗口失败与跨运行配额 |
 | `zucai/cloud_predict.py` | 只读恢复库 → 按已发布参数多联赛训练 → 两个北京日的纯模型预测、Actions 摘要 |
 | `zucai/forecast_archive.py` | 模型与报告追加归档、最新成功模型索引、独立 SHA256 清单与无 pickle 校验 |
 | `zucai/scoreboard/` | 冻结预测与赛果配对、三列概率评分、五种虚拟账户、稳健性统计与文本记分板；不训练或联网 |

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import requests
 
+from zucai.fd_collection import FD_COLLECTION_FILE, read_fd_success, save_fd_success
 from zucai.league_registry import daily_codes, provider_config
 from zucai.nations import collect_editions
 from zucai.sources.api_common import CredentialError, LocalValidationError
@@ -28,8 +29,22 @@ COMPETITION_CODES = ",".join(daily_codes("fdorg"))
 _DEFAULT_FD_LEAGUES = LEAGUES_PATH
 
 
-def fd_due(now, slot):
-    return now.astimezone(UTC).weekday() == 0 and slot == "early"
+def fd_due(now, slot="auto", state: Path | None = None):
+    """Due after seven UTC dates since a successful run, regardless of weekday/slot.
+
+    ``slot`` is retained for call compatibility and does not affect FD freshness.
+    ``state`` is the optional receipt file, not its directory. Missing, invalid or
+    future evidence is due; archive export/restore validates the same file strictly.
+    """
+    now = now.astimezone(UTC)
+    if state is None or not state.exists():
+        return True
+    try:
+        previous = read_fd_success(state, latest=now)
+    except ValueError:
+        LOG.warning("FD 成功采集状态无效，本次重试采集")
+        return True
+    return (now.date() - previous.date()).days >= 7
 
 
 def fd_scopes(today, leagues):
@@ -125,7 +140,8 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
     common = dict(db=database, audit_dir=audit, raw_root=raw)
 
     # Higher-priority FD is imported first; a bad league does not stop other scopes.
-    if fd_due(now, slot):
+    fd_state = database.parent / FD_COLLECTION_FILE
+    if fd_due(now, slot, fd_state):
         try:
             if LEAGUES_PATH == _DEFAULT_FD_LEAGUES:
                 config = provider_config("fd")
@@ -134,6 +150,8 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
             else:
                 config = read_json(LEAGUES_PATH)
             scopes = list(fd_scopes(today, config))
+            if not scopes:
+                raise LocalValidationError("没有可采集的已核验 FD 范围")
         except Exception as exc:
             scopes = []
             _failed(reports["fd"], "configuration", exc)
@@ -147,8 +165,13 @@ def collect_apis(database: Path, now, days=3, slot="auto"):
                 )
             except Exception as exc:
                 _failed(reports["fd"], code, exc)
+        if scopes and reports["fd"]["status"] == "complete":
+            try:
+                save_fd_success(fd_state, now)
+            except Exception as exc:
+                _failed(reports["fd"], "success state", exc)
     else:
-        reports["fd"].update(status="skipped", reason="仅 UTC 周一早班采集")
+        reports["fd"].update(status="skipped", reason="距上次完整成功采集不足 7 个 UTC 自然日")
 
     source = None
     try:
