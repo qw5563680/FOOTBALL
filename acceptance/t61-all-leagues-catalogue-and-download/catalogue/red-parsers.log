@@ -1,0 +1,1211 @@
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF                              [100%]
+=================================== FAILURES ===================================
+_______________________ test_catalogue_module_available ________________________
+
+    def test_catalogue_module_available():
+>       assert importlib.util.find_spec("zucai.cloud_catalogue") is not None
+E       AssertionError: assert None is not None
+E        +  where None = <function find_spec at 0x7f5203b2f2e0>('zucai.cloud_catalogue')
+E        +    where <function find_spec at 0x7f5203b2f2e0> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests/test_t61_catalogue.py:11: AssertionError
+_______________ test_apif_metadata_does_not_grant_season_access ________________
+
+    def test_apif_metadata_does_not_grant_season_access():
+>       from zucai.cloud_catalogue import parse_apif_catalogue
+E       ModuleNotFoundError: No module named 'zucai.cloud_catalogue'
+
+tests/test_t61_catalogue.py:15: ModuleNotFoundError
+_________ test_fdorg_season_count_is_not_an_enumeration_or_entitlement _________
+
+    def test_fdorg_season_count_is_not_an_enumeration_or_entitlement():
+>       from zucai.cloud_catalogue import parse_fdorg_catalogue
+E       ModuleNotFoundError: No module named 'zucai.cloud_catalogue'
+
+tests/test_t61_catalogue.py:32: ModuleNotFoundError
+_______ test_apif_rejects_partial_or_misdirected_catalogue[get-fixtures] _______
+
+field = 'get', value = 'fixtures'
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'fixtures', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+____ test_apif_rejects_partial_or_misdirected_catalogue[parameters-value1] _____
+
+field = 'parameters', value = {'id': 39}
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': {'id': 39}, 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+________ test_apif_rejects_partial_or_misdirected_catalogue[results-1] _________
+
+field = 'results', value = 1
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 1, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_______ test_apif_rejects_partial_or_misdirected_catalogue[results-True] _______
+
+field = 'results', value = True
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': True, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_____ test_apif_rejects_partial_or_misdirected_catalogue[response-value4] ______
+
+field = 'response', value = {}
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+______ test_apif_rejects_partial_or_misdirected_catalogue[errors-value5] _______
+
+field = 'errors', value = {'access': 'Synthetic refusal'}
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': {'access': 'Synthetic refusal'}, 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+______ test_apif_rejects_partial_or_misdirected_catalogue[paging-value6] _______
+
+field = 'paging', value = {'current': 1, 'total': 2}
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+______ test_apif_rejects_partial_or_misdirected_catalogue[paging-value7] _______
+
+field = 'paging', value = {'current': 2, 'total': 2}
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+______ test_apif_rejects_partial_or_misdirected_catalogue[paging-value8] _______
+
+field = 'paging', value = {'current': True, 'total': 1}
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+______ test_apif_rejects_partial_or_misdirected_catalogue[paging-value9] _______
+
+field = 'paging', value = {}
+
+    @pytest.mark.parametrize("field,value", [
+        ("get", "fixtures"), ("parameters", {"id": 39}), ("results", 1), ("results", True),
+        ("response", {}), ("errors", {"access": "Synthetic refusal"}),
+        ("paging", {"current": 1, "total": 2}), ("paging", {"current": 2, "total": 2}),
+        ("paging", {"current": True, "total": 1}), ("paging", {}),
+    ])
+    def test_apif_rejects_partial_or_misdirected_catalogue(field, value):
+        doc = _document("apif")
+        doc[field] = value
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:72: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+___________________ test_apif_required_envelope_fields[get] ____________________
+
+field = 'get'
+
+    @pytest.mark.parametrize("field", ["get", "errors", "results", "paging", "response"])
+    def test_apif_required_envelope_fields(field):
+        doc = _document("apif")
+        doc.pop(field)
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'parameters': [], 'errors': [], 'results': 2, 'paging': {'current': 1, 'total': 1}, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+__________________ test_apif_required_envelope_fields[errors] __________________
+
+field = 'errors'
+
+    @pytest.mark.parametrize("field", ["get", "errors", "results", "paging", "response"])
+    def test_apif_required_envelope_fields(field):
+        doc = _document("apif")
+        doc.pop(field)
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'results': 2, 'paging': {'current': 1, 'total': 1}, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_________________ test_apif_required_envelope_fields[results] __________________
+
+field = 'results'
+
+    @pytest.mark.parametrize("field", ["get", "errors", "results", "paging", "response"])
+    def test_apif_required_envelope_fields(field):
+        doc = _document("apif")
+        doc.pop(field)
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'paging': {'current': 1, 'total': 1}, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+__________________ test_apif_required_envelope_fields[paging] __________________
+
+field = 'paging'
+
+    @pytest.mark.parametrize("field", ["get", "errors", "results", "paging", "response"])
+    def test_apif_required_envelope_fields(field):
+        doc = _document("apif")
+        doc.pop(field)
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_________________ test_apif_required_envelope_fields[response] _________________
+
+field = 'response'
+
+    @pytest.mark.parametrize("field", ["get", "errors", "results", "paging", "response"])
+    def test_apif_required_envelope_fields(field):
+        doc = _document("apif")
+        doc.pop(field)
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_____________________ test_apif_rejects_invalid_year[True] _____________________
+
+year = True
+
+    @pytest.mark.parametrize("year", [True, "2025", 0, 1899, 10000])
+    def test_apif_rejects_invalid_year(year):
+        doc = _document("apif")
+        doc["response"][0]["seasons"][0]["year"] = year
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:88: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_____________________ test_apif_rejects_invalid_year[2025] _____________________
+
+year = '2025'
+
+    @pytest.mark.parametrize("year", [True, "2025", 0, 1899, 10000])
+    def test_apif_rejects_invalid_year(year):
+        doc = _document("apif")
+        doc["response"][0]["seasons"][0]["year"] = year
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:88: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+______________________ test_apif_rejects_invalid_year[0] _______________________
+
+year = 0
+
+    @pytest.mark.parametrize("year", [True, "2025", 0, 1899, 10000])
+    def test_apif_rejects_invalid_year(year):
+        doc = _document("apif")
+        doc["response"][0]["seasons"][0]["year"] = year
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:88: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_____________________ test_apif_rejects_invalid_year[1899] _____________________
+
+year = 1899
+
+    @pytest.mark.parametrize("year", [True, "2025", 0, 1899, 10000])
+    def test_apif_rejects_invalid_year(year):
+        doc = _document("apif")
+        doc["response"][0]["seasons"][0]["year"] = year
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:88: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+____________________ test_apif_rejects_invalid_year[10000] _____________________
+
+year = 10000
+
+    @pytest.mark.parametrize("year", [True, "2025", 0, 1899, 10000])
+    def test_apif_rejects_invalid_year(year):
+        doc = _document("apif")
+        doc["response"][0]["seasons"][0]["year"] = year
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:88: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+__________________ test_duplicate_provider_ids_rejected[apif] __________________
+
+provider = 'apif'
+
+    @pytest.mark.parametrize("provider", ["apif", "fdorg"])
+    def test_duplicate_provider_ids_rejected(provider):
+        doc = _document(provider)
+        if provider == "apif":
+            doc["response"][1]["league"]["id"] = doc["response"][0]["league"]["id"]
+        else:
+            doc["competitions"][1]["id"] = doc["competitions"][0]["id"]
+        with pytest.raises(ValueError):
+>           _parse(provider, doc)
+
+tests/test_t61_catalogue.py:99: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_________________ test_duplicate_provider_ids_rejected[fdorg] __________________
+
+provider = 'fdorg'
+
+    @pytest.mark.parametrize("provider", ["apif", "fdorg"])
+    def test_duplicate_provider_ids_rejected(provider):
+        doc = _document(provider)
+        if provider == "apif":
+            doc["response"][1]["league"]["id"] = doc["response"][0]["league"]["id"]
+        else:
+            doc["competitions"][1]["id"] = doc["competitions"][0]["id"]
+        with pytest.raises(ValueError):
+>           _parse(provider, doc)
+
+tests/test_t61_catalogue.py:99: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 2, 'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'X...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+__________ test_apif_malformed_rows_do_not_silently_disappear[league] __________
+
+mutation = 'league'
+
+    @pytest.mark.parametrize("mutation", ["league", "country", "seasons", "season", "duplicate-year"])
+    def test_apif_malformed_rows_do_not_silently_disappear(mutation):
+        doc = _document("apif")
+        row = doc["response"][0]
+        if mutation in {"league", "country", "seasons"}:
+            row.pop(mutation)
+        elif mutation == "season":
+            row["seasons"][0] = None
+        else:
+            row["seasons"][1]["year"] = row["seasons"][0]["year"]
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_________ test_apif_malformed_rows_do_not_silently_disappear[country] __________
+
+mutation = 'country'
+
+    @pytest.mark.parametrize("mutation", ["league", "country", "seasons", "season", "duplicate-year"])
+    def test_apif_malformed_rows_do_not_silently_disappear(mutation):
+        doc = _document("apif")
+        row = doc["response"][0]
+        if mutation in {"league", "country", "seasons"}:
+            row.pop(mutation)
+        elif mutation == "season":
+            row["seasons"][0] = None
+        else:
+            row["seasons"][1]["year"] = row["seasons"][0]["year"]
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_________ test_apif_malformed_rows_do_not_silently_disappear[seasons] __________
+
+mutation = 'seasons'
+
+    @pytest.mark.parametrize("mutation", ["league", "country", "seasons", "season", "duplicate-year"])
+    def test_apif_malformed_rows_do_not_silently_disappear(mutation):
+        doc = _document("apif")
+        row = doc["response"][0]
+        if mutation in {"league", "country", "seasons"}:
+            row.pop(mutation)
+        elif mutation == "season":
+            row["seasons"][0] = None
+        else:
+            row["seasons"][1]["year"] = row["seasons"][0]["year"]
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+__________ test_apif_malformed_rows_do_not_silently_disappear[season] __________
+
+mutation = 'season'
+
+    @pytest.mark.parametrize("mutation", ["league", "country", "seasons", "season", "duplicate-year"])
+    def test_apif_malformed_rows_do_not_silently_disappear(mutation):
+        doc = _document("apif")
+        row = doc["response"][0]
+        if mutation in {"league", "country", "seasons"}:
+            row.pop(mutation)
+        elif mutation == "season":
+            row["seasons"][0] = None
+        else:
+            row["seasons"][1]["year"] = row["seasons"][0]["year"]
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+______ test_apif_malformed_rows_do_not_silently_disappear[duplicate-year] ______
+
+mutation = 'duplicate-year'
+
+    @pytest.mark.parametrize("mutation", ["league", "country", "seasons", "season", "duplicate-year"])
+    def test_apif_malformed_rows_do_not_silently_disappear(mutation):
+        doc = _document("apif")
+        row = doc["response"][0]
+        if mutation in {"league", "country", "seasons"}:
+            row.pop(mutation)
+        elif mutation == "season":
+            row["seasons"][0] = None
+        else:
+            row["seasons"][1]["year"] = row["seasons"][0]["year"]
+        with pytest.raises(ValueError):
+>           _parse("apif", doc)
+
+tests/test_t61_catalogue.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+____ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[count] ____
+
+mutation = 'count'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 3, 'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'X...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[bool-count] __
+
+mutation = 'bool-count'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': True, 'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code':...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+__ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[no-count] ___
+
+mutation = 'no-count'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'XXX'}, 'name'...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[missing-name] _
+
+mutation = 'missing-name'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 2, 'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'X...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+___ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[bad-row] ___
+
+mutation = 'bad-row'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 2, 'filters': {}, 'competitions': [None, {'id': 2001, 'area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[bad-season] __
+
+mutation = 'bad-season'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 2, 'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'X...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[negative-seasons] _
+
+mutation = 'negative-seasons'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 2, 'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'X...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+___ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[bad-id] ____
+
+mutation = 'bad-id'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 2, 'filters': {}, 'competitions': [{'id': True, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'X...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_ test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[duplicate-code] _
+
+mutation = 'duplicate-code'
+
+    @pytest.mark.parametrize("mutation", [
+        "count", "bool-count", "no-count", "missing-name", "bad-row", "bad-season", "negative-seasons",
+        "bad-id", "duplicate-code",
+    ])
+    def test_fdorg_counts_valid_competitions_and_rejects_malformed_rows(mutation):
+        doc = _document("fdorg")
+        row = doc["competitions"][0]
+        if mutation == "count":
+            doc["count"] = 3
+        elif mutation == "bool-count":
+            doc["count"] = True
+        elif mutation == "no-count":
+            doc.pop("count")
+        elif mutation == "missing-name":
+            row.pop("name")
+        elif mutation == "bad-row":
+            doc["competitions"][0] = None
+        elif mutation == "bad-season":
+            row["currentSeason"]["startDate"] = "unknown"
+        elif mutation == "negative-seasons":
+            row["numberOfAvailableSeasons"] = -1
+        elif mutation == "bad-id":
+            row["id"] = True
+        else:
+            doc["competitions"][1]["code"] = row["code"]
+        with pytest.raises(ValueError):
+>           _parse("fdorg", doc)
+
+tests/test_t61_catalogue.py:142: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 2, 'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'X...area': {'id': 2077, 'name': 'Synthetic Europe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'PL', ...}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_____ test_parsers_reject_credential_fields_without_runtime_secrets[apif] ______
+
+provider = 'apif'
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f5202450090>
+
+    @pytest.mark.parametrize("provider", ["apif", "fdorg"])
+    def test_parsers_reject_credential_fields_without_runtime_secrets(provider, monkeypatch):
+        monkeypatch.delenv("API_FOOTBALL_KEY", raising=False)
+        monkeypatch.delenv("FOOTBALL_DATA_ORG_TOKEN", raising=False)
+        cases = json.loads((FIXTURES / "catalogue-errors-synthetic.json").read_bytes())
+        for key in cases["unsafe_keys"]:
+            doc = _document(provider)
+            doc["nested"] = [{key: "synthetic-only"}]
+            with pytest.raises(ValueError):
+>               _parse(provider, doc)
+
+tests/test_t61_catalogue.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'apif'
+document = {'get': 'leagues', 'parameters': [], 'errors': [], 'results': 2, ...}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+_____ test_parsers_reject_credential_fields_without_runtime_secrets[fdorg] _____
+
+provider = 'fdorg'
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f52024ab050>
+
+    @pytest.mark.parametrize("provider", ["apif", "fdorg"])
+    def test_parsers_reject_credential_fields_without_runtime_secrets(provider, monkeypatch):
+        monkeypatch.delenv("API_FOOTBALL_KEY", raising=False)
+        monkeypatch.delenv("FOOTBALL_DATA_ORG_TOKEN", raising=False)
+        cases = json.loads((FIXTURES / "catalogue-errors-synthetic.json").read_bytes())
+        for key in cases["unsafe_keys"]:
+            doc = _document(provider)
+            doc["nested"] = [{key: "synthetic-only"}]
+            with pytest.raises(ValueError):
+>               _parse(provider, doc)
+
+tests/test_t61_catalogue.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+provider = 'fdorg'
+document = {'count': 2, 'filters': {}, 'competitions': [{'id': 2021, 'area': {'id': 2072, 'name': 'Synthetic England', 'code': 'X...pe', 'code': 'XXX'}, 'name': 'Synthetic Champions Cup', 'code': 'CL', ...}], 'nested': [{'api_key': 'synthetic-only'}]}
+
+    def _parse(provider, document):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:52: ImportError
+___________ test_parsers_reject_non_json_and_duplicate_fields[apif] ____________
+
+provider = 'apif'
+
+    @pytest.mark.parametrize("provider", ["apif", "fdorg"])
+    def test_parsers_reject_non_json_and_duplicate_fields(provider):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:159: ImportError
+___________ test_parsers_reject_non_json_and_duplicate_fields[fdorg] ___________
+
+provider = 'fdorg'
+
+    @pytest.mark.parametrize("provider", ["apif", "fdorg"])
+    def test_parsers_reject_non_json_and_duplicate_fields(provider):
+>       from zucai import cloud_catalogue
+E       ImportError: cannot import name 'cloud_catalogue' from 'zucai' (/workspace/work/football-t61/src/zucai/__init__.py)
+
+tests/test_t61_catalogue.py:159: ImportError
+=========================== short test summary info ============================
+FAILED tests/test_t61_catalogue.py::test_catalogue_module_available - Asserti...
+FAILED tests/test_t61_catalogue.py::test_apif_metadata_does_not_grant_season_access
+FAILED tests/test_t61_catalogue.py::test_fdorg_season_count_is_not_an_enumeration_or_entitlement
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[get-fixtures]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[parameters-value1]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[results-1]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[results-True]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[response-value4]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[errors-value5]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[paging-value6]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[paging-value7]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[paging-value8]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_partial_or_misdirected_catalogue[paging-value9]
+FAILED tests/test_t61_catalogue.py::test_apif_required_envelope_fields[get]
+FAILED tests/test_t61_catalogue.py::test_apif_required_envelope_fields[errors]
+FAILED tests/test_t61_catalogue.py::test_apif_required_envelope_fields[results]
+FAILED tests/test_t61_catalogue.py::test_apif_required_envelope_fields[paging]
+FAILED tests/test_t61_catalogue.py::test_apif_required_envelope_fields[response]
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_invalid_year[True] - Im...
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_invalid_year[2025] - Im...
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_invalid_year[0] - Impor...
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_invalid_year[1899] - Im...
+FAILED tests/test_t61_catalogue.py::test_apif_rejects_invalid_year[10000] - I...
+FAILED tests/test_t61_catalogue.py::test_duplicate_provider_ids_rejected[apif]
+FAILED tests/test_t61_catalogue.py::test_duplicate_provider_ids_rejected[fdorg]
+FAILED tests/test_t61_catalogue.py::test_apif_malformed_rows_do_not_silently_disappear[league]
+FAILED tests/test_t61_catalogue.py::test_apif_malformed_rows_do_not_silently_disappear[country]
+FAILED tests/test_t61_catalogue.py::test_apif_malformed_rows_do_not_silently_disappear[seasons]
+FAILED tests/test_t61_catalogue.py::test_apif_malformed_rows_do_not_silently_disappear[season]
+FAILED tests/test_t61_catalogue.py::test_apif_malformed_rows_do_not_silently_disappear[duplicate-year]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[count]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[bool-count]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[no-count]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[missing-name]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[bad-row]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[bad-season]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[negative-seasons]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[bad-id]
+FAILED tests/test_t61_catalogue.py::test_fdorg_counts_valid_competitions_and_rejects_malformed_rows[duplicate-code]
+FAILED tests/test_t61_catalogue.py::test_parsers_reject_credential_fields_without_runtime_secrets[apif]
+FAILED tests/test_t61_catalogue.py::test_parsers_reject_credential_fields_without_runtime_secrets[fdorg]
+FAILED tests/test_t61_catalogue.py::test_parsers_reject_non_json_and_duplicate_fields[apif]
+FAILED tests/test_t61_catalogue.py::test_parsers_reject_non_json_and_duplicate_fields[fdorg]

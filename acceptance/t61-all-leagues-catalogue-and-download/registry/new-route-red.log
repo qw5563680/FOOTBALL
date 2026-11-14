@@ -1,0 +1,225 @@
+FF.FF                                                                    [100%]
+=================================== FAILURES ===================================
+__ test_registry_only_new_route_download_import_audit_checkpoint_and_archive ___
+
+registry = {'version': 1, 'master_table': {'path': 'synthetic-test-only.csv', 'sha256': '0000000000000000000000000000000000000000...tional-team competitions, after review', 'unrelated': 'Catalogue only unless scope=all; approval still required'}, ...}
+environment = PosixPath('/tmp/pytest-of-agent/pytest-240/test_registry_only_new_route_d0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-240/test_registry_only_new_route_d0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f9a137221e0>
+
+    def test_registry_only_new_route_download_import_audit_checkpoint_and_archive(
+        registry, environment, tmp_path, monkeypatch
+    ):
+        legacy_before = LEGACY.read_bytes()
+        aliases_path = ROOT / "data/team_aliases/api_football.json"
+        aliases_before = aliases_path.read_bytes()
+        assert "1001" not in json.loads(legacy_before)
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+        paid_status(environment)
+        database = tmp_path / "new-route/zucai.db"
+        restore_feeds(environment, database)
+        catalogue(database.parent)
+        with responses.RequestsMock() as http:
+            expected = mock_paid_season(http, "1001", 2025)
+>           report = cloud_catalogue_backfill.collect_catalogue_backfill(
+                database, "new-import", provider="apif", codes="1001", max_requests=1
+            )
+
+tests/test_t61_new_route_backfill.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_catalogue_backfill.py:307: in collect_catalogue_backfill
+    report = collect_planned_api_backfill(
+src/zucai/cloud_api_backfill.py:245: in collect_planned_api_backfill
+    record_matches(audit / "apif_identity_matches.csv", captures)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-agent/pytest-240/test_registry_only_new_route_d0/new-route/state/audit/apif_identity_matches.csv')
+captures = [{'games': [ApiGame(provider='apif', provider_match_id=10001500, competition_code='1001', league='Synthetic one', kick...ason': 2025}, 'complete': True, 'raw_sha256': '0e3caf92a73f8611fa608fa5d171c44d0bd27327196569ca1113743e6a827dbf', ...}]
+
+    def record_matches(path, captures):
+        records = {}
+        if path.exists():
+            with path.open(encoding="utf-8", newline="") as stream:
+                reader = csv.DictReader(stream, strict=True)
+                if reader.fieldnames != list(FIELDS):
+                    raise ValueError("身份比赛审计字段无效")
+                for row in reader:
+                    if None in row or any(value is None for value in row.values()):
+                        raise ValueError("身份比赛审计行无效")
+                    records[row["provider_match_id"], row["raw_sha256"]] = row
+        for capture in captures:
+            for game in capture["games"]:
+                row = dict(
+                    provider_match_id=game.provider_match_id,
+                    league_id=game.competition_code,
+                    league=game.league,
+                    season=capture["scope"].get("season", ""),
+                    kickoff_utc=game.kickoff_utc.isoformat(),
+                    home_provider_id=game.home_provider_id,
+                    away_provider_id=game.away_provider_id,
+                    home=game.home_raw,
+                    away=game.away_raw,
+                    raw_sha256=capture["raw_sha256"],
+                    complete=str(capture["complete"]).lower(),
+                    scope_size=len(capture["games"]),
+                )
+                records[str(game.provider_match_id), capture["raw_sha256"]] = row
+        if records:
+            buffer = io.StringIO(newline="")
+            writer = csv.DictWriter(buffer, FIELDS)
+            writer.writeheader()
+            writer.writerows(records.values())
+            encoded = buffer.getvalue().encode("utf-8")
+            if not path.exists() or path.read_bytes() != encoded:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _atomic_write(path, encoded)
+        from zucai.sources.api_football import LEAGUES
+        from zucai.sources.football_data import read_json
+    
+        config = read_json(LEAGUES)
+        for capture in captures:
+            code = str(capture["scope"]["league_id"])
+            record_scope(
+                path.with_name("apif_identity_scopes.csv"),
+                code,
+>               config[code]["league"],
+                ^^^^^^^^^^^^
+                capture["scope"]["season"],
+                raw_sha256=capture["raw_sha256"],
+                complete=capture["complete"],
+                scope_size=len(capture["games"]),
+            )
+E           KeyError: '1001'
+
+src/zucai/apif_identity_metrics.py:113: KeyError
+___ test_registry_only_routes_remain_available_to_alias_review_and_reconcile ___
+
+registry = {'version': 1, 'master_table': {'path': 'synthetic-test-only.csv', 'sha256': '0000000000000000000000000000000000000000...tional-team competitions, after review', 'unrelated': 'Catalogue only unless scope=all; approval still required'}, ...}
+
+    def test_registry_only_routes_remain_available_to_alias_review_and_reconcile(registry):
+        from zucai.aliases_snapshot import selected_leagues
+        from zucai.cloud_identity_probe import identity_codes
+        from zucai.sources.apif_reconcile import _daily_domestic_leagues
+    
+>       assert selected_leagues("1001")["1001"]["league"] == "Synthetic one"
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t61_new_route_backfill.py:162: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+codes = '1001'
+
+    def selected_leagues(codes):
+        config = read_json(LEAGUES)
+        ids = codes.split(",")
+        if not ids or len(ids) != len(set(ids)) or any(code not in config for code in ids):
+>           raise ValueError("leagues 须为不重复的已配置 APIF 联赛 ID")
+E           ValueError: leagues 须为不重复的已配置 APIF 联赛 ID
+
+src/zucai/aliases_snapshot.py:137: ValueError
+______ test_identity_audit_preserves_explicit_legacy_path_injection[True] ______
+
+registry = {'version': 1, 'master_table': {'path': 'synthetic-test-only.csv', 'sha256': '0000000000000000000000000000000000000000...tional-team competitions, after review', 'unrelated': 'Catalogue only unless scope=all; approval still required'}, ...}
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-240/test_identity_audit_preserves_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f99fc49f9b0>
+explicit_argument = True
+
+    @pytest.mark.parametrize("explicit_argument", [False, True])
+    def test_identity_audit_preserves_explicit_legacy_path_injection(
+        registry, tmp_path, monkeypatch, explicit_argument
+    ):
+        from zucai.apif_identity_metrics import record_matches
+    
+        path = tmp_path / "legacy-fixture.json"
+        path.write_text(json.dumps({"9991": {"league": "Explicit fixture league"}}))
+        kwargs = {"leagues_path": path} if explicit_argument else {}
+        if not explicit_argument:
+            monkeypatch.setattr("zucai.sources.api_football.LEAGUES", path)
+        audit = tmp_path / "audit/apif_identity_matches.csv"
+>       record_matches(audit, [{"games": [], "scope": {"league_id": "9991", "season": 2025},
+                                "complete": False, "raw_sha256": "a" * 64}], **kwargs)
+E       TypeError: record_matches() got an unexpected keyword argument 'leagues_path'
+
+tests/test_t61_new_route_backfill.py:186: TypeError
+_______________ test_unapproved_audit_route_fails_before_writing _______________
+
+registry = {'version': 1, 'master_table': {'path': 'synthetic-test-only.csv', 'sha256': '0000000000000000000000000000000000000000...tional-team competitions, after review', 'unrelated': 'Catalogue only unless scope=all; approval still required'}, ...}
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-240/test_unapproved_audit_route_fa0')
+
+    def test_unapproved_audit_route_fails_before_writing(registry, tmp_path):
+        from zucai.apif_identity_metrics import record_matches
+    
+        path = tmp_path / "audit/apif_identity_matches.csv"
+        with pytest.raises(ValueError, match="核准"):
+>           record_matches(path, [{"games": [], "scope": {"league_id": "1002", "season": 2025},
+                                   "complete": False, "raw_sha256": "a" * 64}])
+
+tests/test_t61_new_route_backfill.py:196: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/tmp/pytest-of-agent/pytest-240/test_unapproved_audit_route_fa0/audit/apif_identity_matches.csv')
+captures = [{'games': [], 'scope': {'league_id': '1002', 'season': 2025}, 'complete': False, 'raw_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}]
+
+    def record_matches(path, captures):
+        records = {}
+        if path.exists():
+            with path.open(encoding="utf-8", newline="") as stream:
+                reader = csv.DictReader(stream, strict=True)
+                if reader.fieldnames != list(FIELDS):
+                    raise ValueError("身份比赛审计字段无效")
+                for row in reader:
+                    if None in row or any(value is None for value in row.values()):
+                        raise ValueError("身份比赛审计行无效")
+                    records[row["provider_match_id"], row["raw_sha256"]] = row
+        for capture in captures:
+            for game in capture["games"]:
+                row = dict(
+                    provider_match_id=game.provider_match_id,
+                    league_id=game.competition_code,
+                    league=game.league,
+                    season=capture["scope"].get("season", ""),
+                    kickoff_utc=game.kickoff_utc.isoformat(),
+                    home_provider_id=game.home_provider_id,
+                    away_provider_id=game.away_provider_id,
+                    home=game.home_raw,
+                    away=game.away_raw,
+                    raw_sha256=capture["raw_sha256"],
+                    complete=str(capture["complete"]).lower(),
+                    scope_size=len(capture["games"]),
+                )
+                records[str(game.provider_match_id), capture["raw_sha256"]] = row
+        if records:
+            buffer = io.StringIO(newline="")
+            writer = csv.DictWriter(buffer, FIELDS)
+            writer.writeheader()
+            writer.writerows(records.values())
+            encoded = buffer.getvalue().encode("utf-8")
+            if not path.exists() or path.read_bytes() != encoded:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _atomic_write(path, encoded)
+        from zucai.sources.api_football import LEAGUES
+        from zucai.sources.football_data import read_json
+    
+        config = read_json(LEAGUES)
+        for capture in captures:
+            code = str(capture["scope"]["league_id"])
+            record_scope(
+                path.with_name("apif_identity_scopes.csv"),
+                code,
+>               config[code]["league"],
+                ^^^^^^^^^^^^
+                capture["scope"]["season"],
+                raw_sha256=capture["raw_sha256"],
+                complete=capture["complete"],
+                scope_size=len(capture["games"]),
+            )
+E           KeyError: '1002'
+
+src/zucai/apif_identity_metrics.py:113: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_t61_new_route_backfill.py::test_registry_only_new_route_download_import_audit_checkpoint_and_archive
+FAILED tests/test_t61_new_route_backfill.py::test_registry_only_routes_remain_available_to_alias_review_and_reconcile
+FAILED tests/test_t61_new_route_backfill.py::test_identity_audit_preserves_explicit_legacy_path_injection[True]
+FAILED tests/test_t61_new_route_backfill.py::test_unapproved_audit_route_fails_before_writing
+4 failed, 1 passed in 0.97s

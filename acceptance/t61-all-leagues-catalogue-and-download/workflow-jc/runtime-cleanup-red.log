@@ -1,0 +1,21 @@
+.......................F                                                 [100%]
+=================================== FAILURES ===================================
+_ test_restoring_older_snapshot_removes_unmanifested_future_runtime_catalogue_files _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-228/test_restoring_older_snapshot_0')
+
+    def test_restoring_older_snapshot_removes_unmanifested_future_runtime_catalogue_files(tmp_path):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 14), "old")
+        target = database_at(tmp_path / "target/data/zucai.db")
+        later = put(target.parent, "state/catalogue/later/backfill/apif/cup-aliases-later.json")
+        restore_feeds(archive, target)
+>       assert not later.exists()
+E       AssertionError: assert not True
+E        +  where True = exists()
+E        +    where exists = PosixPath('/tmp/pytest-of-agent/pytest-228/test_restoring_older_snapshot_0/target/data/state/catalogue/later/backfill/apif/cup-aliases-later.json').exists
+
+tests/test_t61_catalogue_archive.py:158: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t61_catalogue_archive.py::test_restoring_older_snapshot_removes_unmanifested_future_runtime_catalogue_files

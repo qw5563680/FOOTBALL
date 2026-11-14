@@ -1,0 +1,115 @@
+........................................................................ [ 90%]
+.....FFF                                                                 [100%]
+=================================== FAILURES ===================================
+_________ test_old_pointer_with_broken_evidence_is_not_preserved[raw] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-217/test_old_pointer_with_broken_e0')
+actions = None, corruption = 'raw'
+
+    @pytest.mark.parametrize("corruption", ["raw", "metadata", "parsed-provider"])
+    def test_old_pointer_with_broken_evidence_is_not_preserved(tmp_path, actions, corruption):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http)
+            collect_catalogue(database, "old-evidence")
+        root = database.parent
+        folder = root / "state/catalogue/old-evidence"
+        if corruption == "raw":
+            (folder / "apif-raw.json").write_bytes(b"modified")
+        elif corruption == "metadata":
+            meta = json.loads((folder / "apif-meta.json").read_bytes())
+            meta["sha256"] = "0" * 64
+            (folder / "apif-meta.json").write_text(json.dumps(meta))
+        else:
+            parsed = json.loads((folder / "apif.json").read_bytes())
+            parsed["provider"] = "fdorg"
+            (folder / "apif.json").write_text(json.dumps(parsed))
+            latest = json.loads((folder.parent / "latest.json").read_bytes())
+            latest["providers"]["apif"]["sha256"] = hashlib.sha256((folder / "apif.json").read_bytes()).hexdigest()
+            (folder.parent / "latest.json").write_text(json.dumps(latest))
+        with responses.RequestsMock() as http:
+            _responses(http, apif=json.dumps(ERRORS["apif_error"]).encode(), apif_status=403)
+            report = collect_catalogue(database, "new-evidence")
+        latest = json.loads((root / "state/catalogue/latest.json").read_bytes())
+>       assert "apif" not in latest["providers"]
+E       AssertionError: assert 'apif' not in {'apif': {'path': 'state/catalogue/old-evidence/apif.json', 'raw_sha256': 'afb4b398d9263406cd64e2beb223648594fcab64465...745e548da526', 'run_id': 'new-evidence', 'sha256': '372fee629aae8a8d820d4196289f12c6dd4a14acbfc232dc3db93c8a8cb0c7de'}}
+
+tests/test_t61_catalogue.py:583: AssertionError
+_______ test_old_pointer_with_broken_evidence_is_not_preserved[metadata] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-217/test_old_pointer_with_broken_e1')
+actions = None, corruption = 'metadata'
+
+    @pytest.mark.parametrize("corruption", ["raw", "metadata", "parsed-provider"])
+    def test_old_pointer_with_broken_evidence_is_not_preserved(tmp_path, actions, corruption):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http)
+            collect_catalogue(database, "old-evidence")
+        root = database.parent
+        folder = root / "state/catalogue/old-evidence"
+        if corruption == "raw":
+            (folder / "apif-raw.json").write_bytes(b"modified")
+        elif corruption == "metadata":
+            meta = json.loads((folder / "apif-meta.json").read_bytes())
+            meta["sha256"] = "0" * 64
+            (folder / "apif-meta.json").write_text(json.dumps(meta))
+        else:
+            parsed = json.loads((folder / "apif.json").read_bytes())
+            parsed["provider"] = "fdorg"
+            (folder / "apif.json").write_text(json.dumps(parsed))
+            latest = json.loads((folder.parent / "latest.json").read_bytes())
+            latest["providers"]["apif"]["sha256"] = hashlib.sha256((folder / "apif.json").read_bytes()).hexdigest()
+            (folder.parent / "latest.json").write_text(json.dumps(latest))
+        with responses.RequestsMock() as http:
+            _responses(http, apif=json.dumps(ERRORS["apif_error"]).encode(), apif_status=403)
+            report = collect_catalogue(database, "new-evidence")
+        latest = json.loads((root / "state/catalogue/latest.json").read_bytes())
+>       assert "apif" not in latest["providers"]
+E       AssertionError: assert 'apif' not in {'apif': {'path': 'state/catalogue/old-evidence/apif.json', 'raw_sha256': 'afb4b398d9263406cd64e2beb223648594fcab64465...745e548da526', 'run_id': 'new-evidence', 'sha256': '78465336ad71b1d52953bbd34eefe0656bf4fd5b94f6a3ed29f39842f9da7b40'}}
+
+tests/test_t61_catalogue.py:583: AssertionError
+___ test_old_pointer_with_broken_evidence_is_not_preserved[parsed-provider] ____
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-217/test_old_pointer_with_broken_e2')
+actions = None, corruption = 'parsed-provider'
+
+    @pytest.mark.parametrize("corruption", ["raw", "metadata", "parsed-provider"])
+    def test_old_pointer_with_broken_evidence_is_not_preserved(tmp_path, actions, corruption):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http)
+            collect_catalogue(database, "old-evidence")
+        root = database.parent
+        folder = root / "state/catalogue/old-evidence"
+        if corruption == "raw":
+            (folder / "apif-raw.json").write_bytes(b"modified")
+        elif corruption == "metadata":
+            meta = json.loads((folder / "apif-meta.json").read_bytes())
+            meta["sha256"] = "0" * 64
+            (folder / "apif-meta.json").write_text(json.dumps(meta))
+        else:
+            parsed = json.loads((folder / "apif.json").read_bytes())
+            parsed["provider"] = "fdorg"
+            (folder / "apif.json").write_text(json.dumps(parsed))
+            latest = json.loads((folder.parent / "latest.json").read_bytes())
+            latest["providers"]["apif"]["sha256"] = hashlib.sha256((folder / "apif.json").read_bytes()).hexdigest()
+            (folder.parent / "latest.json").write_text(json.dumps(latest))
+        with responses.RequestsMock() as http:
+            _responses(http, apif=json.dumps(ERRORS["apif_error"]).encode(), apif_status=403)
+            report = collect_catalogue(database, "new-evidence")
+        latest = json.loads((root / "state/catalogue/latest.json").read_bytes())
+>       assert "apif" not in latest["providers"]
+E       AssertionError: assert 'apif' not in {'apif': {'path': 'state/catalogue/old-evidence/apif.json', 'raw_sha256': 'afb4b398d9263406cd64e2beb223648594fcab64465...745e548da526', 'run_id': 'new-evidence', 'sha256': '0e53459aab293f32384a912330c8ff239c3068a4702765d5b32c9c2101067712'}}
+
+tests/test_t61_catalogue.py:583: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t61_catalogue.py::test_old_pointer_with_broken_evidence_is_not_preserved[raw]
+FAILED tests/test_t61_catalogue.py::test_old_pointer_with_broken_evidence_is_not_preserved[metadata]
+FAILED tests/test_t61_catalogue.py::test_old_pointer_with_broken_evidence_is_not_preserved[parsed-provider]

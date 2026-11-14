@@ -1,0 +1,200 @@
+................FFFFFFF...................F                              [100%]
+=================================== FAILURES ===================================
+_ test_catalogue_backfill_originals_and_checkpoint_roundtrip[state/catalogue/backfill-checkpoint.json] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-216/test_catalogue_backfill_origin0')
+key = 'state/catalogue/backfill-checkpoint.json'
+
+    @pytest.mark.parametrize("key", [
+        "state/catalogue/backfill-checkpoint.json",
+        "state/catalogue/history-1/backfill.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json",
+        "state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json",
+    ])
+    def test_catalogue_backfill_originals_and_checkpoint_roundtrip(tmp_path, key):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        evidence = put(source.parent, key)
+        archive = tmp_path / "archive"
+        report = export_feeds(source, archive, date(2026, 11, 14), "history")
+>       assert key in report["files"]
+E       AssertionError: assert 'state/catalogue/backfill-checkpoint.json' in {'state/apif_fixture_index.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'state/closing_...b934ca495991b7852b855', 'state/results.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t61_catalogue_archive.py:140: AssertionError
+_ test_catalogue_backfill_originals_and_checkpoint_roundtrip[state/catalogue/history-1/backfill.json] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-216/test_catalogue_backfill_origin1')
+key = 'state/catalogue/history-1/backfill.json'
+
+    @pytest.mark.parametrize("key", [
+        "state/catalogue/backfill-checkpoint.json",
+        "state/catalogue/history-1/backfill.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json",
+        "state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json",
+    ])
+    def test_catalogue_backfill_originals_and_checkpoint_roundtrip(tmp_path, key):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        evidence = put(source.parent, key)
+        archive = tmp_path / "archive"
+        report = export_feeds(source, archive, date(2026, 11, 14), "history")
+>       assert key in report["files"]
+E       AssertionError: assert 'state/catalogue/history-1/backfill.json' in {'state/apif_fixture_index.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'state/closing_...b934ca495991b7852b855', 'state/results.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t61_catalogue_archive.py:140: AssertionError
+_______ test_catalogue_backfill_originals_and_checkpoint_roundtrip[key2] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-216/test_catalogue_backfill_origin2')
+key = 'state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json'
+
+    @pytest.mark.parametrize("key", [
+        "state/catalogue/backfill-checkpoint.json",
+        "state/catalogue/history-1/backfill.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json",
+        "state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json",
+    ])
+    def test_catalogue_backfill_originals_and_checkpoint_roundtrip(tmp_path, key):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        evidence = put(source.parent, key)
+        archive = tmp_path / "archive"
+        report = export_feeds(source, archive, date(2026, 11, 14), "history")
+>       assert key in report["files"]
+E       AssertionError: assert 'state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json' in {'state/apif_fixture_index.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'state/closing_...b934ca495991b7852b855', 'state/results.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t61_catalogue_archive.py:140: AssertionError
+_______ test_catalogue_backfill_originals_and_checkpoint_roundtrip[key3] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-216/test_catalogue_backfill_origin3')
+key = 'state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json'
+
+    @pytest.mark.parametrize("key", [
+        "state/catalogue/backfill-checkpoint.json",
+        "state/catalogue/history-1/backfill.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json",
+        "state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json",
+    ])
+    def test_catalogue_backfill_originals_and_checkpoint_roundtrip(tmp_path, key):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        evidence = put(source.parent, key)
+        archive = tmp_path / "archive"
+        report = export_feeds(source, archive, date(2026, 11, 14), "history")
+>       assert key in report["files"]
+E       AssertionError: assert 'state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json' in {'state/apif_fixture_index.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'state/closing_...b934ca495991b7852b855', 'state/results.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t61_catalogue_archive.py:140: AssertionError
+_______ test_catalogue_backfill_originals_and_checkpoint_roundtrip[key4] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-216/test_catalogue_backfill_origin4')
+key = 'state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json'
+
+    @pytest.mark.parametrize("key", [
+        "state/catalogue/backfill-checkpoint.json",
+        "state/catalogue/history-1/backfill.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json",
+        "state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json",
+    ])
+    def test_catalogue_backfill_originals_and_checkpoint_roundtrip(tmp_path, key):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        evidence = put(source.parent, key)
+        archive = tmp_path / "archive"
+        report = export_feeds(source, archive, date(2026, 11, 14), "history")
+>       assert key in report["files"]
+E       AssertionError: assert 'state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json' in {'state/apif_fixture_index.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'state/closing_...b934ca495991b7852b855', 'state/results.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t61_catalogue_archive.py:140: AssertionError
+_______ test_catalogue_backfill_originals_and_checkpoint_roundtrip[key5] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-216/test_catalogue_backfill_origin5')
+key = 'state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv'
+
+    @pytest.mark.parametrize("key", [
+        "state/catalogue/backfill-checkpoint.json",
+        "state/catalogue/history-1/backfill.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json",
+        "state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json",
+    ])
+    def test_catalogue_backfill_originals_and_checkpoint_roundtrip(tmp_path, key):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        evidence = put(source.parent, key)
+        archive = tmp_path / "archive"
+        report = export_feeds(source, archive, date(2026, 11, 14), "history")
+>       assert key in report["files"]
+E       AssertionError: assert 'state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv' in {'state/apif_fixture_index.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'state/closing_...b934ca495991b7852b855', 'state/results.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t61_catalogue_archive.py:140: AssertionError
+_______ test_catalogue_backfill_originals_and_checkpoint_roundtrip[key6] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-216/test_catalogue_backfill_origin6')
+key = 'state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json'
+
+    @pytest.mark.parametrize("key", [
+        "state/catalogue/backfill-checkpoint.json",
+        "state/catalogue/history-1/backfill.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/api-football/2026-11-14/fixtures-39-2025_012345123456Z_0123456789abcdef0123456789abcdef.json.meta.json",
+        "state/catalogue/history-1/backfill/football-data-org/2026-11-14/matches_012345123456Z_0123456789abcdef0123456789abcdef.json",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv",
+        "state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json",
+    ])
+    def test_catalogue_backfill_originals_and_checkpoint_roundtrip(tmp_path, key):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        evidence = put(source.parent, key)
+        archive = tmp_path / "archive"
+        report = export_feeds(source, archive, date(2026, 11, 14), "history")
+>       assert key in report["files"]
+E       AssertionError: assert 'state/catalogue/history-1/backfill/football-data-co-uk/2026-11-14/E0-2526_012345123456Z_0123456789abcdef0123456789abcdef.csv.meta.json' in {'state/apif_fixture_index.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'state/closing_...b934ca495991b7852b855', 'state/results.jsonl': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ...}
+
+tests/test_t61_catalogue_archive.py:140: AssertionError
+___________ test_jc_latest_pointer_preserves_other_provider_evidence ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-216/test_jc_latest_pointer_preserv0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fd6151517f0>
+
+    @responses.activate
+    def test_jc_latest_pointer_preserves_other_provider_evidence(tmp_path, monkeypatch):
+        catalogue = module()
+        actions(monkeypatch)
+        monkeypatch.setattr("zucai.sources.base.RateLimiter.wait", lambda self: None)
+        database = database_at(tmp_path / "data/zucai.db")
+        folder = database.parent / "state/catalogue/previous"
+        folder.mkdir(parents=True)
+        (folder / "apif.json").write_bytes(b'{"provider":"apif"}')
+        pointer = dict(path="state/catalogue/previous/apif.json", run_id="previous",
+                       sha256=hashlib.sha256((folder / "apif.json").read_bytes()).hexdigest(),
+                       raw_sha256="a" * 64)
+        latest = folder.parent / "latest.json"
+        latest.write_text(json.dumps(dict(version=1, providers=dict(apif=pointer))))
+        responses.add(responses.GET, API + "getUniformMatchResultV1.qry", body=(FIXTURES / "jc-empty.json").read_bytes())
+        catalogue.collect_jc_catalogue(database, "jc-index", now=datetime(2026, 11, 14, tzinfo=UTC))
+        index = json.loads(latest.read_bytes())
+        assert index["providers"]["apif"] == pointer
+>       jc = index["providers"]["jc"]
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'jc'
+
+tests/test_t61_jc_catalogue.py:205: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_backfill_originals_and_checkpoint_roundtrip[state/catalogue/backfill-checkpoint.json]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_backfill_originals_and_checkpoint_roundtrip[state/catalogue/history-1/backfill.json]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_backfill_originals_and_checkpoint_roundtrip[key2]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_backfill_originals_and_checkpoint_roundtrip[key3]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_backfill_originals_and_checkpoint_roundtrip[key4]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_backfill_originals_and_checkpoint_roundtrip[key5]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_backfill_originals_and_checkpoint_roundtrip[key6]
+FAILED tests/test_t61_jc_catalogue.py::test_jc_latest_pointer_preserves_other_provider_evidence

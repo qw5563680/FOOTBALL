@@ -1,0 +1,316 @@
+................................................FFF...F................. [ 21%]
+........................................................................ [ 42%]
+........................................................................ [ 63%]
+........................................................................ [ 84%]
+...................................................                      [100%]
+=================================== FAILURES ===================================
+_ test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact[probe-codex/T22-apif-paid-plan] _
+
+operation = 'probe', ref_name = 'codex/T22-apif-paid-plan'
+
+    @pytest.mark.parametrize(
+        ("operation", "ref_name"),
+        [
+            *[
+                (operation, "codex/T18-fd-backfill")
+                for operation in ("backfill", "apis", "verify", "sync", "predict")
+            ],
+            ("backfill", "football-ingest-run-t18"),
+            ("backfill", "football-ingest-verify-t18"),
+            ("relink-fdorg", "codex/T24-fd-fdorg-counterpart"),
+            ("relink-fdorg", "football-ingest-run-t24"),
+            ("relink-fdorg", "football-ingest-verify-t24"),
+            ("relink-jc", "codex/T40-late-jc-relink"),
+            ("relink-jc", "football-ingest-run-t40"),
+            ("relink-jc", "football-ingest-verify-t40"),
+            ("reconcile", "codex/T23-identity-alignment"),
+            ("reconcile", "football-ingest-run-t23"),
+            ("reconcile", "football-ingest-verify-t23"),
+            ("identity", "codex/T23-identity-alignment"),
+            ("identity", "football-ingest-run-t23"),
+            ("identity", "football-ingest-verify-t23"),
+            ("probe", "codex/T22-apif-paid-plan"),
+            ("probe", "football-ingest-run-t22"),
+            ("probe", "football-ingest-verify-t22"),
+            ("scoreboard", "codex/T19-scoreboard"),
+            ("scoreboard", "football-ingest-run-t19"),
+            ("scoreboard", "football-ingest-verify-t19"),
+        ],
+    )
+    def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(operation, ref_name):
+        text = WORKFLOW.read_text()
+        assert (
+            "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
+            "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, "
+            "candidate-review, daily]" in text
+        )
+        jobs = dict(
+            re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
+        )
+        context = {
+            "github.event_name": "workflow_dispatch",
+            "inputs.operation": operation,
+            "github.event.schedule": "",
+            "github.ref_name": ref_name,
+            "vars.FOOTBALL_FEEDS_RUNNER": "football-local",
+            "needs.apis.result": "success",
+            "needs.schedule-gate.outputs.run_early": "",
+            "needs.schedule-gate.result": "skipped",
+        }
+    
+        def evaluate(expression):
+            for key, value in context.items():
+                expression = expression.replace(key, repr(value))
+            expression = (
+                expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+            )
+            return eval(
+                expression, {"__builtins__": {}, "startsWith": lambda a, b: a.startswith(b)}, {}
+            )
+    
+        expected = {
+            "apis": operation
+            in {
+                "apis",
+                "verify",
+                "backfill",
+                "probe",
+                "identity",
+                "reconcile",
+                "relink-fdorg",
+                "relink-jc",
+            },
+            "sporttery": operation == "sync",
+            "predict": operation == "predict",
+        }
+        for name, job in jobs.items():
+            expression = re.search(r"if: \$\{\{ (.*?) \}\}", job).group(1)
+>           assert evaluate(expression) is expected[name]
+                   ^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cloud_predict_workflow.py:144: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_cloud_predict_workflow.py:123: in evaluate
+    return eval(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   NameError: name 'fromJSON' is not defined
+
+<string>:1: NameError
+_ test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact[probe-football-ingest-run-t22] _
+
+operation = 'probe', ref_name = 'football-ingest-run-t22'
+
+    @pytest.mark.parametrize(
+        ("operation", "ref_name"),
+        [
+            *[
+                (operation, "codex/T18-fd-backfill")
+                for operation in ("backfill", "apis", "verify", "sync", "predict")
+            ],
+            ("backfill", "football-ingest-run-t18"),
+            ("backfill", "football-ingest-verify-t18"),
+            ("relink-fdorg", "codex/T24-fd-fdorg-counterpart"),
+            ("relink-fdorg", "football-ingest-run-t24"),
+            ("relink-fdorg", "football-ingest-verify-t24"),
+            ("relink-jc", "codex/T40-late-jc-relink"),
+            ("relink-jc", "football-ingest-run-t40"),
+            ("relink-jc", "football-ingest-verify-t40"),
+            ("reconcile", "codex/T23-identity-alignment"),
+            ("reconcile", "football-ingest-run-t23"),
+            ("reconcile", "football-ingest-verify-t23"),
+            ("identity", "codex/T23-identity-alignment"),
+            ("identity", "football-ingest-run-t23"),
+            ("identity", "football-ingest-verify-t23"),
+            ("probe", "codex/T22-apif-paid-plan"),
+            ("probe", "football-ingest-run-t22"),
+            ("probe", "football-ingest-verify-t22"),
+            ("scoreboard", "codex/T19-scoreboard"),
+            ("scoreboard", "football-ingest-run-t19"),
+            ("scoreboard", "football-ingest-verify-t19"),
+        ],
+    )
+    def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(operation, ref_name):
+        text = WORKFLOW.read_text()
+        assert (
+            "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
+            "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, "
+            "candidate-review, daily]" in text
+        )
+        jobs = dict(
+            re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
+        )
+        context = {
+            "github.event_name": "workflow_dispatch",
+            "inputs.operation": operation,
+            "github.event.schedule": "",
+            "github.ref_name": ref_name,
+            "vars.FOOTBALL_FEEDS_RUNNER": "football-local",
+            "needs.apis.result": "success",
+            "needs.schedule-gate.outputs.run_early": "",
+            "needs.schedule-gate.result": "skipped",
+        }
+    
+        def evaluate(expression):
+            for key, value in context.items():
+                expression = expression.replace(key, repr(value))
+            expression = (
+                expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+            )
+            return eval(
+                expression, {"__builtins__": {}, "startsWith": lambda a, b: a.startswith(b)}, {}
+            )
+    
+        expected = {
+            "apis": operation
+            in {
+                "apis",
+                "verify",
+                "backfill",
+                "probe",
+                "identity",
+                "reconcile",
+                "relink-fdorg",
+                "relink-jc",
+            },
+            "sporttery": operation == "sync",
+            "predict": operation == "predict",
+        }
+        for name, job in jobs.items():
+            expression = re.search(r"if: \$\{\{ (.*?) \}\}", job).group(1)
+>           assert evaluate(expression) is expected[name]
+                   ^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cloud_predict_workflow.py:144: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_cloud_predict_workflow.py:123: in evaluate
+    return eval(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   NameError: name 'fromJSON' is not defined
+
+<string>:1: NameError
+_ test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact[probe-football-ingest-verify-t22] _
+
+operation = 'probe', ref_name = 'football-ingest-verify-t22'
+
+    @pytest.mark.parametrize(
+        ("operation", "ref_name"),
+        [
+            *[
+                (operation, "codex/T18-fd-backfill")
+                for operation in ("backfill", "apis", "verify", "sync", "predict")
+            ],
+            ("backfill", "football-ingest-run-t18"),
+            ("backfill", "football-ingest-verify-t18"),
+            ("relink-fdorg", "codex/T24-fd-fdorg-counterpart"),
+            ("relink-fdorg", "football-ingest-run-t24"),
+            ("relink-fdorg", "football-ingest-verify-t24"),
+            ("relink-jc", "codex/T40-late-jc-relink"),
+            ("relink-jc", "football-ingest-run-t40"),
+            ("relink-jc", "football-ingest-verify-t40"),
+            ("reconcile", "codex/T23-identity-alignment"),
+            ("reconcile", "football-ingest-run-t23"),
+            ("reconcile", "football-ingest-verify-t23"),
+            ("identity", "codex/T23-identity-alignment"),
+            ("identity", "football-ingest-run-t23"),
+            ("identity", "football-ingest-verify-t23"),
+            ("probe", "codex/T22-apif-paid-plan"),
+            ("probe", "football-ingest-run-t22"),
+            ("probe", "football-ingest-verify-t22"),
+            ("scoreboard", "codex/T19-scoreboard"),
+            ("scoreboard", "football-ingest-run-t19"),
+            ("scoreboard", "football-ingest-verify-t19"),
+        ],
+    )
+    def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(operation, ref_name):
+        text = WORKFLOW.read_text()
+        assert (
+            "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
+            "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, "
+            "candidate-review, daily]" in text
+        )
+        jobs = dict(
+            re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
+        )
+        context = {
+            "github.event_name": "workflow_dispatch",
+            "inputs.operation": operation,
+            "github.event.schedule": "",
+            "github.ref_name": ref_name,
+            "vars.FOOTBALL_FEEDS_RUNNER": "football-local",
+            "needs.apis.result": "success",
+            "needs.schedule-gate.outputs.run_early": "",
+            "needs.schedule-gate.result": "skipped",
+        }
+    
+        def evaluate(expression):
+            for key, value in context.items():
+                expression = expression.replace(key, repr(value))
+            expression = (
+                expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+            )
+            return eval(
+                expression, {"__builtins__": {}, "startsWith": lambda a, b: a.startswith(b)}, {}
+            )
+    
+        expected = {
+            "apis": operation
+            in {
+                "apis",
+                "verify",
+                "backfill",
+                "probe",
+                "identity",
+                "reconcile",
+                "relink-fdorg",
+                "relink-jc",
+            },
+            "sporttery": operation == "sync",
+            "predict": operation == "predict",
+        }
+        for name, job in jobs.items():
+            expression = re.search(r"if: \$\{\{ (.*?) \}\}", job).group(1)
+>           assert evaluate(expression) is expected[name]
+                   ^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cloud_predict_workflow.py:144: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_cloud_predict_workflow.py:123: in evaluate
+    return eval(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   NameError: name 'fromJSON' is not defined
+
+<string>:1: NameError
+__________ test_probe_publishes_quota_audit_without_other_operations ___________
+
+    def test_probe_publishes_quota_audit_without_other_operations():
+        text = WORKFLOW.read_text()
+        steps = text.split("      - name:")
+        probe = next(step for step in steps if "Probe API-Football permissions" in step)
+        assert "env.FEED_MODE == 'probe'" in probe
+        assert (
+            '"$PROBE_SOURCE"' in probe and '"$PROBE_LEAGUES"' in probe and '"$PROBE_SEASONS"' in probe
+        )
+>       assert "FOOTBALL_DATA_ORG_TOKEN" not in probe
+E       assert 'FOOTBALL_DATA_ORG_TOKEN' not in ' Probe API-...{args[@]}"\n'
+E         
+E         'FOOTBALL_DATA_ORG_TOKEN' is contained here:
+E                     FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+E         ?           +++++++++++++++++++++++
+E                     PROBE_LEAGUES: ${{ inputs.leagues }}
+E                     PROBE_SEASONS: ${{ inputs.seasons }}
+E                     PROBE_KIND: ${{ fromJSON(inputs.options || '{}').probe_kind || 'seasons' }}...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_cloud_predict_workflow.py:177: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_cloud_predict_workflow.py::test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact[probe-codex/T22-apif-paid-plan]
+FAILED tests/test_cloud_predict_workflow.py::test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact[probe-football-ingest-run-t22]
+FAILED tests/test_cloud_predict_workflow.py::test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact[probe-football-ingest-verify-t22]
+FAILED tests/test_cloud_predict_workflow.py::test_probe_publishes_quota_audit_without_other_operations

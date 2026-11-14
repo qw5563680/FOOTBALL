@@ -1,0 +1,302 @@
+FFFFFFFFFFF.....                                                         [100%]
+=================================== FAILURES ===================================
+_ test_catalogue_files_are_hashed_exported_and_restored_without_changing_feed_rows _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_files_are_hashe0')
+
+    def test_catalogue_files_are_hashed_exported_and_restored_without_changing_feed_rows(tmp_path):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        baseline = export_feeds(source, archive, date(2026, 11, 13), "before")
+        rows_before = {key: (archive / key).read_bytes() for key in baseline["files"]}
+        for key in CATALOGUE_FILES:
+            put(source.parent, key)
+        meta = export_feeds(source, archive, date(2026, 11, 13), "catalogue")
+>       assert set(CATALOGUE_FILES) <= set(meta["files"])
+E       AssertionError: assert {'state/catal...ta.json', ...} <= {'state/apif_.../teams.jsonl'}
+E         
+E         Extra items in the left set:
+E         'state/catalogue/run-1/apif-meta.json'
+E         'state/catalogue/latest.json'
+E         'state/catalogue/run-1/fdorg-meta.json'
+E         'state/catalogue/run-1/jc.json'
+E         'state/catalogue/run-1/apif-raw.json'...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_t61_catalogue_archive.py:52: AssertionError
+_______ test_restore_older_snapshot_removes_all_later_catalogue_evidence _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_restore_older_snapshot_re0')
+
+    def test_restore_older_snapshot_removes_all_later_catalogue_evidence(tmp_path):
+        source = database_at(tmp_path / "seed/data/zucai.db")
+        older, newer = tmp_path / "older", tmp_path / "newer"
+        export_feeds(source, older, date(2026, 11, 12), "older")
+        for key in CATALOGUE_FILES:
+            put(source.parent, key)
+        export_feeds(source, newer, date(2026, 11, 13), "newer")
+        target = tmp_path / "restored/data/zucai.db"
+        restore_feeds(newer, target)
+>       assert (target.parent / CATALOGUE_FILES[0]).is_file()
+E       AssertionError: assert False
+E        +  where False = is_file()
+E        +    where is_file = (PosixPath('/tmp/pytest-of-agent/pytest-194/test_restore_older_snapshot_re0/restored/data') / 'state/catalogue/latest.json').is_file
+E        +      where PosixPath('/tmp/pytest-of-agent/pytest-194/test_restore_older_snapshot_re0/restored/data') = PosixPath('/tmp/pytest-of-agent/pytest-194/test_restore_older_snapshot_re0/restored/data/zucai.db').parent
+
+tests/test_t61_catalogue_archive.py:74: AssertionError
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue-source] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re0')
+where = 'source', link = 'state/catalogue'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue-archive] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re1')
+where = 'archive', link = 'state/catalogue'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue-destination] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re2')
+where = 'destination', link = 'state/catalogue'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1-source] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re3')
+where = 'source', link = 'state/catalogue/run-1'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1-archive] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re4')
+where = 'archive', link = 'state/catalogue/run-1'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1-destination] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re5')
+where = 'destination', link = 'state/catalogue/run-1'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1/apif-raw.json-source] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re6')
+where = 'source', link = 'state/catalogue/run-1/apif-raw.json'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1/apif-raw.json-archive] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re7')
+where = 'archive', link = 'state/catalogue/run-1/apif-raw.json'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+_ test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1/apif-raw.json-destination] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-194/test_catalogue_symlinks_are_re8')
+where = 'destination', link = 'state/catalogue/run-1/apif-raw.json'
+
+    @pytest.mark.parametrize("where", ["source", "archive", "destination"])
+    @pytest.mark.parametrize("link", ["state/catalogue", "state/catalogue/run-1", CATALOGUE_FILES[1]])
+    def test_catalogue_symlinks_are_rejected_before_database_or_archive_changes(tmp_path, where, link):
+        source = database_at(tmp_path / "work/data/zucai.db")
+        archive = tmp_path / "archive"
+        export_feeds(source, archive, date(2026, 11, 13), "seed")
+        destination = database_at(tmp_path / "destination/data/zucai.db")
+        before_db = destination.read_bytes()
+        before_manifest = (archive / "feed_manifest.json").read_bytes()
+        root = {"source": source.parent, "archive": archive, "destination": destination.parent}[where]
+        outside = tmp_path / "outside"
+        if link.endswith(".json"):
+            outside.write_bytes(b"external")
+        else:
+            outside.mkdir()
+        path = root / link
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(outside, target_is_directory=outside.is_dir())
+>       with pytest.raises(ValueError, match="符号链接"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue_archive.py:99: Failed
+=========================== short test summary info ============================
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_files_are_hashed_exported_and_restored_without_changing_feed_rows
+FAILED tests/test_t61_catalogue_archive.py::test_restore_older_snapshot_removes_all_later_catalogue_evidence
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue-source]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue-archive]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue-destination]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1-source]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1-archive]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1-destination]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1/apif-raw.json-source]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1/apif-raw.json-archive]
+FAILED tests/test_t61_catalogue_archive.py::test_catalogue_symlinks_are_rejected_before_database_or_archive_changes[state/catalogue/run-1/apif-raw.json-destination]

@@ -1,0 +1,182 @@
+...................................................................FFFFF [ 96%]
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+________ test_hosted_only_guard_rejects_other_runner_environments[None] ________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-208/test_hosted_only_guard_rejects0')
+actions = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe60ebd2450>
+runner = None
+
+    @pytest.mark.parametrize("runner", [None, "self-hosted", "unknown"])
+    def test_hosted_only_guard_rejects_other_runner_environments(tmp_path, actions, monkeypatch, runner):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        if runner is None:
+            monkeypatch.delenv("RUNNER_ENVIRONMENT", raising=False)
+        else:
+            monkeypatch.setenv("RUNNER_ENVIRONMENT", runner)
+>       with pytest.raises(ValueError, match="github-hosted"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue.py:398: Failed
+____ test_hosted_only_guard_rejects_other_runner_environments[self-hosted] _____
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-208/test_hosted_only_guard_rejects1')
+actions = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe60ebfaf90>
+runner = 'self-hosted'
+
+    @pytest.mark.parametrize("runner", [None, "self-hosted", "unknown"])
+    def test_hosted_only_guard_rejects_other_runner_environments(tmp_path, actions, monkeypatch, runner):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        if runner is None:
+            monkeypatch.delenv("RUNNER_ENVIRONMENT", raising=False)
+        else:
+            monkeypatch.setenv("RUNNER_ENVIRONMENT", runner)
+>       with pytest.raises(ValueError, match="github-hosted"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue.py:398: Failed
+______ test_hosted_only_guard_rejects_other_runner_environments[unknown] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-208/test_hosted_only_guard_rejects2')
+actions = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe60ebed590>
+runner = 'unknown'
+
+    @pytest.mark.parametrize("runner", [None, "self-hosted", "unknown"])
+    def test_hosted_only_guard_rejects_other_runner_environments(tmp_path, actions, monkeypatch, runner):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        if runner is None:
+            monkeypatch.delenv("RUNNER_ENVIRONMENT", raising=False)
+        else:
+            monkeypatch.setenv("RUNNER_ENVIRONMENT", runner)
+>       with pytest.raises(ValueError, match="github-hosted"):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue.py:398: Failed
+_ test_cross_provider_credential_echo_is_blocked_before_original_archive[apif] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-208/test_cross_provider_credential0')
+actions = None, provider = 'apif'
+
+    @pytest.mark.parametrize("provider", ["apif", "fdorg"])
+    def test_cross_provider_credential_echo_is_blocked_before_original_archive(tmp_path, actions, provider):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        other = "fdorg" if provider == "apif" else "apif"
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http, **{provider: ERRORS[f"{other}_unsafe_escaped"].encode()})
+            report = collect_catalogue(database, "cross-echo")
+        assert report["status"] == "partial"
+        for path in database.parent.rglob("*"):
+            if path.is_file():
+                decoded = path.read_text().replace("\\u0073", "s")
+                assert "synthetic-apif-key" not in decoded
+>               assert "synthetic-fdorg-token" not in decoded
+E               assert 'synthetic-fdorg-token' not in '{"note":"sy...:"shadowed"}'
+E                 
+E                 'synthetic-fdorg-token' is contained here:
+E                   {"note":"synthetic-fdorg-token","note":"shadowed"}
+
+tests/test_t61_catalogue.py:417: AssertionError
+_ test_cross_provider_credential_echo_is_blocked_before_original_archive[fdorg] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-208/test_cross_provider_credential1')
+actions = None, provider = 'fdorg'
+
+    @pytest.mark.parametrize("provider", ["apif", "fdorg"])
+    def test_cross_provider_credential_echo_is_blocked_before_original_archive(tmp_path, actions, provider):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        other = "fdorg" if provider == "apif" else "apif"
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http, **{provider: ERRORS[f"{other}_unsafe_escaped"].encode()})
+            report = collect_catalogue(database, "cross-echo")
+        assert report["status"] == "partial"
+        for path in database.parent.rglob("*"):
+            if path.is_file():
+                decoded = path.read_text().replace("\\u0073", "s")
+>               assert "synthetic-apif-key" not in decoded
+E               assert 'synthetic-apif-key' not in '{"note":"sy...:"shadowed"}'
+E                 
+E                 'synthetic-apif-key' is contained here:
+E                   {"note":"synthetic-apif-key","note":"shadowed"}
+E                 ?          ++++++++++++++++++
+
+tests/test_t61_catalogue.py:416: AssertionError
+________ test_fd_catalogue_retains_only_explicit_reviewed_season_years _________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-208/test_fd_catalogue_retains_only0')
+actions = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fe60dcbc7d0>
+
+    def test_fd_catalogue_retains_only_explicit_reviewed_season_years(tmp_path, actions, monkeypatch):
+        from zucai import cloud_catalogue
+        from zucai.league_registry import REGISTRY_PATH
+    
+        doc = json.loads(REGISTRY_PATH.read_bytes())
+        fixture = json.loads((FIXTURES / "catalogue-fd-seasons-synthetic.json").read_bytes())
+        doc["providers"]["fd"]["E0"]["config"]["catalogue_seasons"] = fixture["catalogue_seasons"]
+        doc["providers"]["fd"]["E0"]["evidence"].append(fixture["evidence"])
+        registry = tmp_path / "registry.json"
+        registry.write_text(json.dumps(doc))
+        monkeypatch.setattr(cloud_catalogue, "REGISTRY_PATH", registry, raising=False)
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http)
+            report = cloud_catalogue.collect_catalogue(database, "fd-seasons")
+        assert report["status"] == "complete"
+        fd = json.loads((database.parent / "state/catalogue/fd-seasons/fd.json").read_bytes())
+        divisions = {row["id"]: row for row in fd["leagues"]}
+>       assert [season["year"] for season in divisions["E0"]["seasons"]] == [2020, 2025]
+E       assert [] == [2020, 2025]
+E         
+E         Right contains 2 more items, first extra item: 2020
+E         Use -v to get more diff
+
+tests/test_t61_catalogue.py:439: AssertionError
+_____ test_invalid_run_names_match_archive_validator_and_never_expose_keys _____
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-208/test_invalid_run_names_match_a0')
+actions = None
+
+    def test_invalid_run_names_match_archive_validator_and_never_expose_keys(tmp_path, actions):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        for run_id in ("has.dot", "r" * 101, "synthetic-apif-key", "synthetic-fdorg-token"):
+>           with pytest.raises(ValueError):
+E           Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue.py:451: Failed
+________ test_probe_rejects_catalogue_directory_symlink_before_requests ________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-208/test_probe_rejects_catalogue_d0')
+actions = None
+
+    def test_probe_rejects_catalogue_directory_symlink_before_requests(tmp_path, actions):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        root = tmp_path / "data"
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (root / "state").mkdir(parents=True)
+        (root / "state/catalogue").symlink_to(outside, target_is_directory=True)
+>       with pytest.raises(ValueError):
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_t61_catalogue.py:464: Failed
+=========================== short test summary info ============================
+FAILED tests/test_t61_catalogue.py::test_hosted_only_guard_rejects_other_runner_environments[None]
+FAILED tests/test_t61_catalogue.py::test_hosted_only_guard_rejects_other_runner_environments[self-hosted]
+FAILED tests/test_t61_catalogue.py::test_hosted_only_guard_rejects_other_runner_environments[unknown]
+FAILED tests/test_t61_catalogue.py::test_cross_provider_credential_echo_is_blocked_before_original_archive[apif]
+FAILED tests/test_t61_catalogue.py::test_cross_provider_credential_echo_is_blocked_before_original_archive[fdorg]
+FAILED tests/test_t61_catalogue.py::test_fd_catalogue_retains_only_explicit_reviewed_season_years
+FAILED tests/test_t61_catalogue.py::test_invalid_run_names_match_archive_validator_and_never_expose_keys
+FAILED tests/test_t61_catalogue.py::test_probe_rejects_catalogue_directory_symlink_before_requests

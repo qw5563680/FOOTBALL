@@ -1,0 +1,294 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_malformed_previous_pointer_cannot_abort_other_provider_collection[missing-raw-hash] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-233/test_malformed_previous_pointe0')
+actions = None, mutation = 'missing-raw-hash'
+
+    @pytest.mark.parametrize("mutation", ["missing-raw-hash", "invalid-provenance"])
+    def test_malformed_previous_pointer_cannot_abort_other_provider_collection(tmp_path, actions, mutation):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http)
+            collect_catalogue(database, "prior-malformed")
+        folder = database.parent / "state/catalogue/prior-malformed"
+        latest = json.loads((folder.parent / "latest.json").read_bytes())
+        parsed = json.loads((folder / "apif.json").read_bytes())
+        if mutation == "missing-raw-hash":
+            latest["providers"]["apif"].pop("raw_sha256")
+            parsed["provenance"].pop("raw_sha256")
+        else:
+            parsed["provenance"] = []
+        (folder / "apif.json").write_text(json.dumps(parsed))
+        latest["providers"]["apif"]["sha256"] = hashlib.sha256((folder / "apif.json").read_bytes()).hexdigest()
+        (folder.parent / "latest.json").write_text(json.dumps(latest))
+        with responses.RequestsMock() as http:
+            _responses(http)
+>           report = collect_catalogue(database, "after-malformed")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t61_catalogue.py:610: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_catalogue.py:573: in collect_catalogue
+    pointers, errors = _previous_pointers(root)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-agent/pytest-233/test_malformed_previous_pointe0/data')
+
+    def _previous_pointers(root):
+        latest = root / "state/catalogue/latest.json"
+        if not latest.exists():
+            return {}, []
+        pointers, errors = {}, []
+        try:
+            doc = _document(latest.read_bytes())
+            if doc.get("version") != 1 or not isinstance(doc.get("providers"), dict):
+                raise CatalogueError("previous catalogue index is invalid")
+            for provider, entry in doc["providers"].items():
+                try:
+                    if provider not in {"apif", "fdorg", "fd", "jc"} or not isinstance(entry, dict):
+                        raise ValueError
+                    run_id = entry.get("run_id", "")
+                    if not isinstance(run_id, str) or not re.fullmatch(RUN_ID, run_id):
+                        raise ValueError
+                    expected = f"state/catalogue/{run_id}/{provider}.json"
+                    if entry.get("path") != expected:
+                        raise ValueError
+                    if (root / expected).is_symlink() or (root / expected).parent.is_symlink():
+                        raise ValueError
+                    path = (root / expected).resolve()
+                    if not path.is_relative_to((root / "state/catalogue").resolve()):
+                        raise ValueError
+                    payload = path.read_bytes()
+                    if hashlib.sha256(payload).hexdigest() != entry.get("sha256"):
+                        raise ValueError
+                    parsed = _document(payload)
+                    if provider != "jc":
+                        if parsed.get("version") != 1 or parsed.get("provider") != provider:
+                            raise ValueError
+                        provenance = parsed.get("provenance", {})
+                        if provenance.get("raw_sha256") != entry.get("raw_sha256"):
+                            raise ValueError
+                    if provider in {"apif", "fdorg"}:
+                        raw_path = path.with_name(f"{provider}-raw.json")
+                        meta_path = path.with_name(f"{provider}-meta.json")
+                        if raw_path.is_symlink() or meta_path.is_symlink():
+                            raise ValueError
+                        raw = raw_path.read_bytes()
+                        metadata = _document(meta_path.read_bytes())
+                        if (
+>                           hashlib.sha256(raw).hexdigest() != entry["raw_sha256"]
+                                                               ^^^^^^^^^^^^^^^^^^^
+                            or metadata.get("sha256") != entry["raw_sha256"]
+                            or metadata.get("status_code") != 200
+                            or provenance.get("raw_path")
+                            != f"state/catalogue/{run_id}/{provider}-raw.json"
+                            or provenance.get("meta_path")
+                            != f"state/catalogue/{run_id}/{provider}-meta.json"
+                            or provenance.get("fetched_at_utc") != metadata.get("fetched_at_utc")
+                            or provenance.get("url") != metadata.get("url")
+                        ):
+E                       KeyError: 'raw_sha256'
+
+src/zucai/cloud_catalogue.py:526: KeyError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-233/test_malformed_previous_pointe0')
+actions = None, mutation = 'missing-raw-hash'
+
+    @pytest.mark.parametrize("mutation", ["missing-raw-hash", "invalid-provenance"])
+    def test_malformed_previous_pointer_cannot_abort_other_provider_collection(tmp_path, actions, mutation):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http)
+            collect_catalogue(database, "prior-malformed")
+        folder = database.parent / "state/catalogue/prior-malformed"
+        latest = json.loads((folder.parent / "latest.json").read_bytes())
+        parsed = json.loads((folder / "apif.json").read_bytes())
+        if mutation == "missing-raw-hash":
+            latest["providers"]["apif"].pop("raw_sha256")
+            parsed["provenance"].pop("raw_sha256")
+        else:
+            parsed["provenance"] = []
+        (folder / "apif.json").write_text(json.dumps(parsed))
+        latest["providers"]["apif"]["sha256"] = hashlib.sha256((folder / "apif.json").read_bytes()).hexdigest()
+        (folder.parent / "latest.json").write_text(json.dumps(latest))
+>       with responses.RequestsMock() as http:
+
+tests/test_t61_catalogue.py:608: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../t58-fresh311-venv/lib/python3.11/site-packages/responses/__init__.py:1006: in __exit__
+    self.stop(allow_assert=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <responses.RequestsMock object at 0x7f980daf8950>, allow_assert = True
+
+    def stop(self, allow_assert: bool = True) -> None:
+        if self._patcher:
+            # prevent stopping unstarted patchers
+            self._patcher.stop()
+    
+            # once patcher is stopped, clean it. This is required to create a new
+            # fresh patcher on self.start()
+            self._patcher = None
+    
+        if not self.assert_all_requests_are_fired:
+            return
+    
+        if not allow_assert:
+            return
+    
+        not_called = [m for m in self.registered() if m.call_count == 0]
+        if not_called:
+>           raise AssertionError(
+                "Not all requests have been executed {!r}".format(
+                    [(match.method, match.url) for match in not_called]
+                )
+            )
+E           AssertionError: Not all requests have been executed [('GET', 'https://v3.football.api-sports.io/leagues'), ('GET', 'https://api.football-data.org/v4/competitions')]
+
+../t58-fresh311-venv/lib/python3.11/site-packages/responses/__init__.py:1246: AssertionError
+_ test_malformed_previous_pointer_cannot_abort_other_provider_collection[invalid-provenance] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-233/test_malformed_previous_pointe1')
+actions = None, mutation = 'invalid-provenance'
+
+    @pytest.mark.parametrize("mutation", ["missing-raw-hash", "invalid-provenance"])
+    def test_malformed_previous_pointer_cannot_abort_other_provider_collection(tmp_path, actions, mutation):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http)
+            collect_catalogue(database, "prior-malformed")
+        folder = database.parent / "state/catalogue/prior-malformed"
+        latest = json.loads((folder.parent / "latest.json").read_bytes())
+        parsed = json.loads((folder / "apif.json").read_bytes())
+        if mutation == "missing-raw-hash":
+            latest["providers"]["apif"].pop("raw_sha256")
+            parsed["provenance"].pop("raw_sha256")
+        else:
+            parsed["provenance"] = []
+        (folder / "apif.json").write_text(json.dumps(parsed))
+        latest["providers"]["apif"]["sha256"] = hashlib.sha256((folder / "apif.json").read_bytes()).hexdigest()
+        (folder.parent / "latest.json").write_text(json.dumps(latest))
+        with responses.RequestsMock() as http:
+            _responses(http)
+>           report = collect_catalogue(database, "after-malformed")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t61_catalogue.py:610: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_catalogue.py:573: in collect_catalogue
+    pointers, errors = _previous_pointers(root)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-agent/pytest-233/test_malformed_previous_pointe1/data')
+
+    def _previous_pointers(root):
+        latest = root / "state/catalogue/latest.json"
+        if not latest.exists():
+            return {}, []
+        pointers, errors = {}, []
+        try:
+            doc = _document(latest.read_bytes())
+            if doc.get("version") != 1 or not isinstance(doc.get("providers"), dict):
+                raise CatalogueError("previous catalogue index is invalid")
+            for provider, entry in doc["providers"].items():
+                try:
+                    if provider not in {"apif", "fdorg", "fd", "jc"} or not isinstance(entry, dict):
+                        raise ValueError
+                    run_id = entry.get("run_id", "")
+                    if not isinstance(run_id, str) or not re.fullmatch(RUN_ID, run_id):
+                        raise ValueError
+                    expected = f"state/catalogue/{run_id}/{provider}.json"
+                    if entry.get("path") != expected:
+                        raise ValueError
+                    if (root / expected).is_symlink() or (root / expected).parent.is_symlink():
+                        raise ValueError
+                    path = (root / expected).resolve()
+                    if not path.is_relative_to((root / "state/catalogue").resolve()):
+                        raise ValueError
+                    payload = path.read_bytes()
+                    if hashlib.sha256(payload).hexdigest() != entry.get("sha256"):
+                        raise ValueError
+                    parsed = _document(payload)
+                    if provider != "jc":
+                        if parsed.get("version") != 1 or parsed.get("provider") != provider:
+                            raise ValueError
+                        provenance = parsed.get("provenance", {})
+>                       if provenance.get("raw_sha256") != entry.get("raw_sha256"):
+                           ^^^^^^^^^^^^^^
+E                       AttributeError: 'list' object has no attribute 'get'
+
+src/zucai/cloud_catalogue.py:516: AttributeError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-233/test_malformed_previous_pointe1')
+actions = None, mutation = 'invalid-provenance'
+
+    @pytest.mark.parametrize("mutation", ["missing-raw-hash", "invalid-provenance"])
+    def test_malformed_previous_pointer_cannot_abort_other_provider_collection(tmp_path, actions, mutation):
+        from zucai.cloud_catalogue import collect_catalogue
+    
+        database = tmp_path / "data/zucai.db"
+        with responses.RequestsMock() as http:
+            _responses(http)
+            collect_catalogue(database, "prior-malformed")
+        folder = database.parent / "state/catalogue/prior-malformed"
+        latest = json.loads((folder.parent / "latest.json").read_bytes())
+        parsed = json.loads((folder / "apif.json").read_bytes())
+        if mutation == "missing-raw-hash":
+            latest["providers"]["apif"].pop("raw_sha256")
+            parsed["provenance"].pop("raw_sha256")
+        else:
+            parsed["provenance"] = []
+        (folder / "apif.json").write_text(json.dumps(parsed))
+        latest["providers"]["apif"]["sha256"] = hashlib.sha256((folder / "apif.json").read_bytes()).hexdigest()
+        (folder.parent / "latest.json").write_text(json.dumps(latest))
+>       with responses.RequestsMock() as http:
+
+tests/test_t61_catalogue.py:608: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../t58-fresh311-venv/lib/python3.11/site-packages/responses/__init__.py:1006: in __exit__
+    self.stop(allow_assert=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <responses.RequestsMock object at 0x7f980dafafd0>, allow_assert = True
+
+    def stop(self, allow_assert: bool = True) -> None:
+        if self._patcher:
+            # prevent stopping unstarted patchers
+            self._patcher.stop()
+    
+            # once patcher is stopped, clean it. This is required to create a new
+            # fresh patcher on self.start()
+            self._patcher = None
+    
+        if not self.assert_all_requests_are_fired:
+            return
+    
+        if not allow_assert:
+            return
+    
+        not_called = [m for m in self.registered() if m.call_count == 0]
+        if not_called:
+>           raise AssertionError(
+                "Not all requests have been executed {!r}".format(
+                    [(match.method, match.url) for match in not_called]
+                )
+            )
+E           AssertionError: Not all requests have been executed [('GET', 'https://v3.football.api-sports.io/leagues'), ('GET', 'https://api.football-data.org/v4/competitions')]
+
+../t58-fresh311-venv/lib/python3.11/site-packages/responses/__init__.py:1246: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t61_catalogue.py::test_malformed_previous_pointer_cannot_abort_other_provider_collection[missing-raw-hash]
+FAILED tests/test_t61_catalogue.py::test_malformed_previous_pointer_cannot_abort_other_provider_collection[invalid-provenance]
