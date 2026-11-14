@@ -89,13 +89,11 @@ def _complete_counterpart(session, league):
 def test_committed_source_policy_is_explicit_and_independent_of_collector_registry():
     from zucai.predict.training_sources import apif_history_sources
 
-    assert apif_history_sources() == {"韩职": {"apif", "jc"}, "澳超": {"apif", "jc"}}
-    registry = json.loads((ROOT / "data/api_football/leagues.json").read_text())
-    assert all(
-        item["league"] not in apif_history_sources()
-        for item in registry.values()
-        if item.get("identity_only")
-    )
+    assert {league: apif_history_sources()[league] for league in PAIRS} == {
+        "韩职": {"apif", "jc"},
+        "澳超": {"apif", "jc"},
+    }
+    assert len(apif_history_sources()) == 17  # T63 independently adds the original 15 leagues.
     assert "中超" not in apif_history_sources() and "丹超" not in apif_history_sources()
 
 
@@ -140,6 +138,9 @@ def test_only_existing_linked_representative_is_retained(domestic_db, league):
     with session_scope(engine) as session:
         history = read_history(session, league, "apif,jc")
     jc, apif = PAIRS[league]
+    from zucai.predict.pooled import select_training_history
+
+    history = select_training_history(history, "2026-12-01T00:00:00Z")
     assert jc in set(history.match_id) and apif not in set(history.match_id)
     assert history.attrs["linked_rows_excluded"] == [apif]
     assert history.attrs["sources"] == ["apif", "jc"]
@@ -247,7 +248,7 @@ def test_real_archive_season_boundaries_and_fixture_provenance():
 
 @pytest.mark.parametrize(
     "league",
-    ["英超", "西甲", "意甲", "德甲", "法甲", "荷甲", "葡超", "日职", "中超", "丹超", "未配置联赛"],
+    ["中超", "丹超", "未配置联赛"],
 )
 def test_daily_rejects_apif_outside_explicit_domestic_list(tmp_path, league):
     from zucai import cloud_predict

@@ -119,7 +119,8 @@ def test_train_model_and_output_record_training_and_evaluation_database_hashes(
     model = DixonColes.load(output)
     digest = hashlib.sha256(training_db.read_bytes()).hexdigest()
     published = json.loads((ROOT / "data/model/params.json").read_text())
-    evaluation = published["leagues"]["英超"]["database_sha256"]
+    evaluation = published["leagues"]["英超"].get("database_sha256")
+    assert evaluation is None  # T63 has not certified the changed source corpus.
     assert digest != evaluation
     assert model.training_database_sha256 == result["training_database_sha256"] == digest
     assert model.evaluation_database_sha256 == result["evaluation_database_sha256"] == evaluation

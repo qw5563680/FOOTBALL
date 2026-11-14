@@ -22,6 +22,18 @@ from requests import RequestException
 from zucai.db import get_engine, init_db
 from zucai.fd_stats_archive import export_fd_links, restore_fd_links, validate_fd_links_manifest
 from zucai.fd_stats_links import FD_LINK_FILE
+from zucai.result_source_identity import (
+    RESULT_IDENTITY_FILE,
+    export_result_identities,
+    restore_result_identities,
+    validate_result_identities_manifest,
+)
+from zucai.result_source_links import (
+    RESULT_LINK_FILE,
+    export_result_links,
+    restore_result_links,
+    validate_result_links_manifest,
+)
 from zucai.sfc_state import export_sfc_state, restore_sfc_state
 from zucai.sources.results import ResultRowsRejected, fetch_results
 from zucai.sources.sporttery import BEIJING, fetch_schedule
@@ -287,6 +299,12 @@ def export_feeds(
         fd_links = export_fd_links(db, archive)
         if fd_links is not None:
             files.append(FD_LINK_FILE)
+        result_links = export_result_links(db, archive)
+        if result_links is not None:
+            files.append(RESULT_LINK_FILE)
+        result_identities = export_result_identities(db, archive)
+        if result_identities is not None:
+            files.append(RESULT_IDENTITY_FILE)
         technical_data = export_stats(db, archive, source)
         files.extend((INDEX_FILE, ROWS_MANIFEST))
         sources = source_inventory(db)
@@ -382,6 +400,10 @@ def export_feeds(
     }
     if fd_links is not None:
         manifest["fd_stats_links"] = fd_links
+    if result_links is not None:
+        manifest["result_source_links"] = result_links
+    if result_identities is not None:
+        manifest["result_source_identities"] = result_identities
     (archive / MANIFEST).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -395,7 +417,11 @@ def archive_info(archive: Path) -> dict:
     _candidate_review_files(archive)
     _catalogue_files(archive)
     for key, want in meta["files"].items():
-        if key not in STATS_FILES | {FD_LINK_FILE} and not re.fullmatch(
+        if key not in STATS_FILES | {
+            FD_LINK_FILE,
+            RESULT_LINK_FILE,
+            RESULT_IDENTITY_FILE,
+        } and not re.fullmatch(
             rf"state/(?:teams|matches|results|closing_odds)\.jsonl|state/(?:unmatched_teams|rejected_results)\.csv|state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
             key,
         ):
@@ -415,6 +441,8 @@ def archive_info(archive: Path) -> dict:
         raise ValueError("云端数据校验失败：缺少 closing_odds")
     validate_stats_manifest(meta)
     validate_fd_links_manifest(meta)
+    validate_result_links_manifest(meta)
+    validate_result_identities_manifest(meta)
     return meta
 
 
@@ -456,6 +484,8 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
                     raise ValueError(f"{table} 行数校验失败")
             restore_sfc_state(db, archive, meta["files"])
             restore_fd_links(db, archive, meta)
+            restore_result_links(db, archive, meta)
+            restore_result_identities(db, archive, meta)
             restore_stats(db, archive, meta)
             check_db(db)
             if meta["version"] == 2 and source_inventory(db) != meta.get("sources"):
@@ -470,6 +500,9 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
         # Catalog evidence, technical receipts, cursor and coverage belong to this snapshot.
         # A reused destination must not retain evidence from a later run.
         for key in (
+            RESULT_LINK_FILE,
+            RESULT_IDENTITY_FILE,
+            "state/audit/apif_results_crosscheck.csv",
             "state/audit/jc_catalog.csv",
             "state/audit/jc_skipped.csv",
             "state/alias_candidates/jc.json",
@@ -863,6 +896,18 @@ def main():
             day = date.fromisoformat(meta["through_beijing"])
     published_collection = collection
     if args.command in {"sync", "apis"}:
+        from zucai.source_result_reconcile import reconcile_source_results
+        from zucai.source_results_audit import audit_source_results
+
+        checked_at = datetime.now(UTC)
+        links = reconcile_source_results(target, checked_at)
+        audit = audit_source_results(
+            target, target.parent / "state/audit/apif_results_crosscheck.csv"
+        )
+        owner = "apif" if args.command == "apis" else "jc"
+        if owner in collection:
+            collection[owner]["result_source_links"] = links
+            collection[owner]["source_results_audit"] = audit
         for result in collection.values():
             result.update(run_id=args.run_id, observed_utc=datetime.now(UTC).isoformat())
         published_collection = {**meta.get("collection", {}), **collection}

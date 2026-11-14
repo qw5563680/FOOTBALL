@@ -6,7 +6,7 @@ from pathlib import Path
 APIF_HISTORY_PATH = Path(__file__).resolve().parents[3] / "data/model/apif_history_training.json"
 
 
-def apif_history_sources():
+def apif_history_policy():
     """Read the committed opt-in list; malformed policy never broadens access."""
     try:
         document = json.loads(APIF_HISTORY_PATH.read_bytes())
@@ -28,9 +28,29 @@ def apif_history_sources():
             or league in {"欧战", "欧国联"}
             or not isinstance(sources, list)
             or any(not isinstance(source, str) for source in sources)
-            or len(sources) != 2
-            or set(sources) != {"apif", "jc"}
+            or len(sources) != len(set(sources))
+            or (
+                set(sources) != {"apif", "jc"}
+                and not (
+                    entry.get("availability_policy") == "actual_capture"
+                    and {"apif", "fd", "jc"} <= set(sources) <= {"apif", "fd", "fdorg", "jc"}
+                )
+            )
+            or entry.get("availability_policy") not in (None, "actual_capture")
         ):
             raise ValueError(f"APIF 历史训练来源配置 {league} 须显式声明 apif / jc")
-        policy[league] = set(sources)
+        policy[league] = entry
     return policy
+
+
+def apif_history_sources():
+    return {league: set(entry["sources"]) for league, entry in apif_history_policy().items()}
+
+
+def actual_result_leagues():
+    """T63 opt-in: added API rows require real observations, not historical delay."""
+    return {
+        league
+        for league, entry in apif_history_policy().items()
+        if entry.get("availability_policy") == "actual_capture"
+    }

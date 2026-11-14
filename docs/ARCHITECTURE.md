@@ -1,5 +1,43 @@
 # 架构说明
 
+## T63 截点内赛果择源与可审计证据
+
+`data/model/apif_history_training.json` 在 T60 两联赛外，显式列入既有15联赛的 APIF 来源和其中9联赛的 FDORG。
+新范围标 `availability_policy=actual_capture`，不改变求解器数值参数、来源优先级或 P2 gate。
+`read_history` 保留全体原始结果行；`DixonColes.fit` 和逐折训练共用
+`select_training_history(frame, as_of)`，先验证身份、可知时间，再按 `jc > fd > fdorg > apif` 取代表。
+后到的高优先级行不会提前删除过去可用的低优先级行。评估标签按评价结束截点选唯一实体，训练仍用各折独立截点。
+
+新增两张可选证明表，原 `matches/results/teams` 格式不变：
+
+| 表 / 归档 | 保存内容与约束 |
+| --- | --- |
+| `result_source_identities` / `state/result_source_identities.jsonl` | 来源、联赛、同向规范球队 ID、两侧精确供应商绑定、开球及真实 `verified_utc`；要求每边唯一正整数绑定且全局不重复。当前快照再次核验不改首次时间；换绑后旧证明失活，重新核验追加版本。 |
+| `result_source_links` / `state/result_source_links.jsonl` | APIF→JC/FD/FDORG 或 FDORG→JC/FD 的完整身份快照与真实 `verified_utc`；同联赛同向主客、开球差≤3小时；整个关联组件每来源最多一个比赛 ID。 |
+
+record/load/export/restore 均校验引用与组件唯一性。旧快照缺文件合法，训练只读时不建表；
+旧档恢复清除工作目录中较晚的证明与审计状态，manifest 白名单/SHA/行数校验覆盖新文件。
+新增来源参与的无时标 `counterpart_id` 不作为历史链接证据；有时标关系只在 `verified_utc < as_of` 后生效。
+旧 FD/JC、韩职/澳超及非 T63 范围的 legacy 关联保留明确兼容政策，不能据此为新增来源补造历史证明。
+
+`source_eligible_history` 只生成内存视图，不改库中旧时间。新增源的有效时间至少为当前比分可知界和身份证明时刻的最大值；
+旧 `assumed` 只允许用不早于原时间的真实 `result_checked_utc` 作保守界，原标记仍为 assumed。
+缺身份证明、缺实际观察、replayed 或未核准数字身份均不能训练。仅新增源互相比分冲突时隔离；
+存在既有 JC/FD 时保留其既有优先选择并记录审计，不按新来源改写旧比分。
+
+APIF 的 T63 导入路径即使存在旧来源同场行，也保存独立 APIF 比分。新的捕获/修正和身份/关联证明
+以实际导入核验时刻为下限，旧响应 sidecar 时间只保留为捕获证据，不能倒填今日才确认的映射。
+`source_result_reconcile` 在每日采集后核对当前存量身份与关系，只写证明表；未结算锚可以连接实体但不是赛果。
+`source_results_audit` 只读输出逐场比分/开球审计，绝不写训练取舍或数据库。
+
+`predict.revalidate_sources` 仅在新目录重产现行 gate 的候选模型、预测、评价与参数副本，不调参、不覆盖正式配置。
+15联赛旧 P2 evidence 清除认证并标实验。欧战仍按原 gate；其国内训练输入也受新范围身份/时间规则约束，
+必须在相同归档上与 main 的独立进程比较实际输入及拟合，不能仅以参数未改声称语料不变。
+
+七个桥接 route 的 import 模式不等于权限开放：regular season 只读 `result_seasons_available` 的核准年，
+date 解析另需 `result_daily_verified=true`，并逐行检查返回的赛季。两个配置和 daily/backfill 开关仍须审查者核准。
+identity-only 客户端继续提供旧身份索引，不获得赛果下载权。
+
 ## T61 目录、核准映射与历史下载
 
 `league_registry.py` 读取 `data/league_map.json`：90个总表行与原始中文名称无损保存；

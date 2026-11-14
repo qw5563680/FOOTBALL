@@ -1,6 +1,7 @@
 """Walk-forward 1X2 evaluation; prices are held outside the fitting frame."""
 
 import logging
+import re
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -41,8 +42,8 @@ def read_history(
         and sources is not None
         and not set(sources) <= apif_domestic[league]
     ):
-        raise ValueError(f"{league} 的训练来源仅限显式配置的 apif / jc")
-    home, away = aliased(Team), aliased(Team)
+        raise ValueError(f"{league} 的训练来源仅限显式配置：{sorted(apif_domestic[league])}")
+    home, away, counterpart = aliased(Team), aliased(Team), aliased(Match)
     query = (
         select(
             Match.match_id,
@@ -50,17 +51,28 @@ def read_history(
             Match.league,
             Match.counterpart_id,
             Match.kickoff_utc,
+            Match.result_checked_utc,
             Result.available_utc,
             Result.available_source,
             home.name.label("home"),
             away.name.label("away"),
+            home.aliases.label("home_aliases"),
+            away.aliases.label("away_aliases"),
             Result.home_goals,
             Result.away_goals,
+            Match.home_team_id.label("home_id"),
+            Match.away_team_id.label("away_id"),
+            counterpart.source.label("counterpart_source"),
+            counterpart.league.label("counterpart_league"),
+            counterpart.home_team_id.label("counterpart_home_id"),
+            counterpart.away_team_id.label("counterpart_away_id"),
+            counterpart.kickoff_utc.label("counterpart_kickoff_utc"),
         )
         .select_from(Match)
         .join(Result, Result.match_id == Match.match_id)
         .join(home, home.id == Match.home_team_id)
         .join(away, away.id == Match.away_team_id)
+        .outerjoin(counterpart, counterpart.match_id == Match.counterpart_id)
         .where(Match.status == "finished")
     )
     if training_leagues is not None:
@@ -78,17 +90,61 @@ def read_history(
     if sources is None and frame.source.nunique() > 1:
         raise ValueError("存在多个来源，请用 --source 显式选择来源范围")
     frame.attrs["sources"] = sources or sorted(frame.source.unique())
+    from zucai.result_source_identity import load_result_identities
+
+    identities = load_result_identities(session)
+    frame["identity_verified_utc"] = frame.match_id.map(identities)
+    frame["provider_identity_verified"] = [
+        all(
+            len(
+                [
+                    alias
+                    for alias in aliases
+                    if re.fullmatch(
+                        rf"{re.escape(row.source)}:{re.escape(row.league)}:team:[1-9][0-9]*", alias
+                    )
+                ]
+            )
+            == 1
+            for aliases in (row.home_aliases, row.away_aliases)
+        )
+        for row in frame.itertuples()
+    ]
     if league in apif_domestic and not set(frame.attrs["sources"]) <= apif_domestic[league]:
-        raise ValueError(f"{league} 的训练来源仅限显式配置的 apif / jc")
-    for key in ("kickoff_utc", "available_utc"):
+        raise ValueError(f"{league} 的训练来源仅限显式配置：{sorted(apif_domestic[league])}")
+    for key in ("kickoff_utc", "available_utc", "result_checked_utc", "counterpart_kickoff_utc"):
         frame[key] = pd.to_datetime(frame[key], utc=True, format="ISO8601")
     if training_leagues is not None or league == "欧国联" or league in apif_domestic:
-        from zucai.predict.pooled import linked_representatives
+        from zucai.predict.pooled import linked_representatives, source_eligible_history
+        from zucai.predict.training_sources import actual_result_leagues
 
-        frame = linked_representatives(frame)
+        # Keep all rows for each later fit/fold. A later counterpart must never
+        # remove the result that was available at an earlier prediction cutoff.
+        frame.attrs["linked_source_selection"] = True
+        frame.attrs["verified_result_links"] = [
+            (row.match_id, row.counterpart_id)
+            for row in frame.itertuples()
+            if row.source != row.counterpart_source
+            and (row.league, row.home_id, row.away_id)
+            == (row.counterpart_league, row.counterpart_home_id, row.counterpart_away_id)
+            and abs(row.kickoff_utc - row.counterpart_kickoff_utc) <= pd.Timedelta(hours=3)
+        ]
+        from zucai.result_source_links import load_result_links
+
+        frame.attrs["verified_result_links"].extend(load_result_links(session))
         if training_leagues is not None:
             frame.attrs["training_leagues"] = sorted(training_leagues)
-    reject_cross_source_overlaps(frame)
+        checkable = source_eligible_history(frame)
+        unproven_added = (
+            checkable.league.isin(actual_result_leagues())
+            & checkable.source.isin(("apif", "fdorg"))
+            & checkable.available_utc.isna()
+        )
+        checked = linked_representatives(checkable.loc[~unproven_added].copy())
+        frame.attrs["linked_rows_excluded"] = checked.attrs["linked_rows_excluded"]
+        reject_cross_source_overlaps(checked)
+    else:
+        reject_cross_source_overlaps(frame)
     frame["available_source"] = availability_sources(frame)
     frame.attrs["replay_delay"] = None
     if replay_known_after is not None:
@@ -288,7 +344,14 @@ def evaluate(
         ):
             raise ValueError("--strict-availability 与 --replay-known-after 互斥")
         history = history.loc[availability_sources(history) != "assumed"]
-    period = history.loc[(history.kickoff_utc >= start) & (history.kickoff_utc < end)].copy()
+    labels = history
+    if history.attrs.get("linked_source_selection"):
+        from zucai.predict.pooled import evaluation_history
+
+        # Score one label per entity, using only versions available by the
+        # evaluation end. The untouched full history remains the fit input.
+        labels = evaluation_history(history, end)
+    period = labels.loc[(labels.kickoff_utc >= start) & (labels.kickoff_utc < end)].copy()
     if pooled:
         period = period.loc[period.league.isin(target_leagues)]
     period["season"] = [season_for(k, league) for k in period.kickoff_utc]

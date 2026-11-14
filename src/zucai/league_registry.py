@@ -94,6 +94,20 @@ def _provider_entry(provider, code, entry):
             and len(seasons) == len(set(seasons)),
             "APIF season values",
         )
+        for flag in ("identity_bridge", "require_result_permission", "result_daily_verified"):
+            _require(type(config.get(flag, False)) is bool, f"APIF {flag}")
+        if config.get("require_result_permission"):
+            result_years = config.get("result_seasons_available")
+            _require(
+                isinstance(result_years, list)
+                and all(type(y) is int and 1900 <= y <= 9999 for y in result_years)
+                and len(result_years) == len(set(result_years)),
+                "APIF result season permissions",
+            )
+            _require(
+                not entry["daily"] or (config.get("result_daily_verified", False) and result_years),
+                "APIF daily needs explicit result permission and approved seasons",
+            )
     elif provider == "fdorg":
         year = config.get("earliest_season")
         _require(type(year) is int and 1900 <= year <= 9999, "FDORG earliest_season")

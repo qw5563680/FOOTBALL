@@ -124,6 +124,8 @@ def catalogue_scopes(root, provider, codes=None, first=None, last=None, *, regis
         if config.get("api_name") and config["api_name"] != row.get("name"):
             raise ValueError(f"{code} 目录名称与已核准映射不符，须人工核对")
         years = _years(row)
+        if provider == "apif" and config.get("require_result_permission"):
+            years &= set(config.get("result_seasons_available", []))
         # /competitions gives currentSeason only. Add only prior successful probes,
         # never infer years from numberOfAvailableSeasons or earliest_season.
         if provider == "fdorg":

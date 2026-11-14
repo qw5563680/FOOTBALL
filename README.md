@@ -934,7 +934,7 @@ T16按A1改为策略绑定：来源集合、累计训练策略、半衰期、先
 每日训练新增韩职、澳超，显式来源均为 `apif,jc`。唯一国内 APIF 训练清单为
 [`data/model/apif_history_training.json`](data/model/apif_history_training.json)，
 与采集权限表分开；以后增加此类联赛只增清单与 `params.json` 条目。
-已有 15 个国内联赛、欧战池、欧国联以及七个 identity-only 桥接联赛的规则保留。
+T60 当时保留的 15 个国内联赛，现由下节 T63 扩大来源；韩职、澳超和欧国联的来源政策不变。
 中超、丹超仅保存历史供后续池模型使用，本次没有新增其单联赛模型。
 
 韩职按 UTC 自然年、澳超按 UTC 7 月跨年分类。`read_history` 仅对明确接入的新联赛
@@ -945,6 +945,35 @@ S+1 weekly 验证：韩职选 90 天、澳超选 365 天，均为实际选参结
 历史回填含 assumed 可知时间，回测数字只作描述；有效性须由上线后的前瞻样本判断。
 训练规模、选参窗口、字节回归和离线每日流程回放见
 [`T60 验收`](reports/t60-apif-history-domestic-training/README.md)。
+
+### 既有 15 联赛的付费赛果（T63）
+
+英超、英冠、西甲、意甲、德甲、法甲、法乙、荷甲、葡超、日职、瑞超、挪超、芬超、巴甲、美职
+在原 `fd,jc` 外增加 `apif`；其中英超、英冠、西甲、意甲、德甲、法甲、荷甲、葡超、巴甲增加 `fdorg`。
+来源优先级仍为 `jc > fd > fdorg > apif`。每次拟合先按当时实际可知时间过滤，再选择同场来源：
+付费结果先到可以先用，免费或竞彩结果后到才替换。独立 APIF 比分保留供每日核对，旧来源比分与旧时间不覆盖。
+
+新增来源须有唯一数字球队绑定，以及按真实核验时刻保存的身份/同场关系证明。
+旧归档没有这些证明时，不能把今日核验倒填到历史截点；历史 `assumed` 也不能冒充实际入库。
+新导入或比分修正的 `available_utc` 不早于实际导入。审计输出
+`state/audit/apif_results_crosscheck.csv`，比分及开球冲突逐场列明；旧来源已采用的比分保持原状，
+柏林联合—波鸿的判罚与场上比分差异由所有者决定。只有新增源且相互冲突的同场结果暂不训练。
+
+七个原身份桥接路线改为 `import`，保留身份索引功能，但 `daily/backfill` 仍关闭、
+`result_seasons_available=[]`。真实目录、赛季读取权限、daily 权限须由审查者核实；
+英冠/法乙/巴甲的 APIF 新映射仍待 T61 目录核准，不能因为训练清单已列入就自动下载。
+
+15 联赛旧来源证据已失效，统一 **P2 实验**；数值参数、选参窗和 gate 没变。审查者在独立副本运行
+以下命令可按现有 gate 重产候选证据，不调参、不写正式参数；目前没有对真实数据执行：
+
+```bash
+python -m zucai.predict.revalidate_sources --db work/feeds.db --league 英超 \
+  --as-of 2026-11-14T00:00:00Z --out work/t63-epl-gate
+```
+
+来源时效与配对 Log Loss 必须先经过 [事前协议](docs/experiments/T63-source-latency-protocol.md) 的 Claude 审查。
+当前真实收益、真实 P2 重产及连续三次每日线上验收尚待完成；不宣称模型改善。
+[T63 验收说明](reports/t63-apif-results-for-existing-15-leagues/README.md) 区分离线实现与待审查者事项。
 
 ### 欧战联合模型（T21）
 

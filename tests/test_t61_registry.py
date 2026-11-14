@@ -55,11 +55,39 @@ def test_legacy_provider_values_and_modes_remain_exact():
     registry = load_registry()
     for provider, path in LEGACY.items():
         original = json.loads(path.read_bytes())
-        assert {k: v["config"] for k, v in registry["providers"][provider].items()} == original
+        actual = {k: copy.deepcopy(v["config"]) for k, v in registry["providers"][provider].items()}
+        if provider == "apif":
+            for config in actual.values():
+                if config.pop("identity_bridge", False):
+                    config["identity_only"] = True
+                    assert config.pop("require_result_permission") is True
+                    assert config.pop("result_seasons_available") == []
+        assert actual == original
         expected = {k: v for k, v in original.items() if provider != "fd" or k != "D2"}
-        assert provider_config(provider) == expected
-    assert provider_ids("apif") == {3, 848, 98, 292, 188, 113, 103, 244, 119, 253, 169}
-    assert provider_ids("apif", "identity_only") == {39, 140, 135, 78, 61, 88, 94}
+        assert set(provider_config(provider)) == set(expected)
+        if provider != "apif":
+            assert provider_config(provider) == expected
+    assert provider_ids("apif") == {
+        3,
+        848,
+        98,
+        292,
+        188,
+        113,
+        103,
+        244,
+        119,
+        253,
+        169,
+        39,
+        140,
+        135,
+        78,
+        61,
+        88,
+        94,
+    }
+    assert provider_ids("apif", "identity_only") == set()
     assert provider_ids("apif", "index_only") == {2}
     assert provider_ids("apif", "nations") == {5}
     assert registry["providers"]["apif"]["2"]["access_status"] == "unverified"
@@ -73,7 +101,7 @@ def test_purpose_preserves_legacy_order_and_special_nations_route():
     assert daily_codes("apif") == "98 292 188 113 103 244 119 253 169 3 848".split()
     for purpose in ("daily", "backfill"):
         assert set(provider_entries("apif", purpose=purpose)) == {
-            str(code) for code in provider_ids("apif")
+            str(code) for code in provider_ids("apif") - {39, 140, 135, 78, 61, 88, 94}
         }
         assert "5" not in provider_entries("apif", purpose=purpose)
 

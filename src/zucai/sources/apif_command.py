@@ -149,7 +149,12 @@ def fetch_apif(
                 with session_scope(engine) as session:
                     session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                     result = import_apif_games(
-                        session, games, seen=seen, assume=assume, aliases=aliases
+                        session,
+                        games,
+                        seen=seen,
+                        assume=assume,
+                        aliases=aliases,
+                        retain_results=True,
                     )
                 result["rejected"] = [*source.rejected, *result["rejected"]]
                 result["rejected_rows"] = len(result["rejected"])

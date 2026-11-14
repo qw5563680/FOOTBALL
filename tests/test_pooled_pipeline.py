@@ -15,10 +15,12 @@ from zucai.models import Match, Odds, Result, SfcIssue, Team
 from zucai.predict import backtest, parameters, tuning
 from zucai.predict.command import load_corpus
 from zucai.predict.dixon_coles import DixonColes
-from zucai.predict.pooled import CUPS, POOL, POOL_FITTING_METHOD
+from zucai.predict.pooled import CUPS, POOL, POOL_FITTING_METHOD, select_training_history
 from zucai.report.batch import _models, predict_batch
 from zucai.report.render import _validate_batch, load_batch, write_report
 from zucai.report.sfc import build_sfc_report
+from zucai.result_source_identity import record_result_identity
+from zucai.result_source_links import record_result_link
 
 FIXTURES = Path(__file__).parents[1] / "data/fixtures/t21"
 MODEL_CUTOFF = pd.Timestamp("2024-02-15T00:00:00Z")
@@ -49,6 +51,21 @@ def _config(path, entry):
         encoding="utf-8",
     )
     return path
+
+
+def _record_synthetic_api_identity(session, match, verified_utc):
+    """Explicit invented identity evidence for the labeled T21 fixture only."""
+    teams = [session.get(Team, team_id) for team_id in (match.home_team_id, match.away_team_id)]
+    if any(team.name.startswith(("apif:", "fdorg:", "fd:", "jc:")) for team in teams):
+        return  # The fixture deliberately keeps these provisional identities unverified.
+    for team in teams:
+        alias = f"{match.source}:{match.league}:team:{team.id}"
+        if alias not in team.aliases:
+            team.aliases = [*team.aliases, alias]
+    verified = pd.Timestamp(verified_utc)
+    if verified.tzinfo is None:
+        verified = verified.tz_localize("UTC")
+    record_result_identity(session, match, verified.to_pydatetime())
 
 
 @pytest.fixture
@@ -83,6 +100,10 @@ def database(tmp_path, history, contract):
                         available_source=row["available_source"],
                     )
                 )
+                if row["source"] in {"apif", "fdorg"}:
+                    _record_synthetic_api_identity(
+                        session, session.get(Match, row["match_id"]), row["available_utc"]
+                    )
         for quote in contract["quotes"]:
             session.add_all(
                 Odds(
@@ -394,6 +415,15 @@ def test_pooled_corpus_uses_existing_priority_link_without_mutating_database(
                 available_source=result.available_source,
             )
         )
+        duplicate = session.get(Match, duplicate_id)
+        _record_synthetic_api_identity(session, duplicate, result.available_utc)
+        if linked:
+            record_result_link(
+                session,
+                duplicate,
+                original,
+                pd.Timestamp(result.available_utc).to_pydatetime(),
+            )
     engine.dispose()
     before = database.read_bytes()
     kwargs = dict(
@@ -401,9 +431,13 @@ def test_pooled_corpus_uses_existing_priority_link_without_mutating_database(
     )
     if linked:
         games, market, closing, digest = load_corpus(database, POOL, **kwargs)
-        assert "fd:synthetic-t21-0" in set(games.match_id)
-        assert duplicate_id not in set(games.match_id)
-        assert games.attrs["linked_rows_excluded"] == [duplicate_id]
+        # Read keeps both observations so an earlier fold can select its own
+        # available version. The cutoff view still uses the existing priority.
+        assert {"fd:synthetic-t21-0", duplicate_id} <= set(games.match_id)
+        selected = select_training_history(games, MODEL_CUTOFF)
+        assert "fd:synthetic-t21-0" in set(selected.match_id)
+        assert duplicate_id not in set(selected.match_id)
+        assert selected.attrs["linked_rows_excluded"] == [duplicate_id]
         assert market == {"jc:synthetic-t21-2": (0.5, 0.25, 0.25)} and closing == {}
         assert digest == hashlib.sha256(before).hexdigest()
     else:

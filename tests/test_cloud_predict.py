@@ -97,9 +97,9 @@ def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
     good = result["leagues"]["英超"]
     assert good["training_rows"] == 84
     assert good["parameter_source"] == "params.json"
-    assert good["p2_label"] == "P2 可用"
+    assert good["p2_label"] == "P2 实验"  # New source corpus invalidates old evidence.
     model = DixonColes.load(archive / good["model_path"])
-    assert model.sources == ["fd", "jc"]
+    assert model.sources == ["apif", "fd", "fdorg", "jc"]
     assert good["p2_ready"] == model_readiness(model, as_of=NOW, params_file=params)["p2_ready"]
     assert good["sha256"] == digest(archive / good["model_path"])
     assert model.training_database_sha256 == result["database_sha256"]
