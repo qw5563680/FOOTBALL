@@ -27,6 +27,7 @@ from zucai.predict.parameters import (
     resolve_parameters,
 )
 from zucai.predict.pooled import POOL, SOURCES, model_targets
+from zucai.predict.training_sources import apif_history_sources
 from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
 from zucai.report.render import write_report
@@ -145,11 +146,14 @@ def run(
     config, params_sha = read_parameters(params)
     if not config["leagues"]:
         raise ValueError("参数文件没有联赛条目")
+    apif_domestic = apif_history_sources()
     for league, entry in config["leagues"].items():
         _component(league)
         allowed = set(SOURCES) if league == POOL else {"jc", "fd"}
         if league == NATIONS_LEAGUE:
             allowed = {"jc", "apif"}
+        if league in apif_domestic:
+            allowed = apif_domestic[league]
         if not entry.get("sources") or not set(entry["sources"]) <= allowed:
             raise ValueError(f"{league} 的训练来源必须显式配置且仅限 {' / '.join(sorted(allowed))}")
         if league == POOL and "jc" not in entry["sources"]:

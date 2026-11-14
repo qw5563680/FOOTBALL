@@ -124,6 +124,7 @@ zucai train --model dixon-coles       # 训练并按周回测
 zucai tune --league 英超 --source jc,fd --db work/t15/static.db --grid 90,180,270,365,540,730
 zucai train --league 英超 --source jc,fd --db work/t15/static.db --seasons 2425,2526 --fold weekly
 zucai train --league 英超 --source jc,fd --predictions-out work/backtest.jsonl  # 逐场另存JSONL
+zucai train --league 韩职 --source apif,jc --db work/feeds.db --output work/kleague.pkl  # T60：已恢复历史归档；澳超同用 apif,jc
 zucai train --league 欧战 --db data/zucai.db --output work/cups.pkl  # 已恢复快照上的联合模型
 zucai train --strict-availability    # 排除 assumed 训练，并列报告默认和严格回测
 zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶段历史回放
@@ -900,6 +901,23 @@ T16按A1改为策略绑定：来源集合、累计训练策略、半衰期、先
 后续更新配置不会改写模型已保存的哈希，P2判定仍使用预测时配置中的策略与证据。
 哈希只用于追溯语料，策略不符或证据过期仍显示“P2 实验”。历史评估不等于新增数据的前瞻验证。
 **BET 始终禁用，P2 达标不授予任何执行权限。** 本任务不自动训练；该项顺延T17。
+
+### 韩职、澳超的 API 历史训练（T60）
+
+每日训练新增韩职、澳超，显式来源均为 `apif,jc`。唯一国内 APIF 训练清单为
+[`data/model/apif_history_training.json`](data/model/apif_history_training.json)，
+与采集权限表分开；以后增加此类联赛只增清单与 `params.json` 条目。
+已有 15 个国内联赛、欧战池、欧国联以及七个 identity-only 桥接联赛的规则保留。
+中超、丹超仅保存历史供后续池模型使用，本次没有新增其单联赛模型。
+
+韩职按 UTC 自然年、澳超按 UTC 7 月跨年分类。`read_history` 仅对明确接入的新联赛
+复用既有 counterpart 去重，优先 JC；无链接、身份冲突仍拒绝，可知时间规则保持严格早于训练截点。
+在含 2022–2024 回填的固定归档 `1657093` 上，沿用 T15/T16 的 season-S monthly 选参、
+S+1 weekly 验证：韩职选 90 天、澳超选 365 天，均为实际选参结果。
+来源、最弱四分位收缩先验与训练规则写入参数条目，**两者均为「P2 实验」**，门槛和 BET 禁用规则不变。
+历史回填含 assumed 可知时间，回测数字只作描述；有效性须由上线后的前瞻样本判断。
+训练规模、选参窗口、字节回归和离线每日流程回放见
+[`T60 验收`](reports/t60-apif-history-domestic-training/README.md)。
 
 ### 欧战联合模型（T21）
 

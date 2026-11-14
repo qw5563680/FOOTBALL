@@ -42,7 +42,12 @@ _JPN_RULES = (
     SeasonRule("2026-01-01T00:00Z", label="2026T", complete_eligible=False),
     SeasonRule("2026-08-01T00:00Z", start_month=8),
 )
-LEAGUE_SEASON_RULES = {"日职": _JPN_RULES, "JPN": _JPN_RULES}
+LEAGUE_SEASON_RULES = {
+    "日职": _JPN_RULES,
+    "JPN": _JPN_RULES,
+    "韩职": _CALENDAR_RULES,
+    "澳超": _CROSS_YEAR_RULES,
+}
 
 
 def _rules(league):

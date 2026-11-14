@@ -888,7 +888,14 @@ dispatch 保持10项输入：新增 boolean gate 默认 false，将原 slot 放�
 安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。单次上限 45 分钟。
 
 `cloud_predict.run` 在临时目录调用 `restore_feeds` 并记录工作库 SHA256。每个联赛调用现有 `train`，
-来源严格取配置，国内条目只允许 jc/fd；T21 的「欧战」条目允许 jc/fd/fdorg/apif。
+来源严格取配置，原有国内条目只允许 jc/fd；T21 的「欧战」条目允许 jc/fd/fdorg/apif。
+T60 另由 `data/model/apif_history_training.json` 显式声明韩职、澳超的 apif/jc 来源集合，
+`predict/training_sources.py` 校验配置，不从采集权限或 identity-only 标记推断训练资格。
+两联赛的 `read_history` 复用已存在 counterpart 的 `linked_representatives`：仅同联赛、同主客、
+三小时时窗内的明确链接优先保留 JC；原 `reject_cross_source_overlaps` / `apif_guard` 不变。
+未声明来源拒绝；韩职按自然年、澳超按 7 月跨年。旧 15 联赛、欧战池、欧国联的分支不变。
+仅新增两条参数，沿用 T15/T16 选参与先验、availability 和 P2 gate；两者 `p2_ready=false`。
+没有数据库迁移，也不修改采集范围、赛果、身份、冻结预测或旧账本。
 配置决定半衰期、先验和校准，默认累计历史、非 strict、无 replay。
 `since=cutoff−56d` 仅缩短冒烟回测，训练仍使用截点前的累计可知历史；不导出逐场回测，不重算 P2 门槛。
 单联赛失败记录原因、整次标记 partial，其他训练继续。模型 P2 标签由 `model_readiness` 计算。

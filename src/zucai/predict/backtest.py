@@ -26,6 +26,7 @@ from zucai.predict.seasons import (
     season_for,
     season_is_complete_eligible,
 )
+from zucai.predict.training_sources import apif_history_sources
 
 LOG = logging.getLogger(__name__)
 
@@ -34,6 +35,13 @@ def read_history(
     session: Session, league=None, source=None, *, replay_known_after=None, training_leagues=None
 ) -> pd.DataFrame:
     sources = normalize_sources(source)
+    apif_domestic = apif_history_sources()
+    if (
+        league in apif_domestic
+        and sources is not None
+        and not set(sources) <= apif_domestic[league]
+    ):
+        raise ValueError(f"{league} 的训练来源仅限显式配置的 apif / jc")
     home, away = aliased(Team), aliased(Team)
     query = (
         select(
@@ -70,9 +78,11 @@ def read_history(
     if sources is None and frame.source.nunique() > 1:
         raise ValueError("存在多个来源，请用 --source 显式选择来源范围")
     frame.attrs["sources"] = sources or sorted(frame.source.unique())
+    if league in apif_domestic and not set(frame.attrs["sources"]) <= apif_domestic[league]:
+        raise ValueError(f"{league} 的训练来源仅限显式配置的 apif / jc")
     for key in ("kickoff_utc", "available_utc"):
         frame[key] = pd.to_datetime(frame[key], utc=True, format="ISO8601")
-    if training_leagues is not None or league == "欧国联":
+    if training_leagues is not None or league == "欧国联" or league in apif_domestic:
         from zucai.predict.pooled import linked_representatives
 
         frame = linked_representatives(frame)
