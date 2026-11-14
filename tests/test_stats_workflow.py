@@ -207,6 +207,78 @@ def test_daily_stats_only_runs_after_normal_late_collection(mode, slot, expected
     )
 
 
+@pytest.mark.parametrize(
+    "mode,slot,expected",
+    [
+        ("apis", "early", True),
+        ("apis", "late", True),
+        ("backfill", "late", False),
+        ("verify", "early", False),
+        ("relink-jc", "late", False),
+    ],
+)
+def test_captured_fd_reuse_follows_normal_collection_in_both_slots(mode, slot, expected):
+    reuse = step("Preserve captured statistics from already downloaded fd files", jobs()["apis"])
+    assert (
+        bool(
+            evaluate(
+                condition(reuse), **{"env.FEED_MODE": mode, "steps.collect.outputs.slot": slot}
+            )
+        )
+        is expected
+    )
+
+
+def captured_fd_argv(tmp_path, work):
+    """Execute the real FD reuse shell and return its argv without starting HTTP."""
+    reuse = step("Preserve captured statistics from already downloaded fd files", jobs()["apis"])
+    tools = tmp_path / "fd-tools"
+    tools.mkdir()
+    recorder = tools / "python"
+    recorder.write_text('#!/bin/bash\nprintf "%s\\0" "$@" > "$CAPTURE_ARGS"\n')
+    recorder.chmod(0o755)
+    capture = tmp_path / "fd-argv"
+    env = dict(
+        PATH=str(tools) + os.pathsep + os.defpath,
+        WORK_DIR=str(work),
+        CAPTURE_ARGS=str(capture),
+        GITHUB_RUN_ID="fd-recovery",
+        GITHUB_RUN_ATTEMPT="3",
+    )
+    subprocess.run(
+        ["/bin/bash", "-eu", "-c", script(reuse)], env=env, check=True, capture_output=True
+    )
+    return capture.read_bytes().decode().split("\0")[:-1] if capture.exists() else []
+
+
+@pytest.mark.parametrize("has_fd_files", [False, True])
+def test_captured_fd_shell_only_reuses_existing_files_with_independent_run_id(
+    tmp_path, has_fd_files
+):
+    work = tmp_path / "work"
+    work.mkdir()
+    if has_fd_files:
+        (work / "data/raw/football-data-co-uk").mkdir(parents=True)
+    argv = captured_fd_argv(tmp_path, work)
+    assert argv == (
+        [
+            "-m",
+            "zucai.cloud_stats",
+            "daily",
+            "--archive",
+            "../cloud-data",
+            "--run-id",
+            "fd-recovery-3-fd",
+            "--endpoints",
+            "fd",
+            "--max-requests",
+            "1",
+        ]
+        if has_fd_files
+        else []
+    )
+
+
 @pytest.mark.parametrize("resume", ["true", "false"])
 @pytest.mark.parametrize(
     "leagues,seasons",

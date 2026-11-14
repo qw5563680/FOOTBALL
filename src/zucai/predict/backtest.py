@@ -84,7 +84,9 @@ def read_history(
         frame[key] = pd.to_datetime(frame[key], utc=True, format="ISO8601")
     if training_leagues is not None or league == "欧国联" or league in apif_domestic:
         from zucai.predict.pooled import linked_representatives
+        from zucai.sources.fd_apif_counterpart import verified_training_links
 
+        frame.attrs["verified_apif_fd_links"] = verified_training_links(session, frame.match_id)
         frame = linked_representatives(frame)
         if training_leagues is not None:
             frame.attrs["training_leagues"] = sorted(training_leagues)

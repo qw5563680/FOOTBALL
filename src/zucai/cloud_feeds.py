@@ -20,6 +20,7 @@ from tempfile import TemporaryDirectory
 from requests import RequestException
 
 from zucai.db import get_engine, init_db
+from zucai.fd_collection import FD_COLLECTION_FILE, read_fd_success
 from zucai.fd_stats_archive import export_fd_links, restore_fd_links, validate_fd_links_manifest
 from zucai.fd_stats_links import FD_LINK_FILE
 from zucai.sfc_state import export_sfc_state, restore_sfc_state
@@ -82,7 +83,7 @@ CATALOGUE_FILE = (
     r"[A-Za-z0-9_][A-Za-z0-9_.-]*_[0-9]{12}Z_[0-9a-f]{32}\.(?:json|csv|txt)(?:\.meta\.json)?))"
 )
 STATE_FILE = (
-    r"state/(?:(?:api_football_quota|nations_league)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
+    r"state/(?:(?:api_football_quota|nations_league|fd_collection)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif|jc)\.json|publication/(?:forecast|sfc)_history\.json)"
@@ -212,6 +213,9 @@ def check_db(db: sqlite3.Connection) -> None:
     if db.execute("""SELECT 1 FROM matches m LEFT JOIN results r USING(match_id)
                   WHERE (m.status='finished') <> (r.match_id IS NOT NULL) LIMIT 1""").fetchone():
         raise ValueError("完赛状态与比分表不一致")
+    from zucai.sources.fd_apif_counterpart import validate_apif_fd_links
+
+    validate_apif_fd_links(db)
     check_stats(db, rows=False)
 
 
@@ -256,6 +260,8 @@ def export_feeds(
 ) -> dict:
     if not source.is_file():
         raise ValueError("采集数据库缺失")
+    if (source.parent / FD_COLLECTION_FILE).exists():
+        read_fd_success(source.parent / FD_COLLECTION_FILE, latest=datetime.now(UTC))
     _candidate_review_files(source.parent)
     _candidate_review_files(archive)
     _catalogue_files(source.parent)
@@ -415,6 +421,8 @@ def archive_info(archive: Path) -> dict:
         raise ValueError("云端数据校验失败：缺少 closing_odds")
     validate_stats_manifest(meta)
     validate_fd_links_manifest(meta)
+    if FD_COLLECTION_FILE in meta["files"]:
+        read_fd_success(archive / FD_COLLECTION_FILE, latest=meta.get("created_utc"))
     return meta
 
 
@@ -480,6 +488,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
             "state/stats_backfill_cursor.json",
             "state/stats_coverage.json",
             "state/nations_league.json",
+            FD_COLLECTION_FILE,
             "state/publication/forecast_history.json",
             "state/publication/sfc_history.json",
         ):
