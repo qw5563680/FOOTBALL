@@ -88,8 +88,12 @@ T34a 起 strict 按真实捕获时刻判断，已在截点前抓到的回填可�
 
 T61 只读目录由审查者在 Actions 运行：`python -m zucai.cloud_feeds probe --probe-kind catalogue --archive ../cloud-data --run-id <批次>`；
 竞彩过去12个完整北京时间月目录改用 `--probe-kind jc-catalogue`，仅限 `football-local` 自托管运行器。
+已保存的竞彩目录可离线重算：`python -m zucai.catalogue_replay --source-dir ../cloud-data/state/catalogue/43539673769-1 --out-dir ../t65-replay --run-id t65-offline-1`；只写新目录，不请求接口、不更新正式 `latest.json`。
 目录历史回填：`python -m zucai.cloud_feeds backfill --catalogue --source apif --max-requests 500 --resume --archive ../cloud-data --run-id <新批次>`。
 以上命令不在开发环境使用正式密钥；本地验证只用 `data/fixtures/` 离线样本。
+T65 审查后已核准的62个新赛事身份采用唯一中文项目名，仅开放历史回填范围（`backfill=true`、`daily=false`）；每日采集由 T68 逐赛事开启。
+日期导入和候选别名生成共用原每日范围。目录中五组冲突年份保留全部原值与指针、单独隔离，禁止进入回填计划；其他年份正常解析。
+目录列出的赛季不代表账号可读。本次只重放已归档原件，未触发回填；独立测试目录的成功指针不代表正式 `latest.json` 已更新。
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
