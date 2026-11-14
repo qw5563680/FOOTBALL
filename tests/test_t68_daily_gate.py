@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import sqlite3
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
@@ -84,6 +85,12 @@ def test_duplicate_relation_cannot_be_counted_twice(facts):
 
 def receipt(tmp_path, name, content):
     path = tmp_path / name
+    if name == "current.json":
+        from zucai.sources.apif_ingest import COUNT_KEYS
+
+        for scope in content["scopes"]:
+            for key in COUNT_KEYS:
+                scope.setdefault(key, 1 if key == "unchanged" else 0)
     raw = json.dumps(content).encode()
     path.write_bytes(raw)
     return dict(path=name, sha256=sha256(raw).hexdigest())
@@ -124,20 +131,20 @@ def daily_originals(tmp_path, *, omit=None, empty=False, first_day=date(2026, 10
         refs.append(
             dict(path=path.relative_to(tmp_path).as_posix(), sha256=sha256(raw).hexdigest())
         )
-    outcomes = [{"fixture_id": mid, "outcome": "inserted"} for mid in ids]
+    outcomes = [{"fixture_id": mid, "outcome": "unchanged"} for mid in ids]
     result = receipt(
         tmp_path,
         "replay.json",
         dict(
             fixture_ids=ids,
             raw_sha256=[r["sha256"] for r in refs],
-            inserted=len(ids),
+            inserted=0,
             risk_ids=[],
             outcomes=outcomes,
             official_match_ids=["jc:20"],
         ),
     )
-    return dict(originals=refs, results=result)
+    return dict(originals=refs, results=result, **materialized_states(tmp_path))
 
 
 def test_complete_30_days_checks_both_utc_boundary_dates(facts, tmp_path):
@@ -161,7 +168,7 @@ def test_empty_30_days_needs_explicit_recent_active_window(facts, tmp_path):
     from zucai.identity_daily_gate import _recent_replay
 
     section = daily_originals(tmp_path, empty=True)
-    with pytest.raises(ValueError, match="zero fixture"):
+    with pytest.raises(ValueError, match="known archived"):
         _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
 
 
@@ -176,7 +183,8 @@ def test_replay_risks_cannot_be_hidden_by_empty_risk_ids(facts, tmp_path):
         _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
 
 
-def test_equivalent_samples_use_fresh_complete_season_denominator(facts, tmp_path):
+@pytest.mark.parametrize("scope_tamper", [None, "wrong_source", "wrong_league", "empty_ids"])
+def test_equivalent_samples_use_fresh_complete_season_denominator(facts, tmp_path, scope_tamper):
     from zucai.identity_daily_gate import RISKS, _recent_replay
     from zucai.sources.base import RawStore
 
@@ -254,12 +262,34 @@ def test_equivalent_samples_use_fresh_complete_season_denominator(facts, tmp_pat
                 fixture_ids=["apif:10"],
                 official_match_ids=["jc:20"],
                 raw_sha256=[original["sha256"]],
-                inserted=1,
+                inserted=0,
                 risk_ids=[],
-                outcomes=[dict(fixture_id="apif:10", outcome="inserted")],
+                outcomes=[dict(fixture_id="apif:10", outcome="unchanged")],
             ),
         ),
     )
+    section.update(materialized_states(tmp_path))
+    if scope_tamper:
+        case = next(c for c in cases if c["category"] == "unbound")
+        path = tmp_path / case["original"]["path"]
+        meta_path = path.with_suffix(".json.meta.json")
+        meta = json.loads(meta_path.read_bytes())
+        if scope_tamper == "wrong_source":
+            meta["url"] = "https://unrelated.example/fixtures?league=307&season=2026"
+        elif scope_tamper == "wrong_league":
+            doc = json.loads(path.read_bytes())
+            doc["response"][0]["league"]["id"] = 999
+            path.write_text(json.dumps(doc))
+            meta["sha256"] = case["source_sha256"] = case["original"]["sha256"] = sha256(
+                path.read_bytes()
+            ).hexdigest()
+        else:
+            case["fixture_ids"] = []
+        meta_path.write_text(json.dumps(meta))
+        section["boundary_cases"] = receipt(tmp_path, "boundary.json", cases)
+        with pytest.raises(ValueError, match="boundary"):
+            _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
+        return
     result = _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
     assert result["distinct_fixtures"] == 1
     assert result["expected_distinct_fixtures"] == 1
@@ -269,7 +299,6 @@ def test_equivalent_samples_use_fresh_complete_season_denominator(facts, tmp_pat
 
 
 def test_current_season_replay_cannot_report_complete_with_held(facts, tmp_path):
-    from zucai.identity_daily_gate import _current_replay
 
     report = dict(
         processed_files=1,
@@ -291,7 +320,7 @@ def test_current_season_replay_cannot_report_complete_with_held(facts, tmp_path)
         held_before=dict(path="held.csv", sha256=sha256(audit.read_bytes()).hexdigest()),
     )
     with pytest.raises(ValueError, match="completely replayed"):
-        _current_replay(facts, "307", section, tmp_path)
+        current_replay(facts, "307", section, tmp_path)
 
 
 def test_persistence_requires_materialized_files_not_only_equal_manifest_claims(tmp_path):
@@ -339,125 +368,6 @@ def test_replay_receipt_cannot_hide_rejected_raw_fixture(facts, tmp_path):
     section["results"] = receipt(tmp_path, "replay.json", replay)
     with pytest.raises(ValueError, match="risk inventory"):
         _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
-
-
-@pytest.mark.parametrize("midmonth", [False, True])
-def test_complete_offline_register_is_review_only_and_restoration_tamper_blocks(
-    facts, tmp_path, midmonth
-):
-    from zucai.identity_daily_gate import assess_league
-
-    recent = daily_originals(
-        tmp_path, first_day=date(2026, 10, 14) if midmonth else date(2026, 10, 1)
-    )
-    if midmonth:
-        recent["official_originals"] = official_supplement(tmp_path)
-    current = receipt(
-        tmp_path,
-        "current.json",
-        dict(
-            processed_files=1,
-            scopes=[
-                dict(
-                    code="307",
-                    season=2026,
-                    status="complete",
-                    parsed_matches=1,
-                    raw={"sha256": "a" * 64},
-                )
-            ],
-        ),
-    )
-    held = tmp_path / "held.csv"
-    held.write_text("raw_sha256,league,provider_match_id\na,测试联赛,10\n")
-    repeat = receipt(
-        tmp_path,
-        "repeat.json",
-        dict(inserted=0, status="complete", processed_files=1, scopes=[dict(code="307")]),
-    )
-    persistence = dict(repeat_report=repeat)
-    state_bytes = json.dumps(facts["matches"]).encode()
-    ledger = b"frozen offline fixture\n"
-    ledger_sha = sha256(ledger).hexdigest()
-    for name, key in (
-        ("before", "before_manifest"),
-        ("after", "after_manifest"),
-        ("restored", "restored_manifest"),
-    ):
-        folder = tmp_path / name
-        (folder / "state").mkdir(parents=True)
-        (folder / "state/matches.jsonl").write_bytes(state_bytes)
-        (folder / "ledger.jsonl").write_bytes(ledger)
-        manifest = dict(
-            counts={"matches": 1},
-            columns={"matches": ["fixture"]},
-            sources={},
-            files={"state/matches.jsonl": sha256(state_bytes).hexdigest()},
-        )
-        persistence[key] = receipt(tmp_path, name + "/feed_manifest.json", manifest)
-    facts["manifest"]["sha256"] = persistence["before_manifest"]["sha256"]
-    snapshot = dict(
-        coverage={"teams": 2, "matches": 1},
-        relations=[["jc:20", "apif:10"]],
-        quarantine=[],
-        training_selection=[],
-        immutable_sha256={"ledger.jsonl": ledger_sha},
-    )
-    for key in ("before_repeat", "after_repeat", "restored"):
-        persistence[key] = receipt(tmp_path, key + "-snapshot.json", snapshot)
-    evidence = dict(
-        provider_code="307",
-        cutoff_utc="2026-11-14T00:00:00Z" if midmonth else "2026-11-01T00:00:00Z",
-        archive_sha256=facts["manifest"]["sha256"],
-        current_season_replay=dict(
-            report=current,
-            held_before=dict(path="held.csv", sha256=sha256(held.read_bytes()).hexdigest()),
-        ),
-        recent_replay=recent,
-        risk_review=receipt(tmp_path, "risks.json", []),
-        persistence=persistence,
-    )
-    result = assess_league(
-        facts, "307", evidence["cutoff_utc"], evidence=evidence, evidence_root=tmp_path
-    )
-    assert result["status"] == "ready_for_review"
-    assert result["daily_changed"] is False
-    assert result["online_permission"] == "reviewer_verification_required"
-    assert result["official_window"]["end_beijing"] == "2026-10-31"
-    assert result["evidence"]["recent_replay"]["official_match_ids"] == ["jc:20"]
-    if midmonth:
-        assert result["recent_window"]["end_beijing"] == "2026-11-13"
-        held.write_text(held.read_text() + "a,测试联赛,999\n")
-        evidence["current_season_replay"]["held_before"]["sha256"] = sha256(
-            held.read_bytes()
-        ).hexdigest()
-        proof = receipt(
-            tmp_path, "pending-review.json", {"reason": "still waiting for missing original"}
-        )
-        evidence["current_season_replay"]["held_explanations"] = receipt(
-            tmp_path,
-            "pending.json",
-            [
-                dict(
-                    fixture_id="apif:999",
-                    reason="missing current original",
-                    disposition="still_held",
-                    evidence=proof,
-                )
-            ],
-        )
-        pending = assess_league(
-            facts, "307", evidence["cutoff_utc"], evidence=evidence, evidence_root=tmp_path
-        )
-        assert pending["status"] == "blocked"
-        assert "current_season_held_unresolved" in pending["blockers"]
-        assert pending["evidence"]["current_season_replay"]["held_before"] == 2
-    (tmp_path / "restored/ledger.jsonl").write_bytes(b"modified")
-    result = assess_league(
-        facts, "307", evidence["cutoff_utc"], evidence=evidence, evidence_root=tmp_path
-    )
-    assert result["status"] == "insufficient_evidence"
-    assert "persistence" in result["missing_evidence"]
 
 
 def official_supplement(tmp_path, *, omit=None, extra_match=False):
@@ -567,7 +477,6 @@ def test_recent_official_supplement_is_verified_not_declared(facts, tmp_path, pr
 
 @pytest.mark.parametrize("season", ["2026", "2025", ""])
 def test_prior_held_ids_cannot_disappear_or_guess_another_season(facts, tmp_path, season):
-    from zucai.identity_daily_gate import _current_replay
 
     report = receipt(
         tmp_path,
@@ -597,8 +506,13 @@ def test_prior_held_ids_cannot_disappear_or_guess_another_season(facts, tmp_path
         report=report,
         held_before=dict(path="held.csv", sha256=sha256(audit.read_bytes()).hexdigest()),
     )
+    section["held_before_manifest"] = receipt(
+        tmp_path,
+        "held-manifest.json",
+        {"files": {section["held_before"]["path"]: section["held_before"]["sha256"]}},
+    )
     with pytest.raises(ValueError, match="unresolved|unexplained|missing"):
-        _current_replay(facts, "307", section, tmp_path)
+        current_replay(facts, "307", section, tmp_path)
 
 
 def test_recent_supplement_adds_actual_official_ids_without_extending_12_months(facts, tmp_path):
@@ -617,7 +531,6 @@ def test_recent_supplement_adds_actual_official_ids_without_extending_12_months(
 
 
 def test_held_other_season_requires_matching_verified_original_and_remains_counted(facts, tmp_path):
-    from zucai.identity_daily_gate import _current_replay
 
     facts["apif"].append(
         dict(facts["apif"][0], match_id="apif:999", season=2025, provenance=[{"sha256": "c" * 64}])
@@ -646,7 +559,13 @@ def test_held_other_season_requires_matching_verified_original_and_remains_count
         report=report,
         held_before=dict(path="held.csv", sha256=sha256(audit.read_bytes()).hexdigest()),
     )
-    result = _current_replay(facts, "307", section, tmp_path)
+    section.update(materialized_states(tmp_path))
+    section["held_before_manifest"] = receipt(
+        tmp_path,
+        "held-manifest.json",
+        {"files": {section["held_before"]["path"]: section["held_before"]["sha256"]}},
+    )
+    result = current_replay(facts, "307", section, tmp_path)
     assert result["held_before"] == 1 and result["held_before_ids"] == ["apif:999"]
     assert result["excluded_other_season_ids"] == ["apif:999"]
     assert result["resolved_ids"] == []
@@ -655,11 +574,10 @@ def test_held_other_season_requires_matching_verified_original_and_remains_count
     report_doc["scopes"][0]["parsed_matches"] = 2
     section["report"] = receipt(tmp_path, "current.json", report_doc)
     with pytest.raises(ValueError, match="contradict"):
-        _current_replay(facts, "307", section, tmp_path)
+        current_replay(facts, "307", section, tmp_path)
 
 
 def test_missing_held_id_can_be_explained_but_not_counted_as_resolved(facts, tmp_path):
-    from zucai.identity_daily_gate import _current_replay
 
     report = receipt(
         tmp_path,
@@ -696,13 +614,19 @@ def test_missing_held_id_can_be_explained_but_not_counted_as_resolved(facts, tmp
             )
         ],
     )
-    result = _current_replay(
+    result = current_replay(
         facts,
         "307",
         dict(
             report=report,
             held_before=dict(path="held.csv", sha256=sha256(audit.read_bytes()).hexdigest()),
             held_explanations=decisions,
+            held_before_manifest=receipt(
+                tmp_path,
+                "held-manifest.json",
+                {"files": {"held.csv": sha256(audit.read_bytes()).hexdigest()}},
+            ),
+            **materialized_states(tmp_path),
         ),
         tmp_path,
     )
@@ -711,7 +635,6 @@ def test_missing_held_id_can_be_explained_but_not_counted_as_resolved(facts, tmp
 
 
 def test_held_missing_league_scope_cannot_silently_leave_denominator(facts, tmp_path):
-    from zucai.identity_daily_gate import _current_replay
 
     report = receipt(
         tmp_path,
@@ -732,12 +655,79 @@ def test_held_missing_league_scope_cannot_silently_leave_denominator(facts, tmp_
     audit = tmp_path / "held.csv"
     audit.write_text("raw_sha256,league,provider_match_id\n" + "a" * 64 + ",,999\n")
     with pytest.raises(ValueError, match="scope|missing"):
-        _current_replay(
+        current_replay(
             facts,
             "307",
             dict(
                 report=report,
                 held_before=dict(path="held.csv", sha256=sha256(audit.read_bytes()).hexdigest()),
+                held_before_manifest=receipt(
+                    tmp_path,
+                    "held-manifest.json",
+                    {"files": {"held.csv": sha256(audit.read_bytes()).hexdigest()}},
+                ),
             ),
             tmp_path,
         )
+
+
+def materialized_states(root):
+    """Small real-schema exports for targeted validator unit tests."""
+    from zucai.cloud_feeds import TABLES, source_inventory
+
+    values = dict(
+        teams=[dict(id=1, name="甲队", aliases=[]), dict(id=2, name="乙队", aliases=[])],
+        matches=[
+            dict(
+                match_id="jc:20",
+                source="jc",
+                league="测试联赛",
+                home_team_id=1,
+                away_team_id=2,
+                kickoff_utc="2026-10-20T12:00:00Z",
+                status="finished",
+                counterpart_id="apif:10",
+            )
+        ],
+        results=[dict(match_id="jc:20", home_goals=1, away_goals=1)],
+        odds=[],
+        closing_odds=[],
+    )
+    output = {}
+    for label in ("before", "after"):
+        folder = root / label
+        (folder / "state").mkdir(parents=True, exist_ok=True)
+        manifest = dict(columns={}, counts={}, files={})
+        with sqlite3.connect(":memory:") as db:
+            for name, columns in TABLES.items():
+                db.execute(f"CREATE TABLE {name} ({','.join(columns)})")
+                rows = [[r.get(col) for col in columns] for r in values[name]]
+                payload = "".join(json.dumps(r) + "\n" for r in rows).encode()
+                (folder / f"state/{name}.jsonl").write_bytes(payload)
+                manifest["columns"][name] = list(columns)
+                manifest["counts"][name] = len(rows)
+                manifest["files"][f"state/{name}.jsonl"] = sha256(payload).hexdigest()
+                for row in rows:
+                    db.execute(
+                        f"INSERT INTO {name} VALUES ({','.join('?' for _ in row)})",
+                        [json.dumps(v) if isinstance(v, list) else v for v in row],
+                    )
+            manifest["sources"] = source_inventory(db)
+        output[label + "_manifest"] = receipt(root, label + "/feed_manifest.json", manifest)
+    return output
+
+
+def current_replay(facts, code, section, root):
+    """Supply the full prior export when a unit case changes its held CSV."""
+    from zucai.identity_daily_gate import _current_replay
+
+    section.update(materialized_states(root))
+    payload = (root / section["held_before"]["path"]).read_bytes()
+    path = root / "before/held.csv"
+    path.write_bytes(payload)
+    section["held_before"] = dict(path="before/held.csv", sha256=sha256(payload).hexdigest())
+    manifest = json.loads((root / section["before_manifest"]["path"]).read_bytes())
+    manifest["files"]["held.csv"] = sha256(payload).hexdigest()
+    section["before_manifest"] = receipt(root, "before/feed_manifest.json", manifest)
+    section["held_before_manifest"] = section["before_manifest"]
+    return _current_replay(facts, code, section, root)

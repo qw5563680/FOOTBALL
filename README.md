@@ -102,9 +102,11 @@ T68 严格绑定离线回放：`python -m zucai.identity_binding --archive /path
 旧候选原样保留，诊断结果与可提案结果分开；缺准确时刻、完整竞争窗口、身份类别或唯一规范目标时继续待核。
 T68 跨日决定经 PR 批准后，只在副本显式应用：`python -m zucai.cross_day_decisions apply --db work/review/feeds.db --registry data/identity_reviews/t68-cross-day.json`。
 命令只保存实际应用回执，不改比分、球队或同场关系；批准清单当前为空，默认仍隔离待核的新增来源行。
-T68 每日开启条件只读检查：`python -m zucai.identity_daily_gate --archive /path/to/frozen-archive --cutoff 2026-11-14T10:43:21.807840+00:00 --codes 307 --out work/t68-daily-review.json`。
+T68 每日开启条件只读检查：`python -m zucai.identity_daily_gate --archive /path/to/frozen-archive --cutoff 2026-11-14T16:30:00Z --codes 307 --out work/t68-daily-review.json`。
 可用 `--evidence /path/to/review-evidence.json` 提供同一归档、截点下有 SHA 的重放与恢复证据；
 输出须为归档外的新文件。工具只列逐队、逐场分母及缺口，不改 `daily`；`ready_for_review` 仍须审查，缺证据不判可开。
+可选 `--fd-raw-dir /path/to/saved-fd-originals` 核验独立保存的 FD 原件；其来源不计入冻结归档。
+证据包的导出、重放与逐队原因字段见 [每日检查证据格式](docs/experiments/T68-daily-gate-evidence.md)。
 已保存的竞彩目录可离线重算：`python -m zucai.catalogue_replay --source-dir ../cloud-data/state/catalogue/43539673769-1 --out-dir ../t65-replay --run-id t65-offline-1`；只写新目录，不请求接口、不更新正式 `latest.json`。
 目录历史回填：`python -m zucai.cloud_feeds backfill --catalogue --source apif --max-requests 500 --resume --archive ../cloud-data --run-id <新批次>`。
 以上命令不在开发环境使用正式密钥；本地验证只用 `data/fixtures/` 离线样本。

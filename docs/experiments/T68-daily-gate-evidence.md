@@ -1,0 +1,85 @@
+# T68 每日开启检查：离线证据输入
+
+本工具只读。`ready_for_review` 只表示证据可以交审，不是绑定批准、线上权限确认或开启 daily。
+所有日期与分母固定到 `--cutoff`；30 日以此前完整北京时间自然日结束，12 月目录不扩展。
+
+```bash
+PYTHONPATH=src python -m zucai.identity_daily_gate \
+  --archive /path/to/frozen-archive --cutoff 2026-11-14T16:30:00Z \
+  --codes 98,113 --evidence /path/to/review/evidence.json \
+  --fd-raw-dir /path/to/saved-fd-originals --out work/t68-daily-review.json
+```
+
+`--fd-raw-dir` 可省略。FD CSV 与同名 `.meta.json` 必须是已保存原件；其哈希、URL、抓取时刻、
+行位置独立展示，不能冒充冻结清单成员。没有该输入时，已存 FD 指针记“原件未核实”，不算坏指针或 APIF 关联。
+已存关系沿用同赛事、准确主客规范身份、开球差不超过三小时和90分钟比分一致的规则；
+这与 Task1 新身份提案的更严格时刻要求分开。输出保留时差及 Task1 的组件诊断。
+绑定使用官方数字 ID → 已证实项目 ID → 原有核准 APIF 条目，不以官方展示名认队。
+`matches.linked` 按不同竞彩场次计数；`linked_by_source` 分来源计数，同场可有两个来源，不能相加冒充不同场数。
+
+## 根文档与引用
+
+`evidence.json` 是按 APIF 赛事编号组织的对象。每个赛事项包含：
+
+- `provider_code`：字符串编号，与所查赛事相同。
+- `archive_sha256`：冻结 `feed_manifest.json` 的 SHA256。
+- `cutoff_utc`：与命令截止时刻相同的带时区字符串。
+- 下述 `current_season_replay`、`recent_replay`、`risk_review`、`persistence`；有未绑定队时另需 `unbound_explanations`。
+
+所有文件引用形如 `{"path":"relative/file.json","sha256":"<64 hex>"}`，路径相对 evidence.json 所在目录。
+不接受绝对路径、越界或符号链接。原件还需同名 sidecar，校验 HTTP、来源 URL、哈希及真实抓取时刻。
+API 日期原件须在该 UTC 查询日与目标北京时间窗口交集结束后抓到，且不晚于截止；
+JC 补充页须在对应北京时间整日结束后抓到。不能用覆盖日前的空页证明没有比赛。
+
+## 当季与最近30日重放
+
+`current_season_replay` 包含：
+
+- `report`：真实采集报告；所查当季 scope 必须完整，原件 SHA 对上，`parsed_matches` 与真实不同 fixture 数一致，
+  所有 `apif_ingest.COUNT_KEYS` 字段明确为非负整数。暂缓、疑似重复和拒收不能默认为零。
+- `before_manifest`、`after_manifest`：本次重放前后不同目录的实际导出清单。
+- `held_before`：此前完整暂缓 CSV；`held_before_manifest` 必须就是上述某份已物化导出，清单列出的哈希与 CSV 相同。
+  只有表头必须有这个独立归档依据，不能再附一份自造小清单为自己证明零暂缓。
+- 可选 `held_explanations`：逐 fixture 的 `fixture_id`、`reason`、`disposition: "still_held"`、`evidence`。
+  这些条目仍未解决，继续阻止开启。其他季排除必须由相同编号及 SHA 的已核验原件证明。
+
+`recent_replay` 包含 `mode`（默认 `dates`）、`originals`（API 原件引用列表）、`official_originals`
+（固定12月目录以外的每日 JC 补充页）、`results`、`before_manifest`、`after_manifest`。
+日期模式包含窗口两端 UTC 查询日；重复或额外日期也拒绝。原件不能漏掉归档已知 fixture。
+`results` JSON 包含 `fixture_ids`、`official_match_ids`、`raw_sha256`、`inserted`、`risk_ids` 和 `outcomes`。
+`outcomes` 每个不同 fixture 恰好一项：`fixture_id` 与 `outcome`（inserted/updated/unchanged/linked/cancelled/suspected/rejected）。
+计数和非风险结果须符合实际前后导出，物化后的赛事、主客项目 ID、时刻和90分钟比分还须符合原件。
+`held_unbound` 不能作为成功重放结果；新增数不能只引用汇总声明。
+
+`equivalent` 模式继续要求同一窗口的完整真实赛季分母、相同 fixture 集合，以及 `boundary_cases`
+文件中的未绑定、同队同刻、反转、拒收、分页、跨日六类实际边界证据，不能只换少量容易成功的样本。
+`risk_review` 是逐 fixture 的列表引用；每项须有 `fixture_id`、非空 `reason`、
+`disposition`（quarantined/different_match/same_match）及 `review_evidence` 引用。
+有风险 fixture 就不能提交空审阅列表。
+
+## 未绑定原因与持久化
+
+`unbound_explanations` 是列表引用，每项为 `official_team_id`、非空 `reason`、非空 `evidence` 引用。
+编号必须属于该赛事未绑定集合，不能重复。解释只满足覆盖披露，不增加绑定数；
+当前赛季原件中仍未绑定的队继续阻止开启，不据离线文字创造审查例外。
+历史未关联比赛逐场披露具体指针缺口；关系冲突、一对多及未解决的当季暂缓仍阻止开启。
+
+`persistence` 包含：
+
+- `repeat_report`：第二次真实报告；总新增为零，并重新核验当季 scope 的字段、原件和逐 ID 状态。
+- `before_manifest`、`after_manifest`、`restored_manifest`：三个不同目录、不同清单文件的实际导出。
+  第一份清单须与冻结归档相同。检查项目 schema、逐表行数、实际来源清单、审计/关系/隔离状态文件及内容。
+- `before_repeat`、`after_repeat`、`restored`：三份 JSON 快照引用，字段恰为下面五项。
+
+快照字段按导出内容复算：`coverage` 为赛事→来源→比赛数；`relations` 为排序后的已存 counterpart 对；
+`quarantine` 为清单中 quarantine/cross_day 文件的路径→SHA；`training_selection` 为排序后的比赛 ID；
+`immutable_sha256` 为非空不可变产物路径→SHA，并实际读取每个导出中的对应文件。
+前三个库存与真实内容相符，三份快照完全相同；不能用三个相同的空 JSON 代替。
+
+历史选择检查在内存数据库恢复实际核心表和相关可选关系/身份记录，使用本赛事实际来源集合与同一截止，
+运行已有 `read_history` / `select_training_history`（含可知时刻、来源及隔离规则）。
+跨日回执只从对应导出读取且须列入清单，并由现有 `load_decisions` 对照当前已提交的登记表及当前比赛快照；
+不伪造或恢复历史批准，回执应用时刻仍受选择截止约束。不落盘数据库、不拟合模型、不证明预测概率或模型批准。
+输出 `history_selection` 明列赛事、来源集合、截止与选择 ID。
+
+测试中的完整入口包明确是离线合成 fixture：不替代真实线上采集/重放证据。
