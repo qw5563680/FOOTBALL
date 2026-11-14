@@ -1,0 +1,65 @@
+{
+  "models": {
+    "芬超": {
+      "model_definition_id": "b3f5edeac72f2630c853bec83fdd4fe67e2a2a72b2a3af044490ee8564d84fff",
+      "model_definition": {
+        "league": "芬超",
+        "model_family": "dixon-coles",
+        "training_sources": [
+          "apif",
+          "fd",
+          "jc"
+        ],
+        "fitting_method": "penaltyblog_slsqp",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "calibration_method": "draw_log_odds_intercept",
+        "selection_protocol": {
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "selection_method": "monthly_walk_forward_season_S",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1"
+        }
+      },
+      "source_variant": "expanded",
+      "training_json_path": "models/expanded-primary/芬超.train.json",
+      "training_cutoff_utc": "2026-11-02T18:00:00+00:00",
+      "training_database_sha256": "dfe5fc4ac797fda1448f48eb33bb9fef0e05002a2f6c8520de573deb65419b85",
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "half_life_days": 270.0,
+      "parameter_source": "params.json",
+      "predicted": 3,
+      "p2_ready": false,
+      "p2_label": "实验",
+      "paper_eligible": false,
+      "status": "trained",
+      "model_path": "models/expanded-primary/芬超.pkl",
+      "sha256": "8a55cd84f8745ca1832ede652017f73daa6fabb5489fc35f6599c57924c7f871",
+      "training_rows": 84,
+      "params_sha256": "1ef333278d631e26bd60c48dacbc8d615980ff478c316efdd4334a34ff85b0cc",
+      "params_path": "/tmp/pytest-of-agent/pytest-377/test_original_experimental_lea0/params.json",
+      "evaluation_database_sha256": null,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "bet_allowed": false
+    }
+  },
+  "generated_utc": "2026-11-02T18:00:00+00:00"
+}

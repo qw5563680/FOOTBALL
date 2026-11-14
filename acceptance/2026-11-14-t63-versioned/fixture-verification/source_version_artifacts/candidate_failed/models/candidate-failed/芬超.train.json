@@ -1,0 +1,38 @@
+{
+  "model_definition_id": "b3f5edeac72f2630c853bec83fdd4fe67e2a2a72b2a3af044490ee8564d84fff",
+  "model_definition": {
+    "league": "芬超",
+    "model_family": "dixon-coles",
+    "training_sources": [
+      "apif",
+      "fd",
+      "jc"
+    ],
+    "fitting_method": "penaltyblog_slsqp",
+    "prior_method": "weakest_quartile_half_shrinkage",
+    "calibration_method": "draw_log_odds_intercept",
+    "selection_protocol": {
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_method": "monthly_walk_forward_season_S",
+      "evaluation_method": "weekly_walk_forward_season_S_plus_1"
+    }
+  },
+  "source_variant": "expanded",
+  "training_json_path": "models/candidate-failed/芬超.train.json",
+  "training_cutoff_utc": "2026-11-02T18:00:00+00:00",
+  "training_database_sha256": "83d60d7050f9647bdf44b1b8fbe236995e3bc1daa041bb21dcb721b6fee78c4f",
+  "sources": [
+    "apif",
+    "fd",
+    "jc"
+  ],
+  "half_life_days": 270.0,
+  "parameter_source": "params.json",
+  "predicted": 0,
+  "p2_ready": false,
+  "p2_label": "实验",
+  "paper_eligible": false,
+  "status": "failed",
+  "reason": "InsufficientHistory: 没有已完赛的赛果。可先运行公开样例"
+}
