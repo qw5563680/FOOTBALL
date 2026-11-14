@@ -272,7 +272,7 @@ def test_catalogue_backfill_cli_preserves_existing_provider_report_contract(tmp_
         ],
     )
     main()
-    report = archive_info(archive)["collection"]["fdorg"]
+    report = archive_info(archive)["collection"]["fdorg_backfill"]
     assert report["requested"] == dict(
         provider="fdorg", codes="CL", first="2023", last="2026", max_requests=42, resume=False
     )

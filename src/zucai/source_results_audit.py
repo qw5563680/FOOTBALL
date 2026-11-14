@@ -3,7 +3,9 @@
 The CSV is evidence, never a training policy: all rows keep the existing source
 pending owner review. Pair counts are per comparison source, so one APIF result
 can have separate fd, jc and fdorg comparisons. Kickoff deltas are signed
-``comparison - apif`` seconds. No name matching or database migration is performed.
+``comparison - apif`` seconds. Exact-ID risks are inventoried through 36 hours;
+only pure temporary identity rows are summarized. No name matching or database
+migration is performed.
 """
 
 import csv
@@ -40,6 +42,7 @@ COMPARISON_SOURCES = ("fd", "jc", "fdorg")
 SOURCES = ("apif", *COMPARISON_SOURCES)
 DECISION = "keep_existing_source_pending_owner_review"
 WINDOW_SECONDS = 3 * 60 * 60
+OVERLAP_SECONDS = 36 * 60 * 60
 EVIDENCE_FIELDS = (
     "match_id",
     "source",
@@ -64,6 +67,10 @@ FIELDS = (
     "classification",
     "reason",
     "decision",
+    "risk_reasons",
+    "temporary_team_ids",
+    "apif_matches",
+    "comparison_rows",
 )
 
 
@@ -135,6 +142,9 @@ def _read(database):
     for row in rows:
         row["when"] = _utc(row["kickoff_utc"])
         row["binding_reason"] = _provider_binding_reason(row, teams, owners)
+        row["independent_binding_reason"] = _provider_binding_reason(
+            row, teams, owners, skip_temporary=True
+        )
         row["unbound_apif_team_ids"] = {
             team_id
             for team_id in (row["home_team_id"], row["away_team_id"])
@@ -148,7 +158,7 @@ def _read(database):
     return rows
 
 
-def _provider_binding_reason(row, teams, owners):
+def _provider_binding_reason(row, teams, owners, *, skip_temporary=False):
     """Audit current explicit bindings only; never mint or backdate identity proof."""
     if row["source"] not in {"apif", "fdorg"}:
         return ""
@@ -156,6 +166,10 @@ def _provider_binding_reason(row, teams, owners):
         team_id = row[f"{side}_team_id"]
         if team_id not in teams:
             return "missing_team_identity"
+        if skip_temporary and re.match(
+            r"^[a-z][a-z0-9_-]*:team:", teams[team_id]["name"] or "", re.IGNORECASE
+        ):
+            continue
         try:
             binding = _binding(teams[team_id], row["source"], row["league"])
         except ValueError as exc:
@@ -211,7 +225,7 @@ class _Index:
                 for other in self.by_pair[key]:
                     if (
                         other["when"] is not None
-                        and abs((row["when"] - other["when"]).total_seconds()) <= WINDOW_SECONDS
+                        and abs((row["when"] - other["when"]).total_seconds()) <= OVERLAP_SECONDS
                     ):
                         candidates.add(other["match_id"])
             # This is an unresolved candidate, never a match or a binding.
@@ -326,6 +340,128 @@ def _record(apif, other, classification, reason="", basis="none", *, missing_id=
     return row
 
 
+def _non_entity_source_reference(row, by_id):
+    """JC may retain an absorbed provider key without a separate Match row.
+
+    FD's linked_existing import and the legacy API target branches explicitly
+    write these keys then keep only JC. This identifies the pointer's storage
+    semantics, not a verified same-match relationship or an available result.
+    """
+    key = row["counterpart_id"]
+    if row["source"] != "jc" or not isinstance(key, str) or key in by_id:
+        return False
+    if re.fullmatch(r"(?:apif|fdorg):[1-9][0-9]*", key):
+        return True
+    if not re.fullmatch(r"fd:[A-Za-z0-9]+:[0-9]{8}:[a-z0-9-]+:[a-z0-9-]+", key):
+        return False
+    try:
+        datetime.strptime(key.split(":")[2], "%Y%m%d")
+    except ValueError:
+        return False
+    return True
+
+
+def _independent_risks(apif, other, index):
+    """Check structural and result risks independently of temporary team labels."""
+    risks = set()
+    for row in (apif, other):
+        if row is None:
+            continue
+        reason = _row_reason(row)
+        if reason and reason != "temporary_team_identity":
+            risks.add(reason)
+        if row.get("independent_binding_reason"):
+            risks.add(row["independent_binding_reason"])
+        if row["when"] is None:
+            risks.add("invalid_kickoff")
+        pointer = row["counterpart_id"]
+        if pointer:
+            if len(index.claims[pointer]) > 1:
+                risks.add("multiple_counterpart_claims")
+            target = index.by_id.get(pointer)
+            if target is None and not _non_entity_source_reference(row, index.by_id):
+                risks.add("counterpart_missing")
+            elif target is not None and (
+                target["league"] != row["league"] or _pair(target) != _pair(row)
+            ):
+                risks.add("counterpart_identity_conflict")
+        candidates = index.candidates(
+            row, COMPARISON_SOURCES if row["source"] == "apif" else ("apif",), all_links=True
+        )
+        counts = Counter(index.source(key) for key in candidates)
+        if any(count > 1 for count in counts.values()):
+            risks.add(
+                "multiple_comparison_candidates"
+                if row["source"] == "apif"
+                else "multiple_apif_candidates"
+            )
+    if apif and other:
+        if apif["league"] != other["league"]:
+            risks.add("league_mismatch")
+        if _pair(apif) == tuple(reversed(_pair(other))):
+            risks.add("reversed_home_away")
+        elif _pair(apif) != _pair(other) and not _unmapped_fd_side(apif, other):
+            risks.add("team_id_mismatch")
+        if apif["when"] is not None and other["when"] is not None:
+            delta = abs((apif["when"] - other["when"]).total_seconds())
+            if delta:
+                risks.add("kickoff_conflict")
+            if (
+                WINDOW_SECONDS < delta <= OVERLAP_SECONDS
+                and apif["league"] == other["league"]
+                and _pair(apif) == _pair(other)
+            ):
+                risks.add("unverified_same_identity_overlap")
+        if (
+            apif["result_id"]
+            and other["result_id"]
+            and (apif["home_goals"], apif["away_goals"])
+            != (other["home_goals"], other["away_goals"])
+        ):
+            risks.add("score_conflict")
+    return sorted(risks)
+
+
+def _temporary_summaries(rows):
+    leagues = defaultdict(list)
+    retained = []
+    for row in rows:
+        if row["reason"] == "temporary_team_identity" and row["risk_reasons"] == "[]":
+            leagues[row["league"]].append(row)
+        else:
+            retained.append(row)
+    summaries = []
+    for league, items in sorted(leagues.items()):
+        teams, apif = set(), set()
+        for row in items:
+            if row["apif_match_id"]:
+                apif.add(row["apif_match_id"])
+            for side in ("apif", "comparison"):
+                for role in ("home", "away"):
+                    name = row[f"{side}_{role}_team"]
+                    if isinstance(name, str) and re.match(
+                        r"^[a-z][a-z0-9_-]*:team:", name, re.IGNORECASE
+                    ):
+                        teams.add(row[f"{side}_{role}_team_id"])
+        summary = dict(
+            league=league,
+            temporary_team_ids=len(teams),
+            apif_matches=len(apif),
+            comparison_rows=len(items),
+        )
+        summaries.append(summary)
+        record = dict.fromkeys(FIELDS, "")
+        record.update(
+            summary,
+            classification="temporary_identity_summary",
+            reason="temporary_team_identity",
+            risk_reasons="[]",
+            decision=DECISION,
+        )
+        retained.append(record)
+    return retained, summaries
+
+
 def _audit_rows(matches):
     index = _Index(matches)
     apif_results = [
@@ -395,12 +531,29 @@ def _audit_rows(matches):
         if candidates:
             for key in candidates:
                 apif = index.by_id.get(key)
-                reason = _pair_reason(apif, other) if apif else "counterpart_missing"
-                if not reason and len(index.candidates(apif, (other["source"],))) != 1:
+                source_reference = apif is None and _non_entity_source_reference(other, index.by_id)
+                reason = (
+                    _pair_reason(apif, other)
+                    if apif
+                    else _row_reason(other)
+                    if source_reference
+                    else "counterpart_missing"
+                )
+                if (
+                    apif is not None
+                    and not reason
+                    and len(index.candidates(apif, (other["source"],))) != 1
+                ):
                     reason = "multiple_comparison_candidates"
                 if not reason and len(candidates) != 1:
                     reason = "multiple_apif_candidates"
-                basis = _basis(apif, other) if apif else "counterpart_unresolved"
+                basis = (
+                    _basis(apif, other)
+                    if apif
+                    else "non_entity_source_reference"
+                    if source_reference
+                    else "counterpart_unresolved"
+                )
                 if reason and basis == "exact_team_ids_unique":
                     basis = "exact_team_ids_candidate"
                 rows.append(
@@ -408,7 +561,12 @@ def _audit_rows(matches):
                         apif,
                         other,
                         "unverified" if reason else "unmatched",
-                        reason or "apif_result_missing",
+                        reason
+                        or (
+                            "non_entity_source_reference"
+                            if source_reference
+                            else "apif_result_missing"
+                        ),
                         basis,
                         missing_id=key,
                     )
@@ -423,6 +581,18 @@ def _audit_rows(matches):
                     reason or "no_apif_candidate",
                 )
             )
+    for row in rows:
+        risks = _independent_risks(
+            index.by_id.get(row["apif_match_id"]),
+            index.by_id.get(row["comparison_match_id"]),
+            index,
+        )
+        row["risk_reasons"] = json.dumps(risks, ensure_ascii=False)
+        if risks and row["classification"] in {"consistent", "unmatched"}:
+            row["classification"] = "unverified"
+            row["reason"] = risks[0]
+        elif row["reason"] == "temporary_team_identity" and risks:
+            row["reason"] = risks[0]
     rows.sort(key=lambda row: (row["league"], row["apif_match_id"], row["comparison_match_id"]))
     return rows, len(apif_results), len(comparisons)
 
@@ -433,8 +603,12 @@ def audit_source_results(database, destination):
     ``matched`` includes consistent and conflicting verified pairs; ``conflicts``
     is its differing-score/time subset. All counts describe the full comparison;
     ``comparison_rows`` is that denominator. ``rows`` counts only the actionable
-    CSV data rows: score/time conflicts and unverified identities. Consistent
-    pairs and missing results/candidates remain in summary counts only.
+    CSV data rows: substantive risks plus one pure-temporary summary per league.
+    ``raw_actionable_rows`` is the count before aggregation; the separate league
+    summaries count temporary team IDs, APIF fixtures and comparison rows.
+    Consistent pairs and missing results/candidates without independent risks
+    remain in summary counts only; a detected risk is actionable even if the
+    scores agree or one side has no result.
     Existing availability values, including NULL, are copied without inference.
     An empty SQLite database and schemas lacking optional legacy columns work.
     API rows require current unique league/provider numeric team bindings, with
@@ -451,11 +625,22 @@ def audit_source_results(database, destination):
         destination.exists() and destination.samefile(database)
     ):
         raise ValueError("审计输出不可覆盖数据库或其日志")
-    rows, apif_count, comparison_count = _audit_rows(_read(database))
+    matches = _read(database)
+    rows, apif_count, comparison_count = _audit_rows(matches)
+    by_id = {row["match_id"]: row for row in matches}
+    source_references = Counter(
+        row["counterpart_id"].split(":", 1)[0]
+        for row in matches
+        if row["league"] in LEAGUES
+        and row["result_id"]
+        and _non_entity_source_reference(row, by_id)
+    )
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, FIELDS)
     writer.writeheader()
     actionable = [row for row in rows if row["classification"] not in {"consistent", "unmatched"}]
+    raw_actionable_rows = len(actionable)
+    actionable, summaries = _temporary_summaries(actionable)
     writer.writerows(actionable)
     destination.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write(destination, output.getvalue().encode("utf-8"))
@@ -465,6 +650,10 @@ def audit_source_results(database, destination):
     return {
         "status": "complete" if apif_count else "no_apif_results",
         "rows": len(actionable),
+        "raw_actionable_rows": raw_actionable_rows,
+        "temporary_identity_rows": sum(row["comparison_rows"] for row in summaries),
+        "temporary_identity_summaries": summaries,
+        "non_entity_source_references": dict(sorted(source_references.items())),
         "comparison_rows": len(rows),
         "apif_results": apif_count,
         "comparison_results": comparison_count,

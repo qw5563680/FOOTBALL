@@ -113,7 +113,7 @@ def run_backfill(archive, work, monkeypatch, *extra):
         sys, "argv", ["feeds", "backfill", "--archive", str(archive), "--run-id", work.name, *extra]
     )
     main()
-    return archive_info(archive)["collection"]["fd"]
+    return archive_info(archive)["collection"]["fd_backfill"]
 
 
 def robots(api, body=None):

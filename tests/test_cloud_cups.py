@@ -112,7 +112,7 @@ def run_backfill(archive, work, monkeypatch, provider, codes, first=2024, last=2
         ],
     )
     main()
-    return archive_info(archive)["collection"][provider]
+    return archive_info(archive)["collection"][f"{provider}_backfill"]
 
 
 @pytest.mark.parametrize(("provider", "codes"), [("fdorg", "CL"), ("apif", "3,848")])

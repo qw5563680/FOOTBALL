@@ -109,10 +109,10 @@ F 待结：发报时未开球 0 组；已开球、赛果未核对 0 组。取消
 
 来源：[feed\_manifest.json](../feed_manifest.json) collection。
 
-- jc：未记录；疑似重复 未记录；未记录原因。
-- fd：skipped；疑似重复 0；仅 UTC 周一早班采集。
-- fdorg：partial；疑似重复 20；单行拒绝或疑似重复，详见 state/audit。
-- apif：complete；疑似重复 0；未记录原因。
+- jc：未记录；疑似重复 未记录；单行拒收 未记录；未记录原因。
+- fd：skipped；疑似重复 0；单行拒收 未记录；仅 UTC 周一早班采集。
+- fdorg：partial；疑似重复 20；单行拒收 未记录；单行拒绝或疑似重复，详见 state/audit。
+- apif：complete；疑似重复 0；单行拒收 未记录；未记录原因。
 - apif 配额剩余：7420；plan：Pro；limit_day：7500。
 
 仅转述冻结数据；缺失不填零，门槛标记不授予 BET 权限。

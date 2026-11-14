@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from zucai.db import upsert_match
 from zucai.models import Match, Result, Team
 from zucai.sources.api_common import LocalValidationError
+from zucai.sources.apif_aliases import binding_scope_allows
 from zucai.sources.fd_ingest import WINDOW, _canonical
 from zucai.sources.jc_counterpart import CounterpartConflict, check_late_observation
 from zucai.sources.results import GameResult, apply_result
@@ -30,6 +31,7 @@ COUNT_KEYS = (
     "linked_fdorg",
     "rejected_rows",
     "suspected_duplicates",
+    "held_unbound",
     "assumed",
 )
 
@@ -109,7 +111,12 @@ class _Teams:
             raise ValueError(f"球队名称或来源ID有多个既有身份：{label}")
         return next(iter(found.values()), None)
 
-    def resolve(self, session, league, provider_id):
+    def resolve(self, session, league, provider_id, *, kickoff_utc=None):
+        entry = self.aliases.get(league, {}).get(str(provider_id), {})
+        if "binding_scope" in entry and not binding_scope_allows(
+            entry, league, kickoff_utc=kickoff_utc
+        ):
+            raise LocalValidationError("binding_scope does not authorize this fixture time/league")
         if (league, str(provider_id)) in self.collisions:
             raise LocalValidationError("同一规范球队对应多个生效的来源球队ID")
         canonical = _canonical(self.aliases, league, str(provider_id))
@@ -148,7 +155,9 @@ class _Teams:
             (game.home_provider_id, game.home_raw),
             (game.away_provider_id, game.away_raw),
         ):
-            side = self.resolve(session, game.league, provider_id)
+            side = self.resolve(
+                session, game.league, provider_id, kickoff_utc=game.kickoff_utc.isoformat()
+            )
             if side.binding is None:
                 unknown[game.league, provider_id] = raw
             sides.append(side)
@@ -235,6 +244,32 @@ def _check_claims(game, per_team, target=None):
         raise _Suspected("本批三小时内同队有多个来源比赛ID", others)
 
 
+class _HeldUnbound(_Suspected):
+    pass
+
+
+def _only_unbound(session, key, game, sides, existing, conflicts, exact):
+    """Downgrade only the identity guard, after checking substantive risks."""
+    if existing or len(conflicts["jc"]) != 1 or any(exact.values()):
+        return False
+    if any(conflicts[source] for source in ("fd", "fdorg", "apif")):
+        return False
+    candidate = session.get(Match, conflicts["jc"][0])
+    if (candidate.counterpart_id or "").startswith("apif:"):
+        return False
+    if session.scalar(select(Match.match_id).where(Match.counterpart_id == key)):
+        return False
+    for side, target_id in zip(
+        sides, (candidate.home_team_id, candidate.away_team_id), strict=True
+    ):
+        if side.binding is not None and (side.team is None or side.team.id != target_id):
+            return False
+    result = session.get(Result, candidate.match_id)
+    if result and game.full and (result.home_goals, result.away_goals) != game.full:
+        return False
+    return True
+
+
 def _link_target(session, key, game, sides, existing, per_team, *, retain=False):
     _check_claims(game, per_team)
     pair = tuple(side.team.id if side.team else None for side in sides)
@@ -256,10 +291,12 @@ def _link_target(session, key, game, sides, existing, per_team, *, retain=False)
         )
     )
     exact, conflicts = defaultdict(list), defaultdict(list)
+    other_apif = False
     raw_names = {normalize_team(raw).casefold() for raw in (game.home_raw, game.away_raw)}
     for candidate in window:
         oriented = (candidate.home_team_id, candidate.away_team_id)
         source = candidate.source
+        other_apif |= source == "apif"
         if linked_fd is not None and candidate.match_id == linked_fd.match_id:
             exact[source].append(candidate)
         elif source != "apif" and known and pair == oriented:
@@ -279,6 +316,12 @@ def _link_target(session, key, game, sides, existing, per_team, *, retain=False)
             conflicts[source].append(candidate.match_id)
     if conflicts["apif"]:
         raise _Suspected("同联赛三小时内已有另一 apif 比赛ID", conflicts["apif"])
+    if (
+        not known
+        and not other_apif
+        and _only_unbound(session, key, game, sides, existing, conflicts, exact)
+    ):
+        raise _HeldUnbound("球队未绑定，三小时竞彩窗口暂缓入库", conflicts["jc"])
     if retain:
         for source in ("jc", "fd", "fdorg"):
             if conflicts[source] or len(exact[source]) > 1:
@@ -488,7 +531,7 @@ def import_apif_games(
     imported = imported_utc if imported_utc is not None else datetime.now(UTC)
     rows, per_team = _check_capture(games, seen)
     counts = dict.fromkeys(COUNT_KEYS, 0)
-    rejected, suspected, links, outcomes = [], [], [], []
+    rejected, suspected, held, links, outcomes = [], [], [], [], []
     unmatched = {}
     for game, invalid in rows:
         audit = dict(
@@ -572,6 +615,13 @@ def import_apif_games(
                         session, key, game, seen, assume, existing, sides
                     )
                 session.flush()
+        except _HeldUnbound as exc:
+            counts["held_unbound"] += 1
+            held.append(
+                dict(audit, candidates=exc.candidates, reason=str(exc), reason_code="held_unbound")
+            )
+            unmatched.update(unknown)
+            continue
         except _Suspected as exc:
             counts["suspected_duplicates"] += 1
             suspected.append(dict(audit, candidates=exc.candidates, reason=str(exc)))
@@ -605,6 +655,7 @@ def import_apif_games(
         counts,
         rejected=rejected,
         suspected=suspected,
+        held=held,
         links=links,
         outcomes=outcomes,
         unmatched_names=[

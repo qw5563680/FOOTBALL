@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from zucai.cloud_apis import failure_reason
-from zucai.cloud_feeds import MANIFEST, archive_info, export_feeds
+from zucai.cloud_feeds import MANIFEST, archive_info, daily_collection, export_feeds
 from zucai.sources.apif_stats import instant
 from zucai.sources.base import RawStore, _atomic_write
 from zucai.sources.football_data import CONFIG_ROOT, FootballDataCoUk
@@ -428,6 +428,7 @@ def collect_batch(
                 date.fromisoformat(original["through_beijing"]),
                 run_id,
                 collection=collection,
+                status_collection=daily_collection(collection) if daily else None,
             )
             _copy_evidence(raw_root, database.parent / "raw")
             _copy_evidence(assets, database.parent / "stats_assets")

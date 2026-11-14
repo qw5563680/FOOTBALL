@@ -17,6 +17,7 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from zucai.league_registry import provider_config
+from zucai.request_budget import DeferredRequestBudget, defer_scope
 from zucai.sources.base import RateLimiter, RawStore, make_session
 from zucai.sources.fd_ingest import COUNT_KEYS, fetch_fd
 from zucai.sources.football_data import (
@@ -146,6 +147,8 @@ def _result_counts(database):
 
 
 def _failure(exc):
+    if isinstance(exc, DeferredRequestBudget):
+        return "请求中途达到本批上限，分页/范围未完成"
     if isinstance(exc, requests.HTTPError) and exc.response is not None:
         return f"HTTP {exc.response.status_code}"
     if isinstance(exc, requests.RequestException):
@@ -195,6 +198,7 @@ def collect_backfill(
         processed_files=0,
         scopes=[],
         failed_scopes=[],
+        deferred_scopes=[],
         errors=[],
     )
     urls = [
@@ -215,6 +219,8 @@ def collect_backfill(
                 else (f"{code}/{scope['from_season']}-{scope['to_season']}")
             )
             item = {"code": code, "scope": label, "url": url, "status": "complete"}
+            budget = getattr(source, "request_budget", None)
+            request_start = budget.used if budget else 0
             try:
                 path = source.fetch_raw(
                     div=scope.get("div"),
@@ -252,6 +258,11 @@ def collect_backfill(
                     imported["suspected_duplicates"],
                 )
             except Exception as exc:
+                if defer_scope(
+                    report, item, exc, requests_started=bool(budget and budget.used > request_start)
+                ):
+                    report["scopes"].append(item)
+                    continue
                 reason = _failure(exc)
                 item.update(status="partial", error=reason)
                 report["status"] = "partial"

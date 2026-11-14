@@ -153,6 +153,7 @@ def fetch_apif(
                 result["rejected_rows"] = len(result["rejected"])
                 _audit(Path(audit_dir) / "apif_rejected_rows.csv", result["rejected"], sha)
                 _audit(Path(audit_dir) / "apif_suspected_duplicates.csv", result["suspected"], sha)
+                _audit(Path(audit_dir) / "apif_held_unbound.csv", result["held"], sha)
                 _unmatched_teams(
                     Path(audit_dir) / "apif_unmatched_teams.csv", result["unmatched_names"], seen
                 )

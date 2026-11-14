@@ -128,6 +128,7 @@ def _persisted_bindings(database, provider, league):
 
 def _bridge(provider, database, league, labels, aliases):
     entries = deepcopy(aliases.get(league, {}))
+    scoped = _scoped_ids(provider, aliases)
     known = defaultdict(list)
     for source_league, records in aliases.items():
         # Check the originating league's complete reverse map, including IDs
@@ -144,12 +145,12 @@ def _bridge(provider, database, league, labels, aliases):
         if key not in labels:
             continue
         known[key].append((league, record["canonical"]))
-        if not _canonical({league: entries}, league, key):
+        if key not in scoped and not _canonical({league: entries}, league, key):
             entries[key] = {"name": labels[key], **record}
     for key, names in known.items():
         if len({name for _, name in names}) != 1:
             raise ValueError("跨联赛的同源数字球队 ID 存在规范名冲突")
-        if not _canonical({league: entries}, league, key):
+        if key not in scoped and not _canonical({league: entries}, league, key):
             entries[key] = dict(
                 name=labels[key],
                 canonical=names[0][1],
@@ -166,6 +167,17 @@ def _bridge(provider, database, league, labels, aliases):
             )
     _active({league: entries}, league)
     return entries
+
+
+def _scoped_ids(provider, aliases):
+    # Legacy bridges and graphs cannot retain the new category/time authorization.
+    # Keep their old behavior only for IDs without an explicit APIF scope.
+    return {
+        key
+        for records in aliases.values()
+        for key, entry in records.items()
+        if provider == "apif" and "binding_scope" in entry
+    }
 
 
 def _audit_aliases(path, rows):
@@ -237,6 +249,12 @@ def resolve_cup_aliases(provider, database, aliases, captures, audit_dir):
             or not any(abs(g.kickoff_utc - _utc(j["kickoff_utc"])) <= WINDOW for g in games)
             for j in jc
         )
+        if _scoped_ids(provider, aliases) & labels.keys() or _scoped_ids(
+            provider, {league: entries}
+        ):
+            # Do not remove scoped rows from the competitor graph or let a scoped
+            # anchor infer other IDs. Preserve explicit entries for per-game guards.
+            valid = False
         if valid and provider == "fdorg":
             identity = [
                 _Fixture(

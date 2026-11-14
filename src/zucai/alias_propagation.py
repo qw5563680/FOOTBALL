@@ -9,7 +9,7 @@ from pathlib import Path
 
 from zucai import aliases_snapshot
 from zucai.cup_history import PROVISIONAL, team_games
-from zucai.sources.apif_aliases import validate_approvals
+from zucai.sources.apif_aliases import binding_scope_allows, validate_approvals
 from zucai.sources.base import _atomic_write
 from zucai.sources.fdorg_verify import _active
 
@@ -33,6 +33,11 @@ def propagated_entry(source, source_league, source_sha, *, name=None):
             )
         ],
         **{key: deepcopy(source[key]) for key in APPROVAL_FIELDS if key in source},
+        **(
+            {"binding_scope": deepcopy(source["binding_scope"])}
+            if "binding_scope" in source
+            else {}
+        ),
     )
 
 
@@ -59,6 +64,11 @@ def _plan(aliases, provider, histories, sha):
         origin = origins[0]
         source = aliases[origin][key]
         for league in sorted(leagues):
+            if not binding_scope_allows(source, league):
+                continue
+            # T68 target entries require their own PR authorization.
+            if "binding_scope" in source and key not in active.get(league, {}):
+                continue
             if key in active.get(league, {}):
                 continue  # Active records, including provenance, remain byte-for-byte values.
             previous = aliases.get(league, {}).get(key, {})

@@ -16,7 +16,7 @@ from zucai.league_registry import daily_codes, provider_config, provider_entries
 from zucai.models import Match, Team
 from zucai.sources import jc_counterpart
 from zucai.sources.api_football import LEAGUES as APIF_LEAGUES
-from zucai.sources.apif_aliases import validate_approvals
+from zucai.sources.apif_aliases import binding_scope_allows, validate_approvals
 from zucai.sources.apif_command import ALIASES
 from zucai.sources.apif_ingest import _Teams
 from zucai.sources.base import _atomic_write
@@ -113,7 +113,18 @@ def _formal_entry(session, aliases, league, key):
     names = {_canonical(aliases, origin, key) for origin in known}
     if len(names) != 1:
         raise ValueError("跨联赛的同源数字球队 ID 存在规范名冲突")
-    entry = deepcopy(known.get(league, next(iter(known.values()))))
+    # Check every global ID conflict before restricting the allowed targets.
+    eligible = {
+        origin: entry
+        for origin, entry in known.items()
+        if "binding_scope" not in entry or origin == league
+    }
+    if not eligible:
+        return None, []
+    entry = deepcopy(eligible.get(league, next(iter(eligible.values()))))
+    scope = entry.get("binding_scope")
+    if scope is not None and league not in scope.get("leagues", []):
+        return None, []
     return entry, list(known)
 
 
@@ -281,6 +292,11 @@ def reconcile(database, run_id):
                         if any(a.startswith(prefix) and a != binding for a in target.aliases):
                             raise ValueError(f"规范球队已有不同的本联赛 {provider.upper()} ID")
                         games = _references(session, temporary.id, league)
+                        if any(
+                            not binding_scope_allows(entry, league, kickoff_utc=m.kickoff_utc)
+                            for m in games
+                        ):
+                            raise ValueError("binding_scope does not authorize every target match")
                         if any(m.source != provider for m in games):
                             raise ValueError(f"临时身份被非 {provider.upper()} 比赛引用")
                         existing = _references(session, target.id, league)

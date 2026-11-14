@@ -11,6 +11,7 @@ from pathlib import Path
 
 from zucai.cloud_apis import failure_reason
 from zucai.league_registry import provider_config
+from zucai.request_budget import defer_scope
 from zucai.sources.api_football import APIF_LEAGUE_IDS, LEAGUES, ApiFootball
 from zucai.sources.apif_command import ALIASES as APIF_ALIASES
 from zucai.sources.apif_command import fetch_apif
@@ -164,6 +165,7 @@ def collect_planned_api_backfill(
         processed_files=0,
         scopes=[],
         failed_scopes=[],
+        deferred_scopes=[],
         errors=[],
     )
     names = {code: config["league"] for code, config in _config(provider).items()}
@@ -215,6 +217,8 @@ def collect_planned_api_backfill(
                 status="complete",
             )
             report["scopes"].append(item)
+            budget = getattr(source, "request_budget", None)
+            request_start = budget.used if budget else source.request_count
             if provider == "apif":
                 record_scope(audit / "apif_identity_scopes.csv", code, names[code], scope["season"])
             try:
@@ -245,7 +249,11 @@ def collect_planned_api_backfill(
                 )
                 pending.append((scope, path, capture, item))
             except Exception as exc:
-                failed(item, exc)
+                requests_now = budget.used if budget else source.request_count
+                if not defer_scope(
+                    report, item, exc, requests_started=requests_now > request_start
+                ):
+                    failed(item, exc)
         aliases = read_json(FDORG_ALIASES) if provider == "fdorg" else initial_aliases
         if provider == "apif":
             record_matches(audit / "apif_identity_matches.csv", captures)
@@ -327,6 +335,9 @@ def collect_planned_api_backfill(
                     report["errors"].append(
                         f"{item['scope']}: 单行拒绝或疑似重复，详见 state/audit"
                     )
+                elif result.get("held_unbound"):
+                    item["status"] = "held"
+                    item["reason"] = "held_unbound"
                 LOG.info(
                     "%s 回填 %s：新增%d，链接竞彩%d，拒绝%d，可疑%d",
                     provider,
@@ -392,6 +403,9 @@ def write_summary(report):
         f"请求 {report['requests']} 次（含失败与分页），剩余配额 {report['remaining_quota']}；"
         f"新增 {report['inserted']}，拒绝 {report['rejected_rows']}，"
         f"疑似重复 {report['suspected_duplicates']}。",
+        f"未绑定暂缓 {report.get('held_unbound', 0)}；"
+        f"未请求待续范围 {len(report.get('deferred_scopes', []))}；"
+        f"失败范围 {len(report.get('failed_scopes', []))}。",
         "",
         "| 赛事/赛季 | 状态 | 解析 | 库内比赛 | 库内赛果 | 本次新增 | 链接竞彩 | "
         f"拒绝 | 疑似重复 | {alignment_label} | 未对齐球队 |",

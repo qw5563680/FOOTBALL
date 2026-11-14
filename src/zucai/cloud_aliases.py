@@ -50,6 +50,52 @@ def _validate_candidates(candidates, aliases):
             raise ValueError("候选存在主客身份或反向名称冲突，须人工核验") from None
 
 
+def _rejected_leagues(provider, source, raw):
+    """Use original numeric competition IDs, never a rejected row's display label."""
+    doc = json.loads(raw)
+    rows = doc["response" if provider == "apif" else "matches"]
+    if provider == "apif":
+        if doc["paging"] != {"current": 1, "total": 1}:
+            return None
+        # Missing/invalid IDs may have been filtered before the parser rejected them.
+        if any(
+            not isinstance(row, dict)
+            or not isinstance(row.get("league"), dict)
+            or type(row["league"].get("id")) is not int
+            or row["league"]["id"] <= 0
+            for row in rows
+        ):
+            return None
+    blocked = set()
+    for rejection in source.rejected:
+        number = rejection.get("row_number")
+        if type(number) is not int or not 1 <= number <= len(rows):
+            return None
+        row = rows[number - 1]
+        competition = (
+            row.get("league" if provider == "apif" else "competition", {})
+            if isinstance(row, dict)
+            else {}
+        )
+        if (
+            not isinstance(competition, dict)
+            or type(competition.get("id")) is not int
+            or competition["id"] <= 0
+        ):
+            return None
+        if provider == "apif":
+            config = source.leagues.get(str(competition["id"]))
+        else:
+            code = source.league_codes.get(str(competition["id"]))
+            if competition.get("code") != code:
+                return None
+            config = source.competitions.get(code)
+        if not config:
+            return None
+        blocked.add(config["league"])
+    return blocked
+
+
 def write_candidates(provider, database, raw_dir, captures, output):
     """Reuse T09/T10 graphs once per league, retaining every competing captured fixture."""
     output = Path(output)
@@ -80,9 +126,9 @@ def write_candidates(provider, database, raw_dir, captures, output):
             if sha256(raw).hexdigest() != sha:
                 raise ValueError("候选原件哈希不符")
             games = source.parse(raw, **scope)
-            # A removed identity may conceal competing edges. The entire rejected
-            # scope leaves a coverage gap, including for adjacent captures.
-            if source.rejected:
+            blocked = _rejected_leagues(provider, source, raw)
+            # Unknown attribution or incomplete paging removes the whole capture.
+            if blocked is None:
                 continue
             if provider == "fdorg":
                 begin = datetime.fromisoformat(scope["date_from"]).replace(tzinfo=UTC)
@@ -95,8 +141,11 @@ def write_candidates(provider, database, raw_dir, captures, output):
                 end = begin + timedelta(days=1)
                 leagues = [config["league"] for config in source.leagues.values()]
             for league in leagues:
-                coverage[league].append((begin, end))
+                if league not in blocked:
+                    coverage[league].append((begin, end))
             for game in games:
+                if game.league in blocked:
+                    continue
                 mid = game.provider_match_id
                 if mid in identities and identities[mid] != _identity(game):
                     raise ValueError("跨原件比赛身份冲突，须人工核验")

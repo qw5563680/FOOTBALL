@@ -216,6 +216,7 @@ def test_collection_and_backfill_summaries_count_real_late_jc_links(db, tmp_path
     output = summary.read_text()
     assert "| fdorg | complete | 0 | 1 | 0 | 0 |" in output
     assert "| 英超/2026 | complete | 1 | 1 | 0 | 0 | 1 | 0 | 0 |" in output
+    assert "未绑定暂缓 0；未请求待续范围 0；失败范围 0。" in output
 
 
 @pytest.mark.parametrize("ref", ["main", "football-ingest-run-t40", "football-ingest-verify-t40"])
