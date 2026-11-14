@@ -1087,7 +1087,10 @@ def test_probe_collection_is_compact_and_does_not_poison_next_daily_run(
     tmp_path, module, monkeypatch
 ):
     from zucai.cloud_feeds import main
+    from zucai.sources.apif_ingest import COUNT_KEYS
 
+    step_summary = tmp_path / "github-step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(step_summary))
     archive = seed_cloud_archive(tmp_path)
     catalogue(tmp_path, (2042404, 2042405, 2042406))
     providers = {
@@ -1127,7 +1130,15 @@ def test_probe_collection_is_compact_and_does_not_poison_next_daily_run(
     assert {key: meta["collection"][key] for key in providers} == providers
     monkeypatch.setattr(
         "zucai.cloud_apis.collect_apis",
-        lambda *args, **kwargs: {"apif": {"status": "complete", "keep": "new-api-state"}},
+        lambda *args, **kwargs: {
+            "apif": dict(
+                dict.fromkeys(COUNT_KEYS, 0),
+                status="complete",
+                keep="new-api-state",
+                requests=0,
+                errors=[],
+            )
+        },
     )
     daily = tmp_path / "daily"
     daily.mkdir()
@@ -1144,6 +1155,8 @@ def test_probe_collection_is_compact_and_does_not_poison_next_daily_run(
     assert restored["collection"]["fdorg"] == providers["fdorg"]
     assert restored["collection"]["apif"]["keep"] == "new-api-state"
     assert report.is_file()  # Historical evidence survives removal of transient run status.
+    assert "Football feed archive: complete" in step_summary.read_text()
+    assert "| apif | complete | 0 | 0 | 0 | 0 |" in step_summary.read_text()
 
 
 @responses.activate

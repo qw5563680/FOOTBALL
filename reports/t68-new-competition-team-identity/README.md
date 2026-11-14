@@ -65,6 +65,19 @@
 ZIP 386002字节，SHA256 `cf1b2fd9dce56ec8dc2b1264c5e577a2eb16507c68674824473b4dcb7537526f`。
 旧验收包保持原样。本轮仅修A1，不宣称其余A段或真实先导已完成。
 
+## A1 CI 环境修正（最终离线验收）
+
+[复审5904560410](https://github.com/qw5563680/FOOTBALL/pull/140#pullrequestreview-5904560410)
+确认功能修正成立，仅剩CI测试桩缺少采集计数字段。本次只补测试：明确设置独立临时
+`GITHUB_STEP_SUMMARY`，返回完整计数字段，并断言摘要表已写出；生产代码没有改动。
+修前在该环境稳定复现 `KeyError: inserted`，修后同路径通过。
+
+设置运行摘要环境后实跑全量 **4110项，0失败/0错误/0跳过，254.602秒**；
+`ruff check src tests`及`ruff format --check src tests`通过（382 files already formatted）。
+[CI环境红绿记录与全量输出](https://github.com/qw5563680/FOOTBALL/tree/c2cdf3bde248abe3396e52b1a37c9091baef5a43/acceptance/t68-a1-ci-20261114)：
+ZIP 111111字节，SHA256 `510f74a8e80082db608c968b121f1004c3d9dce0dd6ded98b57e2ec599710df9`。
+此前功能验收包保持不变；GitHub实际CI状态以PR检查记录为准。
+
 ## 固定版本与只读核查
 
 - 代码：[`273008329b15fabe8b5dd0cdc1ed78f139dcc270`](https://github.com/qw5563680/FOOTBALL/commit/273008329b15fabe8b5dd0cdc1ed78f139dcc270)。
