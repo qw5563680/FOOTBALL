@@ -1,0 +1,413 @@
+FFFFFFFFFFF.FF..............FF                                           [100%]
+=================================== FAILURES ===================================
+_____ test_real_bad_dates_preserve_all_leagues_years_and_unverified_access _____
+
+    def test_real_bad_dates_preserve_all_leagues_years_and_unverified_access():
+>       parsed = parse_apif_catalogue(REAL.read_bytes())
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t65_apif_catalogue.py:39: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/cloud_catalogue.py:186: in parse_apif_catalogue
+    _season(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+year = 2026, start = '2286-11-20', end = '1970-01-01', fixtures = None
+results = None
+
+    def _season(year, start, end, fixtures=None, results=None):
+        first, last = _day(start), _day(end)
+        if first and last and first > last:
+>           raise CatalogueError("catalogue season date order is invalid")
+E           zucai.cloud_catalogue.CatalogueError: catalogue season date order is invalid
+
+src/zucai/cloud_catalogue.py:114: CatalogueError
+_ test_apif_invalid_date_values_warn_and_clear_both_dates[2026-11-30-2026-01-01-order] _
+
+start = '2026-11-30', end = '2026-01-01', reason = 'order'
+
+    @pytest.mark.parametrize(
+        "start,end,reason",
+        [
+            ("2026-11-30", "2026-01-01", "order"),
+            ("not-a-date", "2027-05-23", "invalid"),
+            ("2026-02-30", "2027-05-23", "invalid"),
+            ("20260724", "2027-05-23", "YYYY-MM-DD"),
+            ("2286-11-20", "2287-01-01", "1900..2100"),
+            ("1800-01-01", "1801-01-01", "1900..2100"),
+            ("2026-07-24", "9999-12-31", "1900..2100"),
+        ],
+    )
+    def test_apif_invalid_date_values_warn_and_clear_both_dates(start, end, reason):
+>       parsed = _parse(_single_season(start, end))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t65_apif_catalogue.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t65_apif_catalogue.py:35: in _parse
+    return parse_apif_catalogue(json.dumps(document).encode())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/cloud_catalogue.py:186: in parse_apif_catalogue
+    _season(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+year = 2026, start = '2026-11-30', end = '2026-01-01', fixtures = None
+results = None
+
+    def _season(year, start, end, fixtures=None, results=None):
+        first, last = _day(start), _day(end)
+        if first and last and first > last:
+>           raise CatalogueError("catalogue season date order is invalid")
+E           zucai.cloud_catalogue.CatalogueError: catalogue season date order is invalid
+
+src/zucai/cloud_catalogue.py:114: CatalogueError
+_ test_apif_invalid_date_values_warn_and_clear_both_dates[not-a-date-2027-05-23-invalid] _
+
+start = 'not-a-date', end = '2027-05-23', reason = 'invalid'
+
+    @pytest.mark.parametrize(
+        "start,end,reason",
+        [
+            ("2026-11-30", "2026-01-01", "order"),
+            ("not-a-date", "2027-05-23", "invalid"),
+            ("2026-02-30", "2027-05-23", "invalid"),
+            ("20260724", "2027-05-23", "YYYY-MM-DD"),
+            ("2286-11-20", "2287-01-01", "1900..2100"),
+            ("1800-01-01", "1801-01-01", "1900..2100"),
+            ("2026-07-24", "9999-12-31", "1900..2100"),
+        ],
+    )
+    def test_apif_invalid_date_values_warn_and_clear_both_dates(start, end, reason):
+>       parsed = _parse(_single_season(start, end))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t65_apif_catalogue.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t65_apif_catalogue.py:35: in _parse
+    return parse_apif_catalogue(json.dumps(document).encode())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/cloud_catalogue.py:186: in parse_apif_catalogue
+    _season(
+src/zucai/cloud_catalogue.py:112: in _season
+    first, last = _day(start), _day(end)
+                  ^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = 'not-a-date'
+
+    def _day(value):
+        if value is None:
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except (TypeError, ValueError):
+>           raise CatalogueError("catalogue season date is invalid") from None
+E           zucai.cloud_catalogue.CatalogueError: catalogue season date is invalid
+
+src/zucai/cloud_catalogue.py:105: CatalogueError
+_ test_apif_invalid_date_values_warn_and_clear_both_dates[2026-02-30-2027-05-23-invalid] _
+
+start = '2026-02-30', end = '2027-05-23', reason = 'invalid'
+
+    @pytest.mark.parametrize(
+        "start,end,reason",
+        [
+            ("2026-11-30", "2026-01-01", "order"),
+            ("not-a-date", "2027-05-23", "invalid"),
+            ("2026-02-30", "2027-05-23", "invalid"),
+            ("20260724", "2027-05-23", "YYYY-MM-DD"),
+            ("2286-11-20", "2287-01-01", "1900..2100"),
+            ("1800-01-01", "1801-01-01", "1900..2100"),
+            ("2026-07-24", "9999-12-31", "1900..2100"),
+        ],
+    )
+    def test_apif_invalid_date_values_warn_and_clear_both_dates(start, end, reason):
+>       parsed = _parse(_single_season(start, end))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t65_apif_catalogue.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t65_apif_catalogue.py:35: in _parse
+    return parse_apif_catalogue(json.dumps(document).encode())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/cloud_catalogue.py:186: in parse_apif_catalogue
+    _season(
+src/zucai/cloud_catalogue.py:112: in _season
+    first, last = _day(start), _day(end)
+                  ^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = '2026-02-30'
+
+    def _day(value):
+        if value is None:
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except (TypeError, ValueError):
+>           raise CatalogueError("catalogue season date is invalid") from None
+E           zucai.cloud_catalogue.CatalogueError: catalogue season date is invalid
+
+src/zucai/cloud_catalogue.py:105: CatalogueError
+_ test_apif_invalid_date_values_warn_and_clear_both_dates[20260724-2027-05-23-YYYY-MM-DD] _
+
+start = '20260724', end = '2027-05-23', reason = 'YYYY-MM-DD'
+
+    @pytest.mark.parametrize(
+        "start,end,reason",
+        [
+            ("2026-11-30", "2026-01-01", "order"),
+            ("not-a-date", "2027-05-23", "invalid"),
+            ("2026-02-30", "2027-05-23", "invalid"),
+            ("20260724", "2027-05-23", "YYYY-MM-DD"),
+            ("2286-11-20", "2287-01-01", "1900..2100"),
+            ("1800-01-01", "1801-01-01", "1900..2100"),
+            ("2026-07-24", "9999-12-31", "1900..2100"),
+        ],
+    )
+    def test_apif_invalid_date_values_warn_and_clear_both_dates(start, end, reason):
+>       parsed = _parse(_single_season(start, end))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t65_apif_catalogue.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t65_apif_catalogue.py:35: in _parse
+    return parse_apif_catalogue(json.dumps(document).encode())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/cloud_catalogue.py:186: in parse_apif_catalogue
+    _season(
+src/zucai/cloud_catalogue.py:112: in _season
+    first, last = _day(start), _day(end)
+                  ^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = '20260724'
+
+    def _day(value):
+        if value is None:
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except (TypeError, ValueError):
+            raise CatalogueError("catalogue season date is invalid") from None
+        if parsed.isoformat() != value:
+>           raise CatalogueError("catalogue season date must use YYYY-MM-DD")
+E           zucai.cloud_catalogue.CatalogueError: catalogue season date must use YYYY-MM-DD
+
+src/zucai/cloud_catalogue.py:107: CatalogueError
+_ test_apif_invalid_date_values_warn_and_clear_both_dates[2286-11-20-2287-01-01-1900..2100] _
+
+start = '2286-11-20', end = '2287-01-01', reason = '1900..2100'
+
+    @pytest.mark.parametrize(
+        "start,end,reason",
+        [
+            ("2026-11-30", "2026-01-01", "order"),
+            ("not-a-date", "2027-05-23", "invalid"),
+            ("2026-02-30", "2027-05-23", "invalid"),
+            ("20260724", "2027-05-23", "YYYY-MM-DD"),
+            ("2286-11-20", "2287-01-01", "1900..2100"),
+            ("1800-01-01", "1801-01-01", "1900..2100"),
+            ("2026-07-24", "9999-12-31", "1900..2100"),
+        ],
+    )
+    def test_apif_invalid_date_values_warn_and_clear_both_dates(start, end, reason):
+        parsed = _parse(_single_season(start, end))
+        season = parsed["leagues"][0]["seasons"][0]
+        assert season["year"] == 2026
+>       assert season["start_date"] is None and season["end_date"] is None
+E       AssertionError: assert ('2286-11-20' is None)
+
+tests/test_t65_apif_catalogue.py:86: AssertionError
+_ test_apif_invalid_date_values_warn_and_clear_both_dates[1800-01-01-1801-01-01-1900..2100] _
+
+start = '1800-01-01', end = '1801-01-01', reason = '1900..2100'
+
+    @pytest.mark.parametrize(
+        "start,end,reason",
+        [
+            ("2026-11-30", "2026-01-01", "order"),
+            ("not-a-date", "2027-05-23", "invalid"),
+            ("2026-02-30", "2027-05-23", "invalid"),
+            ("20260724", "2027-05-23", "YYYY-MM-DD"),
+            ("2286-11-20", "2287-01-01", "1900..2100"),
+            ("1800-01-01", "1801-01-01", "1900..2100"),
+            ("2026-07-24", "9999-12-31", "1900..2100"),
+        ],
+    )
+    def test_apif_invalid_date_values_warn_and_clear_both_dates(start, end, reason):
+        parsed = _parse(_single_season(start, end))
+        season = parsed["leagues"][0]["seasons"][0]
+        assert season["year"] == 2026
+>       assert season["start_date"] is None and season["end_date"] is None
+E       AssertionError: assert ('1800-01-01' is None)
+
+tests/test_t65_apif_catalogue.py:86: AssertionError
+_ test_apif_invalid_date_values_warn_and_clear_both_dates[2026-07-24-9999-12-31-1900..2100] _
+
+start = '2026-07-24', end = '9999-12-31', reason = '1900..2100'
+
+    @pytest.mark.parametrize(
+        "start,end,reason",
+        [
+            ("2026-11-30", "2026-01-01", "order"),
+            ("not-a-date", "2027-05-23", "invalid"),
+            ("2026-02-30", "2027-05-23", "invalid"),
+            ("20260724", "2027-05-23", "YYYY-MM-DD"),
+            ("2286-11-20", "2287-01-01", "1900..2100"),
+            ("1800-01-01", "1801-01-01", "1900..2100"),
+            ("2026-07-24", "9999-12-31", "1900..2100"),
+        ],
+    )
+    def test_apif_invalid_date_values_warn_and_clear_both_dates(start, end, reason):
+        parsed = _parse(_single_season(start, end))
+        season = parsed["leagues"][0]["seasons"][0]
+        assert season["year"] == 2026
+>       assert season["start_date"] is None and season["end_date"] is None
+E       AssertionError: assert ('2026-07-24' is None)
+
+tests/test_t65_apif_catalogue.py:86: AssertionError
+_ test_explicit_null_dates_remain_unknown_without_fabricated_dates[None-None] __
+
+start = None, end = None
+
+    @pytest.mark.parametrize(
+        "start,end",
+        [(None, None), (None, "2027-05-23"), ("2026-07-24", None)],
+    )
+    def test_explicit_null_dates_remain_unknown_without_fabricated_dates(start, end):
+        parsed = _parse(_single_season(start, end))
+        season = parsed["leagues"][0]["seasons"][0]
+        assert season["start_date"] == start and season["end_date"] == end
+>       assert not season.get("warnings") and not parsed["warnings"]
+                                                  ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'warnings'
+
+tests/test_t65_apif_catalogue.py:102: KeyError
+_ test_explicit_null_dates_remain_unknown_without_fabricated_dates[None-2027-05-23] _
+
+start = None, end = '2027-05-23'
+
+    @pytest.mark.parametrize(
+        "start,end",
+        [(None, None), (None, "2027-05-23"), ("2026-07-24", None)],
+    )
+    def test_explicit_null_dates_remain_unknown_without_fabricated_dates(start, end):
+        parsed = _parse(_single_season(start, end))
+        season = parsed["leagues"][0]["seasons"][0]
+        assert season["start_date"] == start and season["end_date"] == end
+>       assert not season.get("warnings") and not parsed["warnings"]
+                                                  ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'warnings'
+
+tests/test_t65_apif_catalogue.py:102: KeyError
+_ test_explicit_null_dates_remain_unknown_without_fabricated_dates[2026-07-24-None] _
+
+start = '2026-07-24', end = None
+
+    @pytest.mark.parametrize(
+        "start,end",
+        [(None, None), (None, "2027-05-23"), ("2026-07-24", None)],
+    )
+    def test_explicit_null_dates_remain_unknown_without_fabricated_dates(start, end):
+        parsed = _parse(_single_season(start, end))
+        season = parsed["leagues"][0]["seasons"][0]
+        assert season["start_date"] == start and season["end_date"] == end
+>       assert not season.get("warnings") and not parsed["warnings"]
+                                                  ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'warnings'
+
+tests/test_t65_apif_catalogue.py:102: KeyError
+___ test_missing_required_season_fields_still_reject_entire_catalogue[start] ___
+
+field = 'start'
+
+    @pytest.mark.parametrize("field", ["year", "start", "end"])
+    def test_missing_required_season_fields_still_reject_entire_catalogue(field):
+        doc = _single_season()
+        doc["response"][0]["seasons"][0].pop(field)
+>       with pytest.raises(CatalogueError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE CatalogueError
+
+tests/test_t65_apif_catalogue.py:109: Failed
+____ test_missing_required_season_fields_still_reject_entire_catalogue[end] ____
+
+field = 'end'
+
+    @pytest.mark.parametrize("field", ["year", "start", "end"])
+    def test_missing_required_season_fields_still_reject_entire_catalogue(field):
+        doc = _single_season()
+        doc["response"][0]["seasons"][0].pop(field)
+>       with pytest.raises(CatalogueError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE CatalogueError
+
+tests/test_t65_apif_catalogue.py:109: Failed
+__________ test_date_warning_preserves_explicit_unavailable_coverage ___________
+
+    def test_date_warning_preserves_explicit_unavailable_coverage():
+        doc = _single_season("2286-11-20", "1970-01-01")
+        doc["response"][0]["seasons"][0]["coverage"] = {"fixtures": False, "results": False}
+>       season = _parse(doc)["leagues"][0]["seasons"][0]
+                 ^^^^^^^^^^^
+
+tests/test_t65_apif_catalogue.py:147: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t65_apif_catalogue.py:35: in _parse
+    return parse_apif_catalogue(json.dumps(document).encode())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/cloud_catalogue.py:186: in parse_apif_catalogue
+    _season(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+year = 2026, start = '2286-11-20', end = '1970-01-01', fixtures = False
+results = False
+
+    def _season(year, start, end, fixtures=None, results=None):
+        first, last = _day(start), _day(end)
+        if first and last and first > last:
+>           raise CatalogueError("catalogue season date order is invalid")
+E           zucai.cloud_catalogue.CatalogueError: catalogue season date order is invalid
+
+src/zucai/cloud_catalogue.py:114: CatalogueError
+___ test_real_date_warning_is_archived_in_summary_and_publishes_apif_pointer ___
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-248/test_real_date_warning_is_arch0')
+actions = None
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fcb2c10be30>
+
+    def test_real_date_warning_is_archived_in_summary_and_publishes_apif_pointer(
+        tmp_path, actions, monkeypatch
+    ):
+        database = tmp_path / "data/zucai.db"
+        database.parent.mkdir()
+        database.write_bytes(b"Database must remain untouched.")
+        step_summary = tmp_path / "step-summary.md"
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(step_summary))
+        with responses.RequestsMock() as http:
+            _responses(http)
+            report = collect_catalogue(database, "real-date-warning")
+>       assert report["status"] == "complete" and report["errors"] == []
+E       AssertionError: assert ('partial' == 'complete'
+E         
+E         - complete
+E         + partial)
+
+tests/test_t65_apif_catalogue.py:188: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t65_apif_catalogue.py::test_real_bad_dates_preserve_all_leagues_years_and_unverified_access
+FAILED tests/test_t65_apif_catalogue.py::test_apif_invalid_date_values_warn_and_clear_both_dates[2026-11-30-2026-01-01-order]
+FAILED tests/test_t65_apif_catalogue.py::test_apif_invalid_date_values_warn_and_clear_both_dates[not-a-date-2027-05-23-invalid]
+FAILED tests/test_t65_apif_catalogue.py::test_apif_invalid_date_values_warn_and_clear_both_dates[2026-02-30-2027-05-23-invalid]
+FAILED tests/test_t65_apif_catalogue.py::test_apif_invalid_date_values_warn_and_clear_both_dates[20260724-2027-05-23-YYYY-MM-DD]
+FAILED tests/test_t65_apif_catalogue.py::test_apif_invalid_date_values_warn_and_clear_both_dates[2286-11-20-2287-01-01-1900..2100]
+FAILED tests/test_t65_apif_catalogue.py::test_apif_invalid_date_values_warn_and_clear_both_dates[1800-01-01-1801-01-01-1900..2100]
+FAILED tests/test_t65_apif_catalogue.py::test_apif_invalid_date_values_warn_and_clear_both_dates[2026-07-24-9999-12-31-1900..2100]
+FAILED tests/test_t65_apif_catalogue.py::test_explicit_null_dates_remain_unknown_without_fabricated_dates[None-None]
+FAILED tests/test_t65_apif_catalogue.py::test_explicit_null_dates_remain_unknown_without_fabricated_dates[None-2027-05-23]
+FAILED tests/test_t65_apif_catalogue.py::test_explicit_null_dates_remain_unknown_without_fabricated_dates[2026-07-24-None]
+FAILED tests/test_t65_apif_catalogue.py::test_missing_required_season_fields_still_reject_entire_catalogue[start]
+FAILED tests/test_t65_apif_catalogue.py::test_missing_required_season_fields_still_reject_entire_catalogue[end]
+FAILED tests/test_t65_apif_catalogue.py::test_date_warning_preserves_explicit_unavailable_coverage
+FAILED tests/test_t65_apif_catalogue.py::test_real_date_warning_is_archived_in_summary_and_publishes_apif_pointer

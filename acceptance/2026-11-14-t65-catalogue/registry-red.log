@@ -1,0 +1,32 @@
+F...............                                                         [100%]
+=================================== FAILURES ===================================
+_________________ test_proposal_fields_do_not_grant_permission _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-252/test_proposal_fields_do_not_gr0')
+
+    def test_proposal_fields_do_not_grant_permission(tmp_path):
+        doc = proposal_registry()
+        path = save(tmp_path, doc)
+>       assert load_registry(path) == doc
+               ^^^^^^^^^^^^^^^^^^^
+
+tests/test_t65_registry_mappings.py:77: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/zucai/league_registry.py:217: in load_registry
+    _competition(row, registry)
+src/zucai/league_registry.py:112: in _competition
+    _keys(
+src/zucai/league_registry.py:21: in _keys
+    _require(set(required) <= value.keys() <= set(required) | set(optional), "object fields")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+condition = False, message = 'object fields'
+
+    def _require(condition, message):
+        if not condition:
+>           raise ValueError(f"Invalid league registry: {message}")
+E           ValueError: Invalid league registry: object fields
+
+src/zucai/league_registry.py:16: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_t65_registry_mappings.py::test_proposal_fields_do_not_grant_permission
