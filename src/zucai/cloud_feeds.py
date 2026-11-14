@@ -76,7 +76,7 @@ CATALOGUE_RUN_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}"
 CATALOGUE_DATE = rf"{MONTH}-(?:0[1-9]|[12][0-9]|3[01])"
 CATALOGUE_FILE = (
     rf"state/catalogue/(?:(?:latest|backfill-checkpoint)\.json|{CATALOGUE_RUN_ID}/(?:"
-    r"(?:apif(?:-raw|-meta)?|fdorg(?:-raw|-meta)?|fd|jc|summary|backfill)\.json|"
+    r"(?:apif(?:-raw|-meta)?|fdorg(?:-raw|-meta)?|fd|jc(?:-leagues)?|summary|backfill)\.json|"
     rf"jc/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?|"
     rf"backfill/(?:api-football|football-data-org|football-data-co-uk)/{CATALOGUE_DATE}/"
     r"[A-Za-z0-9_][A-Za-z0-9_.-]*_[0-9]{12}Z_[0-9a-f]{32}\.(?:json|csv|txt)(?:\.meta\.json)?))"

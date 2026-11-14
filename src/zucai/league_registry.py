@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+from datetime import date
 from pathlib import Path
 
 REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data/league_map.json"
@@ -108,6 +109,136 @@ def _provider_entry(provider, code, entry):
     _evidence(entry["evidence"], status)
 
 
+def _catalogue_proposal(value, *, official, row, registry):
+    common = ("status", "review_status", "searched_names", "reason", "entries")
+    extra = (
+        (
+            "proposed_status",
+            "owner_decision_required",
+            "master_context",
+            "observation_window",
+            "evidence",
+        )
+        if official
+        else ()
+    )
+    _keys(value, (*common, *extra))
+    statuses = {"candidate", "not_found"} | (set() if official else {"existing_verified"})
+    _require(isinstance(value["status"], str) and value["status"] in statuses, "proposal status")
+    expected_review = "existing_verified" if value["status"] == "existing_verified" else "pending"
+    _require(value["review_status"] == expected_review, "proposal review status")
+    _require(_strings(value["searched_names"]), "proposal searched names")
+    _require(isinstance(value["reason"], str) and value["reason"], "proposal reason")
+    entries = value["entries"]
+    _require(isinstance(entries, list), "proposal entries")
+    _require(bool(entries) == (value["status"] != "not_found"), "proposal entries/status")
+    seen = set()
+    for entry in entries:
+        if official:
+            _keys(
+                entry,
+                (
+                    "league_id",
+                    "league_abbr",
+                    "league_name",
+                    "observed_match_count",
+                    "first_match_date",
+                    "last_match_date",
+                    "evidence",
+                ),
+            )
+            code = entry["league_id"]
+            _require(type(code) is int and code > 0, "official league_id")
+            for key in ("league_abbr", "league_name"):
+                _require(isinstance(entry[key], str) and entry[key], "official name")
+            count = entry["observed_match_count"]
+            _require(type(count) is int and count >= 0, "official observed count")
+            _date_range(entry["first_match_date"], entry["last_match_date"], empty=count == 0)
+        else:
+            _keys(entry, ("code", "name", "country", "type", "catalogue_seasons", "evidence"))
+            code = entry["code"]
+            _require(
+                isinstance(code, str) and code in registry["providers"]["apif"], "proposal API code"
+            )
+            for key in ("name", "country"):
+                _require(isinstance(entry[key], str) and entry[key], "proposal API name/country")
+            _require(
+                isinstance(entry["type"], str) and entry["type"] in {"League", "Cup"},
+                "proposal API type",
+            )
+            seasons = entry["catalogue_seasons"]
+            _require(isinstance(seasons, list), "proposal seasons")
+            _require(
+                all(type(year) is int and 1900 <= year <= 9999 for year in seasons),
+                "proposal season values",
+            )
+            _require(len(set(seasons)) == len(seasons), "proposal duplicate season")
+        _require(code not in seen, "proposal duplicate code")
+        seen.add(code)
+        _evidence(entry["evidence"], "verified")
+    if not official:
+        if value["status"] == "existing_verified":
+            _require(row["status"] == "verified", "unapproved existing proposal")
+        return
+    _require(
+        value["proposed_status"] in {"verified", "candidate", "not_found"},
+        "official proposed status",
+    )
+    _require(type(value["owner_decision_required"]) is bool, "official decision flag")
+    if value["proposed_status"] == "verified":
+        _require(
+            len(entries) == 1 and not value["owner_decision_required"],
+            "ambiguous official approval proposal",
+        )
+    _require((value["proposed_status"] == "not_found") == (not entries), "official missing status")
+    context = value["master_context"]
+    _keys(
+        context,
+        (
+            "source_names",
+            "jc_match_count",
+            "jc_first_sale_day",
+            "jc_last_sale_day",
+            "sfc_match_count",
+            "sfc_first_issue",
+            "sfc_last_issue",
+        ),
+    )
+    _require(context["source_names"] == row["source_names"], "proposal master source names")
+    for key in ("jc_match_count", "sfc_match_count"):
+        _require(type(context[key]) is int and context[key] >= 0, "master match count")
+    _date_range(
+        context["jc_first_sale_day"],
+        context["jc_last_sale_day"],
+        empty=context["jc_match_count"] == 0,
+    )
+    for key in ("sfc_first_issue", "sfc_last_issue"):
+        _require(
+            context[key] is None or isinstance(context[key], str) and bool(context[key]),
+            "master issue",
+        )
+    window = value["observation_window"]
+    _keys(window, ("start_beijing", "end_beijing", "count_basis"))
+    _date_range(window["start_beijing"], window["end_beijing"], empty=False)
+    _require(isinstance(window["count_basis"], str) and window["count_basis"], "count basis")
+    _evidence(value["evidence"], "verified")
+
+
+def _date_range(start, end, *, empty):
+    if empty:
+        _require(start is None and end is None, "empty observation dates")
+        return
+    _require(isinstance(start, str) and isinstance(end, str), "observation dates")
+    try:
+        first, last = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        raise ValueError("Invalid league registry: observation date format") from None
+    _require(
+        first.isoformat() == start and last.isoformat() == end and first <= last,
+        "observation date range",
+    )
+
+
 def _competition(row, registry):
     _keys(
         row,
@@ -122,6 +253,7 @@ def _competition(row, registry):
             "mappings",
             "missing_reason",
         ),
+        ("official_catalogue", "api_catalogue_proposal"),
     )
     _require(isinstance(row["master_row_id"], str), "master_row_id")
     _require(re.fullmatch(r"master-[0-9]{3}", row["master_row_id"]), "master_row_id format")
@@ -158,6 +290,9 @@ def _competition(row, registry):
     _require((row["status"] == "verified") == approved, "competition/mapping status mismatch")
     _require(isinstance(row["missing_reason"], str), "missing_reason")
     _require(approved or row["missing_reason"], "candidate needs missing_reason")
+    for field, official in (("official_catalogue", True), ("api_catalogue_proposal", False)):
+        if field in row:
+            _catalogue_proposal(row[field], official=official, row=row, registry=registry)
 
 
 def load_registry(path=REGISTRY_PATH) -> dict:
@@ -219,7 +354,11 @@ def load_registry(path=REGISTRY_PATH) -> dict:
     _require(len(ids) == len(set(ids)), "duplicate master_row_id")
     _require(ids == [f"master-{i:03}" for i in range(1, len(rows) + 1)], "master row order")
     supporting = registry["supporting_scope"]
-    _keys(supporting, ("countries", "national_teams", "participant_country_gaps"))
+    _keys(
+        supporting,
+        ("countries", "national_teams", "participant_country_gaps"),
+        ("playoff_leagues",),
+    )
     for entries in supporting.values():
         _require(isinstance(entries, list), "supporting scope entries")
         for entry in entries:

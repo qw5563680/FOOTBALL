@@ -88,6 +88,7 @@ T34a 起 strict 按真实捕获时刻判断，已在截点前抓到的回填可�
 
 T61 只读目录由审查者在 Actions 运行：`python -m zucai.cloud_feeds probe --probe-kind catalogue --archive ../cloud-data --run-id <批次>`；
 竞彩过去12个完整北京时间月目录改用 `--probe-kind jc-catalogue`，仅限 `football-local` 自托管运行器。
+已保存的竞彩目录可离线重算：`python -m zucai.catalogue_replay --source-dir ../cloud-data/state/catalogue/43539673769-1 --out-dir ../t65-replay --run-id t65-offline-1`；只写新目录，不请求接口、不更新正式 `latest.json`。
 目录历史回填：`python -m zucai.cloud_feeds backfill --catalogue --source apif --max-requests 500 --resume --archive ../cloud-data --run-id <新批次>`。
 以上命令不在开发环境使用正式密钥；本地验证只用 `data/fixtures/` 离线样本。
 

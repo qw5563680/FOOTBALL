@@ -47,15 +47,22 @@ def test_master_rows_preserve_every_csv_field_and_ambiguous_source_name():
     assert [row["master_name"] for row in j1] == ["日职（J1）", "日本J1百年构想联赛"]
     assert j1[0]["status"] == "verified"
     assert j1[1]["status"] == "candidate"
-    assert all(mapping["code"] is None for mapping in j1[1]["mappings"])
-    assert "awaiting_catalogue" in j1[1]["missing_reason"]
+    assert all(mapping["status"] == "candidate" for mapping in j1[1]["mappings"])
+    assert j1[1]["official_catalogue"]["owner_decision_required"]
+    assert j1[1]["api_catalogue_proposal"]["status"] == "candidate"
+    assert "百年构想" in j1[1]["missing_reason"]
 
 
 def test_legacy_provider_values_and_modes_remain_exact():
     registry = load_registry()
     for provider, path in LEGACY.items():
         original = json.loads(path.read_bytes())
-        assert {k: v["config"] for k, v in registry["providers"][provider].items()} == original
+        routes = registry["providers"][provider]
+        assert {k: routes[k]["config"] for k in original} == original
+        additions = [v for k, v in routes.items() if k not in original]
+        assert all(
+            v["status"] == "candidate" and not v["daily"] and not v["backfill"] for v in additions
+        )
         expected = {k: v for k, v in original.items() if provider != "fd" or k != "D2"}
         assert provider_config(provider) == expected
     assert provider_ids("apif") == {3, 848, 98, 292, 188, 113, 103, 244, 119, 253, 169}

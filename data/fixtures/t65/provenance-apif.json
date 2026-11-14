@@ -1,0 +1,48 @@
+{
+  "apif-catalogue-real.json": {
+    "source_commit": "e5848e5d7de83a0cd024fa3e03e08cf6db6c7ee4",
+    "source_path": "state/catalogue/43539439430-1/apif-raw.json",
+    "source_run_id": "43539439430-1",
+    "source_url": "https://v3.football.api-sports.io/leagues",
+    "fetched_at_utc": "2026-11-14T01:15:59.505064Z",
+    "source_sha256": "173c44cd57bc04a0df30b56105dbe9ac077cdbb123e4e1145b7f620342f5d27a",
+    "source_bytes": 3090059,
+    "source_league_count": 1251,
+    "source_season_count": 8816,
+    "fixture_sha256": "4d87e44225032d944da9d7bb09e39be67be28e43108e2a47c1233e4a2606e3cc",
+    "fixture_bytes": 30870,
+    "fixture_league_ids": [
+      39,
+      271,
+      2
+    ],
+    "fixture_season_count": 49,
+    "synthetic_rows": [],
+    "transformation": "Retain complete original response rows for league IDs 39 (Premier League), 271 (NB I), and 2 (UEFA Champions League), preserving every season and all field values in source order. Change envelope results from 1251 to 3 for the cropped response, and reserialize JSON with two-space indentation and a final LF. The 2026 NB I dates 2286-11-20 and 1970-01-01 are deliberately unmodified.",
+    "interpretation": "Archived real catalogue metadata only; listed years and coverage never establish account season access. No new API requests were made for this fixture."
+  },
+  "apif-catalogue-duplicate-years-real.json": {
+    "source_commit": "e5848e5d7de83a0cd024fa3e03e08cf6db6c7ee4",
+    "source_path": "state/catalogue/43539439430-1/apif-raw.json",
+    "source_run_id": "43539439430-1",
+    "source_url": "https://v3.football.api-sports.io/leagues",
+    "fetched_at_utc": "2026-11-14T01:15:59.505064Z",
+    "source_sha256": "173c44cd57bc04a0df30b56105dbe9ac077cdbb123e4e1145b7f620342f5d27a",
+    "source_bytes": 3090059,
+    "source_league_count": 1251,
+    "source_season_count": 8816,
+    "fixture_sha256": "98e6ca505b210bdff201a564128b261eaaa12a92137cfe20c95636446c9f533c",
+    "fixture_bytes": 8006,
+    "fixture_league_ids": [
+      397,
+      276,
+      379,
+      402,
+      542
+    ],
+    "fixture_season_count": 10,
+    "synthetic_rows": [],
+    "transformation": "Retain league/country objects for original league IDs 397, 276, 379, 402, 542 in source order; retain only the two original seasons sharing year 2018, 2018, 2020, 2019, 2021 respectively. Every selected field/value is unchanged; no duplicate season was removed or merged. Change envelope results from 1251 to 5 and reserialize JSON with two-space indentation and a final LF.",
+    "interpretation": "Real structural counterexamples discovered only after the NB I date repair allowed full replay to progress. Duplicate league/year entries have different dates and/or coverage. They remain whole-document rejection cases; this fixture is not evidence of successful full-directory acceptance."
+  }
+}

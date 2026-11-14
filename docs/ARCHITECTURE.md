@@ -1,5 +1,30 @@
 # 架构说明
 
+## T65 真实目录校验与待审对照
+
+API-Football 的单个赛季日期字符串格式错误、日期年超出固定 1900–2100 范围或起止倒置，
+仅将该赛季两端日期置空；`warnings` 保存赛事 ID、赛季年份、原值和原因，并汇总到运行摘要。
+赛事/年份及权限语义保留，日期警告不会把 `access=unverified` 变成已授权。
+缺字段、错误数据类型、重复赛事 ID、重复赛季年份及非 JSON 继续拒收。
+
+竞彩严格识别真实零页（页数、页号、页大小、结果数均为零、空比赛数组、合法 `leagueList`），
+同时兼容旧离线样本。官方字典独立保存为 `state/catalogue/<run>/jc-leagues.json`，
+逐项记录 ID、简称、全称与首次观察运行、日期、捕获 UTC、原件路径和 SHA；跨页字典冲突拒绝。
+该文件纳入 feeds 路径白名单及 SHA 导出/恢复，不新增数据库表，也不导入比赛或比分。
+
+`catalogue_replay` 调用与线上相同的分页验证、字典聚合和总表对照。
+写入前验证原运行摘要、12 月窗口、完整日期/分页、URL 参数、HTTP 状态、捕获时刻、原件 SHA 及重复身份。
+只能新建运行目录，保留原捕获时间，另记 `replayed_utc`、源运行与源摘要 SHA；
+`requests=0` 与 `replayed_pages` 分列，不改源目录、数据库或 `latest.json`。
+
+90 行注册表增加 `official_catalogue` 与 `api_catalogue_proposal`，包含手工明确对照、
+目录字段、查找名称、原件证据及双方场数/日期口径。官方 `proposed_status=verified` 只是
+实现者的待审提案，`status=candidate/review_status=pending` 不授予任何下载权限。
+`catalogue_mappings` 只按明确 ID 核对完整官方名称，名称改变或语义歧义列为待决定，
+没有观察到比赛单独披露；保留旧简称核对以便比较。升降级、赛事改制及泛化名称不自动拆分。
+API 候选路由 `daily=false/backfill=false/seasons_available=[]`，
+`catalogue_seasons` 只是原件列出的年份；8 个下级支撑联赛同样待审。
+
 ## T61 目录、核准映射与历史下载
 
 `league_registry.py` 读取 `data/league_map.json`：90个总表行与原始中文名称无损保存；

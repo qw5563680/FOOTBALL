@@ -22,6 +22,10 @@ from zucai.sources.football_data_org import API as FDORG_API
 from zucai.sources.football_data_org import FootballDataOrg, _rate_headers, safe_json_for_archive
 
 RUN_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}"
+# A fixed, clock-free sanity window, not inferred season boundaries. The lower
+# bound matches catalogue season years; 2100 excludes implausible remote dates.
+APIF_DATE_MIN_YEAR = 1900
+APIF_DATE_MAX_YEAR = 2100
 
 
 class CatalogueError(LocalValidationError):
@@ -128,6 +132,46 @@ def _flag(value):
     return value
 
 
+def _apif_season(identity, year, source, fixtures, results):
+    dates, reasons = {}, []
+    for field in ("start", "end"):
+        if field not in source or (
+            source[field] is not None and not isinstance(source[field], str)
+        ):
+            raise CatalogueError("API-Football catalogue season date field is missing or invalid")
+        try:
+            dates[field] = _day(source[field])
+        except CatalogueError as exc:
+            dates[field] = None
+            reasons.append(f"{field}: {exc}")
+        if dates[field] and not APIF_DATE_MIN_YEAR <= int(dates[field][:4]) <= APIF_DATE_MAX_YEAR:
+            reasons.append(
+                f"{field}: catalogue season date year is outside "
+                f"{APIF_DATE_MIN_YEAR}..{APIF_DATE_MAX_YEAR}"
+            )
+    if dates["start"] and dates["end"] and dates["start"] > dates["end"]:
+        reasons.append("catalogue season date order is invalid")
+    result = _season(
+        year,
+        None if reasons else dates["start"],
+        None if reasons else dates["end"],
+        fixtures,
+        results,
+    )
+    if reasons:
+        result["warnings"] = [
+            dict(
+                code="invalid_season_dates",
+                league_id=identity,
+                season_year=year,
+                original_start=source["start"],
+                original_end=source["end"],
+                reason="; ".join(reasons),
+            )
+        ]
+    return result
+
+
 def parse_apif_catalogue(raw) -> dict:
     """Parse one complete /leagues response without credentials, I/O or a clock."""
     doc = _document(raw)
@@ -183,10 +227,10 @@ def parse_apif_catalogue(raw) -> dict:
                     _flag(flag)
                 fixtures = None
             normalized.append(
-                _season(
+                _apif_season(
+                    identity,
                     year,
-                    season.get("start"),
-                    season.get("end"),
+                    season,
                     _flag(fixtures),
                     _flag(coverage.get("results")),
                 )
@@ -200,7 +244,18 @@ def parse_apif_catalogue(raw) -> dict:
                 seasons=sorted(normalized, key=lambda s: s["year"]),
             )
         )
-    return dict(version=1, provider="apif", leagues=sorted(leagues, key=lambda row: int(row["id"])))
+    leagues.sort(key=lambda row: int(row["id"]))
+    return dict(
+        version=1,
+        provider="apif",
+        leagues=leagues,
+        warnings=[
+            warning
+            for league in leagues
+            for season in league["seasons"]
+            for warning in season.get("warnings", [])
+        ],
+    )
 
 
 def parse_fdorg_catalogue(raw) -> dict:
@@ -363,7 +418,7 @@ def _archive_response(root, folder, provider, source, store):
 
 
 def _observe_provider(root, folder, provider):
-    report = dict(status="error", requests=0, errors=[])
+    report = dict(status="error", requests=0, errors=[], warnings=[])
     client, source, error = None, None, None
     try:
         store = _CatalogueRawStore(root / "raw")
@@ -397,6 +452,7 @@ def _observe_provider(root, folder, provider):
                 _write_new(destination, payload)
                 report.update(
                     status="complete",
+                    warnings=parsed.get("warnings", []),
                     parsed_path=destination.relative_to(root).as_posix(),
                     parsed_sha256=hashlib.sha256(payload).hexdigest(),
                     league_count=len(parsed["leagues"]),
@@ -594,6 +650,7 @@ def collect_catalogue(database: Path, run_id: str) -> dict:
         status_requests=0,
         request_budget=2,
         errors=errors,
+        warnings=[],
         providers={},
         outputs=[],
         access_note=(
@@ -611,6 +668,9 @@ def collect_catalogue(database: Path, run_id: str) -> dict:
         report["providers"][provider] = observed
         report["requests"] += observed["requests"]
         report["errors"].extend(f"{provider}: {error}" for error in observed["errors"])
+        report["warnings"].extend(
+            dict(warning, provider=provider) for warning in observed.get("warnings", [])
+        )
         if observed["status"] == "complete":
             pointers[provider] = dict(
                 path=observed["parsed_path"],
@@ -655,3 +715,10 @@ def write_summary(report):
         stream.write(f"\nEvidence: state/catalogue/{cell(report['run_id'])}/summary.json\n")
         for error in report["errors"]:
             stream.write("\n- " + cell(error) + "\n")
+        for warning in report.get("warnings", []):
+            detail = (
+                f"Warning: {warning['provider']} league {warning['league_id']}, "
+                f"season {warning['season_year']}: {warning['reason']} "
+                f"(start={warning['original_start']}, end={warning['original_end']})"
+            )
+            stream.write("\n- " + cell(detail) + "\n")
