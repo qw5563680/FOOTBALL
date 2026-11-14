@@ -1,0 +1,25 @@
+........F.FF                                                             [100%]
+=================================== FAILURES ===================================
+__ test_conflicting_year_still_reports_invalid_dates_in_its_original_records ___
+tests/test_t65_catalogue_conflicts.py:118: in test_conflicting_year_still_reports_invalid_dates_in_its_original_records
+    assert {warning["code"] for warning in conflict["warnings"]} == {
+E   AssertionError: assert {'duplicate_season_year'} == {'duplicate_s...season_dates'}
+E     
+E     Extra items in the right set:
+E     'invalid_season_dates'
+E     Use -v to get more diff
+_____ test_backfill_rejects_conflicts_even_with_positive_coverage[status] ______
+tests/test_t65_catalogue_conflicts.py:198: in test_backfill_rejects_conflicts_even_with_positive_coverage
+    with pytest.raises(ValueError, match="重复"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_____ test_backfill_rejects_conflicts_even_with_positive_coverage[access] ______
+tests/test_t65_catalogue_conflicts.py:198: in test_backfill_rejects_conflicts_even_with_positive_coverage
+    with pytest.raises(ValueError, match="重复"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+=========================== short test summary info ============================
+FAILED tests/test_t65_catalogue_conflicts.py::test_conflicting_year_still_reports_invalid_dates_in_its_original_records
+FAILED tests/test_t65_catalogue_conflicts.py::test_backfill_rejects_conflicts_even_with_positive_coverage[status]
+FAILED tests/test_t65_catalogue_conflicts.py::test_backfill_rejects_conflicts_even_with_positive_coverage[access]
+3 failed, 9 passed in 0.48s

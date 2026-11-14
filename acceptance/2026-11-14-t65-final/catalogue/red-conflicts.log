@@ -1,0 +1,45 @@
+F......FFFF                                                              [100%]
+=================================== FAILURES ===================================
+______ test_all_five_real_conflicts_preserve_each_league_and_normal_year _______
+tests/test_t65_catalogue_conflicts.py:47: in test_all_five_real_conflicts_preserve_each_league_and_normal_year
+    parsed = parse_apif_catalogue(raw)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/cloud_catalogue.py:216: in parse_apif_catalogue
+    raise CatalogueError("API-Football catalogue contains duplicate season years")
+E   zucai.cloud_catalogue.CatalogueError: API-Football catalogue contains duplicate season years
+_____ test_identical_repeats_are_conflicts_and_all_three_originals_survive _____
+tests/test_t65_catalogue_conflicts.py:103: in test_identical_repeats_are_conflicts_and_all_three_originals_survive
+    parsed = parse_apif_catalogue(json.dumps(doc).encode())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/cloud_catalogue.py:216: in parse_apif_catalogue
+    raise CatalogueError("API-Football catalogue contains duplicate season years")
+E   zucai.cloud_catalogue.CatalogueError: API-Football catalogue contains duplicate season years
+________ test_conflicts_are_archived_with_raw_pointer_and_never_planned ________
+tests/test_t65_catalogue_conflicts.py:117: in test_conflicts_are_archived_with_raw_pointer_and_never_planned
+    assert report["status"] == "complete" and report["errors"] == []
+E   AssertionError: assert ('partial' == 'complete'
+E     
+E     - complete
+E     + partial)
+_____ test_backfill_rejects_conflicts_even_with_positive_coverage[status] ______
+tests/test_t65_catalogue_conflicts.py:173: in test_backfill_rejects_conflicts_even_with_positive_coverage
+    assert [scope["season"] for _, scope in plan["scopes"]] == [2017, 2019]
+E   assert [2017, 2018, 2019] == [2017, 2019]
+E     
+E     At index 1 diff: 2018 != 2019
+E     Left contains one more item: 2019
+E     Use -v to get more diff
+_____ test_backfill_rejects_conflicts_even_with_positive_coverage[access] ______
+tests/test_t65_catalogue_conflicts.py:173: in test_backfill_rejects_conflicts_even_with_positive_coverage
+    assert [scope["season"] for _, scope in plan["scopes"]] == [2017, 2019]
+E   assert [2017, 2018, 2019] == [2017, 2019]
+E     
+E     At index 1 diff: 2018 != 2019
+E     Left contains one more item: 2019
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/test_t65_catalogue_conflicts.py::test_all_five_real_conflicts_preserve_each_league_and_normal_year
+FAILED tests/test_t65_catalogue_conflicts.py::test_identical_repeats_are_conflicts_and_all_three_originals_survive
+FAILED tests/test_t65_catalogue_conflicts.py::test_conflicts_are_archived_with_raw_pointer_and_never_planned
+FAILED tests/test_t65_catalogue_conflicts.py::test_backfill_rejects_conflicts_even_with_positive_coverage[status]
+FAILED tests/test_t65_catalogue_conflicts.py::test_backfill_rejects_conflicts_even_with_positive_coverage[access]

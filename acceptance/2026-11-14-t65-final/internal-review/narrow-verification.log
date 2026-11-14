@@ -1,0 +1,28 @@
+Observed independently after the daily agent repaired two stale tests.
+
+Command:
+PYTHONPATH=src /workspace/work/t48-venv/bin/python -m pytest -q tests/test_t65_catalogue_conflicts.py tests/test_t65_daily_scope.py tests/test_t61_provider_integration.py tests/test_t65_reviewed_routes.py tests/test_t61_catalogue_backfill.py
+Exit code: 0
+Captured pytest output:
+.......................................................                  [100%]
+Count: 55 passed.
+
+Command:
+git diff --check
+Exit code: 0
+
+Command:
+/workspace/work/t48-venv/bin/ruff check src/zucai/cloud_catalogue.py src/zucai/cloud_catalogue_backfill.py src/zucai/cloud_aliases.py src/zucai/league_registry.py src/zucai/sources/apif_command.py tests/test_t61_provider_integration.py tests/test_t65_reviewed_routes.py tests/test_t65_catalogue_conflicts.py tests/test_t65_daily_scope.py
+Exit code: 0
+Captured output: All checks passed!
+
+Command:
+/workspace/work/t48-venv/bin/ruff format --check src/zucai/cloud_catalogue.py src/zucai/cloud_catalogue_backfill.py src/zucai/cloud_aliases.py src/zucai/league_registry.py src/zucai/sources/apif_command.py tests/test_t61_provider_integration.py tests/test_t65_reviewed_routes.py tests/test_t65_catalogue_conflicts.py tests/test_t65_daily_scope.py
+Exit code: 0
+Captured output: 9 files already formatted
+
+Initial independent failures, since repaired:
+tests/test_t61_provider_integration.py::test_apif_daily_flag_filters_defaults_and_preserves_explicit_fixture_path
+  line 121: AttributeError: apif_command has no attribute provider_entries.
+tests/test_t65_reviewed_routes.py::test_reviewed_ids_enter_daily_and_backfill_without_inventing_access
+  line 68: daily routes.keys() - legacy.keys() was empty; stale assertion expected APPROVED_IDS.

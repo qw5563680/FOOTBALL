@@ -1,0 +1,53 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+__ test_apif_daily_flag_filters_defaults_and_preserves_explicit_fixture_path ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f79f8883bf0>
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-408/test_apif_daily_flag_filters_d0')
+
+    def test_apif_daily_flag_filters_defaults_and_preserves_explicit_fixture_path(
+        monkeypatch, tmp_path
+    ):
+        from zucai.sources import apif_command
+    
+        doc = load_registry(FIXTURES / "t61/registry_policy.json")
+        doc["download_policy"]["scope"] = "all"
+        doc["providers"]["apif"]["1001"]["daily"] = False
+        doc["providers"]["apif"]["5"] = load_registry()["providers"]["apif"]["5"]
+        path = tmp_path / "registry.json"
+        path.write_text(json.dumps(doc))
+        approved = provider_config("apif", path=path)
+        monkeypatch.setattr(apif_command, "provider_config", lambda provider: approved)
+>       monkeypatch.setattr(
+            apif_command,
+            "provider_entries",
+            lambda provider, **kwargs: provider_entries(provider, path=path, **kwargs),
+        )
+E       AttributeError: <module 'zucai.sources.apif_command' from '/workspace/work/football-t65/src/zucai/sources/apif_command.py'> has no attribute 'provider_entries'
+
+tests/test_t61_provider_integration.py:121: AttributeError
+_____ test_reviewed_ids_enter_daily_and_backfill_without_inventing_access ______
+
+    def test_reviewed_ids_enter_daily_and_backfill_without_inventing_access():
+        registry = load_registry()
+        legacy = json.loads((ROOT / "data/api_football/leagues.json").read_bytes())
+        assert len(APPROVED_IDS) == 62
+        for purpose in ("daily", "backfill"):
+            routes = provider_entries("apif", purpose=purpose)
+>           assert routes.keys() - legacy.keys() == APPROVED_IDS
+E           AssertionError: assert set() == frozenset({'1..., '105', ...})
+E             
+E             Extra items in the right set:
+E             '9'
+E             '137'
+E             '66'
+E             '104'
+E             '73'...
+E             
+E             ...Full output truncated, use '-vv' to show
+
+tests/test_t65_reviewed_routes.py:68: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t61_provider_integration.py::test_apif_daily_flag_filters_defaults_and_preserves_explicit_fixture_path
+FAILED tests/test_t65_reviewed_routes.py::test_reviewed_ids_enter_daily_and_backfill_without_inventing_access
+2 failed in 0.42s

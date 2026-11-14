@@ -1,0 +1,72 @@
+{
+  "status": "complete for assigned catalogue-conflict scope; uncommitted",
+  "base_head": "5c1384c0059553ace8ee58e4c1b7566f6120a715",
+  "files_sha256": {
+    "src/zucai/cloud_catalogue.py": "1a4804da32c73d9e1e3280ac38e17ebcbffab61a92f7ec74af92e61428418bb1",
+    "src/zucai/cloud_catalogue_backfill.py": "b8f88a0a65ab778369e9b28af7687fc058272d40b81f174f26d94bfb3c258480",
+    "tests/test_t61_catalogue.py": "b0c84b9592efe38e888444f89cea9cd55fb94d9ad13b442b594e69463be08a71",
+    "tests/test_t65_apif_catalogue.py": "8e74cb2a94111a2f2e66755f4316967c8e3e22e26588b95aa2f11a2d5afbc131",
+    "tests/test_t65_catalogue_conflicts.py": "d35f38ec5a87f9a04d907e34604d51f2860237f1f4fcc92bd415faf163ae8340",
+    "data/fixtures/t65/apif-catalogue-duplicate-years-real.json": "1a3dc17dd4eb97d43586a214db7c816fb89e62f03dbc7b942b8c14ddc5ec1790",
+    "data/fixtures/t65/provenance-apif.json": "a95572eb84496fa53b2ebb38dd10cfa2347a8f86cff57d497e2ff648aae89930"
+  },
+  "authorization_commit": "d6a52bbb15df4ed22f9c6b57ee2e0936c31ca861",
+  "tests": {
+    "initial_red_failures": 5,
+    "boundary_red_failures": 3,
+    "conflict_tests_passed": 12,
+    "domain_tests_passed": 171,
+    "full_suite": "Delegated to root after integrating daily scope work",
+    "ruff_check": "passed (5 assigned Python files)",
+    "ruff_format": "passed (5 assigned Python files)",
+    "git_diff_check": "passed"
+  },
+  "source": {
+    "path": "/workspace/work/t65-fixed-archive/state/catalogue/43539439430-1/apif-raw.json",
+    "sha256": "173c44cd57bc04a0df30b56105dbe9ac077cdbb123e4e1145b7f620342f5d27a",
+    "bytes": 3090059,
+    "unchanged": true
+  },
+  "replay": {
+    "summary": "offline-replay/replay-summary.json",
+    "leagues": 1251,
+    "raw_season_rows": 8816,
+    "normalized_years": 8811,
+    "normal_years": 8806,
+    "conflict_years": 5,
+    "warning_count": 6,
+    "network_attempts": 0,
+    "requests": 0,
+    "database_imports": 0,
+    "local_latest_has_apif": true,
+    "production_latest_unchanged": true,
+    "production_pointer_validator": "passed",
+    "normal_planned_years_in_five_conflict_leagues": 52,
+    "conflict_planned_years": 0,
+    "approved_registry_scopes": 696
+  },
+  "conflict_pairs": [
+    "397/2018",
+    "276/2018",
+    "379/2020",
+    "402/2019",
+    "542/2021"
+  ],
+  "required_root_checks": [
+    "PYTHONPATH=src /workspace/work/t48-venv/bin/python -m pytest -q",
+    "/workspace/work/t48-venv/bin/ruff check src tests",
+    "/workspace/work/t48-venv/bin/ruff format --check src tests",
+    "git diff --check"
+  ],
+  "documentation_changes_for_root": [
+    "README: replace the stale duplicate-year owner-blocker text with approved quarantine behavior; explicitly distinguish local replay latest from production latest.",
+    "ARCHITECTURE: remove duplicate season years from whole-document structural rejection; document status/access=conflict placeholder, original_records/raw_sha256/raw_path/record_pointers warnings and excluded planner entries. Missing fields/types/duplicate league IDs/non-JSON still reject.",
+    "DATA_SOURCES: replace whole raw rejection claim with offline complete 1251 / 8816 raw / 8811 normalized / 5 conflicts / 8806 normal; fixed source SHA and no new sports requests. Production reprobe still reviewer-only.",
+    "reports/T65: update the five conflicts from owner-blocker to approved isolation, list 171-domain-pass evidence and six warnings, preserve raw/provenance hash links; do not claim production apif pointer or backfill happened."
+  ],
+  "limitations": [
+    "No commit, push, merge, sports request, key use, database access or production write.",
+    "The five leagues are not approved in the real registry. The exclusion test injects planner-only authorization without changing any registry or original response.",
+    "Reviewer must still run Actions catalogue probe after merge to publish production latest/apif. Catalogue visibility does not grant account season access."
+  ]
+}

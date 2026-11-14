@@ -1,0 +1,78 @@
+FFFF..                                                                   [100%]
+=================================== FAILURES ===================================
+_______ test_reviewed_history_routes_do_not_enter_the_daily_request_plan _______
+
+    def test_reviewed_history_routes_do_not_enter_the_daily_request_plan():
+>       assert daily_codes("apif") == DAILY_CODES
+E       AssertionError: assert ['98', '292',...', '244', ...] == ['98', '292',...', '244', ...]
+E         
+E         Left contains 62 more items, first extra item: '79'
+E         Use -v to get more diff
+
+tests/test_t65_daily_scope.py:86: AssertionError
+____________ test_new_routes_do_not_change_daily_database_or_audits ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_do_not_change_0')
+
+    def test_new_routes_do_not_change_daily_database_or_audits(tmp_path):
+        observed = []
+        for name, extra in (("clean", False), ("mixed", True)):
+            root = tmp_path / name
+            path = _archive(root / "raw", _document(extra=extra, rejected=extra))
+            database = root / "data/zucai.db"
+            result = fetch_apif(
+                date="2026-11-01",
+                raw_file=path,
+                db=database,
+                audit_dir=root / "audit",
+                quota_path=root / "quota.json",
+            )
+>           assert result["inserted"] == 1
+E           assert 63 == 1
+
+tests/test_t65_daily_scope.py:106: AssertionError
+_ test_new_routes_cannot_add_candidates_or_hide_old_daily_candidates[valid-new-rows] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_cannot_add_can0')
+rejected = False
+
+    @pytest.mark.parametrize("rejected", [False, True], ids=["valid-new-rows", "new-awd-row"])
+    def test_new_routes_cannot_add_candidates_or_hide_old_daily_candidates(tmp_path, rejected):
+        observed = []
+        for name, extra in (("clean", False), ("mixed", True)):
+            root = tmp_path / name
+            database, raw, out = root / "data/zucai.db", root / "raw", root / "candidates"
+            _official(database)
+            path = _archive(raw, _document(extra=extra, rejected=rejected))
+            digest = sha256(path.read_bytes()).hexdigest()
+            captures = [{"scope": {"date": "2026-11-01"}, "raw_sha256": digest}]
+>           assert write_candidates("apif", database, raw, captures, out) == 2
+E           AssertionError: assert 4 == 2
+E            +  where 4 = write_candidates('apif', PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_cannot_add_can0/mixed/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_cannot_add_can0/mixed/raw'), [{'scope': {'date': '2026-11-01'}, 'raw_sha256': '0d01886ee9eff0cd105a5decfdf1aab3ea24c33b9e0ea65b46f0284e0ceab448'}], PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_cannot_add_can0/mixed/candidates'))
+
+tests/test_t65_daily_scope.py:129: AssertionError
+_ test_new_routes_cannot_add_candidates_or_hide_old_daily_candidates[new-awd-row] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_cannot_add_can1')
+rejected = True
+
+    @pytest.mark.parametrize("rejected", [False, True], ids=["valid-new-rows", "new-awd-row"])
+    def test_new_routes_cannot_add_candidates_or_hide_old_daily_candidates(tmp_path, rejected):
+        observed = []
+        for name, extra in (("clean", False), ("mixed", True)):
+            root = tmp_path / name
+            database, raw, out = root / "data/zucai.db", root / "raw", root / "candidates"
+            _official(database)
+            path = _archive(raw, _document(extra=extra, rejected=rejected))
+            digest = sha256(path.read_bytes()).hexdigest()
+            captures = [{"scope": {"date": "2026-11-01"}, "raw_sha256": digest}]
+>           assert write_candidates("apif", database, raw, captures, out) == 2
+E           AssertionError: assert 0 == 2
+E            +  where 0 = write_candidates('apif', PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_cannot_add_can1/mixed/data/zucai.db'), PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_cannot_add_can1/mixed/raw'), [{'scope': {'date': '2026-11-01'}, 'raw_sha256': '918ff42e44a472a019fe57ea4115064446f3ce06af9d741258e450bd4b96e8db'}], PosixPath('/tmp/pytest-of-agent/pytest-399/test_new_routes_cannot_add_can1/mixed/candidates'))
+
+tests/test_t65_daily_scope.py:129: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t65_daily_scope.py::test_reviewed_history_routes_do_not_enter_the_daily_request_plan
+FAILED tests/test_t65_daily_scope.py::test_new_routes_do_not_change_daily_database_or_audits
+FAILED tests/test_t65_daily_scope.py::test_new_routes_cannot_add_candidates_or_hide_old_daily_candidates[valid-new-rows]
+FAILED tests/test_t65_daily_scope.py::test_new_routes_cannot_add_candidates_or_hide_old_daily_candidates[new-awd-row]

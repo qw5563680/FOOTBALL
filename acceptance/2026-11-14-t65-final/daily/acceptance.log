@@ -1,0 +1,80 @@
+{
+  "result": "passed",
+  "baseline_commit": "b83d2cc7d975e41f418f59aad3341a7d1574f95a",
+  "pre_revision_head": "5c1384c",
+  "input_kind": "synthetic_from_data/fixtures/t14/apif.json",
+  "requests": 0,
+  "production_database_changes": false,
+  "route_validation": {
+    "old_provider_objects_byte_equal": 46,
+    "old_mapping_rows_byte_equal": 21,
+    "official_catalogue_objects_byte_equal": 90,
+    "registry_change_is_exactly_62_daily_flags": true,
+    "daily_codes": [
+      "98",
+      "292",
+      "188",
+      "113",
+      "103",
+      "244",
+      "119",
+      "253",
+      "169",
+      "3",
+      "848"
+    ],
+    "daily_import_routes": 11,
+    "backfill_import_routes": 73,
+    "new_history_only_routes": 62,
+    "pending_disabled_routes": [
+      "40",
+      "62",
+      "71",
+      "850",
+      "916"
+    ],
+    "registry_sha256": "274efba4abba023ec1c218c47af5a5a9816d2b9cb6f15aba27f873e00a227401",
+    "review_sha256": "5a4a1bcf2db72997581d266e09303ef39e528edd577110175da104c77156e909"
+  },
+  "same_mixed_raw_old_main_vs_current": {
+    "import": {
+      "all_database_tables_equal": 14,
+      "database_snapshot_sha256": "e41b0829822cbc63b186c0df61c14bd97b8fc911230cea8285e911e57328bbee",
+      "result_byte_equal": true,
+      "inserted": 1,
+      "rejected_rows": 0,
+      "suspected_duplicates": 0,
+      "audit_files_byte_equal": [
+        "apif_unmatched_teams.csv"
+      ],
+      "audit_sha256": {
+        "apif_unmatched_teams.csv": "22f753b917ec6d0328672fda7c488de22910c659204908b2e0294fa9b59c9cea"
+      },
+      "candidate_file_byte_equal": true,
+      "candidate_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "candidate_count": 0
+    },
+    "candidate": {
+      "all_database_tables_equal": 14,
+      "database_snapshot_sha256": "b7c56724d458f46136f637f233be4989760f900173357114eddb7f061be21428",
+      "result_byte_equal": true,
+      "inserted": 0,
+      "rejected_rows": 0,
+      "suspected_duplicates": 1,
+      "audit_files_byte_equal": [
+        "apif_suspected_duplicates.csv",
+        "apif_unmatched_teams.csv"
+      ],
+      "audit_sha256": {
+        "apif_unmatched_teams.csv": "22f753b917ec6d0328672fda7c488de22910c659204908b2e0294fa9b59c9cea",
+        "apif_suspected_duplicates.csv": "6dae3c2eda451c533b14712f41367eb86827ca966522ad9de30e27dc7c2c43c4"
+      },
+      "candidate_file_byte_equal": true,
+      "candidate_sha256": "62d777ee5844099ab3b66a15a0b22d76b810d8e7bfb78d37465f5ef7eb2f8c14",
+      "candidate_count": 2
+    }
+  },
+  "clean_vs_mixed_database_and_import_audit_bytes_equal": true,
+  "provenance_rule": "Different raw inputs retain different real SHA256 values; same-input old/new candidates and audits are byte-equal.",
+  "limits": "Does not prove live API access, fixture-season availability, T68 team binding, or successful production backfill."
+}
