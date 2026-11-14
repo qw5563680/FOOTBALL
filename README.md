@@ -86,6 +86,11 @@ T34a 起 strict 按真实捕获时刻判断，已在截点前抓到的回填可�
 
 ## 快速开始
 
+T61 只读目录由审查者在 Actions 运行：`python -m zucai.cloud_feeds probe --probe-kind catalogue --archive ../cloud-data --run-id <批次>`；
+竞彩过去12个完整北京时间月目录改用 `--probe-kind jc-catalogue`，仅限 `football-local` 自托管运行器。
+目录历史回填：`python -m zucai.cloud_feeds backfill --catalogue --source apif --max-requests 500 --resume --archive ../cloud-data --run-id <新批次>`。
+以上命令不在开发环境使用正式密钥；本地验证只用 `data/fixtures/` 离线样本。
+
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
@@ -170,6 +175,28 @@ pytest -q
 云端自动归档当前仅调用 jc 官方赛果，无 c500 自动备用查询。
 
 ### 云端采集
+
+#### T61 赛事目录与核准下载
+
+范围依据为 [90项总表](docs/research/2026-11-14-jc-sfc-competition-master-table.md)。
+`data/league_map.json` 保留全部90行及来源名称，不合并同名歧义：当前21行沿用既有核准映射，69行待目录与人工核实。
+其中 A 为总表赛事，B 为相关杯赛参赛国家的各级联赛及国内杯赛，C 为国家队正式赛及友谊赛。
+新增映射须在 PR 提供目录ID、名称、国家、赛季证据并由审查者核准为 `verified`；不自动按相似名称放行。
+`download_policy.scope` 可从 `related` 改为 `all`，但仍只能下载已核准映射。
+
+- Actions `operation=probe options={"probe_kind":"catalogue"}`：hosted runner 各请求一次 APIF `/leagues` 与 FDORG `/competitions`，不请求 `/status`、不导入比赛；FD使用核实DIV静态清单。
+- `operation=probe options={"probe_kind":"jc-catalogue"}`：自托管运行器枚举过去12完整北京时间月的逐日分页，汇总真实 `leagueId` /名称/场数；与90行来源名称精确对照，缺失或歧义交所有者决定。只列赛事，不导入赛果，不请求比分头信息。
+- `operation=backfill source=apif options={"catalogue":true}`：读取 `state/catalogue/latest.json` 与核准映射；可填 `leagues`、`from_season`、`to_season` 收窄范围。每批有效上限为输入 `max_requests` 与映射配置上限的较小值（配置默认500），APIF每日另保留500请求，沿既有6.1秒间隔和账号真实配额。
+- 同一入口支持 `source=fdorg|fd`。默认续跑只跳过成功导入且原件SHA仍可验证的范围；失败/拒绝范围保留。`resume=false` 或 CLI `--no-resume` 重新核对已经成功的范围，重复导入不新增同一比赛。仍在进行的赛季需这样刷新全季；普通每日增量独立持续运行。
+
+目录的赛季清单不是账号权限承诺，首次历史下载实际验证是否可读；失败不当作零场。
+FDORG总目录只给当前赛季，额外历史年仅采用已有成功 `season_probes`，不从可用赛季数量倒推年份。
+FD静态DIV没有完整历史年份，`catalogue_seasons` 须通过带证据的配置PR补全；缺年份列为待核。
+已有传统FD回填不变。每天按核准配置的 `daily` 标志读取新赛事；未匹配球队保留来源ID和既有 unmatched 审计/候选流程，不自动合并。
+
+所有目录、原件、游标在 `state/catalogue/`，随 feeds manifest 校验与恢复；完整失败原因保留。
+本改动没有运行真实目录/回填；[验收说明](reports/t61-all-leagues-catalogue-and-download/README.md)列出离线证据及审查者后续步骤。
+连续三次正常线上成功及新赛果入库尚待审查者验收；T61不改变模型、概率、冻结报告或账本。
 
 快速开始：由审查者在 Actions 手动运行 `operation=probe source=apif leagues=3,848 seasons=2021-2026`，查看权限审计表。
 

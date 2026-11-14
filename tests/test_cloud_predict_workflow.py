@@ -106,6 +106,7 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
     context = {
         "github.event_name": "workflow_dispatch",
         "inputs.operation": operation,
+        "fromJSON(inputs.options || '{}').probe_kind": "",
         "github.event.schedule": "",
         "github.ref_name": ref_name,
         "vars.FOOTBALL_FEEDS_RUNNER": "football-local",

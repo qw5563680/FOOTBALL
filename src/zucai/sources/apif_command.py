@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from zucai.db import get_engine, init_db, session_scope
+from zucai.league_registry import provider_config, provider_entries
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.nations import identities
 from zucai.sources.api_common import LocalValidationError
@@ -53,7 +54,17 @@ def fetch_apif(
             raise LocalValidationError("--season 不得重复")
     elif assume is not None:
         raise LocalValidationError("--date 增量只允许 captured，不能指定假设")
-    leagues = read_json(leagues_path or LEAGUES)
+    if leagues_path is None or Path(leagues_path).resolve() == LEAGUES.resolve():
+        leagues = provider_config("apif")
+        if date is not None:
+            # Keep the existing special Nations League date behavior; ordinary
+            # import routes must also be explicitly enabled for daily collection.
+            allowed = provider_entries("apif", purpose="daily") | provider_entries(
+                "apif", modes="nations"
+            )
+            leagues = {code: config for code, config in leagues.items() if code in allowed}
+    else:
+        leagues = read_json(leagues_path)
     aliases = read_json(aliases_path or ALIASES)
     if aliases_path is None:
         aliases[NATIONS_LEAGUE] = {

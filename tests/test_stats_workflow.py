@@ -50,6 +50,7 @@ def evaluate(expression, **overrides):
         "github.event.schedule": "",
         "inputs.operation": "stats-backfill",
         "inputs.gate": False,
+        "fromJSON(inputs.options || '{}').probe_kind": "",
         "github.ref_name": "main",
         "vars.FOOTBALL_FEEDS_RUNNER": "configured",
         "needs.apis.result": "success",
@@ -115,6 +116,7 @@ def test_all_dispatch_operation_job_conditions(operation):
         "digest": operation in {"predict", "scoreboard", "digest"},
         "stats-backfill": operation == "stats-backfill",
         "candidate-review": False,
+        "jc-catalogue": False,
     }
     assert {
         name: bool(evaluate(condition(job), **{"inputs.operation": operation}))

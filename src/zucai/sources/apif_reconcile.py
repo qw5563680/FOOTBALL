@@ -12,6 +12,7 @@ from sqlalchemy import or_, select, text
 
 from zucai.cup_history import PROVISIONAL, coverage_lines, history_metrics
 from zucai.db import get_engine, session_scope
+from zucai.league_registry import daily_codes, provider_config, provider_entries
 from zucai.models import Match, Team
 from zucai.sources import jc_counterpart
 from zucai.sources.api_football import LEAGUES as APIF_LEAGUES
@@ -28,6 +29,7 @@ from zucai.sources.football_data import read_json
 from zucai.sources.football_data_org import COMPETITIONS_PATH
 
 LOG = logging.getLogger(__name__)
+_DEFAULT_CONFIG_PATHS = {"apif": APIF_LEAGUES, "fdorg": COMPETITIONS_PATH}
 FIELDS = (
     "run_id",
     "league",
@@ -118,7 +120,17 @@ def _formal_entry(session, aliases, league, key):
 def _daily_domestic_leagues():
     from zucai.cloud_apis import COMPETITION_CODES
 
-    apif, fdorg = read_json(APIF_LEAGUES), read_json(COMPETITIONS_PATH)
+    if APIF_LEAGUES == _DEFAULT_CONFIG_PATHS["apif"]:
+        approved = provider_entries("apif", purpose="daily") | provider_entries(
+            "apif", modes="nations"
+        )
+        apif = {code: entry["config"] for code, entry in approved.items()}
+    else:
+        apif = read_json(APIF_LEAGUES)
+    if COMPETITIONS_PATH == _DEFAULT_CONFIG_PATHS["fdorg"]:
+        fdorg, fdorg_codes = provider_config("fdorg"), daily_codes("fdorg")
+    else:
+        fdorg, fdorg_codes = read_json(COMPETITIONS_PATH), COMPETITION_CODES.split(",")
     return {
         "apif": {
             entry["league"]
@@ -126,8 +138,7 @@ def _daily_domestic_leagues():
             if not entry.get("identity_only", False) and not entry.get("index_only", False)
         }
         - CUP_LEAGUES["apif"],
-        "fdorg": {fdorg[code]["league"] for code in COMPETITION_CODES.split(",")}
-        - CUP_LEAGUES["fdorg"],
+        "fdorg": {fdorg[code]["league"] for code in fdorg_codes} - CUP_LEAGUES["fdorg"],
     }
 
 

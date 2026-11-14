@@ -25,7 +25,7 @@ on:
         type: string
         default: ''
       options:
-        description: 'JSON 选项：from_season、to_season、probe_kind（默认 seasons）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
+        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
         type: string
         default: '{}'
       endpoints:
@@ -33,11 +33,11 @@ on:
         type: string
         default: 'index,fd,statistics,events,lineups,players,injuries'
       max_requests:
-        description: '仅 stats-backfill：本批 API 请求上限，不超过 7000'
+        description: 'stats-backfill / options.catalogue=true 的 backfill：本批请求上限，不超过 7000'
         type: number
         default: 7000
       resume:
-        description: '仅 stats-backfill：继续已归档游标'
+        description: 'stats-backfill / options.catalogue=true 的 backfill：继续已归档游标'
         type: boolean
         default: true
       days:
@@ -104,7 +104,7 @@ jobs:
 
   apis:
     needs: [schedule-gate]
-    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (inputs.operation != 'probe' || fromJSON(inputs.options || '{}').probe_kind != 'jc-catalogue') && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -140,11 +140,15 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue"}
           if not isinstance(options, dict) or set(options) - allowed:
-              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot")
-          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats"}:
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue")
+          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue"}:
               raise SystemExit("invalid probe_kind")
+          if type(options.get("catalogue", False)) is not bool:
+              raise SystemExit("catalogue must be a boolean")
+          if options.get("catalogue") and os.environ.get("ZUCAI_OPERATION") != "backfill":
+              raise SystemExit("catalogue is only valid for backfill")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
@@ -184,6 +188,9 @@ jobs:
           BACKFILL_LEAGUES: ${{ inputs.leagues }}
           BACKFILL_FROM: ${{ fromJSON(inputs.options || '{}').from_season }}
           BACKFILL_TO: ${{ fromJSON(inputs.options || '{}').to_season }}
+          BACKFILL_CATALOGUE: ${{ fromJSON(inputs.options || '{}').catalogue && 'true' || 'false' }}
+          BACKFILL_MAX_REQUESTS: ${{ inputs.max_requests }}
+          BACKFILL_RESUME: ${{ inputs.resume }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
@@ -191,9 +198,13 @@ jobs:
           if [[ -n "$BACKFILL_LEAGUES" ]]; then args+=(--leagues "$BACKFILL_LEAGUES"); fi
           if [[ -n "$BACKFILL_FROM" ]]; then args+=(--from "$BACKFILL_FROM"); fi
           if [[ -n "$BACKFILL_TO" ]]; then args+=(--to "$BACKFILL_TO"); fi
+          if [[ "${BACKFILL_CATALOGUE:-false}" == true ]]; then
+            args+=(--catalogue --max-requests "$BACKFILL_MAX_REQUESTS")
+            if [[ "$BACKFILL_RESUME" == true ]]; then args+=(--resume); else args+=(--no-resume); fi
+          fi
           python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}"
       - name: Probe API-Football permissions without importing matches
-        if: ${{ env.FEED_MODE == 'probe' }}
+        if: ${{ env.FEED_MODE == 'probe' && fromJSON(inputs.options || '{}').probe_kind != 'catalogue' }}
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
           PROBE_LEAGUES: ${{ inputs.leagues }}
@@ -219,6 +230,20 @@ jobs:
             args=(--leagues "$PROBE_LEAGUES" --seasons "$PROBE_SEASONS")
           fi
           python -m zucai.cloud_feeds probe --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source "$PROBE_SOURCE" "${args[@]}"
+      - name: Probe all API league catalogues without importing matches
+        if: ${{ env.FEED_MODE == 'probe' && fromJSON(inputs.options || '{}').probe_kind == 'catalogue' }}
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          FOOTBALL_DATA_ORG_TOKEN: ${{ secrets.FOOTBALL_DATA_ORG_TOKEN }}
+          PROBE_LEAGUES: ${{ inputs.leagues }}
+          PROBE_SEASONS: ${{ inputs.seasons }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          args=(--probe-kind catalogue)
+          if [[ -n "$PROBE_LEAGUES" ]]; then args+=(--leagues "$PROBE_LEAGUES"); fi
+          if [[ -n "$PROBE_SEASONS" ]]; then args+=(--seasons "$PROBE_SEASONS"); fi
+          python -m zucai.cloud_feeds probe --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}"
       - name: Verify identity-only leagues without importing matches
         if: ${{ env.FEED_MODE == 'identity' }}
         env:
@@ -285,6 +310,85 @@ jobs:
           retention-days: 90
           if-no-files-found: ignore
 
+  jc-catalogue:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'probe' && fromJSON(inputs.options || '{}').probe_kind == 'jc-catalogue' }}
+    runs-on: [self-hosted, football-local]
+    timeout-minutes: 180
+    env:
+      WORK_DIR: work-jc-catalogue-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Expose Git Bash to the bash steps below
+        shell: powershell
+        run: |
+          $git = (Get-Command git).Source
+          $bin = Join-Path (Split-Path (Split-Path $git -Parent) -Parent) 'bin'
+          if (-not (Test-Path (Join-Path $bin 'bash.exe'))) { throw "Git Bash not found under $bin" }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+      - name: Validate dispatch options before collection
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation != 'daily' }}
+        env:
+          DISPATCH_OPTIONS: ${{ inputs.options }}
+        run: |
+          python - <<'PYOPTIONS'
+          import json
+          import os
+          options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue"}
+          if not isinstance(options, dict) or set(options) - allowed:
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue")
+          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue"}:
+              raise SystemExit("invalid probe_kind")
+          if type(options.get("catalogue", False)) is not bool:
+              raise SystemExit("catalogue must be a boolean")
+          if options.get("catalogue") and os.environ.get("ZUCAI_OPERATION") != "backfill":
+              raise SystemExit("catalogue is only valid for backfill")
+          if options.get("slot", "auto") not in ("auto", "early", "late"):
+              raise SystemExit("slot must be auto, early or late")
+          count = options.get("per_scope", 1)
+          if type(count) is not int or count < 1:
+              raise SystemExit("per_scope must be a positive integer")
+          for key in ("from_season", "to_season"):
+              if key in options and not isinstance(options[key], (str, int)):
+                  raise SystemExit("season bounds must be strings or integers")
+          PYOPTIONS
+      - name: Install project for read-only JC catalogue
+        shell: bash
+        run: python -m pip install -e ./app
+      - name: Restore and enumerate monthly JC catalogue
+        shell: bash
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds probe --probe-kind jc-catalogue --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Publish verified JC catalogue evidence
+        working-directory: cloud-data
+        shell: bash
+        run: PUBLISH_RECOVERY_DIR="../$WORK_DIR/publication-recovery" bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep JC catalogue originals and recovery evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: jc-catalogue-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.WORK_DIR }}/data/raw
+            ${{ env.WORK_DIR }}/data/state/catalogue
+            ${{ env.WORK_DIR }}/publication-recovery
+            cloud-data/feed_manifest.json
+          retention-days: 90
+          if-no-files-found: ignore
+
   stats-backfill:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'stats-backfill' }}
     runs-on: ubuntu-latest
@@ -314,11 +418,15 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue"}
           if not isinstance(options, dict) or set(options) - allowed:
-              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot")
-          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats"}:
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue")
+          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue"}:
               raise SystemExit("invalid probe_kind")
+          if type(options.get("catalogue", False)) is not bool:
+              raise SystemExit("catalogue must be a boolean")
+          if options.get("catalogue") and os.environ.get("ZUCAI_OPERATION") != "backfill":
+              raise SystemExit("catalogue is only valid for backfill")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)

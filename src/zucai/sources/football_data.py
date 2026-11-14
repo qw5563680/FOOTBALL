@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from requests.adapters import HTTPAdapter
 
+from zucai.league_registry import provider_config
 from zucai.sources.base import RateLimiter, RawStore, Source, make_session
 
 CONFIG_ROOT = Path(__file__).resolve().parents[3] / "data"
@@ -123,7 +124,7 @@ class FootballDataCoUk(Source[FdGame]):
         if session is None:
             # Retries inside requests could violate the source's two-second spacing.
             self.session.mount("https://", HTTPAdapter(max_retries=0))
-        self.leagues = read_json(LEAGUES_PATH) if leagues is None else leagues
+        self.leagues = provider_config("fd") if leagues is None else leagues
         self.div_code, self.season = div_code, season
         self.rejected = []
 

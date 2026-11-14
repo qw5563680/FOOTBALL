@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "master_table": {"path": "synthetic-test-only.csv", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "row_count": 1, "columns": ["赛事", "项目内赛事名", "来源出现过的名称"]},
+  "download_policy": {"scope": "related", "daily_reserve": 500, "max_requests": 500},
+  "scope_policy": {"A": "All master rows", "B": "All participant-country divisions and domestic cups, after review", "C": "National-team competitions, after review", "unrelated": "Catalogue only unless scope=all; approval still required"},
+  "supporting_scope": {"countries": [], "national_teams": [], "participant_country_gaps": []},
+  "providers": {
+    "apif": {
+      "1001": {"status": "verified", "mode": "import", "groups": ["A"], "relevant": true, "daily": true, "backfill": true, "config": {"league": "Synthetic one", "seasons_available": [2025]}, "evidence": [{"kind": "synthetic_test", "claim": "Fixture only; not production verification"}]},
+      "1002": {"status": "candidate", "mode": "import", "groups": [], "relevant": false, "daily": false, "backfill": false, "config": {"league": "Synthetic candidate", "seasons_available": []}, "evidence": []},
+      "1003": {"status": "verified", "mode": "import", "groups": [], "relevant": false, "daily": true, "backfill": true, "config": {"league": "Synthetic unrelated", "seasons_available": [2025]}, "evidence": [{"kind": "synthetic_test", "claim": "Fixture only; not production verification"}]}
+    },
+    "fdorg": {},
+    "fd": {}
+  },
+  "competitions": [{"master_row_id": "master-001", "master_name": "Synthetic one", "project_name": "Synthetic one", "source_names": ["Original name"], "source_names_raw": "Original name", "master_fields": {"赛事": "Synthetic one", "项目内赛事名": "Synthetic one", "来源出现过的名称": "Original name"}, "status": "verified", "mappings": [{"provider": "apif", "code": "1001", "status": "verified", "evidence": [{"kind": "synthetic_test", "claim": "Fixture only"}]}], "missing_reason": ""}]
+}
