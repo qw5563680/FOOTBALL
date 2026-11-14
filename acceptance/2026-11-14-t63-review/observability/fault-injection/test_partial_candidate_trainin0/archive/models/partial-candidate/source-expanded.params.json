@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "gate": {
+    "complete_seasons": 2,
+    "min_evaluated": 500,
+    "min_closing_paired": 500,
+    "min_uniform_log_loss_gain": 0.05,
+    "max_closing_log_loss_gap": 0.05,
+    "fold": "weekly",
+    "bet_allowed": false,
+    "require_two_nonempty_complete_seasons": true,
+    "require_no_skips_or_unavailable_labels": true,
+    "artifact_corpus": "same_database_sha256_and_cumulative_nonreplayed_policy",
+    "evidence_recency": "latest_two_complete_seasons_at_prediction"
+  },
+  "leagues": {
+    "英超": {
+      "half_life_days": 365.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.001890450246857106
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.01710200941353668
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.031143533331284445
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:20.978338+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": true,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "new_source_definition_unapproved"
+        ]
+      }
+    },
+    "西甲": {
+      "half_life_days": 365.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.001890450246857106
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.01710200941353668
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.031143533331284445
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:20.978338+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": true,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "new_source_definition_unapproved"
+        ]
+      }
+    }
+  }
+}

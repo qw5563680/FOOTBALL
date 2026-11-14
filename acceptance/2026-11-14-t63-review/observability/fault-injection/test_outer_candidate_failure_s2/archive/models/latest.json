@@ -1,0 +1,82 @@
+{
+  "models": {
+    "英超": {
+      "model_definition_id": "7e4e9c413e585517157d163f2d900a8a867bcea97e6cb4c8b3028ce8afaa2e0e",
+      "model_definition": {
+        "league": "英超",
+        "model_family": "dixon-coles",
+        "training_sources": [
+          "fd",
+          "jc"
+        ],
+        "fitting_method": "penaltyblog_slsqp",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "calibration_method": "draw_log_odds_intercept",
+        "selection_protocol": {
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "selection_method": "monthly_walk_forward_season_S",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1"
+        }
+      },
+      "source_variant": "legacy",
+      "training_json_path": "models/failed-candidate/英超.train.json",
+      "training_cutoff_utc": "2026-11-02T18:00:00+00:00",
+      "training_database_sha256": "83d60d7050f9647bdf44b1b8fbe236995e3bc1daa041bb21dcb721b6fee78c4f",
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "half_life_days": 365.0,
+      "parameter_source": "params.json",
+      "predicted": 2,
+      "p2_ready": true,
+      "p2_label": "可用（旧规，考核中）",
+      "paper_eligible": true,
+      "status": "trained",
+      "model_path": "models/failed-candidate/英超.pkl",
+      "sha256": "d39e0f8f2ab0dda082243f4a8f033cc3f261d68e82963259bc3336e1207c010b",
+      "training_rows": 84,
+      "params_sha256": "286dcb911cada08374c345bb7e2369fb04fb2ee98fa782e687bda1e6a89c5da6",
+      "params_path": "/workspace/work/t63-review-20261114/observability/fault-injection/test_outer_candidate_failure_s2/params.json",
+      "evaluation_database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "p2_evidence": {
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 760,
+            "log_loss": 1.0144666551155022
+          },
+          "uniform": {
+            "n": 760,
+            "log_loss": 1.0986122886681093
+          },
+          "closing": {
+            "n": 760,
+            "log_loss": 0.9904484114891507
+          },
+          "closing_paired_model": {
+            "n": 760,
+            "log_loss": 1.0144666551155022
+          }
+        },
+        "uniform_log_loss_gain": 0.08414563355260718,
+        "closing_log_loss_gap": 0.02401824362635141,
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false
+      },
+      "bet_allowed": false
+    }
+  },
+  "generated_utc": "2026-11-02T18:00:00+00:00"
+}
