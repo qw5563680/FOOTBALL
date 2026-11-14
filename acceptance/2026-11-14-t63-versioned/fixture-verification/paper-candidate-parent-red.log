@@ -1,0 +1,58 @@
+.............FF.............                                             [100%]
+=================================== FAILURES ===================================
+______ test_f_cannot_use_candidate_parent_as_an_independent_vote[parent0] ______
+
+parent = {'source_variant': 'expanded'}
+
+    @pytest.mark.parametrize("parent", [{"source_variant": "expanded"}, {"model_definition_schema": 1}])
+    def test_f_cannot_use_candidate_parent_as_an_independent_vote(parent):
+        sample = json.loads((FIX / "input.json").read_bytes())
+        original = build(**sample)
+        row = copy.deepcopy(sample["batch"]["predictions"][0])
+        row.update(model_name="candidate-source-version", model_probabilities=dict(h=0.1, d=0.2, a=0.7))
+        candidate = dict(
+            batch_id=sample["batch"]["batch_id"],
+            generated_utc=sample["frozen_utc"],
+            as_of_utc=sample["batch"]["as_of_utc"],
+            predictions=[row],
+            **parent,
+        )
+        report = build(**sample, experimental=candidate)
+>       assert report["groups"] == original["groups"]
+E       AssertionError: assert [{'group_id':...mental', ...}] == [{'group_id':...mental', ...}]
+E         
+E         At index 0 diff: {'group_id': '34f10f167149ecf854de1fd08470bde72af534461f0e2768b2465c689bb0de6e', 'batch_id': 'offline-t45', 'rule': 'single_plus_double_v2', 'board': 'p2_experimental', 'evidence_level': 'p2_experimental', 'p2_label': 'P2 实验', 'p2_ready': False, 'injury_coverage': 'complete', 'match_ids': ['jc:t45-3', 'jc:t45-1'], 'team_ids': [5, 6, 1, 2], 'single': {'match_id': 'jc:t45-3', 'source': 'jc', 'league': '英超', 'home': '球队5', 'away': '球队6', 'kickoff_utc': '2026-11-06T15:00:00+00:00', 'model_name': 'dixon-coles', 'model_version': 'a2c2ac0618679feb333ac2cfd5c75...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_t63_paper_versions.py:128: AssertionError
+______ test_f_cannot_use_candidate_parent_as_an_independent_vote[parent1] ______
+
+parent = {'model_definition_schema': 1}
+
+    @pytest.mark.parametrize("parent", [{"source_variant": "expanded"}, {"model_definition_schema": 1}])
+    def test_f_cannot_use_candidate_parent_as_an_independent_vote(parent):
+        sample = json.loads((FIX / "input.json").read_bytes())
+        original = build(**sample)
+        row = copy.deepcopy(sample["batch"]["predictions"][0])
+        row.update(model_name="candidate-source-version", model_probabilities=dict(h=0.1, d=0.2, a=0.7))
+        candidate = dict(
+            batch_id=sample["batch"]["batch_id"],
+            generated_utc=sample["frozen_utc"],
+            as_of_utc=sample["batch"]["as_of_utc"],
+            predictions=[row],
+            **parent,
+        )
+        report = build(**sample, experimental=candidate)
+>       assert report["groups"] == original["groups"]
+E       AssertionError: assert [{'group_id':...mental', ...}] == [{'group_id':...mental', ...}]
+E         
+E         At index 0 diff: {'group_id': '34f10f167149ecf854de1fd08470bde72af534461f0e2768b2465c689bb0de6e', 'batch_id': 'offline-t45', 'rule': 'single_plus_double_v2', 'board': 'p2_experimental', 'evidence_level': 'p2_experimental', 'p2_label': 'P2 实验', 'p2_ready': False, 'injury_coverage': 'complete', 'match_ids': ['jc:t45-3', 'jc:t45-1'], 'team_ids': [5, 6, 1, 2], 'single': {'match_id': 'jc:t45-3', 'source': 'jc', 'league': '英超', 'home': '球队5', 'away': '球队6', 'kickoff_utc': '2026-11-06T15:00:00+00:00', 'model_name': 'dixon-coles', 'model_version': 'a2c2ac0618679feb333ac2cfd5c75...
+E         
+E         ...Full output truncated, use '-vv' to show
+
+tests/test_t63_paper_versions.py:128: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t63_paper_versions.py::test_f_cannot_use_candidate_parent_as_an_independent_vote[parent0]
+FAILED tests/test_t63_paper_versions.py::test_f_cannot_use_candidate_parent_as_an_independent_vote[parent1]
+2 failed, 26 passed in 1.10s

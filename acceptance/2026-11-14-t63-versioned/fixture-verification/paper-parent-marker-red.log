@@ -1,0 +1,124 @@
+....F......F.........F.F                                                 [100%]
+=================================== FAILURES ===================================
+______ test_a_to_e_never_admit_expanded_or_partial_version_rows[fields4] _______
+
+fields = {'model_definition_schema': 1}
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"source_variant": "expanded", "paper_eligible": True},
+            {"source_variant": "legacy", "paper_eligible": False},
+            {"model_definition_id": "a" * 64},
+            {"model_definition": {"model_family": "synthetic-dc"}},
+            {"model_definition_schema": 1},
+        ],
+    )
+    def test_a_to_e_never_admit_expanded_or_partial_version_rows(fields):
+        rows, _ = paper_samples()
+        for row in rows:
+            row.update(fields, p2_ready=True)
+        ledger = advance_ledger(rows, {}, [], DECISION)
+>       assert not [row for row in ledger if row["record_type"] == "ticket"]
+E       AssertionError: assert not [{'record_type': 'ticket', 'record_id': '846c48f199fb5755dd9fc5e5a289b42b09923f5fc3913408e6daa9349e7a2c4c', 'account':...d': '10ebdba9a9784bd1e4f0ada6d404786e5e0231ddb874c9628c3d55260bdd64fa', 'account': 'B', 'threshold': '1.00', ...}, ...]
+
+tests/test_t63_paper_versions.py:55: AssertionError
+__ test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[stripped] ___
+
+damage = 'stripped'
+
+    @pytest.mark.parametrize("damage", ["expanded", "ineligible", "partial", "model", "batch", "stripped"])
+    def test_f_builder_rejects_candidates_even_with_a_forged_ready_flag(damage):
+        sample = json.loads((FIX / "input.json").read_bytes())
+        version_batch(sample["batch"])
+        for row in sample["batch"]["predictions"]:
+            row["p2_ready"] = True
+            if damage == "expanded":
+                row["source_variant"] = "expanded"
+            elif damage == "ineligible":
+                row["paper_eligible"] = False
+            elif damage == "partial":
+                del row["paper_eligible"]
+        if damage == "model":
+            for model in sample["batch"]["models"]:
+                model["source_variant"] = "expanded"
+        if damage == "batch":
+            sample["batch"]["source_variant"] = "expanded"
+        if damage == "stripped":
+            sample["batch"]["model_definition_schema"] = 1
+            for row in [*sample["batch"]["predictions"], *sample["batch"]["models"]]:
+                for field in FIELDS:
+                    row.pop(field, None)
+        report = build(**sample)
+>       assert report["groups"] == []
+E       AssertionError: assert [{'group_id':...passed', ...}] == []
+E         
+E         Left contains 3 more items, first extra item: {'group_id': 'a88a91565aff49ffb5ccf8d75ba379beb12a8abbd0b14240453042ddb982c039', 'batch_id': 'offline-t45', 'rule': 'single_plus_double_v2', 'board': 'historical_gate_passed', ...}
+E         Use -v to get more diff
+
+tests/test_t63_paper_versions.py:96: AssertionError
+__ test_sfc_never_uses_expanded_probabilities_even_if_marked_ready[stripped] ___
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-340/test_sfc_never_uses_expanded_p3/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f4681cc8320>
+where = 'stripped'
+
+    @pytest.mark.parametrize("where", ["row", "model", "batch", "stripped"])
+    def test_sfc_never_uses_expanded_probabilities_even_if_marked_ready(complete_issue, monkeypatch, where):
+        from zucai.report import sfc
+    
+        # Exercise the SFC boundary independently of the shared report validator.
+        monkeypatch.setattr(sfc, "_validate_batch", lambda batch: None)
+        engine, issue, batch = complete_issue
+        for row in batch["predictions"]:
+            row.update(version(row), p2_ready=True)
+        for model in batch["models"]:
+            model.update(version(model))
+        first = batch["predictions"][0]
+        if where == "row":
+            first["source_variant"] = "expanded"
+        elif where == "model":
+            for model in batch["models"]:
+                if model["model_version"] == first["model_version"]:
+                    model["source_variant"] = "expanded"
+        elif where == "batch":
+            batch["source_variant"] = "expanded"
+        else:
+            batch["model_definition_schema"] = 1
+            for row in [*batch["predictions"], *batch["models"]]:
+                for field in FIELDS:
+                    row.pop(field, None)
+        report = build_sfc(engine, issue, batch)
+        row = next(row for row in report["rows"] if row["match_id"] == first["match_id"])
+>       assert row["probabilities"] is None
+E       AssertionError: assert {'h': 0.5, 'd': 0.3, 'a': 0.2} is None
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:156: AssertionError
+_____ test_forecast_loader_keeps_parent_definition_marker_for_paper_guard ______
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-340/test_forecast_loader_keeps_par0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f46823b6240>
+
+    def test_forecast_loader_keeps_parent_definition_marker_for_paper_guard(tmp_path, monkeypatch):
+        from zucai.scoreboard import score
+    
+        rows, _ = paper_samples()
+        batch = {key: rows[0][key] for key in ("batch_id", "generated_utc", "as_of_utc", "mode")}
+        batch.update(model_definition_schema=1, predictions=[rows[0]])
+        relative = "forecasts/2026-11-01/late/forecast.json"
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(batch), encoding="utf-8")
+        monkeypatch.setattr(score, "verify_forecasts", lambda archive: {"files": {relative: "test"}})
+        monkeypatch.setattr(score, "load_batch", lambda path: batch)
+        loaded = score.load_forecasts(tmp_path, DECISION, publications={})
+>       assert loaded[0]["model_definition_schema"] == 1
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'model_definition_schema'
+
+tests/test_t63_paper_versions.py:190: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_t63_paper_versions.py::test_a_to_e_never_admit_expanded_or_partial_version_rows[fields4]
+FAILED tests/test_t63_paper_versions.py::test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[stripped]
+FAILED tests/test_t63_paper_versions.py::test_sfc_never_uses_expanded_probabilities_even_if_marked_ready[stripped]
+FAILED tests/test_t63_paper_versions.py::test_forecast_loader_keeps_parent_definition_marker_for_paper_guard

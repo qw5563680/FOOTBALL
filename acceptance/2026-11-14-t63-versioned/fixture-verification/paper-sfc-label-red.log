@@ -1,0 +1,38 @@
+..........................F.                                             [100%]
+=================================== FAILURES ===================================
+_______ test_sfc_legacy_probabilities_remain_equal_and_carry_definition ________
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-355/test_sfc_legacy_probabilities_0/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fdd2d9fae40>
+
+    def test_sfc_legacy_probabilities_remain_equal_and_carry_definition(complete_issue, monkeypatch):
+        from zucai.report import sfc
+    
+        monkeypatch.setattr(sfc, "_validate_batch", lambda batch: None)
+        engine, issue, batch = complete_issue
+        original = build_sfc(engine, issue, batch)
+        batch["model_definition_schema"] = 1
+        for row in batch["predictions"]:
+            row.update(version(row), p2_label="可用（旧规，考核中）", p2_ready=True)
+        for model in batch["models"]:
+            model.update(version(model))
+        report = build_sfc(engine, issue, batch)
+        assert report["combo"] == original["combo"]
+        assert [row["probabilities"] for row in report["rows"]] == [row["probabilities"] for row in original["rows"]]
+        assert all(row["model_definition_id"] == "a" * 64 for row in report["rows"])
+>       assert all(row["p2_label"] == "可用（旧规，考核中）" for row in report["rows"])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:210: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x7fdd2e12b7c0>
+
+>   assert all(row["p2_label"] == "可用（旧规，考核中）" for row in report["rows"])
+               ^^^^^^^^^^^^^^^
+E   KeyError: 'p2_label'
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:210: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_t63_paper_versions.py::test_sfc_legacy_probabilities_remain_equal_and_carry_definition
+1 failed, 27 passed in 1.07s

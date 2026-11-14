@@ -1,0 +1,62 @@
+...................................................F.................... [ 54%]
+...........................................................              [100%]
+=================================== FAILURES ===================================
+_________ test_registry_batch_render_and_sfc_preserve_actual_cup_names _________
+
+database = PosixPath('/tmp/pytest-of-agent/pytest-351/test_registry_batch_render_and0/fixture.db')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-351/test_registry_batch_render_and0')
+history =                   match_id source  ... available_source counterpart_id
+0       fd:synthetic-t21-0     fd  ...         ... captured           None
+71   apif:synthetic-t21-71   apif  ...         captured           None
+
+[72 rows x 11 columns]
+contract = {'description': 'Synthetic offline T21 pipeline contracts. These are not acceptance metrics or real fixtures.', 'param..., 'home': '甲队', ...}, {'match_id': 'jc:t21-upcoming-6', 'source': 'jc', 'league': '欧协联', 'home': '乙队', ...}, ...], ...}
+
+    def test_registry_batch_render_and_sfc_preserve_actual_cup_names(
+        database, tmp_path, history, contract
+    ):
+        model = DixonColes(pooled=True).fit(history, as_of=MODEL_CUTOFF)
+        artifact = tmp_path / "cups.pkl"
+        model.save(artifact)
+        params = _config(tmp_path / "params.json", contract["parameters"])
+        registry = _models([artifact], MODEL_CUTOFF, params)
+        assert set(registry) == {("jc", league) for league in CUPS}
+        assert len({id(item[0]) for item in registry.values()}) == 1
+        engine = get_engine(database)
+        try:
+            with Session(engine) as session:
+                batch = predict_batch(
+                    session,
+                    model_files=[artifact],
+                    as_of=MODEL_CUTOFF,
+                    generated=MODEL_CUTOFF,
+                    match_ids=[row["match_id"] for row in contract["upcoming"]],
+                    params_file=params,
+                    persist=False,
+                )
+                assert len(batch["models"]) == 1 and batch["models"][0]["league"] == POOL
+                assert {row["league"] for row in batch["predictions"]} == set(CUPS)
+                assert all(row["status"] == "predicted" for row in batch["predictions"])
+                assert all(len(row["top_scores"]) >= 5 for row in batch["predictions"])
+                frozen = write_report(batch, tmp_path / "report")
+                assert load_batch(frozen) == batch
+                wrong_sources = copy.deepcopy(batch)
+                wrong_sources["models"][0]["sources"] = ["fdorg"]
+>               with pytest.raises(ValueError, match="P2门槛"):
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AssertionError: Regex pattern did not match.
+E                 Expected regex: 'P2门槛'
+E                 Actual message: '模型定义与冻结模型训练范围或方法不符'
+
+tests/test_pooled_pipeline.py:345: AssertionError
+=============================== warnings summary ===============================
+tests/test_t63_legacy_versions.py: 14 warnings
+tests/test_t63_source_latency.py: 1 warning
+tests/test_pooled_pipeline.py: 56 warnings
+  /workspace/work/t48-venv/lib/python3.12/site-packages/penaltyblog/models/dixon_coles.py:257: DeprecationWarning: Setting the shape on a NumPy array has been deprecated in NumPy 2.5.
+  As an alternative, you can create a new view using np.reshape (with copy=False if needed).
+    score_matrix.shape = (max_goals, max_goals)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_pooled_pipeline.py::test_registry_batch_render_and_sfc_preserve_actual_cup_names

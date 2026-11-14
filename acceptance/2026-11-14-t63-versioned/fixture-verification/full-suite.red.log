@@ -1,0 +1,180 @@
+........................................................................ [  2%]
+........................................................................ [  4%]
+........................................................................ [  6%]
+........................................................................ [  8%]
+........................................................................ [ 10%]
+........................................................................ [ 12%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 24%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+........................................................................ [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 42%]
+........................................................................ [ 44%]
+....................F...F............................................... [ 46%]
+........................................................................ [ 48%]
+........................................................................ [ 50%]
+........................................................................ [ 52%]
+........................................................................ [ 54%]
+........................................................................ [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+........................................................................ [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 70%]
+........................................................................ [ 72%]
+........................................................................ [ 74%]
+........................................................................ [ 76%]
+........................................................................ [ 78%]
+........................................................................ [ 80%]
+........................................................................ [ 82%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 90%]
+........................................................................ [ 92%]
+........................................................................ [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 98%]
+...........................................F.......                      [100%]
+=================================== FAILURES ===================================
+___________ test_readiness_cannot_relabel_old_or_incompatible_model ____________
+
+seasons_history =     match_id source league  ...  home_goals  away_goals counterpart_id
+0       fd:0     fd     英超  ...           2    ...       2           None
+364  fd:1456     fd     英超  ...           1           0           None
+
+[365 rows x 11 columns]
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-377/test_readiness_cannot_relabel_0')
+
+    def test_readiness_cannot_relabel_old_or_incompatible_model(seasons_history, tmp_path):
+        import json
+    
+        from zucai.predict.parameters import model_readiness
+    
+        cutoff = pd.Timestamp("2026-07-02T00:00Z")
+        model = DixonColes(365).fit(seasons_history, as_of=cutoff)
+        policy = dict(history_scope="cumulative", strict_availability=False, replay_known_after=None)
+        model.database_sha256 = "a" * 64
+        model.training_policy = policy
+        config = tmp_path / "params.json"
+        entry = dict(
+            half_life_days=365,
+            selection_as_of_utc="2026-07-01T00:00Z",
+            generated_utc="2026-07-01T00:00Z",
+            sources=["fd"],
+            unknown_team_prior="weakest_quartile_half_shrinkage",
+            draw_calibration=False,
+            p2_ready=True,
+            database_sha256="a" * 64,
+            training_policy=policy,
+            p2_evidence={"as_of_utc": "2026-07-01T00:00Z", "seasons": ["2425", "2526"]},
+        )
+        config.write_text(json.dumps({"schema_version": 1, "leagues": {"英超": entry}}))
+>       assert model_readiness(model, as_of=cutoff, params_file=config)["p2_ready"] is True
+E       assert False is True
+
+tests/test_model_evaluation.py:373: AssertionError
+__ test_readiness_allows_other_corpus_but_rejects_replay_and_expired_seasons ___
+
+seasons_history =     match_id source league  ...  home_goals  away_goals counterpart_id
+0       fd:0     fd     英超  ...           2    ...       2           None
+364  fd:1456     fd     英超  ...           1           0           None
+
+[365 rows x 11 columns]
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-377/test_readiness_allows_other_co0')
+
+    def test_readiness_allows_other_corpus_but_rejects_replay_and_expired_seasons(
+        seasons_history, tmp_path
+    ):
+        import json
+    
+        from zucai.predict.parameters import model_readiness
+    
+        model = DixonColes(365).fit(seasons_history, as_of=pd.Timestamp("2026-07-02T00:00Z"))
+        policy = dict(history_scope="cumulative", strict_availability=False, replay_known_after=None)
+        model.database_sha256 = "a" * 64
+        model.training_policy = policy
+        entry = dict(
+            half_life_days=365,
+            selection_as_of_utc="2026-07-01T00:00Z",
+            generated_utc="2026-07-01T00:00Z",
+            sources=["fd"],
+            unknown_team_prior="weakest_quartile_half_shrinkage",
+            draw_calibration=False,
+            database_sha256="a" * 64,
+            training_policy=policy,
+            p2_ready=True,
+            p2_evidence={"as_of_utc": "2026-07-01T00:00Z", "seasons": ["2425", "2526"]},
+        )
+        config = tmp_path / "params.json"
+        config.write_text(json.dumps({"schema_version": 1, "leagues": {"英超": entry}}))
+>       assert model_readiness(model, as_of="2026-11-01T00:00Z", params_file=config)["p2_ready"]
+E       assert False
+
+tests/test_model_evaluation.py:472: AssertionError
+__ test_train_model_and_output_record_training_and_evaluation_database_hashes __
+
+training_db = PosixPath('/tmp/pytest-of-agent/pytest-377/test_train_model_and_output_re0/training.db')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-377/test_train_model_and_output_re0')
+
+    def test_train_model_and_output_record_training_and_evaluation_database_hashes(
+        training_db, tmp_path
+    ):
+        output = tmp_path / "model.pkl"
+        result = train(
+            db=training_db,
+            league="英超",
+            source="fd",
+            since="2026-10-01T00:00Z",
+            as_of="2026-11-03T00:00Z",
+            output=output,
+        )
+        model = DixonColes.load(output)
+        digest = hashlib.sha256(training_db.read_bytes()).hexdigest()
+        published = json.loads((ROOT / "data/model/params.json").read_text())
+        evaluation = published["leagues"]["英超"].get("database_sha256")
+>       assert evaluation is None  # T63 has not certified the changed source corpus.
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert '043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09' is None
+
+tests/test_train_output_t16.py:123: AssertionError
+=============================== warnings summary ===============================
+tests/test_apif_domestic_training.py: 2 warnings
+tests/test_cloud_predict.py: 3215 warnings
+tests/test_dc_matrix_guard.py: 26 warnings
+tests/test_experimental_archive.py: 1152 warnings
+tests/test_model_evaluation.py: 1778 warnings
+tests/test_multisource.py: 7 warnings
+tests/test_pooled_model.py: 140 warnings
+tests/test_pooled_pipeline.py: 56 warnings
+tests/test_pooled_solver.py: 127 warnings
+tests/test_prediction.py: 759 warnings
+tests/test_prediction_batch.py: 16 warnings
+tests/test_publish_recovery.py: 288 warnings
+tests/test_stats_experiment_command.py: 682 warnings
+tests/test_t53_disclosure.py: 2 warnings
+tests/test_t63_legacy_versions.py: 14 warnings
+tests/test_t63_model_definitions.py: 20 warnings
+tests/test_t63_source_latency.py: 1 warning
+tests/test_train_output_t16.py: 446 warnings
+  /workspace/work/t48-venv/lib/python3.12/site-packages/penaltyblog/models/dixon_coles.py:257: DeprecationWarning: Setting the shape on a NumPy array has been deprecated in NumPy 2.5.
+  As an alternative, you can create a new view using np.reshape (with copy=False if needed).
+    score_matrix.shape = (max_goals, max_goals)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_model_evaluation.py::test_readiness_cannot_relabel_old_or_incompatible_model
+FAILED tests/test_model_evaluation.py::test_readiness_allows_other_corpus_but_rejects_replay_and_expired_seasons
+FAILED tests/test_train_output_t16.py::test_train_model_and_output_record_training_and_evaluation_database_hashes

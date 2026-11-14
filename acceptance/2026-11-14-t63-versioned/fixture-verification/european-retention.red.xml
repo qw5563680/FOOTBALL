@@ -1,0 +1,432 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="7" skipped="0" tests="8" time="2.814" timestamp="2026-11-14T03:42:19.620488+00:00" hostname="5e80b6da1ed3"><testcase classname="tests.test_t63_european_retention" name="test_retained_paid_result_does_not_break_european_primary[score0-fd]" time="0.086"><failure message="ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / fd:retained">database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-382/test_retained_paid_result_does0/scores.db)
+source = 'fd', score = (2, 1)
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-382/test_retained_paid_result_does0')
+
+    @pytest.mark.parametrize("source", ["fd", "jc"])
+    @pytest.mark.parametrize("score", [(2, 1), (0, 2)])
+    def test_retained_paid_result_does_not_break_european_primary(database, source, score, tmp_path):
+        from zucai.source_results_audit import audit_source_results
+    
+        with session_scope(database) as session:
+            _support(session)
+            incumbent = _free(session, source, score=score)
+            before = _pool(session)
+            old = session.get(Result, incumbent.match_id)
+            snapshot = old.home_goals, old.away_goals, old.available_utc, incumbent.counterpart_id
+            assert _ingest(session)["inserted"] == 1
+            assert len(load_result_links(session)) == 1
+            assert incumbent.counterpart_id is None
+&gt;           frame = _pool(session)
+                    ^^^^^^^^^^^^^^
+
+tests/test_t63_european_retention.py:67: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t63_european_retention.py:50: in _pool
+    return read_history(session, "欧战", "fd,jc,fdorg,apif", training_leagues=["英超"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/predict/backtest.py:121: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =        match_id source  ... counterpart_away_id counterpart_kickoff_utc
+0  fd:earlier:5     fd  ...                Non...                    None
+7   fd:retained     fd  ...                None                    None
+
+[8 rows x 21 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc &lt; row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+&gt;                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / fd:retained
+
+src/zucai/predict/apif_guard.py:30: ValueError</failure></testcase><testcase classname="tests.test_t63_european_retention" name="test_retained_paid_result_does_not_break_european_primary[score0-jc]" time="0.052"><failure message="ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / jc:retained">database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-382/test_retained_paid_result_does1/scores.db)
+source = 'jc', score = (2, 1)
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-382/test_retained_paid_result_does1')
+
+    @pytest.mark.parametrize("source", ["fd", "jc"])
+    @pytest.mark.parametrize("score", [(2, 1), (0, 2)])
+    def test_retained_paid_result_does_not_break_european_primary(database, source, score, tmp_path):
+        from zucai.source_results_audit import audit_source_results
+    
+        with session_scope(database) as session:
+            _support(session)
+            incumbent = _free(session, source, score=score)
+            before = _pool(session)
+            old = session.get(Result, incumbent.match_id)
+            snapshot = old.home_goals, old.away_goals, old.available_utc, incumbent.counterpart_id
+            assert _ingest(session)["inserted"] == 1
+            assert len(load_result_links(session)) == 1
+            assert incumbent.counterpart_id is None
+&gt;           frame = _pool(session)
+                    ^^^^^^^^^^^^^^
+
+tests/test_t63_european_retention.py:67: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t63_european_retention.py:50: in _pool
+    return read_history(session, "欧战", "fd,jc,fdorg,apif", training_leagues=["英超"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/predict/backtest.py:121: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =        match_id source  ... counterpart_away_id counterpart_kickoff_utc
+0  fd:earlier:5     fd  ...                Non...                    None
+7   jc:retained     jc  ...                None                    None
+
+[8 rows x 21 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc &lt; row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+&gt;                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / jc:retained
+
+src/zucai/predict/apif_guard.py:30: ValueError</failure></testcase><testcase classname="tests.test_t63_european_retention" name="test_retained_paid_result_does_not_break_european_primary[score1-fd]" time="0.051"><failure message="ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / fd:retained">database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-382/test_retained_paid_result_does2/scores.db)
+source = 'fd', score = (0, 2)
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-382/test_retained_paid_result_does2')
+
+    @pytest.mark.parametrize("source", ["fd", "jc"])
+    @pytest.mark.parametrize("score", [(2, 1), (0, 2)])
+    def test_retained_paid_result_does_not_break_european_primary(database, source, score, tmp_path):
+        from zucai.source_results_audit import audit_source_results
+    
+        with session_scope(database) as session:
+            _support(session)
+            incumbent = _free(session, source, score=score)
+            before = _pool(session)
+            old = session.get(Result, incumbent.match_id)
+            snapshot = old.home_goals, old.away_goals, old.available_utc, incumbent.counterpart_id
+            assert _ingest(session)["inserted"] == 1
+            assert len(load_result_links(session)) == 1
+            assert incumbent.counterpart_id is None
+&gt;           frame = _pool(session)
+                    ^^^^^^^^^^^^^^
+
+tests/test_t63_european_retention.py:67: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t63_european_retention.py:50: in _pool
+    return read_history(session, "欧战", "fd,jc,fdorg,apif", training_leagues=["英超"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/predict/backtest.py:121: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =        match_id source  ... counterpart_away_id counterpart_kickoff_utc
+0  fd:earlier:5     fd  ...                Non...                    None
+7   fd:retained     fd  ...                None                    None
+
+[8 rows x 21 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc &lt; row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+&gt;                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / fd:retained
+
+src/zucai/predict/apif_guard.py:30: ValueError</failure></testcase><testcase classname="tests.test_t63_european_retention" name="test_retained_paid_result_does_not_break_european_primary[score1-jc]" time="0.054"><failure message="ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / jc:retained">database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-382/test_retained_paid_result_does3/scores.db)
+source = 'jc', score = (0, 2)
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-382/test_retained_paid_result_does3')
+
+    @pytest.mark.parametrize("source", ["fd", "jc"])
+    @pytest.mark.parametrize("score", [(2, 1), (0, 2)])
+    def test_retained_paid_result_does_not_break_european_primary(database, source, score, tmp_path):
+        from zucai.source_results_audit import audit_source_results
+    
+        with session_scope(database) as session:
+            _support(session)
+            incumbent = _free(session, source, score=score)
+            before = _pool(session)
+            old = session.get(Result, incumbent.match_id)
+            snapshot = old.home_goals, old.away_goals, old.available_utc, incumbent.counterpart_id
+            assert _ingest(session)["inserted"] == 1
+            assert len(load_result_links(session)) == 1
+            assert incumbent.counterpart_id is None
+&gt;           frame = _pool(session)
+                    ^^^^^^^^^^^^^^
+
+tests/test_t63_european_retention.py:67: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t63_european_retention.py:50: in _pool
+    return read_history(session, "欧战", "fd,jc,fdorg,apif", training_leagues=["英超"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/predict/backtest.py:121: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =        match_id source  ... counterpart_away_id counterpart_kickoff_utc
+0  fd:earlier:5     fd  ...                Non...                    None
+7   jc:retained     jc  ...                None                    None
+
+[8 rows x 21 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc &lt; row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+&gt;                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / jc:retained
+
+src/zucai/predict/apif_guard.py:30: ValueError</failure></testcase><testcase classname="tests.test_t63_european_retention" name="test_paid_first_pool_waits_for_actual_relationship_clock[fd]" time="0.041"><failure message="ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / fd:retained">database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-382/test_paid_first_pool_waits_for0/scores.db)
+source = 'fd'
+
+    @pytest.mark.parametrize("source", ["fd", "jc"])
+    def test_paid_first_pool_waits_for_actual_relationship_clock(database, source):
+        with session_scope(database) as session:
+            _support(session)
+            _ingest(session)
+            _free(session, source, arrived=SEEN + timedelta(hours=1))
+            _ingest(session, SEEN + timedelta(hours=2))
+&gt;           frame = _pool(session)
+                    ^^^^^^^^^^^^^^
+
+tests/test_t63_european_retention.py:89: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t63_european_retention.py:50: in _pool
+    return read_history(session, "欧战", "fd,jc,fdorg,apif", training_leagues=["英超"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/predict/backtest.py:121: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =        match_id source  ... counterpart_away_id counterpart_kickoff_utc
+0  fd:earlier:5     fd  ...                Non...                    None
+7   fd:retained     fd  ...                None                    None
+
+[8 rows x 21 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc &lt; row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+&gt;                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / fd:retained
+
+src/zucai/predict/apif_guard.py:30: ValueError</failure></testcase><testcase classname="tests.test_t63_european_retention" name="test_paid_first_pool_waits_for_actual_relationship_clock[jc]" time="0.041"><failure message="ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / jc:retained">database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-382/test_paid_first_pool_waits_for1/scores.db)
+source = 'jc'
+
+    @pytest.mark.parametrize("source", ["fd", "jc"])
+    def test_paid_first_pool_waits_for_actual_relationship_clock(database, source):
+        with session_scope(database) as session:
+            _support(session)
+            _ingest(session)
+            _free(session, source, arrived=SEEN + timedelta(hours=1))
+            _ingest(session, SEEN + timedelta(hours=2))
+&gt;           frame = _pool(session)
+                    ^^^^^^^^^^^^^^
+
+tests/test_t63_european_retention.py:89: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t63_european_retention.py:50: in _pool
+    return read_history(session, "欧战", "fd,jc,fdorg,apif", training_leagues=["英超"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/predict/backtest.py:121: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =        match_id source  ... counterpart_away_id counterpart_kickoff_utc
+0  fd:earlier:5     fd  ...                Non...                    None
+7   jc:retained     jc  ...                None                    None
+
+[8 rows x 21 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc &lt; row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+&gt;                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / jc:retained
+
+src/zucai/predict/apif_guard.py:30: ValueError</failure></testcase><testcase classname="tests.test_t63_european_retention" name="test_new_link_can_reach_the_legacy_representative_through_a_removed_fd_anchor" time="0.056"><failure message="ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / jc:retained">database = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-382/test_new_link_can_reach_the_le0/scores.db)
+
+    def test_new_link_can_reach_the_legacy_representative_through_a_removed_fd_anchor(database):
+        from sqlalchemy import delete
+        from zucai.models import ResultSourceLink
+    
+        with session_scope(database) as session:
+            _support(session)
+            fd = _free(session, "fd")
+            jc = _free(session, "jc")
+            jc.counterpart_id = fd.match_id
+            before = _pool(session)
+            assert fd.match_id not in set(before.match_id)
+            _ingest(session)
+            # Deliberately retain only the validated paid -&gt; FD proof. The old
+            # JC -&gt; FD edge must reach the original representative without retiming it.
+            session.execute(delete(ResultSourceLink).where(ResultSourceLink.counterpart_id == jc.match_id))
+&gt;           frame = _pool(session)
+                    ^^^^^^^^^^^^^^
+
+tests/test_t63_european_retention.py:116: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_t63_european_retention.py:50: in _pool
+    return read_history(session, "欧战", "fd,jc,fdorg,apif", training_leagues=["英超"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/zucai/predict/backtest.py:121: in read_history
+    reject_cross_source_overlaps(frame)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+frame =        match_id source  ...  counterpart_away_id      counterpart_kickoff_utc
+0  fd:earlier:5     fd  ...             ...               NaN
+8   jc:retained     jc  ...                  2.0  2026-10-10T14:00:00.000000Z
+
+[8 rows x 21 columns]
+
+    @wraps(previous)
+    def reject_cross_source_overlaps(frame):
+        previous(frame)
+        selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg", "apif"))]
+        recent = defaultdict(deque)
+        window = pd.Timedelta(hours=3)
+        for row in selected.sort_values("kickoff_utc").itertuples():
+            group = recent[row.league]
+            while group and group[0].kickoff_utc &lt; row.kickoff_utc - window:
+                group.popleft()
+            for other in group:
+                if row.source == other.source or "apif" not in (row.source, other.source):
+                    continue
+                if any(
+                    str(name).startswith(("apif:team:", "fdorg:team:"))
+                    for name in (row.home, row.away, other.home, other.away)
+                ) or not {
+                    row.home,
+                    row.away,
+                }.isdisjoint((other.home, other.away)):
+&gt;                   raise ValueError(
+                        "同联赛三小时内存在跨来源重复或待核对的身份重叠："
+                        + other.match_id
+                        + " / "
+                        + row.match_id
+                    )
+E                   ValueError: 同联赛三小时内存在跨来源重复或待核对的身份重叠：apif:91001 / jc:retained
+
+src/zucai/predict/apif_guard.py:30: ValueError</failure></testcase><testcase classname="tests.test_t63_european_retention" name="test_expired_link_snapshot_cannot_authorize_pool_deduplication" time="0.045" /></testsuite></testsuites>

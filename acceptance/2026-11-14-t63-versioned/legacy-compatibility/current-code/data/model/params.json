@@ -1,0 +1,1340 @@
+{
+  "schema_version": 1,
+  "gate": {
+    "complete_seasons": 2,
+    "min_evaluated": 500,
+    "min_closing_paired": 500,
+    "min_uniform_log_loss_gain": 0.05,
+    "max_closing_log_loss_gap": 0.05,
+    "fold": "weekly",
+    "bet_allowed": false,
+    "require_two_nonempty_complete_seasons": true,
+    "require_no_skips_or_unavailable_labels": true,
+    "artifact_corpus": "same_database_sha256_and_cumulative_nonreplayed_policy",
+    "evidence_recency": "latest_two_complete_seasons_at_prediction"
+  },
+  "leagues": {
+    "德甲": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.03098120516259953
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.008440876027660332
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.005936758868954756
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:02.385863+00:00",
+      "database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": true,
+      "p2_evidence": {
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 612,
+            "log_loss": 1.0110466157079503
+          },
+          "uniform": {
+            "n": 612,
+            "log_loss": 1.0986122886681096
+          },
+          "closing": {
+            "n": 612,
+            "log_loss": 0.9704453021122804
+          },
+          "closing_paired_model": {
+            "n": 612,
+            "log_loss": 1.0110466157079503
+          }
+        },
+        "uniform_log_loss_gain": 0.08756567296015927,
+        "closing_log_loss_gap": 0.040601313595669875,
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false
+      }
+    },
+    "意甲": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.044207878381460675
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 540.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.024867742357240707
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.002189598994037867
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:14.292615+00:00",
+      "database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": true,
+      "p2_evidence": {
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 760,
+            "log_loss": 0.9877130798006871
+          },
+          "uniform": {
+            "n": 760,
+            "log_loss": 1.0986122886681093
+          },
+          "closing": {
+            "n": 760,
+            "log_loss": 0.966123080490562
+          },
+          "closing_paired_model": {
+            "n": 760,
+            "log_loss": 0.9877130798006871
+          }
+        },
+        "uniform_log_loss_gain": 0.11089920886742222,
+        "closing_log_loss_gap": 0.021589999310125174,
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false
+      }
+    },
+    "西甲": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.022062905941142685
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 540.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.0013764407567678494
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.004172800513960934
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:02.644571+00:00",
+      "database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": true,
+      "p2_evidence": {
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 760,
+            "log_loss": 0.9786537627952319
+          },
+          "uniform": {
+            "n": 760,
+            "log_loss": 1.0986122886681093
+          },
+          "closing": {
+            "n": 760,
+            "log_loss": 0.9558648435759532
+          },
+          "closing_paired_model": {
+            "n": 760,
+            "log_loss": 0.9786537627952319
+          }
+        },
+        "uniform_log_loss_gain": 0.11995852587287748,
+        "closing_log_loss_gap": 0.022788919219278614,
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false
+      }
+    },
+    "英超": {
+      "half_life_days": 365.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.001890450246857106
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.01710200941353668
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.031143533331284445
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:20.978338+00:00",
+      "database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": true,
+      "p2_ready": true,
+      "p2_evidence": {
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 760,
+            "log_loss": 1.0144666551155022
+          },
+          "uniform": {
+            "n": 760,
+            "log_loss": 1.0986122886681093
+          },
+          "closing": {
+            "n": 760,
+            "log_loss": 0.9904484114891507
+          },
+          "closing_paired_model": {
+            "n": 760,
+            "log_loss": 1.0144666551155022
+          }
+        },
+        "uniform_log_loss_gain": 0.08414563355260718,
+        "closing_log_loss_gap": 0.02401824362635141,
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false
+      }
+    },
+    "法甲": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 540.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.001989109229365349
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": true,
+          "selection_draw_bias": 0.04787069601007865
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.008714297492329132
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:51.086838+00:00",
+      "database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": true,
+      "p2_evidence": {
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 612,
+            "log_loss": 0.9879945453083563
+          },
+          "uniform": {
+            "n": 612,
+            "log_loss": 1.0986122886681096
+          },
+          "closing": {
+            "n": 612,
+            "log_loss": 0.9662983863406751
+          },
+          "closing_paired_model": {
+            "n": 612,
+            "log_loss": 0.9879945453083563
+          }
+        },
+        "uniform_log_loss_gain": 0.11061774335975327,
+        "closing_log_loss_gap": 0.02169615896768118,
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false
+      }
+    },
+    "荷甲": {
+      "half_life_days": 365.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.01804797059561805
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.02149732430637269
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.041068704225783126
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:48.879897+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": true,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      }
+    },
+    "葡超": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.033333957344137716
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.02914004128751163
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.05035686653587482
+        }
+      ],
+      "generated_utc": "2026-11-01T21:54:01.213494+00:00",
+      "database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": true,
+      "p2_ready": true,
+      "p2_evidence": {
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 612,
+            "log_loss": 0.9422039009601517
+          },
+          "uniform": {
+            "n": 612,
+            "log_loss": 1.0986122886681096
+          },
+          "closing": {
+            "n": 612,
+            "log_loss": 0.9157944418025815
+          },
+          "closing_paired_model": {
+            "n": 612,
+            "log_loss": 0.9422039009601517
+          }
+        },
+        "uniform_log_loss_gain": 0.15640838770795784,
+        "closing_log_loss_gap": 0.026409459157570203,
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false
+      }
+    },
+    "英冠": {
+      "half_life_days": 180.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.015753927118601435
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.027093360323886706
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.004323260890700897
+        }
+      ],
+      "generated_utc": "2026-11-01T21:54:25.018433+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      }
+    },
+    "瑞超": {
+      "half_life_days": 365.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2025",
+      "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2023",
+          "validation_season": "2024",
+          "selection_as_of_utc": "2024-01-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": true,
+          "selection_draw_bias": 0.05739546618320948
+        },
+        {
+          "selection_season": "2024",
+          "validation_season": "2025",
+          "selection_as_of_utc": "2025-01-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.014822451708712714
+        },
+        {
+          "selection_season": "2025",
+          "validation_season": "2026",
+          "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.008666835270011025
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:52.232747+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      }
+    },
+    "挪超": {
+      "half_life_days": 180.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2025",
+      "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2023",
+          "validation_season": "2024",
+          "selection_as_of_utc": "2024-01-01T00:00:00+00:00",
+          "half_life_days": 270.0,
+          "draw_calibration": true,
+          "selection_draw_bias": 0.05093276518475362
+        },
+        {
+          "selection_season": "2024",
+          "validation_season": "2025",
+          "selection_as_of_utc": "2025-01-01T00:00:00+00:00",
+          "half_life_days": 270.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.027804060179342338
+        },
+        {
+          "selection_season": "2025",
+          "validation_season": "2026",
+          "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.02902629135823076
+        }
+      ],
+      "generated_utc": "2026-11-01T21:54:12.778395+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      }
+    },
+    "法乙": {
+      "half_life_days": 540.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 540.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.012810274942225974
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 270.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.019449554094616017
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 540.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.04310654639339684
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:38.887014+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": true,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      }
+    },
+    "日职": {
+      "half_life_days": 180.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2025",
+      "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2023",
+          "validation_season": "2024",
+          "selection_as_of_utc": "2024-01-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.01712489622971769
+        },
+        {
+          "selection_season": "2024",
+          "validation_season": "2025",
+          "selection_as_of_utc": "2025-01-01T00:00:00+00:00",
+          "half_life_days": 270.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.00902122726424709
+        },
+        {
+          "selection_season": "2025",
+          "validation_season": "2026",
+          "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.01419065787920265
+        }
+      ],
+      "generated_utc": "2026-11-01T21:53:59.790729+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      }
+    },
+    "芬超": {
+      "half_life_days": 270.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2025",
+      "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2023",
+          "validation_season": "2024",
+          "selection_as_of_utc": "2024-01-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.0012390171632288005
+        },
+        {
+          "selection_season": "2024",
+          "validation_season": "2025",
+          "selection_as_of_utc": "2025-01-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.015154958877365898
+        },
+        {
+          "selection_season": "2025",
+          "validation_season": "2026",
+          "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+          "half_life_days": 270.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.00317826960608103
+        }
+      ],
+      "generated_utc": "2026-11-01T21:54:15.022196+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      }
+    },
+    "巴甲": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2025",
+      "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2023",
+          "validation_season": "2024",
+          "selection_as_of_utc": "2024-01-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 4.2687932829965636e-05
+        },
+        {
+          "selection_season": "2024",
+          "validation_season": "2025",
+          "selection_as_of_utc": "2025-01-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.006679573341591305
+        },
+        {
+          "selection_season": "2025",
+          "validation_season": "2026",
+          "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.00019410748508019715
+        }
+      ],
+      "generated_utc": "2026-11-01T21:54:40.855191+00:00",
+      "database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": true,
+      "p2_evidence": {
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2024",
+          "2025"
+        ],
+        "metrics": {
+          "model": {
+            "n": 758,
+            "log_loss": 1.0082875345418145
+          },
+          "uniform": {
+            "n": 758,
+            "log_loss": 1.0986122886681096
+          },
+          "closing": {
+            "n": 758,
+            "log_loss": 0.9847110037406773
+          },
+          "closing_paired_model": {
+            "n": 758,
+            "log_loss": 1.0082875345418145
+          }
+        },
+        "uniform_log_loss_gain": 0.09032475412629504,
+        "closing_log_loss_gap": 0.023576530801137197,
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false
+      }
+    },
+    "美职": {
+      "half_life_days": 270.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2025",
+      "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2023",
+          "validation_season": "2024",
+          "selection_as_of_utc": "2024-01-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.038377350480092554
+        },
+        {
+          "selection_season": "2024",
+          "validation_season": "2025",
+          "selection_as_of_utc": "2025-01-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.014969495592784876
+        },
+        {
+          "selection_season": "2025",
+          "validation_season": "2026",
+          "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+          "half_life_days": 270.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.0012518631107773792
+        }
+      ],
+      "generated_utc": "2026-11-01T21:54:40.125780+00:00",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      }
+    },
+    "欧战": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.006047592217158365
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 540.0,
+          "draw_calibration": true,
+          "selection_draw_bias": 0.04269553794168712
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.025807305518262852
+        }
+      ],
+      "generated_utc": "2026-11-03T18:51:33.539767+00:00",
+      "database_sha256": "385035b903b4aa575365a8635f187e7d18bd49b5c24ab46cdfdfd5ed386ea1dd",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "market_paired_n_below_300_or_mismatch",
+          "market_gap_above_0.05_or_missing"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 1736,
+            "log_loss": 1.037793513988135
+          },
+          "uniform": {
+            "n": 1736,
+            "log_loss": 1.0986122886681093
+          },
+          "market": {
+            "n": 0,
+            "log_loss": null
+          },
+          "paired_model": {
+            "n": 0,
+            "log_loss": null
+          }
+        },
+        "uniform_log_loss_gain": 0.06081877467997443,
+        "market_log_loss_gap": null,
+        "as_of_utc": "2026-11-03T17:21:12.748620+00:00",
+        "bet_allowed": false,
+        "group": "欧战",
+        "fitting_method": "pooled_dc_full_gradient_al_slsqp_v1",
+        "target_leagues": [
+          "欧冠",
+          "欧协联",
+          "欧罗巴"
+        ],
+        "training_leagues": [
+          "德甲",
+          "意甲",
+          "挪超",
+          "欧冠",
+          "欧协联",
+          "欧罗巴",
+          "法甲",
+          "瑞超",
+          "芬超",
+          "英超",
+          "荷甲",
+          "葡超",
+          "西甲"
+        ],
+        "gate": {
+          "complete_seasons": 2,
+          "min_evaluated": 500,
+          "min_uniform_log_loss_gain": 0.05,
+          "fold": "weekly",
+          "bet_allowed": false,
+          "require_two_nonempty_complete_seasons": true,
+          "require_no_skips_or_unavailable_labels": true,
+          "artifact_corpus": "matching_sources_and_cumulative_nonreplayed_policy",
+          "evidence_recency": "latest_two_complete_seasons_at_prediction",
+          "min_market_paired": 300,
+          "max_market_log_loss_gap": 0.05,
+          "market_source": "jc_pre_kickoff_had"
+        }
+      },
+      "pooled": true,
+      "fitting_method": "pooled_dc_full_gradient_al_slsqp_v1",
+      "leagues": [
+        "欧冠",
+        "欧协联",
+        "欧罗巴"
+      ],
+      "training_leagues": [
+        "德甲",
+        "意甲",
+        "挪超",
+        "欧冠",
+        "欧协联",
+        "欧罗巴",
+        "法甲",
+        "瑞超",
+        "芬超",
+        "英超",
+        "荷甲",
+        "葡超",
+        "西甲"
+      ]
+    },
+    "欧国联": {
+      "half_life_days": 730,
+      "selection_as_of_utc": "2026-11-08T21:00:00+00:00",
+      "selection_basis": "Fixed two-year decay for sparse national-team schedules; not tuned or promoted",
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "p2_ready": false,
+      "draw_calibration": false
+    },
+    "韩职": {
+      "half_life_days": 90.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2025",
+      "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2023",
+          "validation_season": "2024",
+          "selection_as_of_utc": "2024-01-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.04578627339624963
+        },
+        {
+          "selection_season": "2024",
+          "validation_season": "2025",
+          "selection_as_of_utc": "2025-01-01T00:00:00+00:00",
+          "half_life_days": 90.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.014898957375412664
+        },
+        {
+          "selection_season": "2025",
+          "validation_season": "2026",
+          "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+          "half_life_days": 90.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.0026088209767106685
+        }
+      ],
+      "generated_utc": "2026-11-14T00:00:12.732382+00:00",
+      "database_sha256": "1f5a99bfad007629272d2272fc0dfb10d4a11b9e0dcad775bb22f7dbc4d5f44f",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "evaluation_n_below_500",
+          "closing_paired_n_below_500_or_mismatch",
+          "uniform_gain_below_0.05",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2024",
+          "2025"
+        ],
+        "metrics": {
+          "model": {
+            "n": 464,
+            "log_loss": 1.0901271886001285
+          },
+          "uniform": {
+            "n": 464,
+            "log_loss": 1.0986122886681096
+          },
+          "closing": {
+            "n": 0,
+            "log_loss": null
+          },
+          "closing_paired_model": {
+            "n": 0,
+            "log_loss": null
+          }
+        },
+        "uniform_log_loss_gain": 0.008485100067981088,
+        "closing_log_loss_gap": null,
+        "as_of_utc": "2026-11-14T00:00:00+00:00",
+        "bet_allowed": false
+      }
+    },
+    "澳超": {
+      "half_life_days": 365.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 270.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.05666154173256513
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 90.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.02657295062810397
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 365.0,
+          "draw_calibration": true,
+          "selection_draw_bias": -0.05089583474546536
+        }
+      ],
+      "generated_utc": "2026-11-14T00:00:22.285187+00:00",
+      "database_sha256": "1f5a99bfad007629272d2272fc0dfb10d4a11b9e0dcad775bb22f7dbc4d5f44f",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": true,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "evaluation_n_below_500",
+          "closing_paired_n_below_500_or_mismatch",
+          "uniform_gain_below_0.05",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 339,
+            "log_loss": 1.0951642960448449
+          },
+          "uniform": {
+            "n": 339,
+            "log_loss": 1.0986122886681096
+          },
+          "closing": {
+            "n": 0,
+            "log_loss": null
+          },
+          "closing_paired_model": {
+            "n": 0,
+            "log_loss": null
+          }
+        },
+        "uniform_log_loss_gain": 0.003447992623264673,
+        "closing_log_loss_gap": null,
+        "as_of_utc": "2026-11-14T00:00:00+00:00",
+        "bet_allowed": false
+      }
+    }
+  }
+}

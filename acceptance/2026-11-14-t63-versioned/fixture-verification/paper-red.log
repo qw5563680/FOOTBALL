@@ -1,0 +1,508 @@
+FFFFFFFFFFFFFFFFFFFF                                                     [100%]
+=================================== FAILURES ===================================
+______ test_a_to_e_never_admit_expanded_or_partial_version_rows[fields0] _______
+
+fields = {'source_variant': 'expanded', 'paper_eligible': True}
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"source_variant": "expanded", "paper_eligible": True},
+            {"source_variant": "legacy", "paper_eligible": False},
+            {"model_definition_id": "a" * 64},
+            {"model_definition": {"model_family": "synthetic-dc"}},
+        ],
+    )
+    def test_a_to_e_never_admit_expanded_or_partial_version_rows(fields):
+        rows, _ = paper_samples()
+        for row in rows:
+            row.update(fields, p2_ready=True)
+        ledger = advance_ledger(rows, {}, [], DECISION)
+>       assert not [row for row in ledger if row["record_type"] == "ticket"]
+E       AssertionError: assert not [{'record_type': 'ticket', 'record_id': '846c48f199fb5755dd9fc5e5a289b42b09923f5fc3913408e6daa9349e7a2c4c', 'account':...d': '10ebdba9a9784bd1e4f0ada6d404786e5e0231ddb874c9628c3d55260bdd64fa', 'account': 'B', 'threshold': '1.00', ...}, ...]
+
+tests/test_t63_paper_versions.py:54: AssertionError
+______ test_a_to_e_never_admit_expanded_or_partial_version_rows[fields1] _______
+
+fields = {'source_variant': 'legacy', 'paper_eligible': False}
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"source_variant": "expanded", "paper_eligible": True},
+            {"source_variant": "legacy", "paper_eligible": False},
+            {"model_definition_id": "a" * 64},
+            {"model_definition": {"model_family": "synthetic-dc"}},
+        ],
+    )
+    def test_a_to_e_never_admit_expanded_or_partial_version_rows(fields):
+        rows, _ = paper_samples()
+        for row in rows:
+            row.update(fields, p2_ready=True)
+        ledger = advance_ledger(rows, {}, [], DECISION)
+>       assert not [row for row in ledger if row["record_type"] == "ticket"]
+E       AssertionError: assert not [{'record_type': 'ticket', 'record_id': '846c48f199fb5755dd9fc5e5a289b42b09923f5fc3913408e6daa9349e7a2c4c', 'account':...d': '10ebdba9a9784bd1e4f0ada6d404786e5e0231ddb874c9628c3d55260bdd64fa', 'account': 'B', 'threshold': '1.00', ...}, ...]
+
+tests/test_t63_paper_versions.py:54: AssertionError
+______ test_a_to_e_never_admit_expanded_or_partial_version_rows[fields2] _______
+
+fields = {'model_definition_id': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"source_variant": "expanded", "paper_eligible": True},
+            {"source_variant": "legacy", "paper_eligible": False},
+            {"model_definition_id": "a" * 64},
+            {"model_definition": {"model_family": "synthetic-dc"}},
+        ],
+    )
+    def test_a_to_e_never_admit_expanded_or_partial_version_rows(fields):
+        rows, _ = paper_samples()
+        for row in rows:
+            row.update(fields, p2_ready=True)
+        ledger = advance_ledger(rows, {}, [], DECISION)
+>       assert not [row for row in ledger if row["record_type"] == "ticket"]
+E       AssertionError: assert not [{'record_type': 'ticket', 'record_id': '846c48f199fb5755dd9fc5e5a289b42b09923f5fc3913408e6daa9349e7a2c4c', 'account':...d': '10ebdba9a9784bd1e4f0ada6d404786e5e0231ddb874c9628c3d55260bdd64fa', 'account': 'B', 'threshold': '1.00', ...}, ...]
+
+tests/test_t63_paper_versions.py:54: AssertionError
+______ test_a_to_e_never_admit_expanded_or_partial_version_rows[fields3] _______
+
+fields = {'model_definition': {'model_family': 'synthetic-dc'}}
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"source_variant": "expanded", "paper_eligible": True},
+            {"source_variant": "legacy", "paper_eligible": False},
+            {"model_definition_id": "a" * 64},
+            {"model_definition": {"model_family": "synthetic-dc"}},
+        ],
+    )
+    def test_a_to_e_never_admit_expanded_or_partial_version_rows(fields):
+        rows, _ = paper_samples()
+        for row in rows:
+            row.update(fields, p2_ready=True)
+        ledger = advance_ledger(rows, {}, [], DECISION)
+>       assert not [row for row in ledger if row["record_type"] == "ticket"]
+E       AssertionError: assert not [{'record_type': 'ticket', 'record_id': '846c48f199fb5755dd9fc5e5a289b42b09923f5fc3913408e6daa9349e7a2c4c', 'account':...d': '10ebdba9a9784bd1e4f0ada6d404786e5e0231ddb874c9628c3d55260bdd64fa', 'account': 'B', 'threshold': '1.00', ...}, ...]
+
+tests/test_t63_paper_versions.py:54: AssertionError
+_ test_old_seven_new_tickets_preserve_definition_and_existing_tickets_stay_immutable _
+
+    def test_old_seven_new_tickets_preserve_definition_and_existing_tickets_stay_immutable():
+        rows, _ = paper_samples()
+        for row in rows:
+            row.update(version(row), p2_ready=True)
+        ledger = advance_ledger(rows, {}, [], DECISION)
+        tickets = [row for row in ledger if row["record_type"] == "ticket"]
+        assert {row["account"] for row in tickets} == set("ABCDE")
+>       assert all(leg["model_definition_id"] == "a" * 64 for row in tickets for leg in row["legs"])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_t63_paper_versions.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x7f2bafb5e590>
+
+>   assert all(leg["model_definition_id"] == "a" * 64 for row in tickets for leg in row["legs"])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'model_definition_id'
+
+tests/test_t63_paper_versions.py:65: KeyError
+__ test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[expanded] ___
+
+damage = 'expanded'
+
+    @pytest.mark.parametrize("damage", ["expanded", "ineligible", "partial", "model", "batch"])
+    def test_f_builder_rejects_candidates_even_with_a_forged_ready_flag(damage):
+        sample = json.loads((FIX / "input.json").read_bytes())
+        version_batch(sample["batch"])
+        for row in sample["batch"]["predictions"]:
+            row["p2_ready"] = True
+            if damage == "expanded":
+                row["source_variant"] = "expanded"
+            elif damage == "ineligible":
+                row["paper_eligible"] = False
+            elif damage == "partial":
+                del row["paper_eligible"]
+        if damage == "model":
+            for model in sample["batch"]["models"]:
+                model["source_variant"] = "expanded"
+        if damage == "batch":
+            sample["batch"]["source_variant"] = "expanded"
+        report = build(**sample)
+>       assert report["groups"] == []
+E       AssertionError: assert [{'group_id':...passed', ...}] == []
+E         
+E         Left contains 3 more items, first extra item: {'group_id': 'a88a91565aff49ffb5ccf8d75ba379beb12a8abbd0b14240453042ddb982c039', 'batch_id': 'offline-t45', 'rule': 'single_plus_double_v2', 'board': 'historical_gate_passed', ...}
+E         Use -v to get more diff
+
+tests/test_t63_paper_versions.py:90: AssertionError
+_ test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[ineligible] __
+
+damage = 'ineligible'
+
+    @pytest.mark.parametrize("damage", ["expanded", "ineligible", "partial", "model", "batch"])
+    def test_f_builder_rejects_candidates_even_with_a_forged_ready_flag(damage):
+        sample = json.loads((FIX / "input.json").read_bytes())
+        version_batch(sample["batch"])
+        for row in sample["batch"]["predictions"]:
+            row["p2_ready"] = True
+            if damage == "expanded":
+                row["source_variant"] = "expanded"
+            elif damage == "ineligible":
+                row["paper_eligible"] = False
+            elif damage == "partial":
+                del row["paper_eligible"]
+        if damage == "model":
+            for model in sample["batch"]["models"]:
+                model["source_variant"] = "expanded"
+        if damage == "batch":
+            sample["batch"]["source_variant"] = "expanded"
+        report = build(**sample)
+>       assert report["groups"] == []
+E       AssertionError: assert [{'group_id':...passed', ...}] == []
+E         
+E         Left contains 3 more items, first extra item: {'group_id': 'a88a91565aff49ffb5ccf8d75ba379beb12a8abbd0b14240453042ddb982c039', 'batch_id': 'offline-t45', 'rule': 'single_plus_double_v2', 'board': 'historical_gate_passed', ...}
+E         Use -v to get more diff
+
+tests/test_t63_paper_versions.py:90: AssertionError
+___ test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[partial] ___
+
+damage = 'partial'
+
+    @pytest.mark.parametrize("damage", ["expanded", "ineligible", "partial", "model", "batch"])
+    def test_f_builder_rejects_candidates_even_with_a_forged_ready_flag(damage):
+        sample = json.loads((FIX / "input.json").read_bytes())
+        version_batch(sample["batch"])
+        for row in sample["batch"]["predictions"]:
+            row["p2_ready"] = True
+            if damage == "expanded":
+                row["source_variant"] = "expanded"
+            elif damage == "ineligible":
+                row["paper_eligible"] = False
+            elif damage == "partial":
+                del row["paper_eligible"]
+        if damage == "model":
+            for model in sample["batch"]["models"]:
+                model["source_variant"] = "expanded"
+        if damage == "batch":
+            sample["batch"]["source_variant"] = "expanded"
+        report = build(**sample)
+>       assert report["groups"] == []
+E       AssertionError: assert [{'group_id':...passed', ...}] == []
+E         
+E         Left contains 3 more items, first extra item: {'group_id': 'a88a91565aff49ffb5ccf8d75ba379beb12a8abbd0b14240453042ddb982c039', 'batch_id': 'offline-t45', 'rule': 'single_plus_double_v2', 'board': 'historical_gate_passed', ...}
+E         Use -v to get more diff
+
+tests/test_t63_paper_versions.py:90: AssertionError
+____ test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[model] ____
+
+damage = 'model'
+
+    @pytest.mark.parametrize("damage", ["expanded", "ineligible", "partial", "model", "batch"])
+    def test_f_builder_rejects_candidates_even_with_a_forged_ready_flag(damage):
+        sample = json.loads((FIX / "input.json").read_bytes())
+        version_batch(sample["batch"])
+        for row in sample["batch"]["predictions"]:
+            row["p2_ready"] = True
+            if damage == "expanded":
+                row["source_variant"] = "expanded"
+            elif damage == "ineligible":
+                row["paper_eligible"] = False
+            elif damage == "partial":
+                del row["paper_eligible"]
+        if damage == "model":
+            for model in sample["batch"]["models"]:
+                model["source_variant"] = "expanded"
+        if damage == "batch":
+            sample["batch"]["source_variant"] = "expanded"
+        report = build(**sample)
+>       assert report["groups"] == []
+E       AssertionError: assert [{'group_id':...passed', ...}] == []
+E         
+E         Left contains 3 more items, first extra item: {'group_id': 'a88a91565aff49ffb5ccf8d75ba379beb12a8abbd0b14240453042ddb982c039', 'batch_id': 'offline-t45', 'rule': 'single_plus_double_v2', 'board': 'historical_gate_passed', ...}
+E         Use -v to get more diff
+
+tests/test_t63_paper_versions.py:90: AssertionError
+____ test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[batch] ____
+
+damage = 'batch'
+
+    @pytest.mark.parametrize("damage", ["expanded", "ineligible", "partial", "model", "batch"])
+    def test_f_builder_rejects_candidates_even_with_a_forged_ready_flag(damage):
+        sample = json.loads((FIX / "input.json").read_bytes())
+        version_batch(sample["batch"])
+        for row in sample["batch"]["predictions"]:
+            row["p2_ready"] = True
+            if damage == "expanded":
+                row["source_variant"] = "expanded"
+            elif damage == "ineligible":
+                row["paper_eligible"] = False
+            elif damage == "partial":
+                del row["paper_eligible"]
+        if damage == "model":
+            for model in sample["batch"]["models"]:
+                model["source_variant"] = "expanded"
+        if damage == "batch":
+            sample["batch"]["source_variant"] = "expanded"
+        report = build(**sample)
+>       assert report["groups"] == []
+E       AssertionError: assert [{'group_id':...passed', ...}] == []
+E         
+E         Left contains 3 more items, first extra item: {'group_id': 'a88a91565aff49ffb5ccf8d75ba379beb12a8abbd0b14240453042ddb982c039', 'batch_id': 'offline-t45', 'rule': 'single_plus_double_v2', 'board': 'historical_gate_passed', ...}
+E         Use -v to get more diff
+
+tests/test_t63_paper_versions.py:90: AssertionError
+_____ test_f_legacy_version_keeps_original_groups_and_definition_receipts ______
+
+    def test_f_legacy_version_keeps_original_groups_and_definition_receipts():
+        sample = json.loads((FIX / "input.json").read_bytes())
+        original = build(**sample)
+        version_batch(sample["batch"])
+        report = build(**sample)
+        assert [row["group_id"] for row in report["groups"]] == [row["group_id"] for row in original["groups"]]
+>       assert all(
+            row[side]["model_definition_id"] == "a" * 64
+            for row in report["groups"]
+            for side in ("single", "double")
+        )
+
+tests/test_t63_paper_versions.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x7f2bafb76dd0>
+
+    assert all(
+>       row[side]["model_definition_id"] == "a" * 64
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        for row in report["groups"]
+        for side in ("single", "double")
+    )
+E   KeyError: 'model_definition_id'
+
+tests/test_t63_paper_versions.py:101: KeyError
+_ test_f_ledger_rejects_forged_candidate_documents_at_every_boundary[document] _
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+where = 'document'
+
+    @pytest.mark.parametrize("where", ["document", "group", "single", "double"])
+    def test_f_ledger_rejects_forged_candidate_documents_at_every_boundary(document, where):
+        target = document if where == "document" else document["groups"][0]
+        if where in {"single", "double"}:
+            target = target[where]
+        target.update(source_variant="expanded", paper_eligible=True)
+        ledger = advance_f([document], {}, [], BEFORE)
+>       assert not [row for row in ledger if row["record_type"] in {"ticket", "group"}]
+E       AssertionError: assert not [{'account': 'F', 'rule': 'single_plus_double_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e002...e_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e0026d7fc0db6f99a31e09e127768512618743af0', ...}]
+
+tests/test_t63_paper_versions.py:114: AssertionError
+__ test_f_ledger_rejects_forged_candidate_documents_at_every_boundary[group] ___
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+where = 'group'
+
+    @pytest.mark.parametrize("where", ["document", "group", "single", "double"])
+    def test_f_ledger_rejects_forged_candidate_documents_at_every_boundary(document, where):
+        target = document if where == "document" else document["groups"][0]
+        if where in {"single", "double"}:
+            target = target[where]
+        target.update(source_variant="expanded", paper_eligible=True)
+        ledger = advance_f([document], {}, [], BEFORE)
+>       assert not [row for row in ledger if row["record_type"] in {"ticket", "group"}]
+E       AssertionError: assert not [{'account': 'F', 'rule': 'single_plus_double_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e002...e_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e0026d7fc0db6f99a31e09e127768512618743af0', ...}]
+
+tests/test_t63_paper_versions.py:114: AssertionError
+__ test_f_ledger_rejects_forged_candidate_documents_at_every_boundary[single] __
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+where = 'single'
+
+    @pytest.mark.parametrize("where", ["document", "group", "single", "double"])
+    def test_f_ledger_rejects_forged_candidate_documents_at_every_boundary(document, where):
+        target = document if where == "document" else document["groups"][0]
+        if where in {"single", "double"}:
+            target = target[where]
+        target.update(source_variant="expanded", paper_eligible=True)
+        ledger = advance_f([document], {}, [], BEFORE)
+>       assert not [row for row in ledger if row["record_type"] in {"ticket", "group"}]
+E       AssertionError: assert not [{'account': 'F', 'rule': 'single_plus_double_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e002...e_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e0026d7fc0db6f99a31e09e127768512618743af0', ...}]
+
+tests/test_t63_paper_versions.py:114: AssertionError
+__ test_f_ledger_rejects_forged_candidate_documents_at_every_boundary[double] __
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+where = 'double'
+
+    @pytest.mark.parametrize("where", ["document", "group", "single", "double"])
+    def test_f_ledger_rejects_forged_candidate_documents_at_every_boundary(document, where):
+        target = document if where == "document" else document["groups"][0]
+        if where in {"single", "double"}:
+            target = target[where]
+        target.update(source_variant="expanded", paper_eligible=True)
+        ledger = advance_f([document], {}, [], BEFORE)
+>       assert not [row for row in ledger if row["record_type"] in {"ticket", "group"}]
+E       AssertionError: assert not [{'account': 'F', 'rule': 'single_plus_double_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e002...e_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e0026d7fc0db6f99a31e09e127768512618743af0', ...}]
+
+tests/test_t63_paper_versions.py:114: AssertionError
+________ test_f_ledger_cannot_treat_missing_new_qualification_as_legacy ________
+
+document = {'schema_version': 2, 'rule': 'single_plus_double_v2', 'rule_effective_utc': '2026-11-06T02:01:00+00:00', 'batch_id': 'offline-t45', ...}
+
+    def test_f_ledger_cannot_treat_missing_new_qualification_as_legacy(document):
+        document["groups"][0]["double"]["model_definition_id"] = "a" * 64
+        ledger = advance_f([document], {}, [], BEFORE)
+>       assert not [row for row in ledger if row["record_type"] in {"ticket", "group"}]
+E       AssertionError: assert not [{'account': 'F', 'rule': 'single_plus_double_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e002...e_v2', 'batch_id': 'offline-t45', 'group_id': '14b59c28311532122297571e0026d7fc0db6f99a31e09e127768512618743af0', ...}]
+
+tests/test_t63_paper_versions.py:120: AssertionError
+_____ test_sfc_never_uses_expanded_probabilities_even_if_marked_ready[row] _____
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-330/test_sfc_never_uses_expanded_p0/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2bad7f5250>
+where = 'row'
+
+    @pytest.mark.parametrize("where", ["row", "model", "batch"])
+    def test_sfc_never_uses_expanded_probabilities_even_if_marked_ready(complete_issue, monkeypatch, where):
+        from zucai.report import sfc
+    
+        # Exercise the SFC boundary independently of the shared report validator.
+        monkeypatch.setattr(sfc, "_validate_batch", lambda batch: None)
+        engine, issue, batch = complete_issue
+        for row in batch["predictions"]:
+            row.update(version(row), p2_ready=True)
+        for model in batch["models"]:
+            model.update(version(model))
+        first = batch["predictions"][0]
+        if where == "row":
+            first["source_variant"] = "expanded"
+        elif where == "model":
+            for model in batch["models"]:
+                if model["model_version"] == first["model_version"]:
+                    model["source_variant"] = "expanded"
+        else:
+            batch["source_variant"] = "expanded"
+        report = build_sfc(engine, issue, batch)
+        row = next(row for row in report["rows"] if row["match_id"] == first["match_id"])
+>       assert row["probabilities"] is None
+E       AssertionError: assert {'h': 0.5, 'd': 0.3, 'a': 0.2} is None
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:145: AssertionError
+____ test_sfc_never_uses_expanded_probabilities_even_if_marked_ready[model] ____
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-330/test_sfc_never_uses_expanded_p1/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2bad0a1130>
+where = 'model'
+
+    @pytest.mark.parametrize("where", ["row", "model", "batch"])
+    def test_sfc_never_uses_expanded_probabilities_even_if_marked_ready(complete_issue, monkeypatch, where):
+        from zucai.report import sfc
+    
+        # Exercise the SFC boundary independently of the shared report validator.
+        monkeypatch.setattr(sfc, "_validate_batch", lambda batch: None)
+        engine, issue, batch = complete_issue
+        for row in batch["predictions"]:
+            row.update(version(row), p2_ready=True)
+        for model in batch["models"]:
+            model.update(version(model))
+        first = batch["predictions"][0]
+        if where == "row":
+            first["source_variant"] = "expanded"
+        elif where == "model":
+            for model in batch["models"]:
+                if model["model_version"] == first["model_version"]:
+                    model["source_variant"] = "expanded"
+        else:
+            batch["source_variant"] = "expanded"
+        report = build_sfc(engine, issue, batch)
+        row = next(row for row in report["rows"] if row["match_id"] == first["match_id"])
+>       assert row["probabilities"] is None
+E       AssertionError: assert {'h': 0.5, 'd': 0.3, 'a': 0.2} is None
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:145: AssertionError
+____ test_sfc_never_uses_expanded_probabilities_even_if_marked_ready[batch] ____
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-330/test_sfc_never_uses_expanded_p2/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2bacefe9c0>
+where = 'batch'
+
+    @pytest.mark.parametrize("where", ["row", "model", "batch"])
+    def test_sfc_never_uses_expanded_probabilities_even_if_marked_ready(complete_issue, monkeypatch, where):
+        from zucai.report import sfc
+    
+        # Exercise the SFC boundary independently of the shared report validator.
+        monkeypatch.setattr(sfc, "_validate_batch", lambda batch: None)
+        engine, issue, batch = complete_issue
+        for row in batch["predictions"]:
+            row.update(version(row), p2_ready=True)
+        for model in batch["models"]:
+            model.update(version(model))
+        first = batch["predictions"][0]
+        if where == "row":
+            first["source_variant"] = "expanded"
+        elif where == "model":
+            for model in batch["models"]:
+                if model["model_version"] == first["model_version"]:
+                    model["source_variant"] = "expanded"
+        else:
+            batch["source_variant"] = "expanded"
+        report = build_sfc(engine, issue, batch)
+        row = next(row for row in report["rows"] if row["match_id"] == first["match_id"])
+>       assert row["probabilities"] is None
+E       AssertionError: assert {'h': 0.5, 'd': 0.3, 'a': 0.2} is None
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:145: AssertionError
+_______ test_sfc_legacy_probabilities_remain_equal_and_carry_definition ________
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-330/test_sfc_legacy_probabilities_0/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f2bacf473b0>
+
+    def test_sfc_legacy_probabilities_remain_equal_and_carry_definition(complete_issue, monkeypatch):
+        from zucai.report import sfc
+    
+        monkeypatch.setattr(sfc, "_validate_batch", lambda batch: None)
+        engine, issue, batch = complete_issue
+        original = build_sfc(engine, issue, batch)
+        for row in batch["predictions"]:
+            row.update(version(row))
+        for model in batch["models"]:
+            model.update(version(model))
+        report = build_sfc(engine, issue, batch)
+        assert report["combo"] == original["combo"]
+        assert [row["probabilities"] for row in report["rows"]] == [row["probabilities"] for row in original["rows"]]
+>       assert all(row["model_definition_id"] == "a" * 64 for row in report["rows"])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+.0 = <list_iterator object at 0x7f2bad0a0b80>
+
+>   assert all(row["model_definition_id"] == "a" * 64 for row in report["rows"])
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'model_definition_id'
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:163: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_t63_paper_versions.py::test_a_to_e_never_admit_expanded_or_partial_version_rows[fields0]
+FAILED tests/test_t63_paper_versions.py::test_a_to_e_never_admit_expanded_or_partial_version_rows[fields1]
+FAILED tests/test_t63_paper_versions.py::test_a_to_e_never_admit_expanded_or_partial_version_rows[fields2]
+FAILED tests/test_t63_paper_versions.py::test_a_to_e_never_admit_expanded_or_partial_version_rows[fields3]
+FAILED tests/test_t63_paper_versions.py::test_old_seven_new_tickets_preserve_definition_and_existing_tickets_stay_immutable
+FAILED tests/test_t63_paper_versions.py::test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[expanded]
+FAILED tests/test_t63_paper_versions.py::test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[ineligible]
+FAILED tests/test_t63_paper_versions.py::test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[partial]
+FAILED tests/test_t63_paper_versions.py::test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[model]
+FAILED tests/test_t63_paper_versions.py::test_f_builder_rejects_candidates_even_with_a_forged_ready_flag[batch]
+FAILED tests/test_t63_paper_versions.py::test_f_legacy_version_keeps_original_groups_and_definition_receipts
+FAILED tests/test_t63_paper_versions.py::test_f_ledger_rejects_forged_candidate_documents_at_every_boundary[document]
+FAILED tests/test_t63_paper_versions.py::test_f_ledger_rejects_forged_candidate_documents_at_every_boundary[group]
+FAILED tests/test_t63_paper_versions.py::test_f_ledger_rejects_forged_candidate_documents_at_every_boundary[single]
+FAILED tests/test_t63_paper_versions.py::test_f_ledger_rejects_forged_candidate_documents_at_every_boundary[double]
+FAILED tests/test_t63_paper_versions.py::test_f_ledger_cannot_treat_missing_new_qualification_as_legacy
+FAILED tests/test_t63_paper_versions.py::test_sfc_never_uses_expanded_probabilities_even_if_marked_ready[row]
+FAILED tests/test_t63_paper_versions.py::test_sfc_never_uses_expanded_probabilities_even_if_marked_ready[model]
+FAILED tests/test_t63_paper_versions.py::test_sfc_never_uses_expanded_probabilities_even_if_marked_ready[batch]
+FAILED tests/test_t63_paper_versions.py::test_sfc_legacy_probabilities_remain_equal_and_carry_definition

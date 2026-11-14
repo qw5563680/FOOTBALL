@@ -1,0 +1,134 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_run_restores_trains_and_freezes_two_days_without_mutating_inputs[schedule-] _
+
+scheduled_archive = (PosixPath('/tmp/pytest-of-agent/pytest-346/test_run_restores_trains_and_f0/archive'), PosixPath('/tmp/pytest-of-agent/pytest-346/test_run_restores_trains_and_f0/params.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-346/test_run_restores_trains_and_f0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa47b0e75c0>
+event = 'schedule', operation = ''
+
+    @pytest.mark.parametrize("event,operation", [("schedule", ""), ("workflow_dispatch", "daily")])
+    def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
+        scheduled_archive, tmp_path, monkeypatch, event, operation
+    ):
+        from zucai import cloud_predict
+        from zucai.forecast_archive import verify_forecasts
+    
+        archive, params = scheduled_archive
+        before = {p: p.read_bytes() for p in archive.rglob("*") if p.is_file()}
+        params_before = params.read_bytes()
+        summary = tmp_path / "summary.md"
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+        monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+        monkeypatch.setenv("ZUCAI_OPERATION", operation)
+        monkeypatch.setattr(cloud_predict, "_now", lambda: NOW)
+        result = cloud_predict.run(archive, params, "offline-1", sporttery_status="skipped")
+        assert result["event_name"] == event
+        assert result["operation"] == (operation or None)
+        assert result["status"] == "partial"
+        assert result["leagues"]["芬超"]["status"] == "failed"
+        good = result["leagues"]["英超"]
+        assert good["training_rows"] == 84
+        assert good["parameter_source"] == "params.json"
+        assert good["p2_label"] == "可用（旧规，考核中）"
+        model = DixonColes.load(archive / good["model_path"])
+        assert model.sources == ["fd", "jc"]
+>       candidate = result["source_versions"]["leagues"]["英超"]
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'source_versions'
+
+tests/test_cloud_predict.py:103: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    zucai.cloud_predict:cloud_predict.py:212 芬超 训练失败，继续其他联赛
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 186, in run
+    training = train(
+               ^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 101, in train
+    games, prices, closing, digest = load_corpus(
+                                     ^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 56, in load_corpus
+    games = read_history(
+            ^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/backtest.py", line 90, in read_history
+    raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
+zucai.predict.dixon_coles.InsufficientHistory: 没有已完赛的赛果。可先运行公开样例
+ERROR    zucai.experimental_archive:experimental_archive.py:73 实验数据恢复或计算失败；正式预测已保留
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/experimental_archive.py", line 57, in freeze_parallel
+    release = release_factory()
+              ^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/stats_release.py", line 90, in __init__
+    raise ValueError("Release repository 须为 github.com owner/repo")
+ValueError: Release repository 须为 github.com owner/repo
+_ test_run_restores_trains_and_freezes_two_days_without_mutating_inputs[workflow_dispatch-daily] _
+
+scheduled_archive = (PosixPath('/tmp/pytest-of-agent/pytest-346/test_run_restores_trains_and_f1/archive'), PosixPath('/tmp/pytest-of-agent/pytest-346/test_run_restores_trains_and_f1/params.json'))
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-346/test_run_restores_trains_and_f1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fa47aeb5940>
+event = 'workflow_dispatch', operation = 'daily'
+
+    @pytest.mark.parametrize("event,operation", [("schedule", ""), ("workflow_dispatch", "daily")])
+    def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
+        scheduled_archive, tmp_path, monkeypatch, event, operation
+    ):
+        from zucai import cloud_predict
+        from zucai.forecast_archive import verify_forecasts
+    
+        archive, params = scheduled_archive
+        before = {p: p.read_bytes() for p in archive.rglob("*") if p.is_file()}
+        params_before = params.read_bytes()
+        summary = tmp_path / "summary.md"
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+        monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+        monkeypatch.setenv("ZUCAI_OPERATION", operation)
+        monkeypatch.setattr(cloud_predict, "_now", lambda: NOW)
+        result = cloud_predict.run(archive, params, "offline-1", sporttery_status="skipped")
+        assert result["event_name"] == event
+        assert result["operation"] == (operation or None)
+        assert result["status"] == "partial"
+        assert result["leagues"]["芬超"]["status"] == "failed"
+        good = result["leagues"]["英超"]
+        assert good["training_rows"] == 84
+        assert good["parameter_source"] == "params.json"
+        assert good["p2_label"] == "可用（旧规，考核中）"
+        model = DixonColes.load(archive / good["model_path"])
+        assert model.sources == ["fd", "jc"]
+>       candidate = result["source_versions"]["leagues"]["英超"]
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'source_versions'
+
+tests/test_cloud_predict.py:103: KeyError
+------------------------------ Captured log call -------------------------------
+ERROR    zucai.cloud_predict:cloud_predict.py:212 芬超 训练失败，继续其他联赛
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/cloud_predict.py", line 186, in run
+    training = train(
+               ^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 101, in train
+    games, prices, closing, digest = load_corpus(
+                                     ^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/command.py", line 56, in load_corpus
+    games = read_history(
+            ^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/predict/backtest.py", line 90, in read_history
+    raise InsufficientHistory("没有已完赛的赛果。可先运行公开样例")
+zucai.predict.dixon_coles.InsufficientHistory: 没有已完赛的赛果。可先运行公开样例
+ERROR    zucai.experimental_archive:experimental_archive.py:73 实验数据恢复或计算失败；正式预测已保留
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/experimental_archive.py", line 57, in freeze_parallel
+    release = release_factory()
+              ^^^^^^^^^^^^^^^^^
+  File "/workspace/work/football-t63/src/zucai/stats_release.py", line 90, in __init__
+    raise ValueError("Release repository 须为 github.com owner/repo")
+ValueError: Release repository 须为 github.com owner/repo
+=============================== warnings summary ===============================
+tests/test_cloud_predict.py: 288 warnings
+  /workspace/work/t48-venv/lib/python3.12/site-packages/penaltyblog/models/dixon_coles.py:257: DeprecationWarning: Setting the shape on a NumPy array has been deprecated in NumPy 2.5.
+  As an alternative, you can create a new view using np.reshape (with copy=False if needed).
+    score_matrix.shape = (max_goals, max_goals)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_cloud_predict.py::test_run_restores_trains_and_freezes_two_days_without_mutating_inputs[schedule-]
+FAILED tests/test_cloud_predict.py::test_run_restores_trains_and_freezes_two_days_without_mutating_inputs[workflow_dispatch-daily]

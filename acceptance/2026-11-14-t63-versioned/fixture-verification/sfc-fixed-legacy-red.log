@@ -1,0 +1,144 @@
+.......FFFF                                                              [100%]
+=================================== FAILURES ===================================
+__ test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods[manual_same] ___
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-392/test_sfc_fixed_legacy_rejects_0/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+change = 'manual_same'
+
+    @pytest.mark.parametrize("change", ["manual_same", "manual_changed", "prior_changed", "unqualified"])
+    def test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods(complete_issue, change):
+        engine, issue, batch = _source_version_issue(complete_issue, "英超", ["fd", "jc"], ready=True)
+        original = batch["models"][0]["model_definition"]
+        policy = dict(
+            sources=original["training_sources"],
+            model_family=original["model_family"],
+            fitting_method=original["fitting_method"],
+            prior_method=original["prior_method"],
+            calibration_method=original["calibration_method"],
+            **original["selection_protocol"],
+        )
+        if change.startswith("manual_"):
+            policy.update(selection_basis="explicit_manual_half_life", selection_method="manual_override")
+            batch["models"][0]["parameter_provenance"] = dict(
+                source="cli", half_life_days=365 if change == "manual_same" else 90
+            )
+        elif change == "prior_changed":
+            policy["prior_method"] = "league_average"
+        definition = entry_definition_metadata("英超", policy)
+        assert (definition["model_definition_id"] == legacy_definition_metadata("英超")["model_definition_id"]) is (change == "unqualified")
+        for value in [*batch["models"], *batch["predictions"]]:
+            value.update(copy.deepcopy(definition), p2_ready=False, p2_label="实验", paper_eligible=False)
+        report = build_sfc(engine, issue, batch)
+>       assert all(row["probabilities"] is None for row in report["rows"])
+E       assert False
+E        +  where False = all(<generator object test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods.<locals>.<genexpr> at 0x7f0e78238930>)
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:366: AssertionError
+_ test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods[manual_changed] _
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-392/test_sfc_fixed_legacy_rejects_1/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+change = 'manual_changed'
+
+    @pytest.mark.parametrize("change", ["manual_same", "manual_changed", "prior_changed", "unqualified"])
+    def test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods(complete_issue, change):
+        engine, issue, batch = _source_version_issue(complete_issue, "英超", ["fd", "jc"], ready=True)
+        original = batch["models"][0]["model_definition"]
+        policy = dict(
+            sources=original["training_sources"],
+            model_family=original["model_family"],
+            fitting_method=original["fitting_method"],
+            prior_method=original["prior_method"],
+            calibration_method=original["calibration_method"],
+            **original["selection_protocol"],
+        )
+        if change.startswith("manual_"):
+            policy.update(selection_basis="explicit_manual_half_life", selection_method="manual_override")
+            batch["models"][0]["parameter_provenance"] = dict(
+                source="cli", half_life_days=365 if change == "manual_same" else 90
+            )
+        elif change == "prior_changed":
+            policy["prior_method"] = "league_average"
+        definition = entry_definition_metadata("英超", policy)
+        assert (definition["model_definition_id"] == legacy_definition_metadata("英超")["model_definition_id"]) is (change == "unqualified")
+        for value in [*batch["models"], *batch["predictions"]]:
+            value.update(copy.deepcopy(definition), p2_ready=False, p2_label="实验", paper_eligible=False)
+        report = build_sfc(engine, issue, batch)
+>       assert all(row["probabilities"] is None for row in report["rows"])
+E       assert False
+E        +  where False = all(<generator object test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods.<locals>.<genexpr> at 0x7f0e781d4ba0>)
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:366: AssertionError
+_ test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods[prior_changed] __
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-392/test_sfc_fixed_legacy_rejects_2/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+change = 'prior_changed'
+
+    @pytest.mark.parametrize("change", ["manual_same", "manual_changed", "prior_changed", "unqualified"])
+    def test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods(complete_issue, change):
+        engine, issue, batch = _source_version_issue(complete_issue, "英超", ["fd", "jc"], ready=True)
+        original = batch["models"][0]["model_definition"]
+        policy = dict(
+            sources=original["training_sources"],
+            model_family=original["model_family"],
+            fitting_method=original["fitting_method"],
+            prior_method=original["prior_method"],
+            calibration_method=original["calibration_method"],
+            **original["selection_protocol"],
+        )
+        if change.startswith("manual_"):
+            policy.update(selection_basis="explicit_manual_half_life", selection_method="manual_override")
+            batch["models"][0]["parameter_provenance"] = dict(
+                source="cli", half_life_days=365 if change == "manual_same" else 90
+            )
+        elif change == "prior_changed":
+            policy["prior_method"] = "league_average"
+        definition = entry_definition_metadata("英超", policy)
+        assert (definition["model_definition_id"] == legacy_definition_metadata("英超")["model_definition_id"]) is (change == "unqualified")
+        for value in [*batch["models"], *batch["predictions"]]:
+            value.update(copy.deepcopy(definition), p2_ready=False, p2_label="实验", paper_eligible=False)
+        report = build_sfc(engine, issue, batch)
+>       assert all(row["probabilities"] is None for row in report["rows"])
+E       assert False
+E        +  where False = all(<generator object test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods.<locals>.<genexpr> at 0x7f0e7823a670>)
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:366: AssertionError
+__ test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods[unqualified] ___
+
+complete_issue = (Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-392/test_sfc_fixed_legacy_rejects_3/db), <zucai.models.SfcIssue...': 'synthetic-test-only', 'generated_utc': '2026-11-01T15:00:00+00:00', 'as_of_utc': '2026-11-01T15:00:00+00:00', ...})
+change = 'unqualified'
+
+    @pytest.mark.parametrize("change", ["manual_same", "manual_changed", "prior_changed", "unqualified"])
+    def test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods(complete_issue, change):
+        engine, issue, batch = _source_version_issue(complete_issue, "英超", ["fd", "jc"], ready=True)
+        original = batch["models"][0]["model_definition"]
+        policy = dict(
+            sources=original["training_sources"],
+            model_family=original["model_family"],
+            fitting_method=original["fitting_method"],
+            prior_method=original["prior_method"],
+            calibration_method=original["calibration_method"],
+            **original["selection_protocol"],
+        )
+        if change.startswith("manual_"):
+            policy.update(selection_basis="explicit_manual_half_life", selection_method="manual_override")
+            batch["models"][0]["parameter_provenance"] = dict(
+                source="cli", half_life_days=365 if change == "manual_same" else 90
+            )
+        elif change == "prior_changed":
+            policy["prior_method"] = "league_average"
+        definition = entry_definition_metadata("英超", policy)
+        assert (definition["model_definition_id"] == legacy_definition_metadata("英超")["model_definition_id"]) is (change == "unqualified")
+        for value in [*batch["models"], *batch["predictions"]]:
+            value.update(copy.deepcopy(definition), p2_ready=False, p2_label="实验", paper_eligible=False)
+        report = build_sfc(engine, issue, batch)
+>       assert all(row["probabilities"] is None for row in report["rows"])
+E       assert False
+E        +  where False = all(<generator object test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods.<locals>.<genexpr> at 0x7f0e73f15220>)
+
+/workspace/work/football-t63/tests/test_t63_paper_versions.py:366: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t63_paper_versions.py::test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods[manual_same]
+FAILED tests/test_t63_paper_versions.py::test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods[manual_changed]
+FAILED tests/test_t63_paper_versions.py::test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods[prior_changed]
+FAILED tests/test_t63_paper_versions.py::test_sfc_fixed_legacy_rejects_changed_or_unqualified_methods[unqualified]
+4 failed, 7 passed, 64 deselected in 1.65s

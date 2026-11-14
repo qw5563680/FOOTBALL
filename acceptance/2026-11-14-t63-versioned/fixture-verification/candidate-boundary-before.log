@@ -1,0 +1,174 @@
+.FFF                                                                     [100%]
+=================================== FAILURES ===================================
+_______ test_failure_after_fit_cannot_claim_or_reuse_candidate_artifact ________
+
+configuration = {'schema_version': 1, 'gate': {'complete_seasons': 2, 'min_evaluated': 500, 'min_closing_paired': 500, 'min_uniform_lo...icy': 'enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp', 'selection_season': '2526', ...}}}
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-367/test_failure_after_fit_cannot_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f97ef137fb0>
+
+    def test_failure_after_fit_cannot_claim_or_reuse_candidate_artifact(
+        configuration, tmp_path, monkeypatch
+    ):
+        database = tmp_path / "db"
+        database.write_bytes(b"synthetic read-only source")
+        metadata = entry_definition_metadata(
+            "英超", parallel.candidate_parameters(configuration)["leagues"]["英超"]
+        )
+    
+        def trainer(**kwargs):
+            assert kwargs["as_of"] == CUTOFF
+            kwargs["output"].write_bytes(b"synthetic model")
+            return {"training_rows": 42}
+    
+        monkeypatch.setattr(
+            parallel.DixonColes,
+            "load",
+            lambda path: SimpleNamespace(model_definition_id=metadata["model_definition_id"]),
+        )
+        write = parallel._write
+        failed = False
+    
+        def fail_training_report(path, value):
+            nonlocal failed
+            if path.name.endswith(".train.json") and not failed:
+                failed = True
+                raise OSError("synthetic disk-write failure")
+            write(path, value)
+    
+        monkeypatch.setattr(parallel, "_write", fail_training_report)
+        outcomes, fitted, _ = parallel.train_candidates(
+            database, tmp_path, "run", CUTOFF, configuration, trainer=trainer
+        )
+        outcome = outcomes["英超"]
+        assert outcome["status"] == "failed"
+        assert not fitted
+>       assert "model_path" not in outcome and "sha256" not in outcome
+E       AssertionError: assert ('model_path' not in {'model_definition_id': '11f8f4024ec9279885e13d706c3ff5b855aed3496c6050759ef7c288904c07e9', 'model_definition': {'leag...blog_slsqp', ...}, 'source_variant': 'expanded', 'training_json_path': 'models/run/英超.source-expanded.train.json', ...})
+
+tests/test_t63_source_version_training.py:73: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    zucai.source_version_training:source_version_training.py:95 英超 新来源候选失败，已冻结旧版本保持原样
+Traceback (most recent call last):
+  File "/workspace/work/football-t63/src/zucai/source_version_training.py", line 93, in train_candidates
+    _write(stage / train_path, training)
+  File "/workspace/work/football-t63/tests/test_t63_source_version_training.py", line 63, in fail_training_report
+    raise OSError("synthetic disk-write failure")
+OSError: synthetic disk-write failure
+_ test_candidate_keeps_main_sfc_scope_and_cutoff_without_late_probabilities[False] _
+
+configuration = {'schema_version': 1, 'gate': {'complete_seasons': 2, 'min_evaluated': 500, 'min_closing_paired': 500, 'min_uniform_lo...icy': 'enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp', 'selection_season': '2526', ...}}}
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-367/test_candidate_keeps_main_sfc_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f97ef16be30>
+late = False
+
+    @pytest.mark.parametrize("late", [False, True])
+    def test_candidate_keeps_main_sfc_scope_and_cutoff_without_late_probabilities(
+        configuration, tmp_path, monkeypatch, late
+    ):
+        params = tmp_path / "run/source-expanded.params.json"
+        params.parent.mkdir()
+        params.write_text(json.dumps(parallel.candidate_parameters(configuration)))
+        metadata = entry_definition_metadata(
+            "英超", parallel.candidate_parameters(configuration)["leagues"]["英超"]
+        )
+        kickoff = CUTOFF + timedelta(hours=2)
+        target = {
+            "match_id": "jc:synthetic-sfc-only",
+            "league": "英超",
+            "kickoff_utc": kickoff.isoformat(),
+            "sfc_only": True,
+        }
+        primary = {
+            "batch_id": "same-batch",
+            "as_of_utc": CUTOFF.isoformat(),
+            "input": {"kickoff_date_beijing": "2026-11-03", "scope": "sfc:synthetic"},
+            "predictions": [target],
+        }
+    
+        def predict(session, **kwargs):
+            assert kwargs["as_of"] == CUTOFF
+            assert kwargs["match_ids"] == [target["match_id"]]
+            return {
+                "as_of_utc": CUTOFF.isoformat(),
+                "input": {},
+                "predictions": [{
+                    **{k: v for k, v in target.items() if k != "sfc_only"},
+                    "status": "predicted",
+                    "model_probabilities": {"h": 0.5, "d": 0.3, "a": 0.2},
+                }],
+            }
+    
+        monkeypatch.setattr(parallel, "predict_batch", predict)
+        outcomes = {"英超": {**metadata, "status": "trained", "sha256": "a" * 64, "predicted": 0}}
+        generated = kickoff if late else CUTOFF + timedelta(minutes=1)
+        result = parallel.predict_candidates(
+            None, primary=primary, outcomes=outcomes, fitted={}, params_path=params,
+            clock=lambda: generated,
+        )
+        row = result["predictions"][0]
+>       assert result["input"]["scope"] == primary["input"]["scope"]
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'scope'
+
+tests/test_t63_source_version_training.py:123: KeyError
+_ test_candidate_keeps_main_sfc_scope_and_cutoff_without_late_probabilities[True] _
+
+configuration = {'schema_version': 1, 'gate': {'complete_seasons': 2, 'min_evaluated': 500, 'min_closing_paired': 500, 'min_uniform_lo...icy': 'enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp', 'selection_season': '2526', ...}}}
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-367/test_candidate_keeps_main_sfc_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f97ef16bad0>
+late = True
+
+    @pytest.mark.parametrize("late", [False, True])
+    def test_candidate_keeps_main_sfc_scope_and_cutoff_without_late_probabilities(
+        configuration, tmp_path, monkeypatch, late
+    ):
+        params = tmp_path / "run/source-expanded.params.json"
+        params.parent.mkdir()
+        params.write_text(json.dumps(parallel.candidate_parameters(configuration)))
+        metadata = entry_definition_metadata(
+            "英超", parallel.candidate_parameters(configuration)["leagues"]["英超"]
+        )
+        kickoff = CUTOFF + timedelta(hours=2)
+        target = {
+            "match_id": "jc:synthetic-sfc-only",
+            "league": "英超",
+            "kickoff_utc": kickoff.isoformat(),
+            "sfc_only": True,
+        }
+        primary = {
+            "batch_id": "same-batch",
+            "as_of_utc": CUTOFF.isoformat(),
+            "input": {"kickoff_date_beijing": "2026-11-03", "scope": "sfc:synthetic"},
+            "predictions": [target],
+        }
+    
+        def predict(session, **kwargs):
+            assert kwargs["as_of"] == CUTOFF
+            assert kwargs["match_ids"] == [target["match_id"]]
+            return {
+                "as_of_utc": CUTOFF.isoformat(),
+                "input": {},
+                "predictions": [{
+                    **{k: v for k, v in target.items() if k != "sfc_only"},
+                    "status": "predicted",
+                    "model_probabilities": {"h": 0.5, "d": 0.3, "a": 0.2},
+                }],
+            }
+    
+        monkeypatch.setattr(parallel, "predict_batch", predict)
+        outcomes = {"英超": {**metadata, "status": "trained", "sha256": "a" * 64, "predicted": 0}}
+        generated = kickoff if late else CUTOFF + timedelta(minutes=1)
+        result = parallel.predict_candidates(
+            None, primary=primary, outcomes=outcomes, fitted={}, params_path=params,
+            clock=lambda: generated,
+        )
+        row = result["predictions"][0]
+>       assert result["input"]["scope"] == primary["input"]["scope"]
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'scope'
+
+tests/test_t63_source_version_training.py:123: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_t63_source_version_training.py::test_failure_after_fit_cannot_claim_or_reuse_candidate_artifact
+FAILED tests/test_t63_source_version_training.py::test_candidate_keeps_main_sfc_scope_and_cutoff_without_late_probabilities[False]
+FAILED tests/test_t63_source_version_training.py::test_candidate_keeps_main_sfc_scope_and_cutoff_without_late_probabilities[True]
