@@ -27,6 +27,55 @@ ACCOUNTS = {
     "E": "三串一",
 }
 INITIAL = 10000
+PAPER_VERSION_FIELDS = (
+    "model_definition_id",
+    "model_definition",
+    "source_variant",
+    "paper_eligible",
+)
+
+
+def paper_version_allowed(row, *, required=False):
+    """Old freezes remain compatible; any new marker requires complete qualification."""
+    if "model_definition_schema" in row:
+        if type(row["model_definition_schema"]) is not int or row["model_definition_schema"] != 1:
+            return False
+        required = True
+    if not required and not any(key in row for key in PAPER_VERSION_FIELDS):
+        return True
+    return (
+        all(key in row for key in PAPER_VERSION_FIELDS)
+        and isinstance(row.get("model_definition_id"), str)
+        and bool(row["model_definition_id"].strip())
+        and isinstance(row.get("model_definition"), dict)
+        and bool(row["model_definition"])
+        and row.get("source_variant") in {"legacy", "current"}
+        and row.get("paper_eligible") is True
+    )
+
+
+def paper_context_allowed(context):
+    """A whole batch may contain many definitions but cannot declare itself a candidate."""
+    return (
+        context.get("source_variant") != "expanded"
+        and ("paper_eligible" not in context or context["paper_eligible"] is True)
+        and (
+            "model_definition_schema" not in context
+            or (
+                type(context["model_definition_schema"]) is int
+                and context["model_definition_schema"] == 1
+            )
+        )
+    )
+
+
+def paper_version_matches(row, model, *, required=False):
+    """An eligible row cannot borrow qualification from another frozen definition."""
+    return (
+        paper_version_allowed(row, required=required)
+        and paper_version_allowed(model, required=required)
+        and all(row.get(key) == model.get(key) for key in PAPER_VERSION_FIELDS)
+    )
 
 
 def money(value):
@@ -121,6 +170,12 @@ def _leg(row, selection, market):
                 "model_version",
             )
         },
+        **{key: deepcopy(row[key]) for key in PAPER_VERSION_FIELDS if key in row},
+        **(
+            {"model_definition_schema": row["model_definition_schema"]}
+            if "model_definition_schema" in row
+            else {}
+        ),
         "forecast_path": row.get("forecast_path"),
         "forecast_sha256": row.get("forecast_sha256"),
         "selection": selection,
@@ -220,6 +275,7 @@ def advance_ledger(forecasts, results, existing, as_of):
             prior_ids = {r["match_id"] for r in rows if uses_unknown_team_prior(r)}
             for row in rows:
                 not_ready = row.get("p2_ready") is not True
+                version_blocked = not paper_version_allowed(row)
                 market = frozen_market(row)
                 # Result data never ranks candidates. A known-before-generation result
                 # invalidates that forecast, rather than supplying a selection advantage.
@@ -229,10 +285,12 @@ def advance_ledger(forecasts, results, existing, as_of):
                     and result.get("available_utc")
                     and instant(result["available_utc"]) <= when
                 )
-                if not_ready or not market or known_result:
+                if version_blocked or not_ready or not market or known_result:
                     reason = "result_already_known" if known_result else "no_frozen_sp"
                     if not_ready:
                         reason = "model_not_p2_ready"
+                    if version_blocked:
+                        reason = "model_version_not_paper_eligible"
                     for threshold in THRESHOLDS:
                         for account in ("A", "B", "C"):
                             skip(

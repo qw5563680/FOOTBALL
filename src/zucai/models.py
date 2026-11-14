@@ -361,3 +361,61 @@ class FdStatsLink(Base):
     raw_location: Mapped[str]
     aliases_sha256: Mapped[str]
     evidence: Mapped[dict] = mapped_column(JSON)
+
+
+class ResultSourceLink(Base):
+    """Append-only identity snapshots; no scores or inferred availability clock."""
+
+    __tablename__ = "result_source_links"
+    __table_args__ = (
+        CheckConstraint("home_team_id <> away_team_id"),
+        CheckConstraint("length(league) > 0"),
+        CheckConstraint(
+            "(substr(provider_match_id, 1, 5) = 'apif:' AND length(provider_match_id) > 5) OR "
+            "(substr(provider_match_id, 1, 6) = 'fdorg:' AND length(provider_match_id) > 6)"
+        ),
+        CheckConstraint(
+            "(substr(counterpart_id, 1, 3) IN ('jc:', 'fd:') AND length(counterpart_id) > 3) OR "
+            "(substr(counterpart_id, 1, 6) = 'fdorg:' AND length(counterpart_id) > 6)"
+        ),
+        CheckConstraint(
+            "substr(provider_match_id, 1, 6) <> 'fdorg:' OR "
+            "substr(counterpart_id, 1, 3) IN ('jc:', 'fd:')"
+        ),
+        Index("ix_result_source_links_counterpart", "counterpart_id"),
+    )
+
+    provider_match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"), primary_key=True)
+    counterpart_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"), primary_key=True)
+    verified_utc: Mapped[str] = mapped_column(UTCString, primary_key=True)
+    league: Mapped[str]
+    home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    provider_kickoff_utc: Mapped[str] = mapped_column(UTCString)
+    counterpart_kickoff_utc: Mapped[str] = mapped_column(UTCString)
+
+
+class ResultSourceIdentity(Base):
+    """First explicit verification of each immutable API identity snapshot."""
+
+    __tablename__ = "result_source_identities"
+    __table_args__ = (
+        CheckConstraint("source IN ('apif', 'fdorg')"),
+        CheckConstraint("home_team_id <> away_team_id"),
+        CheckConstraint("home_provider_binding <> away_provider_binding"),
+        CheckConstraint("length(league) > 0"),
+        CheckConstraint(
+            "substr(match_id, 1, length(source)+1) = source || ':' "
+            "AND length(match_id) > length(source)+1"
+        ),
+    )
+
+    match_id: Mapped[str] = mapped_column(ForeignKey("matches.match_id"), primary_key=True)
+    verified_utc: Mapped[str] = mapped_column(UTCString, primary_key=True)
+    source: Mapped[str]
+    league: Mapped[str]
+    home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
+    kickoff_utc: Mapped[str] = mapped_column(UTCString)
+    home_provider_binding: Mapped[str]
+    away_provider_binding: Mapped[str]

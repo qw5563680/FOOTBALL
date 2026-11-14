@@ -25,6 +25,13 @@ def _entry(**changes):
         "sources": ["jc", "fd"],
         "unknown_team_prior": "weakest_quartile_half_shrinkage",
         "draw_calibration": False,
+        "selection_basis": (
+            "minimum season-S walk-forward model log loss; complete equal samples; "
+            "tie: shorter half-life"
+        ),
+        "calibration_policy": (
+            "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp"
+        ),
         "p2_ready": True,
         "p2_evidence": {
             "as_of_utc": "2026-07-01T00:00Z",
@@ -294,7 +301,7 @@ def test_readiness_preserves_model_evaluation_hash_after_config_update(tmp_path,
 
     assert result["evaluation_database_sha256"] == "a" * 64
     assert result["training_database_sha256"] == "b" * 64
-    assert result["p2_ready"] is current_ready
+    assert result["p2_ready"] is True  # Legacy qualification no longer follows the historical gate.
     assert result["params_sha256"] == parameters.read_parameters(config)[1]
 
 
@@ -330,10 +337,12 @@ def test_a1_keeps_model_policy_checks(tmp_path, changes):
     assert result["p2_ready"] is False
 
 
-@pytest.mark.parametrize("as_of", ["2026-06-30T00:00Z", "2027-08-01T00:00Z"])
-def test_a1_keeps_evidence_availability_and_recency(tmp_path, as_of):
+@pytest.mark.parametrize("as_of,ready", [("2026-06-30T00:00Z", False), ("2027-08-01T00:00Z", True)])
+def test_legacy_cutoff_safety_does_not_expire_with_historical_gate(tmp_path, as_of, ready):
     config = _write(tmp_path / "params.json", _entry())
-    assert not parameters.model_readiness(_model(), as_of=as_of, params_file=config)["p2_ready"]
+    assert (
+        parameters.model_readiness(_model(), as_of=as_of, params_file=config)["p2_ready"] is ready
+    )
 
 
 @pytest.mark.parametrize("calibrate", [True, False])

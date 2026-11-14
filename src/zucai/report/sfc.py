@@ -15,6 +15,13 @@ from sqlalchemy import select
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, Team
 from zucai.predict.base import model_sources
+from zucai.predict.model_definitions import (
+    EXPERIMENTAL_LEAGUES,
+    FROZEN_DEFINITION_FIELDS,
+    LEGACY_LEAGUES,
+    legacy_definition_compatible,
+    validate_definition_metadata,
+)
 from zucai.predict.pooled import model_targets
 from zucai.prediction_disclosure import (
     prior_disclosure,
@@ -39,6 +46,67 @@ from zucai.sources.sfc import refresh_snapshot
 
 LOG = logging.getLogger(__name__)
 OPTIONS = {"h": "3", "d": "1", "a": "0"}
+
+
+def _sfc_primary_context(batch):
+    """The parallel candidate document cannot replace the ordinary forecast batch."""
+    return (
+        batch.get("source_variant") != "expanded"
+        and ("paper_eligible" not in batch or batch["paper_eligible"] is True)
+        and (
+            "model_definition_schema" not in batch
+            or (
+                type(batch["model_definition_schema"]) is int
+                and batch["model_definition_schema"] == 1
+            )
+        )
+    )
+
+
+def _sfc_definition_allowed(value, *, required=False):
+    if "model_definition_schema" in value:
+        if (
+            type(value["model_definition_schema"]) is not int
+            or value["model_definition_schema"] != 1
+        ):
+            return False
+        required = True
+    if not required and not any(key in value for key in FROZEN_DEFINITION_FIELDS):
+        return True
+    if (
+        not all(key in value for key in FROZEN_DEFINITION_FIELDS)
+        or type(value["paper_eligible"]) is not bool
+    ):
+        return False
+    try:
+        validate_definition_metadata(value)
+    except (TypeError, ValueError):
+        return False
+    league = value["model_definition"]["league"]
+    if league in LEGACY_LEAGUES:
+        return (
+            value["source_variant"] == "legacy"
+            and value["paper_eligible"] is True
+            and legacy_definition_compatible(value)
+        )
+    expected = "expanded" if league in EXPERIMENTAL_LEAGUES else "current"
+    return value["source_variant"] == expected
+
+
+def _sfc_definition_matches(predicted, model, batch):
+    required = "model_definition_schema" in batch or any(
+        key in value for value in (predicted, model) for key in FROZEN_DEFINITION_FIELDS
+    )
+    return (
+        _sfc_definition_allowed(predicted, required=required)
+        and _sfc_definition_allowed(model, required=required)
+        and all(predicted.get(key) == model.get(key) for key in FROZEN_DEFINITION_FIELDS)
+        and all(
+            batch[key] == predicted.get(key)
+            for key in ("source_variant", "paper_eligible")
+            if key in batch
+        )
+    )
 
 
 def _unmapped_reason(row, mapping_reason):
@@ -141,6 +209,14 @@ def build_sfc_report(
         mapping_reason = row.get("reason") or row.get("mapping", "unmatched")
         row.update(probabilities=None, reason=None, top_outcome=None, selection=None)
         predicted = predictions.get(row["match_id"])
+        if predicted:
+            row.update(
+                {
+                    key: copy.deepcopy(predicted[key])
+                    for key in FROZEN_DEFINITION_FIELDS
+                    if key in predicted
+                }
+            )
         match = session.get(Match, row["match_id"]) if row["match_id"] else None
         if not match:
             row["reason"] = "未映射：" + (
@@ -175,6 +251,10 @@ def build_sfc_report(
             row["reason"] = "该冻结批次没有此比赛的球队模型概率"
         elif predicted["status"] != "predicted":
             row["reason"] = predicted.get("reason", "原批次排除")
+        elif not _sfc_primary_context(batch) or not _sfc_definition_allowed(
+            predicted, required="model_definition_schema" in batch
+        ):
+            row["reason"] = "该模型版本不是本赛事的SFC主版，不能用于14场诊断"
         elif any(predicted[k] != identity[k] for k in ("home", "away", "source", "league")) or (
             _timestamp(predicted["kickoff_utc"]) != _timestamp(identity["kickoff_utc"])
         ):
@@ -198,6 +278,19 @@ def build_sfc_report(
             ):
                 row["reason"] = "模型版本或训练可知时间依据缺失/冲突"
                 continue
+            if not _sfc_definition_matches(predicted, model, batch):
+                row["reason"] = "模型版本定义与冻结预测不一致，不能用于14场诊断"
+                continue
+            if "model_definition_schema" in batch or any(
+                key in predicted for key in FROZEN_DEFINITION_FIELDS
+            ):
+                row.update(
+                    {
+                        key: copy.deepcopy(predicted[key])
+                        for key in ("p2_label", "p2_ready")
+                        if key in predicted
+                    }
+                )
             row["probabilities"] = copy.deepcopy(predicted["model_probabilities"])
             row["model_version"] = predicted["model_version"]
             row["top_outcome"] = max("hda", key=lambda k: row["probabilities"][k])
@@ -367,6 +460,12 @@ def pick_nine_lines(report, *, prior_explained=False):
     ]
 
 
+def _model_notice(report):
+    if report.get("forecast_batch", {}).get("model_definition_schema") == 1:
+        return "**球队模型，BET 禁用；各版本状态见逐场记录，不构成购买建议。**"
+    return "**P2 未验证模型，BET 禁用；不构成购买建议。**"
+
+
 def _markdown(report):
     if report.get("publication_schema") and report["sale_state"] != "published_before_deadline":
         return _unconfirmed_markdown(report)
@@ -376,7 +475,7 @@ def _markdown(report):
     lines = [
         f"# 第{report['issue_no']}期 · 14场胜负彩{title}",
         "",
-        "**P2 未验证模型，BET 禁用；不构成购买建议。**",
+        _model_notice(report),
         "",
         f"报告生成：{_beijing(report['generated_utc'])}（北京时间）。",
         *(
@@ -412,7 +511,7 @@ def _markdown(report):
             *[_percent(p.get(k)) for k in "hda"],
             OPTIONS.get(r["top_outcome"], "—"),
             "+".join(OPTIONS[k] for k in r["selection"]) if r["selection"] else "—",
-            _row_reason(r, "P2 实验"),
+            _row_reason(r, r.get("p2_label") or "P2 实验"),
         ]
         lines.append("|" + "|".join(_md(c) for c in columns) + "|")
     if note := prior_footnote(rows):
@@ -471,7 +570,7 @@ def _unconfirmed_markdown(report):
     lines = [
         f"# 第{report['issue_no']}期 · 14场胜负彩诊断",
         "",
-        "**P2 未验证模型，BET 禁用；不构成购买建议。**",
+        _model_notice(report),
         "",
         deadline_message(report) + "。",
         f"算完时间：{_beijing(report['generated_utc'])}；存好时间：{published}；"

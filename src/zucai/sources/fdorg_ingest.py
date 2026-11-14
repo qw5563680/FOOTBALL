@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -328,7 +328,7 @@ def _reconcile_unsettled(match, score, seen):
     return "availability_quarantined"
 
 
-def _persist(session, key, game, seen, assume, existing, sides):
+def _persist(session, key, game, seen, assume, existing, sides, *, actual_clock=False):
     old = session.get(Result, key, populate_existing=True)
     if existing and (
         existing.source != "fdorg"
@@ -348,7 +348,10 @@ def _persist(session, key, game, seen, assume, existing, sides):
             datetime.fromisoformat(t)
             for t in (
                 existing.result_checked_utc if existing else None,
-                old.available_utc if old else None,
+                # T63 availability is the import clock, not source observation order.
+                old.available_utc
+                if old and (not actual_clock or not (existing and existing.result_checked_utc))
+                else None,
             )
             if t
         ),
@@ -442,7 +445,9 @@ def _persist(session, key, game, seen, assume, existing, sides):
     return outcome, state == "assumed", teams
 
 
-def import_fdorg_games(session, games, *, seen, assume, aliases):
+def import_fdorg_games(
+    session, games, *, seen, assume, aliases, actual_results=False, imported_utc=None
+):
     """Import one capture in the caller's transaction, with a savepoint per fixture."""
     if not isinstance(seen, datetime) or seen.utcoffset() is None:
         raise ValueError("采集时刻须含UTC偏移")
@@ -454,6 +459,10 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
     if conn.dialect.name == "sqlite" and not conn.connection.driver_connection.in_transaction:
         # SQLite can otherwise commit a top-level SAVEPOINT independently of the caller.
         conn.exec_driver_sql("BEGIN IMMEDIATE")
+    from zucai.predict.training_sources import actual_result_leagues
+
+    actual_leagues = actual_result_leagues() if actual_results else set()
+    imported = imported_utc if imported_utc is not None else datetime.now(UTC)
     index = _Teams(session, aliases)
     rows, per_team = _check_capture(games, seen)
     counts = dict.fromkeys(COUNT_KEYS, 0)
@@ -478,10 +487,18 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
         assumed = False
         key = f"fdorg:{game.provider_match_id}"
         match_id = key
+        target, sides = None, []
         try:
             with session.begin_nested():
                 if invalid:
                     raise ValueError(invalid)
+                actual = game.league in actual_leagues
+                if actual and (
+                    not isinstance(imported, datetime)
+                    or imported.utcoffset() is None
+                    or imported < seen
+                ):
+                    raise ValueError("实际导入核验时刻须带时区且不能早于来源捕获")
                 existing = session.get(Match, key, populate_existing=True)
                 if game.status in CANCELLED and existing is None:
                     outcome = "skipped"
@@ -499,9 +516,35 @@ def import_fdorg_games(session, games, *, seen, assume, aliases):
                             target.counterpart_id = key
                     else:
                         outcome, assumed, teams = _persist(
-                            session, key, game, seen, assume, existing, sides
+                            session,
+                            key,
+                            game,
+                            seen,
+                            None if game.league in actual_leagues else assume,
+                            existing,
+                            sides,
+                            actual_clock=actual,
                         )
                 session.flush()
+                if actual:
+                    from zucai.result_source_identity import record_result_identity
+                    from zucai.result_source_links import record_result_link
+
+                    current = session.get(Match, key)
+                    score = session.get(Result, key)
+                    if (
+                        score
+                        and outcome
+                        in {"inserted", "updated", "corrected", "availability_corrected"}
+                        and score.available_utc
+                    ):
+                        score.available_utc = max(
+                            datetime.fromisoformat(score.available_utc), imported
+                        )
+                    if current and sides and all(side.binding is not None for side in sides):
+                        record_result_identity(session, current, imported)
+                        if target:
+                            record_result_link(session, current, target, imported)
         except _Suspected as exc:
             counts["suspected_duplicates"] += 1
             suspected.append(dict(audit, candidates=exc.candidates, reason=str(exc)))

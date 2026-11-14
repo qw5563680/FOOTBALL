@@ -1,5 +1,86 @@
 # 架构说明
 
+## T63 截点内赛果择源与可审计证据
+
+`data/model/apif_history_training.json` 在 T60 两联赛外，显式列入既有15联赛的 APIF 来源和其中9联赛的 FDORG。
+新范围标 `availability_policy=actual_capture`，不改变求解器数值参数、来源优先级或 P2 gate。
+新来源版本的 `read_history` 保留全体原始结果行；`DixonColes.fit` 和逐折训练共用
+`select_training_history(frame, as_of)`，先验证身份、可知时间，再按 `jc > fd > fdorg > apif` 取代表。
+后到的高优先级行不会提前删除过去可用的低优先级行。评估标签按评价结束截点选唯一实体，训练仍用各折独立截点。
+
+新增两张可选证明表，原 `matches/results/teams` 格式不变：
+
+| 表 / 归档 | 保存内容与约束 |
+| --- | --- |
+| `result_source_identities` / `state/result_source_identities.jsonl` | 来源、联赛、同向规范球队 ID、两侧精确供应商绑定、开球及真实 `verified_utc`；要求每边唯一正整数绑定且全局不重复。当前快照再次核验不改首次时间；换绑后旧证明失活，重新核验追加版本。 |
+| `result_source_links` / `state/result_source_links.jsonl` | APIF→JC/FD/FDORG 或 FDORG→JC/FD 的完整身份快照与真实 `verified_utc`；同联赛同向主客、开球差≤3小时；整个关联组件每来源最多一个比赛 ID。 |
+
+record/load/export/restore 均校验引用与组件唯一性。旧快照缺文件合法，训练只读时不建表；
+旧档恢复清除工作目录中较晚的证明与审计状态，manifest 白名单/SHA/行数校验覆盖新文件。
+新增来源参与的无时标 `counterpart_id` 不作为历史链接证据；有时标关系只在 `verified_utc < as_of` 后生效。
+旧 FD/JC、韩职/澳超及非 T63 范围的 legacy 关联保留明确兼容政策，不能据此为新增来源补造历史证明。
+
+`source_eligible_history` 只生成内存视图，不改库中旧时间。新增源的有效时间至少为当前比分可知界和身份证明时刻的最大值；
+旧 `assumed` 只允许用不早于原时间的真实 `result_checked_utc` 作保守界，原标记仍为 assumed。
+缺身份证明、缺实际观察、replayed 或未核准数字身份均不能训练。仅新增源互相比分冲突时隔离；
+存在既有 JC/FD 时保留其既有优先选择并记录审计，不按新来源改写旧比分。
+
+APIF 的 T63 导入路径即使存在旧来源同场行，也保存独立 APIF 比分。新的捕获/修正和身份/关联证明
+以实际导入核验时刻为下限，旧响应 sidecar 时间只保留为捕获证据，不能倒填今日才确认的映射。
+`source_result_reconcile` 在每日采集后核对当前存量身份与关系，只写证明表；未结算锚可以连接实体但不是赛果。
+`source_results_audit` 只读输出比分/开球冲突及身份未核实的待处理行，绝不写训练取舍或数据库；
+一致和缺配对保留汇总计数，`comparison_rows` 为完整比较分母，`rows` 为 CSV 数据行数。
+T66 的单边占位 APIF→FD 关系仅作完整数据库校验后的旧代表证据，不能产生 T63 双边规范身份证明。
+
+`source_result_quarantine` 另处理新增 APIF 与旧 FD 的未核实身份重叠：完整库中双向候选唯一、
+无其他声明或核验关系、同向恰一队 ID 相同，且 FD 另一队没有该联赛 APIF 绑定时，只列为疑问。
+两行均已在拟合截点前可知才排除新增 APIF，保留既有 FD；FD 尚不可知时不提前排除 APIF。
+不建同场证明、不改球队/赛果/时间；绑定冲突、反向、多候选和无完整库证据仍由原保护拒绝。
+训练 JSON 的 `source_identity_exclusions` 与审计 `unverified_fd_identity_overlap` 明列这些行。
+七个旧规版本与欧战 legacy 路径不使用该排除逻辑。
+
+技术索引的同场多行只按当前有效 `ResultSourceLink` 组件识别；新索引仍按 JC/FD/FDORG/APIF
+优先级选一个目标，既有索引目标保持。组件内供应商 fixture ID、完整图占用和反向/共享球队
+仍须一致。赛前阵容用实际截止已生效的证明追溯竞彩在售资格，不补旧 counterpart。
+既有 FD 统计关联同样验证完整证明组件并保留原 JC 目标；恢复先加载赛果关联证明，再验证 FD 统计关联。
+实验统计历史、伤停和单独的市场比较也读取有效证明。历史标签按模型截止选代表，统计/伤停特征
+按每次 `build` 的实际赛前截止重新取得只读视图，证明等于或晚于截止均不启用；不能用模型总截止
+的较晚证明替早期样本合并身份。无显式截止的旧离线实验历史入口保守不启用新增证明。
+市场关联只用于拟合完成后的比较，不进入球队模型。
+
+七个旧规可用联赛保留完整原 `params.json` 条目。`read_history` 默认对 T63 的纯 `fd,jc` 输入和欧战池
+采用原读取/去重语义；`source_selection="cutoff"` 可显式选择新语义。欧战池保留原优先级/可知时间规则；付费赛果先于竞彩到达时会更早使用付费行，竞彩到达后替换代表且不重复计数。静态归档相同不等于所有到达顺序下语料不变。
+原七联赛拟合/预测须在相同归档、截点与 main 独立进程逐项比较，不能仅以参数未改声称不变。
+
+欧战原物化去重之后，只有触及当前语料的有效 `ResultSourceLink` 才启用额外的时标兼容选择：
+新关系须在 `verified_utc < as_of` 后生效，原已验证 counterpart 边只帮助新关系找到原物化代表，
+包括已被旧 JC 代表替代的 FD 锚。未结算锚不作为赛果，失效快照不授权去重。
+该兼容分支不对旧欧战行施加新增身份或 assumed 门禁，保留原比分优先级；无相关新证明时原路径不变。
+
+`predict.model_definitions` 用固定七字段生成稳定 `model_definition_id`，与每日模型 SHA `model_version` 分开。
+旧七联赛与固化的原方法定义及实际模型训练来源相符时标“可用（旧规，考核中）”；八个原实验联赛直接使用新来源，
+七个旧联赛的新来源候选也始终标“实验”。旧 gate 仍供历史参考，不用于自动恢复候选资格或自动撤销原定义资格；
+原有模型适用性、未知球队及非重放等检查继续执行。完整批准登记和前瞻计数留给 T67。
+
+`cloud_predict` 先按原子归档流程冻结主批，再由 `source_version_training` 以原截点训练七个候选。
+`source_version_archive` 保存 `models/{run_id}/*.source-expanded.pkl`、训练 JSON、候选参数及每个主批旁的
+完整 `source_versions.json`，校验同 ID/同截点、定义、模型哈希与失败排除记录；候选失败不改变主批或 LATEST。
+主运行清单另存 `source_version_status`：complete/partial/failed、失败阶段、固定原因码、异常类别、
+失败联赛、是否实际冻结候选附件和记录 UTC。恢复时验证状态与附件一致；日报及运行摘要显示，
+不公布原始异常文本。外层训练/预测/冻结失败仅记录状态，不生成伪候选；主批文件逐字节保留。
+`forecast_publication` 为候选文件单独核对远端 path/SHA 和推送后时间，attached 时间不等于 published。
+
+新批次顶层 `model_definition_schema=1` 要求模型及每条预测完整携带 definition、variant 和 paper 标记，
+下游评分透传父批次格式，纸面 A–F 按版本资格入票；14场另验证有效主批、模型与逐场定义一致性，
+保留八个原实验联赛主版本的概率及组合诊断，七个并行候选不能替代旧主版；八个原实验联赛的诊断展示不以纸面资格为门禁。
+七个旧规主版仍须匹配固定完整方法定义及原资格；同为 `fd,jc` 的手工选参或方法变更不能冒用旧主版。
+候选或漏标记录不能退回旧格式。
+已冻结的旧格式继续兼容读取，不重写原预测或账本。
+
+七个桥接 route 的 import 模式不等于权限开放：regular season 只读 `result_seasons_available` 的核准年，
+date 解析另需 `result_daily_verified=true`，并逐行检查返回的赛季。两个配置和 daily/backfill 开关仍须审查者核准。
+identity-only 客户端继续提供旧身份索引，不获得赛果下载权。
+
 ## T66 FD 导入校验与补采
 
 `fd_stats_links` 的原身份、别名和原始 counterpart 证据保持不变。赛果导入将空的竞彩

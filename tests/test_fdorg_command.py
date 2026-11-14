@@ -6,6 +6,7 @@ import logging
 import runpy
 import secrets
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -17,6 +18,7 @@ from zucai.predict.base import reject_cross_source_overlaps
 SAMPLE = Path(__file__).resolve().parents[1] / "data/fixtures/t09/synthetic_command.json"
 API = "https://api.football-data.org/v4"
 SEEN = "2026-11-02T01:02:03Z"
+IMPORTED = datetime(2026, 11, 3, 1, 2, 3, tzinfo=UTC)
 
 
 def archive(tmp_path, url):
@@ -61,24 +63,35 @@ def call(tmp_path, path, *options):
         (
             ["--season", "2026", "--assume-known-after", "3h"],
             "/competitions/PL/matches?season=2026",
-            "assumed",
-            "2026-11-01T15:00:00",
+            "captured",
+            "2026-11-03T01:02:03",
         ),
         (
             ["--days", "4"],
             "/matches?dateFrom=2026-10-29&dateTo=2026-11-07&competitions=PL",
             "captured",
-            "2026-11-02T01:02:03",
+            "2026-11-03T01:02:03",
         ),
     ],
 )
 def test_cli_replays_both_windows_with_actual_knowledge_times(
     tmp_path, monkeypatch, caplog, mode, url, basis, available
 ):
+    from zucai.sources import fdorg_command
+
+    import_games = fdorg_command.import_fdorg_games
+
+    def imported_on_november_3(*args, **kwargs):
+        return import_games(*args, **kwargs, imported_utc=IMPORTED)
+
+    monkeypatch.setattr(fdorg_command, "import_fdorg_games", imported_on_november_3)
     monkeypatch.delenv("FOOTBALL_DATA_ORG_TOKEN", raising=False)
     caplog.set_level(logging.INFO)
     path = archive(tmp_path, API + url)
     assert call(tmp_path, path, *mode) == 0
+    # A saved response observed on Nov 2 is imported on Nov 3. Neither the old
+    # capture nor a required legacy assumption argument creates earlier availability.
+    assert json.loads(path.with_suffix(".json.meta.json").read_bytes())["fetched_at_utc"] == SEEN
     with sqlite3.connect(tmp_path / "db.sqlite") as db:
         assert db.execute("SELECT status FROM matches ORDER BY match_id").fetchall() == [
             ("finished",),

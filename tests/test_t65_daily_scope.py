@@ -92,7 +92,16 @@ def test_reviewed_history_routes_do_not_enter_the_daily_request_plan():
         assert "5" not in provider_entries("apif", purpose=purpose)
 
 
-def test_new_routes_do_not_change_daily_database_or_audits(tmp_path):
+def test_new_routes_do_not_change_daily_database_or_audits(tmp_path, monkeypatch):
+    # Compare the same actual-import clock in both runs; T63 never backdates it.
+    from zucai.sources import apif_command
+
+    original = apif_command.import_apif_games
+
+    def at_same_clock(*args, **kwargs):
+        return original(*args, **kwargs, imported_utc=CAPTURED + timedelta(hours=1))
+
+    monkeypatch.setattr(apif_command, "import_apif_games", at_same_clock)
     observed = []
     for name, extra in (("clean", False), ("mixed", True)):
         root = tmp_path / name

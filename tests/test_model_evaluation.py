@@ -352,7 +352,9 @@ def test_readiness_cannot_relabel_old_or_incompatible_model(seasons_history, tmp
     from zucai.predict.parameters import model_readiness
 
     cutoff = pd.Timestamp("2026-07-02T00:00Z")
-    model = DixonColes(365).fit(seasons_history, as_of=cutoff)
+    # Generic historical gates remain unchanged outside the T63 version policy.
+    history = seasons_history.assign(league="苏超")
+    model = DixonColes(365).fit(history, as_of=cutoff)
     policy = dict(history_scope="cumulative", strict_availability=False, replay_known_after=None)
     model.database_sha256 = "a" * 64
     model.training_policy = policy
@@ -369,7 +371,7 @@ def test_readiness_cannot_relabel_old_or_incompatible_model(seasons_history, tmp
         training_policy=policy,
         p2_evidence={"as_of_utc": "2026-07-01T00:00Z", "seasons": ["2425", "2526"]},
     )
-    config.write_text(json.dumps({"schema_version": 1, "leagues": {"英超": entry}}))
+    config.write_text(json.dumps({"schema_version": 1, "leagues": {"苏超": entry}}))
     assert model_readiness(model, as_of=cutoff, params_file=config)["p2_ready"] is True
     assert (
         model_readiness(model, as_of="2025-01-01T00:00Z", params_file=config)["p2_ready"] is False
@@ -451,7 +453,8 @@ def test_readiness_allows_other_corpus_but_rejects_replay_and_expired_seasons(
 
     from zucai.predict.parameters import model_readiness
 
-    model = DixonColes(365).fit(seasons_history, as_of=pd.Timestamp("2026-07-02T00:00Z"))
+    history = seasons_history.assign(league="苏超")
+    model = DixonColes(365).fit(history, as_of=pd.Timestamp("2026-07-02T00:00Z"))
     policy = dict(history_scope="cumulative", strict_availability=False, replay_known_after=None)
     model.database_sha256 = "a" * 64
     model.training_policy = policy
@@ -468,7 +471,7 @@ def test_readiness_allows_other_corpus_but_rejects_replay_and_expired_seasons(
         p2_evidence={"as_of_utc": "2026-07-01T00:00Z", "seasons": ["2425", "2526"]},
     )
     config = tmp_path / "params.json"
-    config.write_text(json.dumps({"schema_version": 1, "leagues": {"英超": entry}}))
+    config.write_text(json.dumps({"schema_version": 1, "leagues": {"苏超": entry}}))
     assert model_readiness(model, as_of="2026-11-01T00:00Z", params_file=config)["p2_ready"]
     assert not model_readiness(model, as_of="2027-08-01T00:00Z", params_file=config)["p2_ready"]
     model.database_sha256 = "b" * 64

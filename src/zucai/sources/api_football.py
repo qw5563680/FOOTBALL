@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 import requests
 from requests.adapters import HTTPAdapter
 
-from zucai.league_registry import provider_config, provider_ids
+from zucai.league_registry import provider_config, provider_entries, provider_ids
 from zucai.sources.api_common import ApiGame, LocalValidationError
 from zucai.sources.apif_quota import DailyQuota
 from zucai.sources.base import RateLimiter, RawStore, Source, _atomic_write
@@ -22,8 +22,14 @@ from zucai.sources.football_data_org import _goals, _id, _team, safe_json_for_ar
 
 API = "https://v3.football.api-sports.io"
 LEAGUES = CONFIG_ROOT / "api_football/leagues.json"
-APIF_LEAGUE_IDS = provider_ids("apif")
-APIF_IDENTITY_LEAGUE_IDS = provider_ids("apif", "identity_only")
+APIF_LEAGUE_IDS = frozenset(
+    int(code)
+    for code, entry in provider_entries("apif", modes="import").items()
+    if entry["daily"] or entry["backfill"]
+)
+APIF_IDENTITY_LEAGUE_IDS = provider_ids("apif", "identity_only") | frozenset(
+    int(code) for code, config in provider_config("apif").items() if config.get("identity_bridge")
+)
 APIF_INDEX_LEAGUE_IDS = APIF_IDENTITY_LEAGUE_IDS | provider_ids("apif", "index_only")
 STATES = {
     "FT",
@@ -89,11 +95,22 @@ class ApiFootball(Source[ApiGame]):
             self.session.mount("https://", HTTPAdapter(max_retries=0))
             self.session.headers["User-Agent"] = "ZucaiResearch/0.1"
         configured = provider_config("apif") if leagues is None else leagues
+        self.identity_only = identity_only
         self.leagues = {
             code: config
             for code, config in configured.items()
-            if bool(config.get("identity_only", False)) == identity_only
+            if (
+                bool(config.get("identity_only") or config.get("identity_bridge"))
+                if identity_only
+                else not config.get("identity_only", False)
+            )
             and not config.get("index_only", False)
+            and (
+                identity_only
+                or not config.get("require_result_permission")
+                or config.get("result_seasons_available")
+                or config.get("result_daily_verified")
+            )
         }
         self.quota = DailyQuota(quota_path, reserve)
         self.limiter = self.limiter if min_interval is None else RateLimiter(min_interval)
@@ -119,7 +136,14 @@ class ApiFootball(Source[ApiGame]):
             or type(season) is not int
             or not 1900 <= season <= 9999
         ):
-            raise LocalValidationError("赛季请求须指定已配置的 --league 和四位 --season")
+            raise LocalValidationError("赛季请求须指定已配置且权限核验的 --league 和四位 --season")
+        config = self.leagues[str(league_id)]
+        if (
+            not self.identity_only
+            and config.get("require_result_permission")
+            and season not in config.get("result_seasons_available", [])
+        ):
+            raise LocalValidationError("该赛季尚缺实际赛果读取权限核验，目录或身份权限不能代替")
         return {"league": str(league_id), "season": str(season)}
 
     def request_url(self, *, league_id=None, season=None, date=None, page=None):
@@ -337,6 +361,13 @@ class ApiFootball(Source[ApiGame]):
                     if scope and "league" in scope:
                         raise LocalValidationError("比赛联赛与请求不符")
                     continue
+                config = self.leagues[code]
+                if not self.identity_only and config.get("require_result_permission"):
+                    if league.get("season") not in config.get("result_seasons_available", []):
+                        raise LocalValidationError("返回赛季尚缺实际赛果读取权限核验")
+                    request = scope or doc["parameters"]
+                    if "date" in request and not config.get("result_daily_verified", False):
+                        raise LocalValidationError("该联赛尚缺 daily 赛果读取权限核验")
                 fixture = row.get("fixture", {})
                 if not isinstance(fixture, dict):
                     raise LocalValidationError("fixture 无效")

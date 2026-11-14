@@ -97,9 +97,16 @@ def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
     good = result["leagues"]["英超"]
     assert good["training_rows"] == 84
     assert good["parameter_source"] == "params.json"
-    assert good["p2_label"] == "P2 可用"
+    assert good["p2_label"] == "可用（旧规，考核中）"
     model = DixonColes.load(archive / good["model_path"])
     assert model.sources == ["fd", "jc"]
+    candidate = result["source_versions"]["leagues"]["英超"]
+    assert result["source_version_status"]["status"] == "complete"
+    assert result["source_version_status"]["artifacts_frozen"] is True
+    assert candidate["status"] == "trained"
+    assert candidate["p2_label"] == "实验" and candidate["paper_eligible"] is False
+    assert candidate["sources"] == ["apif", "fd", "fdorg", "jc"]
+    assert candidate["model_definition_id"] != good["model_definition_id"]
     assert good["p2_ready"] == model_readiness(model, as_of=NOW, params_file=params)["p2_ready"]
     assert good["sha256"] == digest(archive / good["model_path"])
     assert model.training_database_sha256 == result["database_sha256"]
@@ -123,10 +130,18 @@ def test_run_restores_trains_and_freezes_two_days_without_mutating_inputs(
                 assert row["prospective_verified"] is False
                 assert row["prospective_n"] == 0
         assert batch["models"][0]["p2_label"] == good["p2_label"]
+        parallel = json.loads((archive / forecast["source_versions_path"]).read_bytes())
+        assert parallel["batch_id"] == batch["batch_id"]
+        assert parallel["as_of_utc"] == batch["as_of_utc"]
+        assert {row["match_id"] for row in parallel["predictions"]} == {
+            row["match_id"] for row in batch["predictions"] if row.get("league") == "英超"
+        }
+        assert all(row["paper_eligible"] is False for row in parallel["predictions"])
     assert verify_forecasts(archive)["runs"]["offline-1"] == result
     assert all(p.read_bytes() == data for p, data in before.items())
     assert params.read_bytes() == params_before
     text = summary.read_text()
+    assert "新来源候选：成功" in text
     assert text.startswith("非购买建议 · BET 禁用 · P2 标签含义见 README\n")
     assert "竞彩数据非今日" in text
     assert "英超" in text and "芬超" in text and "缺少同来源同联赛的模型" in text
@@ -157,6 +172,119 @@ def test_all_models_fail_and_next_day_empty_still_archives_exclusions(
     assert all(f["predicted"] == 0 for f in result["forecasts"].values())
     assert result["forecasts"]["2026-11-06"]["excluded"] == 0
     assert json.loads((archive / "models/latest.json").read_bytes())["models"] == {}
+
+
+def test_failed_source_candidate_freezes_exclusions_and_preserves_primary(
+    scheduled_archive, monkeypatch
+):
+    from zucai import cloud_predict
+    from zucai.forecast_archive import verify_forecasts
+
+    archive, params = scheduled_archive
+    monkeypatch.setattr(cloud_predict, "_now", lambda: NOW)
+    original = cloud_predict.train
+    frozen = {}
+
+    def candidate_failure(**kwargs):
+        if kwargs["output"].name.endswith(".source-expanded.pkl"):
+            frozen.update(
+                {
+                    path: path.read_bytes()
+                    for path in archive.rglob("*")
+                    if path.is_file() and path.name in {"forecast.json", "report.md", "英超.pkl"}
+                }
+            )
+            assert frozen
+            raise ValueError("synthetic candidate-only training failure")
+        return original(**kwargs)
+
+    monkeypatch.setattr(cloud_predict, "train", candidate_failure)
+    result = cloud_predict.run(archive, params, "candidate-failed")
+    assert result["leagues"]["英超"]["status"] == "trained"
+    assert result["leagues"]["英超"]["p2_label"] == "可用（旧规，考核中）"
+    assert result["source_versions"]["leagues"]["英超"]["status"] == "failed"
+    assert result["source_version_status"]["status"] == "failed"
+    assert result["source_version_status"]["stage"] == "training"
+    assert result["source_version_status"]["failed_leagues"] == ["英超"]
+    assert result["source_version_status"]["artifacts_frozen"] is True
+    for forecast in result["forecasts"].values():
+        primary = load_batch(archive / forecast["path"] / "forecast.json")
+        candidate = json.loads((archive / forecast["source_versions_path"]).read_bytes())
+        assert candidate["as_of_utc"] == primary["as_of_utc"]
+        assert not candidate["models"]
+        assert {row["match_id"] for row in candidate["predictions"]} == {
+            row["match_id"] for row in primary["predictions"] if row["league"] == "英超"
+        }
+        assert all(row["status"] == "excluded" for row in candidate["predictions"])
+        assert all(row["model_version"] is None for row in candidate["predictions"])
+        assert all("model_probabilities" not in row for row in candidate["predictions"])
+    assert all(path.read_bytes() == value for path, value in frozen.items())
+    assert verify_forecasts(archive)["runs"]["candidate-failed"] == result
+
+
+def test_original_experimental_league_uses_new_sources_in_primary(
+    scheduled_archive, tmp_path, monkeypatch
+):
+    from sqlalchemy import update
+
+    from zucai import cloud_predict
+
+    _, params = scheduled_archive
+    database = tmp_path / "seed.db"
+    engine = get_engine(database)
+    with session_scope(engine) as session:
+        session.execute(update(Match).where(Match.league == "英超").values(league="芬超"))
+    engine.dispose()
+    archive = tmp_path / "experimental-archive"
+    export_feeds(database, archive, date(2026, 11, 2), "expanded-fixture")
+    config = json.loads(params.read_bytes())
+    config["leagues"] = {"芬超": config["leagues"]["芬超"]}
+    params.write_text(json.dumps(config), encoding="utf-8")
+    monkeypatch.setattr(cloud_predict, "_now", lambda: NOW)
+    result = cloud_predict.run(archive, params, "expanded-primary")
+    outcome = result["leagues"]["芬超"]
+    assert outcome["status"] == "trained"
+    assert outcome["sources"] == ["apif", "fd", "jc"]
+    assert outcome["p2_label"] == "实验" and outcome["paper_eligible"] is False
+    assert "source_versions" not in result
+    for forecast in result["forecasts"].values():
+        batch = load_batch(archive / forecast["path"] / "forecast.json")
+        for row in batch["predictions"]:
+            if row["league"] == "芬超":
+                assert row["source_variant"] == "expanded"
+                assert row["paper_eligible"] is False
+                assert row["model_definition_id"] == outcome["model_definition_id"]
+
+
+def test_partial_parameters_do_not_require_candidates_for_unconfigured_leagues(
+    scheduled_archive, tmp_path, monkeypatch
+):
+    from sqlalchemy import update
+
+    from zucai import cloud_predict
+    from zucai.forecast_archive import verify_forecasts
+
+    _, params = scheduled_archive
+    database = tmp_path / "seed.db"
+    engine = get_engine(database)
+    with session_scope(engine) as session:
+        session.execute(update(Match).where(Match.match_id == "jc:t17-today").values(league="西甲"))
+    engine.dispose()
+    archive = tmp_path / "partial-archive"
+    export_feeds(database, archive, date(2026, 11, 2), "partial-fixture")
+    monkeypatch.setattr(cloud_predict, "_now", lambda: NOW)
+    result = cloud_predict.run(archive, params, "partial-parameters")
+    assert set(result["source_versions"]["leagues"]) == {"英超"}
+    for forecast in result["forecasts"].values():
+        primary = load_batch(archive / forecast["path"] / "forecast.json")
+        candidate = json.loads((archive / forecast["source_versions_path"]).read_bytes())
+        assert {row["match_id"] for row in candidate["predictions"]} == {
+            row["match_id"] for row in primary["predictions"] if row["league"] == "英超"
+        }
+        assert all(
+            row["status"] == "excluded" for row in primary["predictions"] if row["league"] == "西甲"
+        )
+    assert verify_forecasts(archive)["runs"]["partial-parameters"] == result
 
 
 @pytest.mark.parametrize("schedule_state", ["failed", "complete", "legacy"])

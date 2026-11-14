@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from sqlalchemy import select
 
 from zucai.models import FdStatsLink, Match, Team
+from zucai.result_source_links import _archive_context, _stored_rows, _validate_rows
 from zucai.sources.apif_stats import instant
 from zucai.sources.fd_ingest import fd_match_id
 from zucai.sources.teams import normalize_team
@@ -136,9 +137,17 @@ def _unique_match(matches, league, kickoff, pair, *, fd_counterpart=None):
     ]
     related = [m for m in window if set(pair) & {m["home_team_id"], m["away_team_id"]}]
     direct = [m for m in related if (m["home_team_id"], m["away_team_id"]) == pair]
-    if len(direct) != 1 or len(related) != 1 or direct[0]["source"] != "jc":
+    targets = [m for m in direct if m["source"] == "jc"]
+    if len(targets) != 1 or len(related) != len(direct):
         raise ValueError("FD 同联赛三小时内主客反向、共享球队或候选不唯一")
-    match = direct[0]
+    match = targets[0]
+    members = match.get("result_group", {match["match_id"]})
+    if any(
+        m["match_id"] != match["match_id"]
+        and (m["source"] not in {"apif", "fdorg"} or m["match_id"] not in members)
+        for m in related
+    ):
+        raise ValueError("FD 同联赛三小时内主客反向、共享球队或候选不唯一")
     pointer = match.get("counterpart_id")
     if pointer:
         if pointer == fd_counterpart:
@@ -160,6 +169,35 @@ def _model_dict(model, columns):
     return {key: getattr(model, key) for key in columns}
 
 
+def _attach_result_groups(db, matches):
+    """Read complete valid proof components; stale snapshots grant no identity."""
+    rows = _stored_rows(db)
+    if not rows:
+        return
+    current, teams = _archive_context(db)
+    _validate_rows(rows, current, teams)
+    groups = {}
+    for row in rows:
+        left, right = row["provider_match_id"], row["counterpart_id"]
+        if any(
+            current[key][field] != row[field]
+            for key in (left, right)
+            for field in ("league", "home_team_id", "away_team_id")
+        ) or any(
+            current[key]["kickoff_utc"] != row[field]
+            for key, field in (
+                (left, "provider_kickoff_utc"),
+                (right, "counterpart_kickoff_utc"),
+            )
+        ):
+            continue
+        members = groups.get(left, frozenset({left})) | groups.get(right, frozenset({right}))
+        for member in members:
+            groups[member] = members
+    for match in matches:
+        match["result_group"] = groups.get(match["match_id"], frozenset({match["match_id"]}))
+
+
 def _session_context(session):
     teams = [_model_dict(t, ("id", "name", "aliases")) for t in session.scalars(select(Team))]
     matches = [
@@ -177,6 +215,7 @@ def _session_context(session):
         )
         for m in session.scalars(select(Match))
     ]
+    _attach_result_groups(session.connection().connection.driver_connection, matches)
     return teams, matches
 
 
@@ -308,6 +347,7 @@ def validate_fd_links(db):
             "counterpart_id",
         ),
     )
+    _attach_result_groups(db, matches)
     result, targets = {}, set()
     for link in links:
         _validate_link(link, teams, matches)

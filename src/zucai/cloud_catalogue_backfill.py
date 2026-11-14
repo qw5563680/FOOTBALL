@@ -125,6 +125,9 @@ def catalogue_scopes(root, provider, codes=None, first=None, last=None, *, regis
         if config.get("api_name") and config["api_name"] != row.get("name"):
             raise ValueError(f"{code} 目录名称与已核准映射不符，须人工核对")
         years = _years(row)
+        if provider == "apif" and config.get("require_result_permission"):
+            years &= set(config.get("result_seasons_available", []))
+
         excluded.extend(
             dict(code=code, season=season["year"], reason="目录同年记录冲突；禁止回填")
             for season in row["seasons"]

@@ -8,7 +8,7 @@ from zucai.cloud_feeds import digest
 from zucai.forecast_archive import _path
 from zucai.parlay import dedup
 from zucai.parlay.single_double import RULE, SUPPORTED_RULES
-from zucai.scoreboard.paper import decision_digest
+from zucai.scoreboard.paper import decision_digest, paper_context_allowed, paper_version_allowed
 from zucai.scoreboard.score import instant, outcome, record_key, result_reason
 
 LEDGER = "scoreboard/parlay_sd_ledger.jsonl"
@@ -107,6 +107,16 @@ def advance_ledger(documents, results, existing, at):
             continue
         used_matches, used_teams = set(), set()
         for frozen in doc["groups"]:
+            legs = [frozen["single"], frozen["double"]]
+            if (
+                not paper_context_allowed(doc)
+                or not paper_version_allowed(frozen)
+                or not all(
+                    paper_version_allowed(leg, required="model_definition_schema" in doc)
+                    for leg in legs
+                )
+            ):
+                continue
             if (
                 used_matches.intersection(frozen["match_ids"])
                 or used_teams.intersection(frozen["team_ids"])
@@ -115,7 +125,6 @@ def advance_ledger(documents, results, existing, at):
                 raise ValueError("F 同批组合重复使用比赛或球队")
             used_matches.update(frozen["match_ids"])
             used_teams.update(frozen["team_ids"])
-            legs = [frozen["single"], frozen["double"]]
             if any(instant(leg["kickoff_utc"]) <= instant(doc["published_utc"]) for leg in legs):
                 continue
             key = record_key(rule, "group", doc["batch_id"], frozen["group_id"])

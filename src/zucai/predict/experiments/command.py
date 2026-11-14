@@ -25,6 +25,8 @@ from zucai.predict.dixon_coles import InsufficientHistory
 from zucai.predict.experiments.evaluate import evaluate_group, load_protocol
 from zucai.predict.experiments.groups import write_group_report
 from zucai.predict.experiments.metrics import VARIANTS, diagnostics, is_common_experiment, summarize
+from zucai.result_source_groups import known_result_groups
+from zucai.result_source_links import load_result_links
 
 LOG = logging.getLogger(__name__)
 DEFAULT_PROTOCOL = (
@@ -76,17 +78,27 @@ def write_rows(path, rows):
 
 def attach_market(session, rows, features):
     """Post-fit comparison only: declared, identity-checked links to a jc fixture."""
+    proofs = load_result_links(session)
+    identity_matches = getattr(features, "_original", features).matches
     reverse = {}
     for game in features.matches.values():
         if game["source"] == "jc" and game.get("counterpart_id"):
             reverse.setdefault(game["counterpart_id"], []).append(game)
     links = {}
-    for row in rows:
+    for row_index, row in enumerate(rows):
         original = features.matches[row["match_id"]]
         linked = reverse.get(row["match_id"], [])[:]
         direct = features.matches.get(original.get("counterpart_id"))
         if direct and direct["source"] == "jc":
             linked.append(direct)
+        cutoff = min(utc(row["feature_cutoff"]), original["kickoff_utc"])
+        members = known_result_groups(identity_matches, proofs, cutoff).get(row["match_id"], ())
+        for key in members:
+            other = features.matches[key]
+            if other["source"] == "jc" and key in known_result_groups(
+                identity_matches, proofs, min(cutoff, other["kickoff_utc"])
+            ).get(row["match_id"], ()):
+                linked.append(other)
         valid = {
             g["match_id"]: g
             for g in linked
@@ -97,7 +109,7 @@ def attach_market(session, rows, features):
         }
         if len(valid) == 1:
             game = next(iter(valid.values()))
-            links[row["match_id"]] = game
+            links[row_index] = game
     quotes = {}
     ids = {game["match_id"] for game in links.values()}
     if ids:
@@ -107,9 +119,9 @@ def attach_market(session, rows, features):
         for key, stamp, selection, price in session.execute(query):
             if selection in "hda":
                 quotes.setdefault(key, {}).setdefault(utc(stamp), {})[selection] = price
-    for row in rows:
+    for row_index, row in enumerate(rows):
         row["variants"]["market"] = None
-        game = links.get(row["match_id"])
+        game = links.get(row_index)
         if game is None or row["actual"] is None:
             continue
         cutoff = min(utc(row["feature_cutoff"]), game["kickoff_utc"])

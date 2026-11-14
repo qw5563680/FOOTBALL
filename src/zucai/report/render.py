@@ -11,6 +11,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from zucai.predict.base import model_sources
+from zucai.predict.model_definitions import (
+    FROZEN_DEFINITION_FIELDS,
+    T63_LEAGUES,
+    legacy_definition_compatible,
+    validate_definition_metadata,
+)
 from zucai.predict.pooled import model_targets
 from zucai.prediction_disclosure import (
     prior_disclosure,
@@ -58,6 +64,86 @@ def _triplet(value: object, field: str, *, probabilities: bool = False) -> None:
         raise ValueError(f"{field} 概率必须在 [0,1] 且合计为 1")
 
 
+def _has_definition(row):
+    return any(key in row for key in FROZEN_DEFINITION_FIELDS)
+
+
+def _validate_frozen_definition(row):
+    if not all(key in row for key in FROZEN_DEFINITION_FIELDS):
+        raise ValueError("冻结模型定义及纸面资格标记必须完整")
+    validate_definition_metadata(row)
+    if type(row["paper_eligible"]) is not bool:
+        raise ValueError("纸面资格必须为布尔值")
+    definition = row["model_definition"]
+    if definition["league"] in T63_LEAGUES:
+        ready = row.get("p2_ready")
+        if (
+            type(ready) is not bool
+            or row.get("p2_label") != ("可用（旧规，考核中）" if ready else "实验")
+            or row["paper_eligible"] is not ready
+            or (row["source_variant"] != "legacy" and ready)
+            or (ready and not legacy_definition_compatible(row))
+        ):
+            raise ValueError("T63 扩展来源必须为实验且不可进入纸面账户")
+
+
+def _validate_prediction_definition(prediction, models, *, definition_schema=None):
+    matching = [
+        model
+        for model in models
+        if model["model_version"] == prediction.get("model_version")
+        and prediction.get("league") in model_targets(model)
+        and (
+            prediction.get("status") == "excluded"
+            or prediction.get("source") in model_sources(model)
+        )
+    ]
+    compatible = [model for model in models if prediction.get("league") in model_targets(model)]
+    if "definition_unavailable_reason" in prediction:
+        _text(prediction["definition_unavailable_reason"], "模型定义缺失原因")
+        if (
+            compatible
+            or prediction.get("status") != "excluded"
+            or prediction.get("paper_eligible") is not False
+            or prediction.get("model_version") is not None
+            or prediction.get("expected_definition") is not None
+            or any(key in prediction for key in FROZEN_DEFINITION_FIELDS[:-1])
+        ):
+            raise ValueError("缺少模型定义只能明确排除且不可用于纸面账户")
+        return
+    if "expected_definition" in prediction:
+        _validate_frozen_definition(prediction)
+        if (
+            prediction["expected_definition"] is not True
+            or compatible
+            or prediction.get("status") != "excluded"
+            or "model_version" not in prediction
+            or prediction["model_version"] is not None
+            or prediction.get("paper_eligible") is not False
+            or prediction.get("p2_ready") is not False
+            or prediction.get("league") != prediction["model_definition"]["league"]
+            or prediction.get("model_name") != prediction["model_definition"]["model_family"]
+        ):
+            raise ValueError("预期模型定义必须明确无拟合产物且不得替代已有模型")
+        return
+    if not _has_definition(prediction):
+        if (
+            (definition_schema == 1 and prediction.get("league"))
+            or any(_has_definition(model) for model in matching)
+            or (len(compatible) == 1 and _has_definition(compatible[0]))
+        ):
+            raise ValueError("冻结预测缺少模型定义及纸面资格")
+        return
+    _validate_frozen_definition(prediction)
+    if (
+        len(matching) != 1
+        or not _has_definition(matching[0])
+        or prediction.get("model_name") != matching[0]["model_name"]
+        or any(prediction[key] != matching[0][key] for key in FROZEN_DEFINITION_FIELDS)
+    ):
+        raise ValueError("逐场定义、来源版本及纸面资格须与冻结模型一致")
+
+
 def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> None:
     """Check the interchange contract without loading a model or consulting a DB."""
     if not isinstance(batch, dict) or type(batch.get("schema_version")) is not int:
@@ -79,6 +165,28 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
         raise ValueError("input 必须为对象")
     if not isinstance(batch.get("models"), list) or not isinstance(batch.get("predictions"), list):
         raise ValueError("models 和 predictions 必须为列表")
+    definition_schema = batch.get("model_definition_schema")
+    if "model_definition_schema" in batch and (
+        type(definition_schema) is not int or definition_schema != 1
+    ):
+        raise ValueError("模型定义格式标记必须为 1")
+    if "source_variant" in batch or "paper_eligible" in batch:
+        if definition_schema != 1:
+            raise ValueError("批次来源版本与纸面资格必须声明模型定义格式")
+        if "source_variant" in batch and batch["source_variant"] not in {
+            "legacy",
+            "expanded",
+            "current",
+        }:
+            raise ValueError("批次来源版本无效")
+        if "paper_eligible" in batch and type(batch["paper_eligible"]) is not bool:
+            raise ValueError("批次纸面资格必须为布尔值")
+        for row in [*batch["models"], *batch["predictions"]]:
+            if not isinstance(row, dict):
+                raise ValueError("冻结模型与预测必须为对象")
+            for key in ("source_variant", "paper_eligible"):
+                if key in batch and key in row and row[key] != batch[key]:
+                    raise ValueError("批次来源版本或纸面资格与冻结模型、逐场记录不一致")
     for model in batch["models"]:
         if not isinstance(model, dict):
             raise ValueError("models 项必须为对象")
@@ -98,10 +206,26 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
         share = model.get("assumed_training_share")
         if share is not None and (not _number(share) or not 0 <= share <= 1):
             raise ValueError("assumed_training_share 必须在 [0,1] 或为 null")
+        if definition_schema == 1 or _has_definition(model):
+            _validate_frozen_definition(model)
+            definition = model["model_definition"]
+            if (
+                definition["league"] != model["league"]
+                or definition["model_family"] != model["model_name"]
+                or definition["training_sources"] != model_sources(model)
+                or (
+                    "fitting_method" in model
+                    and definition["fitting_method"] != model["fitting_method"]
+                )
+            ):
+                raise ValueError("模型定义与冻结模型训练范围或方法不符")
     for prediction in batch["predictions"]:
         if not isinstance(prediction, dict):
             raise ValueError("predictions 项必须为对象")
         _text(prediction.get("match_id"), "match_id")
+        _validate_prediction_definition(
+            prediction, batch["models"], definition_schema=definition_schema
+        )
         if prediction.get("status") == "excluded":
             _text(prediction.get("reason"), "排除原因")
             if any(
@@ -127,7 +251,13 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
                 or type(prediction.get("p2_ready")) is not bool
                 or prediction["p2_ready"] is not matched[0].get("p2_ready")
                 or prediction.get("p2_label")
-                != ("P2 可用" if prediction["p2_ready"] else "P2 实验")
+                != (
+                    matched[0].get("p2_label")
+                    if _has_definition(matched[0])
+                    else "P2 可用"
+                    if prediction["p2_ready"]
+                    else "P2 实验"
+                )
             ):
                 raise ValueError("P2门槛须与冻结模型证据一致")
         _timestamp(prediction.get("kickoff_utc"))
@@ -419,6 +549,11 @@ def _csv_bytes(batch: dict) -> bytes:
     ]
     if batch["validation_status"] == "league_gated":
         columns.extend(["p2_ready", "p2_label", "unknown_team_prior"])
+    has_definitions = batch.get("model_definition_schema") == 1 or any(
+        _has_definition(row) for row in [*batch["models"], *batch["predictions"]]
+    )
+    if has_definitions:
+        columns.extend(["model_definition_id", "source_variant", "paper_eligible"])
     if "prospective_evidence" in batch:
         columns.extend(["prospective_verified", "prospective_n"])
     disclose_prior = any(uses_unknown_team_prior(row) for row in batch["predictions"])
@@ -459,6 +594,13 @@ def _csv_bytes(batch: dict) -> bytes:
                 p2_ready=prediction.get("p2_ready"),
                 p2_label=prediction.get("p2_label"),
                 unknown_team_prior=prediction.get("metadata", {}).get("unknown_team_prior"),
+            )
+        if has_definitions:
+            row.update(
+                {
+                    key: prediction.get(key)
+                    for key in ("model_definition_id", "source_variant", "paper_eligible")
+                }
             )
         if "prospective_evidence" in batch:
             row.update(

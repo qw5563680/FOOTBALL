@@ -34,6 +34,8 @@ def test_cli_initializes_all_tables_without_losing_existing_rows(tmp_path, monke
             "matches",
             "odds",
             "results",
+            "result_source_links",
+            "result_source_identities",
             "sfc_issues",
             "sfc_issue_matches",
             "predictions",
