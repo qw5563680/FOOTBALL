@@ -1,0 +1,41 @@
+........................................................................ [ 64%]
+..F.....................................                                 [100%]
+=================================== FAILURES ===================================
+______ test_saturday_success_skips_sunday_but_collects_again_next_monday _______
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-433/test_saturday_success_skips_su0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-433/test_saturday_success_skips_su0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f938badcf50>
+
+    def test_saturday_success_skips_sunday_but_collects_again_next_monday(
+        environment, tmp_path, monkeypatch
+    ):
+        forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        for name, instant, expected in (
+            ("saturday", "2026-11-14T10:19:00Z", "complete"),
+            ("sunday", "2026-11-15T23:59:59Z", "skipped"),
+            ("monday", "2026-11-16T00:00:00Z", "complete"),
+        ):
+            monkeypatch.setattr("test_cloud_apis.CLOCK", datetime.fromisoformat(instant))
+            with responses.RequestsMock(assert_all_requests_are_fired=False) as api:
+                mock_apis(api, fd=expected == "complete", apif_mode="empty")
+                work = run_apis(tmp_path, monkeypatch, environment, name)
+                assert sum("football-data.co.uk" in call.request.url for call in api.calls) == (
+                    1 if expected == "complete" else 0
+                )
+            report = archive_info(environment)["collection"]["fd"]
+            assert report["status"] == expected
+            assert archive_info(environment)["collection"]["apif"]["status"] == "complete"
+>           assert archive_info(environment)["collection"]["fdorg"]["status"] == "complete"
+E           AssertionError: assert 'partial' == 'complete'
+E             
+E             - complete
+E             + partial
+
+/workspace/work/football-t66/tests/test_t66_fd_schedule.py:249: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  zucai.cloud_apis:cloud_apis.py:110 2026-11-11: 响应、配置或导入校验失败 (ValueError)
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_schedule.py::test_saturday_success_skips_sunday_but_collects_again_next_monday
+1 failed, 111 passed in 9.96s

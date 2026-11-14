@@ -1,0 +1,99 @@
+....F...............FF...........................F........               [100%]
+=================================== FAILURES ===================================
+________ test_fd_fdorg_apif_can_share_one_verified_fixture_and_reimport ________
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-438/test_fd_fdorg_apif_can_share_o0/data/zucai.db)
+
+    def test_fd_fdorg_apif_can_share_one_verified_fixture_and_reimport(db):
+        case = SEED["cases"][0]
+        with session_scope(db) as session:
+            original = session.get(Match, case["apif_id"])
+            fdorg = clone(session, original, "fdorg:100", result_provider="fdorg")
+            assert ingest_fd(session, case)["inserted"] == 1
+            assert fdorg.counterpart_id == case["fd_id"]
+            assert session.get(Match, case["apif_id"]).counterpart_id == case["fd_id"]
+            before = evidence(session, case["apif_id"])
+            for _ in range(2):
+                assert ingest_fd(session, case)["unchanged"] == 1
+                assert import_apif_games(
+                    session, [apif_game(case)], seen=SEEN, assume=None, aliases=APIF_ALIASES
+                )["linked_fd"] == 1
+                game = replace(apif_game(case), provider="fdorg", provider_match_id=100)
+                report = import_fdorg_games(
+                    session, [game], seen=SEEN, assume=None, aliases=APIF_ALIASES
+                )
+>               assert report["linked_fd"] == 1, report
+E               AssertionError: {'inserted': 0, 'updated': 0, 'corrected': 0, 'availability_corrected': 0, ...}
+E               assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:167: AssertionError
+__ test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[FIN-False] __
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-438/test_incoming_fd_batch_conflic0/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+reverse = False
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order(db, case, reverse):
+        game = fd_game(case)
+        other = replace(game, away_raw="Other unbound club", row_number=3)
+        games = [game, other] if not reverse else [other, game]
+        with session_scope(db) as session:
+            result = ingest_fd(session, case, games)
+>           assert result["suspected_duplicates"] == 2
+E           assert 1 == 2
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:233: AssertionError
+__ test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[FIN-True] ___
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-438/test_incoming_fd_batch_conflic1/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+reverse = True
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order(db, case, reverse):
+        game = fd_game(case)
+        other = replace(game, away_raw="Other unbound club", row_number=3)
+        games = [game, other] if not reverse else [other, game]
+        with session_scope(db) as session:
+            result = ingest_fd(session, case, games)
+>           assert result["suspected_duplicates"] == 2
+E           assert 1 == 2
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:233: AssertionError
+______ test_cleanup_skips_conflicts_without_mutating_rows[incoming_link] _______
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-438/test_cleanup_skips_conflicts_w4/data/zucai.db)
+conflict = 'incoming_link'
+
+    @pytest.mark.parametrize(
+        "conflict", ["multiple_fd", "multiple_fdorg", "reverse", "existing_link", "incoming_link", "jc"]
+    )
+    def test_cleanup_skips_conflicts_without_mutating_rows(db, conflict):
+        from zucai.sources.fd_counterpart import relink_fdorg
+    
+        with session_scope(db) as s:
+            match = s.get(Match, KEY)
+            clone(s, match, FD_KEY, reverse=conflict == "reverse")
+            if conflict == "multiple_fd":
+                clone(s, match, "fd:other")
+            elif conflict == "multiple_fdorg":
+                clone(s, match, "fdorg:other")
+            elif conflict == "existing_link":
+                match.counterpart_id = "fd:other"
+            elif conflict == "incoming_link":
+                clone(s, match, "apif:other", counterpart=FD_KEY)
+            elif conflict == "jc":
+                clone(s, match, "jc:other")
+            before = [tuple(row) for row in s.execute(select(Match.__table__))]
+        result = relink_fdorg(Path(db.url.database))
+>       assert result["linked"] == 0 and result["skipped"] > 0 and result["reasons"]
+E       assert (1 == 0)
+
+/workspace/work/football-t66/tests/test_fd_counterpart.py:339: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_apif.py::test_fd_fdorg_apif_can_share_one_verified_fixture_and_reimport
+FAILED tests/test_t66_fd_apif.py::test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[FIN-False]
+FAILED tests/test_t66_fd_apif.py::test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[FIN-True]
+FAILED tests/test_fd_counterpart.py::test_cleanup_skips_conflicts_without_mutating_rows[incoming_link]
+4 failed, 54 passed in 3.66s

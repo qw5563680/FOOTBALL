@@ -1,0 +1,89 @@
+{
+  "verdict": "通过",
+  "review_kind": "Codex internal review only; not Claude approval and not merge authorization",
+  "base": "f3bc574",
+  "scope": [
+    "src/zucai/sources/fd_apif_counterpart.py",
+    "src/zucai/sources/fd_ingest.py",
+    "src/zucai/sources/apif_ingest.py",
+    "src/zucai/sources/fd_counterpart.py",
+    "src/zucai/predict/pooled.py",
+    "src/zucai/predict/backtest.py",
+    "src/zucai/cloud_feeds.py",
+    "tests/test_t66_fd_apif.py"
+  ],
+  "closed_findings": [
+    {
+      "id": "T66-INTERNAL-1",
+      "description": "APIF binding owner checks now use the complete Team inventory. Known bindings have one exclusive owner; an opaque side cannot contradict an existing same-league owner or multiple owners.",
+      "source": "src/zucai/sources/fd_apif_counterpart.py:129",
+      "preserved_behavior": "Unique owner matching the FD counterpart and bindings belonging only to another league remain accepted; original APIF team IDs and result evidence stay unchanged."
+    },
+    {
+      "id": "T66-INTERNAL-2",
+      "description": "Relevant APIF→FD links are verified against the complete stored neighborhood and global claims before the training frame excludes scheduled/source-filtered anchors.",
+      "sources": [
+        "src/zucai/sources/fd_apif_counterpart.py:268",
+        "src/zucai/predict/backtest.py:89",
+        "src/zucai/predict/pooled.py:75"
+      ],
+      "preserved_behavior": "A valid scheduled FDORG sibling is accepted; scheduled competing APIF rows remain visible to the guard. Existing unrelated link policies remain on their previous path."
+    }
+  ],
+  "open_must_fix": [],
+  "tests": {
+    "independent_old_source": "7 failed, 3 passed in 2.34s",
+    "independent_corrected_source": "10 passed in 2.45s",
+    "final_focused": "443 passed, 56 penaltyblog/NumPy DeprecationWarnings in 16.56s",
+    "ruff": "All checks passed; 8 files already formatted",
+    "git_diff_check": "passed"
+  },
+  "regression_scope": [
+    "test_t66_fd_apif",
+    "test_t66_fd_links",
+    "test_fd_stats_links",
+    "test_fd_ingest",
+    "test_fd_counterpart",
+    "test_fdorg_ingest",
+    "test_apif_ingest",
+    "test_jc_counterpart",
+    "test_pooled_pipeline",
+    "test_stats_link",
+    "10 external independent probes"
+  ],
+  "fixture_validation": "Independently compared exact FIN/SWE crop bytes, original metadata/hash, and 5 Team / 2 Match / 2 Result source rows from e5848e5. See fixture-verification.json.",
+  "four_questions": {
+    "frozen_outputs": "No changes found in repository forecasts/models/scoreboard/sfc/daily/state/publication paths. This review wrote only its independent evidence directory; root/acceptance owns full data-archive immutability verification.",
+    "affected_matching_routing_probabilities": "The intended association now links real apif:1638116 to fd:FIN:20261101:ac-oulu:kups and apif:1494327 to fd:SWE:20261103:sirius:halmstad. The same precise rule applies to eligible stored APIF/FD overlaps. Training selects FD once by existing source priority. Provider routing, parameters, global aliases and persisted original APIF results are unchanged. The full affected ID list is owned by real acceptance.",
+    "pre_kickoff_information": "No new market input or result-availability rule was introduced. Linking uses league, exact stored identities/bindings, orientation, time window and uniqueness; score equality is not identity evidence. Existing FD assumed-known-after behavior remains, so this review does not claim newly imported captures were historically observed before kickoff.",
+    "coverage": "Real exact/one-opaque fixtures; both window endpoints/outside window; reversed and shared-team/multiple candidates; both incoming row orders; global binding conflicts; contrary opaque bindings; later FD/APIF/FDORG reimports; original evidence preservation; export/restore tampering; complete-graph training validation; unchanged legacy rejection tests all exercised."
+  },
+  "declined_to_judge": [
+    {
+      "behavior": "19-model full real replay and complete frozen-archive hash equality",
+      "reason": "Separately assigned to root/t66_review_acceptance; not duplicated or claimed by this code review."
+    },
+    {
+      "behavior": "Production freshness/publication and next Monday schedule behavior",
+      "reason": "Reviewer-triggered online acceptance after merge remains required; no production or sports-network operation was performed here."
+    },
+    {
+      "behavior": "Model quality or predictive improvement",
+      "reason": "This is an ingestion/identity correctness review, not a predeclared model experiment."
+    }
+  ],
+  "evidence": [
+    "findings-initial.json",
+    "fixture-verification.json",
+    "test_independent_edges.py",
+    "corrected-edge-old-code.log",
+    "corrected-edge-probes.log",
+    "final-focused.log",
+    "reviewed-files.json",
+    "opaque-binding-probes.log.status.txt"
+  ],
+  "source_hashes_stable_after_tests": true,
+  "business_files_changed_by_reviewer": false,
+  "committed_or_pushed": false,
+  "live_sports_or_production_keys": false
+}

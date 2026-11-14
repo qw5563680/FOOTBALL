@@ -1,0 +1,40 @@
+first-import BRA: 7 inserted, 31 existing, 1 rejected, 5 suspected
+first-import D1: 0 inserted, 72 existing, 0 rejected, 0 suspected
+first-import E0: 0 inserted, 72 existing, 0 rejected, 8 suspected
+first-import E1: 20 inserted, 36 existing, 0 rejected, 0 suspected
+first-import F1: 6 inserted, 41 existing, 0 rejected, 0 suspected
+first-import F2: 4 inserted, 6 existing, 0 rejected, 15 suspected
+first-import FIN: 4 inserted, 13 existing, 0 rejected, 6 suspected
+first-import I1: 0 inserted, 90 existing, 0 rejected, 0 suspected
+first-import JPN: 10 inserted, 36 existing, 0 rejected, 10 suspected
+first-import N1: 7 inserted, 35 existing, 0 rejected, 0 suspected
+first-import NOR: 8 inserted, 21 existing, 0 rejected, 15 suspected
+first-import P1: 5 inserted, 28 existing, 0 rejected, 6 suspected
+first-import SP1: 1 inserted, 87 existing, 0 rejected, 0 suspected
+first-import SWE: 8 inserted, 24 existing, 0 rejected, 12 suspected
+first-import USA: 15 inserted, 18 existing, 5 rejected, 64 suspected
+Traceback (most recent call last):
+  File "/workspace/work/t66-review-20261114/real-acceptance/acceptance.py", line 338, in <module>
+    if getattr(args, name) is not None:
+^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/acceptance.py", line 334, in main
+    parser.add_argument("--only", nargs="*")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/acceptance.py", line 219, in replay
+    added=sorted(set(after_ids[league]) - set(ids)),
+^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/acceptance.py", line 183, in import_all
+    token = path.name.split("-", 1)[0]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/code-f3bc574/src/zucai/sources/fd_ingest.py", line 427, in fetch_fd
+    result = import_fd_games(
+             ^^^^^^^^^^^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/code-f3bc574/src/zucai/sources/fd_ingest.py", line 248, in import_fd_games
+    _team(session, raw, name, league)
+  File "/workspace/work/t66-review-20261114/real-acceptance/code-f3bc574/src/zucai/sources/fd_ingest.py", line 116, in _team
+    if t.id != team.id
+               ^^^^^^^
+  File "/workspace/work/t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/attributes.py", line 561, in __get__
+    def __get__(
+
+KeyboardInterrupt

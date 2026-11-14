@@ -1,0 +1,822 @@
+FFFFFFFFFFFFFFFFFFFFFFF.F                                                [100%]
+=================================== FAILURES ===================================
+____ test_real_late_fd_links_apif_without_rewriting_identity_or_result[FIN] ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_real_late_fd_links_apif_w0/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+
+    def test_real_late_fd_links_apif_without_rewriting_identity_or_result(db, case):
+        with session_scope(db) as session:
+            before = evidence(session, case["apif_id"])
+            result = ingest_fd(session, case)
+            assert result["inserted"] == 1 and result["suspected_duplicates"] == 0
+>           assert session.get(Match, case["apif_id"]).counterpart_id == case["fd_id"]
+E           AssertionError: assert None == 'fd:FIN:20261101:ac-oulu:kups'
+E            +  where None = <zucai.models.Match object at 0x7fa7ab4b3b60>.counterpart_id
+E            +    where <zucai.models.Match object at 0x7fa7ab4b3b60> = get(Match, 'apif:1638116')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7fa7ab74b590>.get
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:121: AssertionError
+____ test_real_late_fd_links_apif_without_rewriting_identity_or_result[SWE] ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_real_late_fd_links_apif_w1/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+
+    def test_real_late_fd_links_apif_without_rewriting_identity_or_result(db, case):
+        with session_scope(db) as session:
+            before = evidence(session, case["apif_id"])
+            result = ingest_fd(session, case)
+            assert result["inserted"] == 1 and result["suspected_duplicates"] == 0
+>           assert session.get(Match, case["apif_id"]).counterpart_id == case["fd_id"]
+E           AssertionError: assert None == 'fd:SWE:20261103:sirius:halmstad'
+E            +  where None = <zucai.models.Match object at 0x7fa7ab348bf0>.counterpart_id
+E            +    where <zucai.models.Match object at 0x7fa7ab348bf0> = get(Match, 'apif:1494327')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7fa7ab4b3c50>.get
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:121: AssertionError
+____________ test_linked_fd_and_apif_reimports_are_idempotent[FIN] _____________
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_linked_fd_and_apif_reimpo0/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+
+    def test_linked_fd_and_apif_reimports_are_idempotent(db, case):
+        with session_scope(db) as session:
+            ingest_fd(session, case)
+            before = evidence(session, case["apif_id"])
+            for _ in range(2):
+                report = import_apif_games(
+                    session, [apif_game(case)], seen=SEEN, assume=None, aliases=APIF_ALIASES
+                )
+>               assert report["linked_fd"] == 1 and report["suspected_duplicates"] == 0
+E               assert (0 == 1)
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:143: AssertionError
+____________ test_linked_fd_and_apif_reimports_are_idempotent[SWE] _____________
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_linked_fd_and_apif_reimpo1/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+
+    def test_linked_fd_and_apif_reimports_are_idempotent(db, case):
+        with session_scope(db) as session:
+            ingest_fd(session, case)
+            before = evidence(session, case["apif_id"])
+            for _ in range(2):
+                report = import_apif_games(
+                    session, [apif_game(case)], seen=SEEN, assume=None, aliases=APIF_ALIASES
+                )
+>               assert report["linked_fd"] == 1 and report["suspected_duplicates"] == 0
+E               assert (0 == 1)
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:143: AssertionError
+________ test_fd_fdorg_apif_can_share_one_verified_fixture_and_reimport ________
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_fd_fdorg_apif_can_share_o0/data/zucai.db)
+
+    def test_fd_fdorg_apif_can_share_one_verified_fixture_and_reimport(db):
+        case = SEED["cases"][0]
+        with session_scope(db) as session:
+            original = session.get(Match, case["apif_id"])
+            fdorg = clone(session, original, "fdorg:100", result_provider="fdorg")
+            assert ingest_fd(session, case)["inserted"] == 1
+            assert fdorg.counterpart_id == case["fd_id"]
+>           assert session.get(Match, case["apif_id"]).counterpart_id == case["fd_id"]
+E           AssertionError: assert None == 'fd:FIN:20261101:ac-oulu:kups'
+E            +  where None = <zucai.models.Match object at 0x7fa7ab355c70>.counterpart_id
+E            +    where <zucai.models.Match object at 0x7fa7ab355c70> = get(Match, 'apif:1638116')
+E            +      where get = <sqlalchemy.orm.session.Session object at 0x7fa7ab355730>.get
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:156: AssertionError
+____ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-reverse] ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late0/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+conflict = 'reverse'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+___ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-same_side] ___
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late1/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+conflict = 'same_side'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+___ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-two_apif] ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late2/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+conflict = 'two_apif'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+___ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-other_fd] ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late3/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+conflict = 'other_fd'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+__ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-api_pointer] __
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late4/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+conflict = 'api_pointer'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+__ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-fd_claimed] ___
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late5/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+conflict = 'fd_claimed'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+__ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-api_claimed] __
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late6/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+conflict = 'api_claimed'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+____ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-reverse] ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late7/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+conflict = 'reverse'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+___ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-same_side] ___
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late8/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+conflict = 'same_side'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+___ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-two_apif] ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late9/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+conflict = 'two_apif'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+___ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-other_fd] ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late10/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+conflict = 'other_fd'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+__ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-api_pointer] __
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late11/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+conflict = 'api_pointer'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+__ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-fd_claimed] ___
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late12/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+conflict = 'fd_claimed'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+__ test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-api_claimed] __
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_ambiguous_or_claimed_late13/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+conflict = 'api_claimed'
+
+    @pytest.mark.parametrize(
+        "conflict",
+        ["reverse", "same_side", "two_apif", "other_fd", "api_pointer", "fd_claimed", "api_claimed"],
+    )
+    def test_ambiguous_or_claimed_late_fd_does_not_choose_a_match(db, case, conflict):
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            if conflict == "reverse":
+                api.home_team_id, api.away_team_id = api.away_team_id, api.home_team_id
+            elif conflict == "same_side":
+                api.away_team_id = 442 if case["country"] == "FIN" else 409
+            elif conflict == "two_apif":
+                clone(session, api, "apif:777")
+            elif conflict == "other_fd":
+                clone(
+                    session,
+                    api,
+                    "fd:other",
+                    home_team_id=case["fd_home_team_id"],
+                    away_team_id=case["fd_away_team_id"],
+                )
+            elif conflict == "api_pointer":
+                api.counterpart_id = "fd:elsewhere"
+            else:
+                clone(
+                    session,
+                    api,
+                    "jc:claim",
+                    kickoff_utc=fd_game(case).kickoff_utc - timedelta(days=10),
+                    counterpart_id=case["fd_id"] if conflict == "fd_claimed" else api.match_id,
+                )
+            session.flush()
+            before = evidence(session, api.match_id)
+            result = ingest_fd(session, case)
+>           assert result["suspected_duplicates"] == 1
+E           assert 0 == 1
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:204: AssertionError
+__ test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[FIN-False] __
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_incoming_fd_batch_conflic0/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+reverse = False
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order(db, case, reverse):
+        game = fd_game(case)
+        other = replace(game, away_raw="Other unbound club", row_number=3)
+        games = [game, other] if not reverse else [other, game]
+        with session_scope(db) as session:
+            result = ingest_fd(session, case, games)
+>           assert result["suspected_duplicates"] == 2
+E           assert 0 == 2
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:216: AssertionError
+__ test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[FIN-True] ___
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_incoming_fd_batch_conflic1/data/zucai.db)
+case = {'country': 'FIN', 'fixture': 'fd-fin-oulu-kups.csv', 'apif_id': 'apif:1638116', 'fd_id': 'fd:FIN:20261101:ac-oulu:kups', ...}
+reverse = True
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order(db, case, reverse):
+        game = fd_game(case)
+        other = replace(game, away_raw="Other unbound club", row_number=3)
+        games = [game, other] if not reverse else [other, game]
+        with session_scope(db) as session:
+            result = ingest_fd(session, case, games)
+>           assert result["suspected_duplicates"] == 2
+E           assert 0 == 2
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:216: AssertionError
+__ test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[SWE-False] __
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_incoming_fd_batch_conflic2/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+reverse = False
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order(db, case, reverse):
+        game = fd_game(case)
+        other = replace(game, away_raw="Other unbound club", row_number=3)
+        games = [game, other] if not reverse else [other, game]
+        with session_scope(db) as session:
+            result = ingest_fd(session, case, games)
+>           assert result["suspected_duplicates"] == 2
+E           assert 0 == 2
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:216: AssertionError
+__ test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[SWE-True] ___
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_incoming_fd_batch_conflic3/data/zucai.db)
+case = {'country': 'SWE', 'fixture': 'fd-swe-sirius-halmstad.csv', 'apif_id': 'apif:1494327', 'fd_id': 'fd:SWE:20261103:sirius:halmstad', ...}
+reverse = True
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order(db, case, reverse):
+        game = fd_game(case)
+        other = replace(game, away_raw="Other unbound club", row_number=3)
+        games = [game, other] if not reverse else [other, game]
+        with session_scope(db) as session:
+            result = ingest_fd(session, case, games)
+>           assert result["suspected_duplicates"] == 2
+E           assert 0 == 2
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:216: AssertionError
+___ test_export_restore_retains_partial_link_and_rejects_identity_tampering ____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-436/test_export_restore_retains_pa0/data/zucai.db)
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-436/test_export_restore_retains_pa0')
+
+    def test_export_restore_retains_partial_link_and_rejects_identity_tampering(db, tmp_path):
+        case = SEED["cases"][1]
+        with session_scope(db) as session:
+            ingest_fd(session, case)
+        database = Path(db.url.database)
+        archive = tmp_path / "archive"
+        export_feeds(database, archive, SEEN.date(), "linked")
+        restored = tmp_path / "restored/data/zucai.db"
+        restore_feeds(archive, restored)
+        with sqlite3.connect(restored) as connection:
+>           assert connection.execute(
+                "SELECT counterpart_id FROM matches WHERE match_id=?", (case["apif_id"],)
+            ).fetchone() == (case["fd_id"],)
+E           AssertionError: assert (None,) == ('fd:SWE:2026...us:halmstad',)
+E             
+E             At index 0 diff: None != 'fd:SWE:20261103:sirius:halmstad'
+E             Use -v to get more diff
+
+/workspace/work/football-t66/tests/test_t66_fd_apif.py:244: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_apif.py::test_real_late_fd_links_apif_without_rewriting_identity_or_result[FIN]
+FAILED tests/test_t66_fd_apif.py::test_real_late_fd_links_apif_without_rewriting_identity_or_result[SWE]
+FAILED tests/test_t66_fd_apif.py::test_linked_fd_and_apif_reimports_are_idempotent[FIN]
+FAILED tests/test_t66_fd_apif.py::test_linked_fd_and_apif_reimports_are_idempotent[SWE]
+FAILED tests/test_t66_fd_apif.py::test_fd_fdorg_apif_can_share_one_verified_fixture_and_reimport
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-reverse]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-same_side]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-two_apif]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-other_fd]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-api_pointer]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-fd_claimed]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[FIN-api_claimed]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-reverse]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-same_side]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-two_apif]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-other_fd]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-api_pointer]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-fd_claimed]
+FAILED tests/test_t66_fd_apif.py::test_ambiguous_or_claimed_late_fd_does_not_choose_a_match[SWE-api_claimed]
+FAILED tests/test_t66_fd_apif.py::test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[FIN-False]
+FAILED tests/test_t66_fd_apif.py::test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[FIN-True]
+FAILED tests/test_t66_fd_apif.py::test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[SWE-False]
+FAILED tests/test_t66_fd_apif.py::test_incoming_fd_batch_conflict_cannot_be_resolved_by_row_order[SWE-True]
+FAILED tests/test_t66_fd_apif.py::test_export_restore_retains_partial_link_and_rejects_identity_tampering
+24 failed, 1 passed in 3.31s

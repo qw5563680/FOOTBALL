@@ -1,0 +1,182 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.2.0, pluggy-1.7.0
+rootdir: /workspace/work
+plugins: platformdirs-4.14.5, typeguard-4.6.0
+collected 4 items
+
+../t66-review-20261114/internal-review/test_independent_edges.py FFFF    [100%]
+
+=================================== FAILURES ===================================
+_______ test_fd_admission_rejects_competing_owner_of_known_apif_binding ________
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-442/test_fd_admission_rejects_comp0/data/zucai.db)
+
+    def test_fd_admission_rejects_competing_owner_of_known_apif_binding(db):
+        case = SEED["cases"][0]
+        with session_scope(db) as session:
+            session.add(Team(name="Competing APIF identity", aliases=["apif:芬超:team:2077"]))
+            session.flush()
+            report = ingest_fd(session, case)
+>           assert report["suspected_duplicates"] == 1, report
+E           AssertionError: {'inserted': 1, 'corrected': 0, 'linked_existing': 0, 'linked_apif': 1, ...}
+E           assert 0 == 1
+
+/workspace/work/t66-review-20261114/internal-review/test_independent_edges.py:22: AssertionError
+__________ test_export_rejects_competing_owner_of_linked_apif_binding __________
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-442/test_export_rejects_competing_0/data/zucai.db)
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-442/test_export_rejects_competing_0')
+
+    def test_export_rejects_competing_owner_of_linked_apif_binding(db, tmp_path):
+        case = SEED["cases"][0]
+        with session_scope(db) as session:
+            assert ingest_fd(session, case)["linked_apif"] == 1
+            session.add(Team(name="Competing APIF identity", aliases=["apif:芬超:team:2077"]))
+>       with pytest.raises(ValueError, match="apif|APIF|来源|绑定"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+/workspace/work/t66-review-20261114/internal-review/test_independent_edges.py:33: Failed
+__ test_training_accepts_export_valid_fdorg_anchor_omitted_by_finished_filter __
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-442/test_training_accepts_export_v0/data/zucai.db)
+
+    def test_training_accepts_export_valid_fdorg_anchor_omitted_by_finished_filter(db):
+        case = SEED["cases"][0]
+        with session_scope(db) as session:
+            api = session.get(Match, case["apif_id"])
+            sibling = clone(session, api, "fdorg:review-anchor", result_provider="fdorg")
+            assert ingest_fd(session, case)["linked_apif"] == 1
+            fd = session.get(Match, case["fd_id"])
+            fd.counterpart_id = sibling.match_id
+        with sqlite3.connect(db.url.database) as conn:
+            check_db(conn)
+        with session_scope(db) as session:
+>           history = read_history(session, "欧战", "jc,fd,fdorg,apif", training_leagues=["芬超"])
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/t66-review-20261114/internal-review/test_independent_edges.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/work/football-t66/src/zucai/predict/backtest.py:88: in read_history
+    frame = linked_representatives(frame)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/work/football-t66/src/zucai/predict/pooled.py:76: in linked_representatives
+    candidate = find_apif_candidate(by_id[row.counterpart_id], identities, names)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fd = FixtureIdentity(match_id='fd:FIN:20261101:ac-oulu:kups', source='fd', league='芬超', home_team_id='AC奥卢', away_team_id='...ickoff_utc=Timestamp('2026-11-01 13:00:00+0000', tz='UTC'), counterpart_id='fdorg:review-anchor', result_provider=None)
+rows = [FixtureIdentity(match_id='apif:1638116', source='apif', league='芬超', home_team_id='AC奥卢', away_team_id='库奥皮奥', kickof...ckoff_utc=Timestamp('2026-11-01 13:00:00+0000', tz='UTC'), counterpart_id='fdorg:review-anchor', result_provider=None)]
+names = {'AC奥卢': 'AC奥卢', '库奥皮奥': '库奥皮奥'}, incoming = (), fd_bound = None
+aliases = None
+
+    def find_apif_candidate(fd, rows, names, *, incoming=(), fd_bound=None, aliases=None):
+        """Check both directions and every claim, with at most one row per source.
+    
+        Shared teams only veto alternatives. A link needs the exact oriented pair,
+        or one opaque APIF side and the other exact canonical ID in the same role.
+        Incoming FD identities participate before any row can win by import order.
+        """
+        candidates = _neighbors(fd, rows, "apif")
+        claims = [row for row in rows if row.source == "apif" and row.counterpart_id == fd.match_id]
+        if not candidates:
+            if claims:
+                raise CounterpartConflict(
+                    "既有 apif→fd 链接身份或开球窗口不符", [r.match_id for r in claims]
+                )
+            return None
+        if (
+            fd_bound is not None
+            and not claims
+            and all(
+                api.counterpart_id is None
+                and all(_canonical(names.get(team)) for team in _pair(api))
+                and any(
+                    fd_bound[side]
+                    and not fd_bound[1 - side]
+                    and _pair(fd)[side] == _pair(api)[side]
+                    and _pair(fd)[1 - side] != _pair(api)[1 - side]
+                    for side in (0, 1)
+                )
+                for api in candidates
+            )
+        ):
+            # FD has always retained unbound raw-name teams. Do not turn an identity
+            # gap on that side into either a guessed link or a new admission veto.
+            return None
+        ids = [row.match_id for row in candidates]
+        if len(candidates) != 1 or not _same_identity(fd, candidates[0], names):
+            raise CounterpartConflict("apif 候选不唯一、主客冲突或已知球队不符", ids)
+        api = candidates[0]
+        if getattr(api, "result_provider", None) not in (None, "apif"):
+            raise CounterpartConflict("apif 候选的赛果来源与自身来源不符", [api.match_id])
+        if aliases is not None:
+            pattern = rf"apif:{re.escape(api.league)}:team:[1-9][0-9]*"
+            if any(
+                _canonical(names.get(team))
+                and len([value for value in aliases.get(team, ()) if re.fullmatch(pattern, value)]) != 1
+                for team in _pair(api)
+            ):
+                raise CounterpartConflict("apif 已知球队缺少唯一的本联赛来源绑定", [api.match_id])
+        others = {row.match_id for row in _neighbors(api, [*rows, *incoming], "fd")}
+        if others != {fd.match_id}:
+            raise CounterpartConflict("apif 对应多个或反向 fd 候选", sorted(others | {fd.match_id}))
+        if api.counterpart_id not in (None, fd.match_id):
+            raise CounterpartConflict(
+                "apif 已有不同 counterpart 链接", [api.match_id, api.counterpart_id]
+            )
+    
+        # An independently verified FDORG sibling may coexist with APIF on the FD anchor.
+        siblings = [
+            row
+            for row in rows
+            if row.source == "fdorg"
+            and (row.counterpart_id == fd.match_id or fd.counterpart_id == row.match_id)
+        ]
+        if len(siblings) > 1:
+            raise CounterpartConflict("fd 已有多个 fdorg 声明", [row.match_id for row in siblings])
+        allowed = {fd.match_id: {api.match_id}, api.match_id: {fd.match_id}}
+        if siblings:
+            sibling = siblings[0]
+            if (
+                not _window(fd, sibling)
+                or _pair(fd) != _pair(sibling)
+                or sibling.counterpart_id not in (None, fd.match_id)
+                or {row.match_id for row in _neighbors(sibling, rows, "fd")} != {fd.match_id}
+                or {row.match_id for row in _neighbors(fd, rows, "fdorg")} != {sibling.match_id}
+            ):
+                raise CounterpartConflict("apif→fd 的 fdorg 同场声明无法唯一复核", [sibling.match_id])
+            allowed[fd.match_id].add(sibling.match_id)
+            allowed[sibling.match_id] = {fd.match_id}
+        for row in rows:
+            if row.match_id in allowed and row.counterpart_id not in (None, *allowed[row.match_id]):
+>               raise CounterpartConflict(
+                    "apif→fd 端点已有不同 counterpart", [row.match_id, row.counterpart_id]
+                )
+E               zucai.sources.fd_counterpart.CounterpartConflict: apif→fd 端点已有不同 counterpart
+
+/workspace/work/football-t66/src/zucai/sources/fd_apif_counterpart.py:165: CounterpartConflict
+_____ test_training_rejects_scheduled_competitor_hidden_by_finished_filter _____
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-442/test_training_rejects_schedule0/data/zucai.db)
+
+    def test_training_rejects_scheduled_competitor_hidden_by_finished_filter(db):
+        case = SEED["cases"][1]
+        with session_scope(db) as session:
+            assert ingest_fd(session, case)["linked_apif"] == 1
+            clone(session, session.get(Match, case["apif_id"]), "apif:review-contender")
+        with sqlite3.connect(db.url.database) as conn:
+            with pytest.raises(ValueError, match="apif|APIF"):
+                check_db(conn)
+        with session_scope(db) as session:
+>           with pytest.raises(ValueError, match="apif|APIF|跨来源|候选"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+/workspace/work/t66-review-20261114/internal-review/test_independent_edges.py:61: Failed
+=========================== short test summary info ============================
+FAILED ../t66-review-20261114/internal-review/test_independent_edges.py::test_fd_admission_rejects_competing_owner_of_known_apif_binding
+FAILED ../t66-review-20261114/internal-review/test_independent_edges.py::test_export_rejects_competing_owner_of_linked_apif_binding
+FAILED ../t66-review-20261114/internal-review/test_independent_edges.py::test_training_accepts_export_valid_fdorg_anchor_omitted_by_finished_filter
+FAILED ../t66-review-20261114/internal-review/test_independent_edges.py::test_training_rejects_scheduled_competitor_hidden_by_finished_filter
+============================== 4 failed in 2.38s ===============================

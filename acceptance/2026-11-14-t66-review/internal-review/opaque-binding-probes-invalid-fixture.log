@@ -1,0 +1,66 @@
+F.F.F                                                                    [100%]
+=================================== FAILURES ===================================
+_ test_opaque_apif_side_respects_existing_league_binding[owners0-\u745e\u8d85-False] _
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-444/test_opaque_apif_side_respects0/data/zucai.db)
+owners = [409], league = '瑞超', expected_link = False
+
+    @pytest.mark.parametrize(
+        "owners,league,expected_link",
+        [([409], "瑞超", False), ([504], "瑞超", True), ([409, 504], "瑞超", False), ([409], "芬超", True)],
+    )
+    def test_opaque_apif_side_respects_existing_league_binding(db, owners, league, expected_link):
+        case = SEED["cases"][1]
+        with session_scope(db) as session:
+            for owner in owners:
+                session.get(Team, owner).aliases.append(f"apif:{league}:team:766")
+            session.flush()
+            report = ingest_fd(session, case)
+>           assert report["linked_apif"] == int(expected_link), report
+E           AssertionError: {'inserted': 1, 'corrected': 0, 'linked_existing': 0, 'linked_apif': 1, ...}
+E           assert 1 == 0
+E            +  where 0 = int(False)
+
+/workspace/work/t66-review-20261114/internal-review/test_independent_edges.py:92: AssertionError
+_ test_opaque_apif_side_respects_existing_league_binding[owners2-\u745e\u8d85-False] _
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-444/test_opaque_apif_side_respects2/data/zucai.db)
+owners = [409, 504], league = '瑞超', expected_link = False
+
+    @pytest.mark.parametrize(
+        "owners,league,expected_link",
+        [([409], "瑞超", False), ([504], "瑞超", True), ([409, 504], "瑞超", False), ([409], "芬超", True)],
+    )
+    def test_opaque_apif_side_respects_existing_league_binding(db, owners, league, expected_link):
+        case = SEED["cases"][1]
+        with session_scope(db) as session:
+            for owner in owners:
+                session.get(Team, owner).aliases.append(f"apif:{league}:team:766")
+            session.flush()
+            report = ingest_fd(session, case)
+>           assert report["linked_apif"] == int(expected_link), report
+E           AssertionError: {'inserted': 1, 'corrected': 0, 'linked_existing': 0, 'linked_apif': 1, ...}
+E           assert 1 == 0
+E            +  where 0 = int(False)
+
+/workspace/work/t66-review-20261114/internal-review/test_independent_edges.py:92: AssertionError
+_________ test_export_rejects_contrary_binding_for_linked_opaque_side __________
+
+db = Engine(sqlite+pysqlite:////tmp/pytest-of-agent/pytest-444/test_export_rejects_contrary_b0/data/zucai.db)
+
+    def test_export_rejects_contrary_binding_for_linked_opaque_side(db):
+        case = SEED["cases"][1]
+        with session_scope(db) as session:
+            assert ingest_fd(session, case)["linked_apif"] == 1
+            session.get(Team, 409).aliases.append("apif:瑞超:team:766")
+        with sqlite3.connect(db.url.database) as conn:
+>           with pytest.raises(ValueError, match="apif|APIF|来源|绑定"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           Failed: DID NOT RAISE ValueError
+
+/workspace/work/t66-review-20261114/internal-review/test_independent_edges.py:106: Failed
+=========================== short test summary info ============================
+FAILED ../t66-review-20261114/internal-review/test_independent_edges.py::test_opaque_apif_side_respects_existing_league_binding[owners0-\u745e\u8d85-False]
+FAILED ../t66-review-20261114/internal-review/test_independent_edges.py::test_opaque_apif_side_respects_existing_league_binding[owners2-\u745e\u8d85-False]
+FAILED ../t66-review-20261114/internal-review/test_independent_edges.py::test_export_rejects_contrary_binding_for_linked_opaque_side
+3 failed, 2 passed, 5 deselected in 2.32s

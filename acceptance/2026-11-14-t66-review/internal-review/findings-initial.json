@@ -1,0 +1,61 @@
+{
+  "review_kind": "Codex internal review; not Claude approval",
+  "reviewed_state": "First business-code freeze announced by t66_review_link_design; uncommitted changes over f3bc574",
+  "findings": [
+    {
+      "id": "T66-INTERNAL-1",
+      "severity": "must fix",
+      "files": [
+        "src/zucai/sources/fd_apif_counterpart.py"
+      ],
+      "problem": "New FD/APIF association validates each known team's binding count but not exclusive ownership across Team rows. It also treats apif:team:<id> as unknown even when a contrary canonical owner for that same league/provider ID exists.",
+      "observed": [
+        "A second Team holding apif:芬超:team:2077 does not block creation of the FIN link.",
+        "Introducing that second owner after linkage does not block export_feeds.",
+        "apif:team:766 still links to FD Halmstad 504 when apif:瑞超:team:766 explicitly belongs to Team 409, or to both 409 and 504.",
+        "Introducing the contrary 766 owner after linkage does not make check_db reject."
+      ],
+      "existing_policy_evidence": "The existing import_apif_games path already rejects competing binding owners with 多个既有身份; existing-guard.log records 1 passing proof.",
+      "must_preserve": [
+        "A unique 766 owner equal to FD Team 504 may link without changing the original APIF placeholder row.",
+        "A 766 binding in another league does not veto a 瑞超 fixture."
+      ],
+      "evidence": [
+        "edge-probes.log",
+        "opaque-binding-probes.log",
+        "existing-guard.log"
+      ]
+    },
+    {
+      "id": "T66-INTERNAL-2",
+      "severity": "must fix",
+      "files": [
+        "src/zucai/predict/pooled.py",
+        "src/zucai/predict/backtest.py"
+      ],
+      "problem": "The new APIF/FD association is revalidated only against the finished/source/league-filtered training frame instead of the complete stored graph.",
+      "observed": [
+        "A valid APIF→FD plus reciprocal FD↔FDORG sibling with FDORG still scheduled passes check_db but read_history rejects a supposedly different counterpart after the sibling is filtered out.",
+        "A scheduled competing APIF fixture makes check_db reject but read_history silently excludes the original APIF row and succeeds after filtering the competitor out."
+      ],
+      "scope": "Complete-graph validation is needed only for this new APIF→FD relation; do not broaden old source-link policy.",
+      "evidence": [
+        "edge-probes.log"
+      ]
+    }
+  ],
+  "probe_script": "test_independent_edges.py",
+  "initial_probe_results": {
+    "initial_edges": "4 failed in 2.77s",
+    "opaque_binding": "3 failed, 2 passed, 5 deselected in 2.32s",
+    "existing_apif_binding_guard": "1 passed in 2.00s"
+  },
+  "disposition": "Both must-fix findings closed after final source review and 443 passing focused tests, including all 10 independent probes.",
+  "evidence_correction": {
+    "opaque_fixture_setup": "The initial opaque-binding probes mutated a SQLAlchemy MutableList without retaining its ORM owner reference, so those changes could be lost before persistence. Initial opaque 3-failure output is retained only as investigation history, not valid standalone reproduction evidence.",
+    "corrected_setup": "Owner objects are retained and persisted aliases are asserted; the export case independently reads aliases back through sqlite3.",
+    "unaffected_evidence": "The original four edge probes use inserted Team rows or retained Match objects and remain valid reproductions.",
+    "corrected_result": "All 10 independent probes passed in 2.45s against the corrected business implementation; see corrected-edge-probes.log.",
+    "valid_old_source_replay": "With corrected fixture persistence assertions, the same 10 probes against real-acceptance/code-intermediate-probe-1/src produced 7 failed, 3 passed in 2.34s; corrected-edge-old-code.log names the loaded old module. All three opaque rejection cases fail on that valid old input."
+  }
+}

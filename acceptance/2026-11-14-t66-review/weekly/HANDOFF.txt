@@ -1,0 +1,70 @@
+T66 PR #138 review: weekly FD collection / scope success
+
+Implemented in shared worktree /workspace/work/football-t66 without commit or push.
+
+Changed paths:
+- src/zucai/cloud_apis.py
+- tests/test_cloud_apis.py
+- tests/test_t66_fd_schedule.py
+
+Behavior:
+- fd_due converts now to UTC, finds this week's Monday, and collects unless the
+  validated successful run started in the current UTC week. Week comparisons are
+  calendar-date based and remain correct across calendar/ISO year boundaries.
+- A nonempty batch is successful when every configured verified FD scope returns
+  from download/import. Individual rejected rows and suspected duplicates retain
+  partial reports and audits but do not prevent the weekly receipt.
+- A configuration error, empty scope, download failure, or whole-file parse/import
+  exception prevents updating the receipt. Other scopes continue and the next run
+  retries. Previous receipts remain untouched until a completed FD batch.
+- Existing version=1 and last_successful_run_started_utc schema are unchanged;
+  the original passed run-start timestamp is saved without rounding or rewriting.
+- No changes to fd_collection.py, cloud_feeds.py, workflow YAML, scope config,
+  importer, models, or documentation.
+
+Workflow evidence:
+- football-feeds.yml sets WORK_DIR to work-apis-${run_id}-${run_attempt}, creates
+  it with mkdir (no reuse), and normal cloud_feeds rejects an existing database.
+- restore_feeds copies only its state whitelist; old raw CSV files are not
+  restored, even when the archive references published stats raw Release assets.
+- The existing FD stats shell only invokes cloud_stats when this work directory
+  contains data/raw/football-data-co-uk. A completed weekly batch therefore causes
+  later skipped collections to have no raw FD directory and no FD stats command.
+- Valid partial captures remain reusable after a scope failure, per root's
+  explicit direction. Retries can legitimately cause additional packages.
+- Existing captured-file lifecycle test executes real cloud_stats after real
+  APIF stats, verifies zero FD sports HTTP, unchanged quota/original bytes, an
+  independent -fd asset name, and now verifies a fresh restore has no raw reuse.
+
+Verification (all HTTP is intercepted offline fixtures, no production keys):
+- red.log: 16 failed, 96 passed in 10.24s against the original scheduling logic.
+  Twelve week-boundary cases, three rejected/suspected receipt cases, and one
+  actual Saturday-to-Monday collection lifecycle reproduced the missing behavior.
+- green.log: 112 passed in 10.66s for test_t66_fd_schedule.py + test_cloud_apis.py.
+- focused.log: 343 passed in 16.24s across test_t66_fd_schedule.py,
+  test_cloud_apis.py, test_cloud_feeds.py, test_stats_workflow.py,
+  test_stats_batch.py, test_early_schedule_workflow.py,
+  test_daily_chain_workflow.py, and test_t61_workflow.py.
+- ruff check on the three owned files: All checks passed!
+- ruff format --check on the three owned files: 3 files already formatted.
+- git diff --check: passed.
+- The root agent owns the required full-suite run, documentation, and integration.
+
+Test details:
+- 39 UTC-week boundary cases, including early/late/auto slots, Saturday-to-Monday,
+  UTC/BJT 07:59:59/08:00:00 boundaries, and calendar/ISO year boundaries.
+- Actual import/export lifecycle for rejected only, suspected only, and both:
+  partial reports and audits retained, successful receipt exported/hashed/restored,
+  later collection skipped, no later FD HTTP/raw/statistics invocation.
+- Whole-scope HTTP and parse failures after another league succeeds: no receipt,
+  current partial raw retained/reusable, later full batch succeeds and records time.
+- Existing invalid/future/schema/hash receipt validation and failed-export restore
+  safeguards retained and passed.
+
+Artifacts:
+- weekly.patch contains only this agent's three paths for independent review.
+- green-fixture-failure.log retains an intermediate 1-failure run: the new week
+  lifecycle test advanced to Nov14 while the unrelated FDORG fixture was Nov1.
+  The test now uses valid empty fixture-shaped FDORG/APIF responses for those
+  moved dates and asserts those provider reports complete. No production fix was
+  made for that fixture setup issue.

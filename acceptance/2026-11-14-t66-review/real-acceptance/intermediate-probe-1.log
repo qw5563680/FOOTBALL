@@ -1,0 +1,40 @@
+first-import BRA: 7 inserted, 31 existing, 1 rejected, 5 suspected
+first-import D1: 0 inserted, 72 existing, 0 rejected, 0 suspected
+first-import E0: 0 inserted, 72 existing, 0 rejected, 8 suspected
+first-import E1: 20 inserted, 36 existing, 0 rejected, 0 suspected
+first-import F1: 6 inserted, 41 existing, 0 rejected, 0 suspected
+Traceback (most recent call last):
+  File "/workspace/work/t66-review-20261114/real-acceptance/acceptance.py", line 422, in <module>
+    main()
+  File "/workspace/work/t66-review-20261114/real-acceptance/acceptance.py", line 418, in main
+    {"replay": replay, "train": train_models, "finish-baseline": finish_baseline}[args.phase](args, calls)
+  File "/workspace/work/t66-review-20261114/real-acceptance/acceptance.py", line 255, in replay
+    first = import_all("first-import")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/acceptance.py", line 245, in import_all
+    result = fetch_fd(
+             ^^^^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/code-fixed/src/zucai/sources/fd_ingest.py", line 493, in fetch_fd
+    result = import_fd_games(
+             ^^^^^^^^^^^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/code-fixed/src/zucai/sources/fd_ingest.py", line 233, in import_fd_games
+    known = [_lookup(session, name) for name in names]
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/work/t66-review-20261114/real-acceptance/code-fixed/src/zucai/sources/fd_ingest.py", line 87, in _lookup
+    for t in session.scalars(select(Team))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "lib/sqlalchemy/engine/_result_cy.py", line 328, in iterrows
+  File "/workspace/work/t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/loading.py", line 235, in chunks
+    rows = [proc(row) for row in fetch]
+            ^^^^^^^^^
+  File "/workspace/work/t48-venv/lib/python3.12/site-packages/sqlalchemy/orm/loading.py", line 1175, in _instance
+    state.manager.dispatch.load(state, context)
+  File "/workspace/work/t48-venv/lib/python3.12/site-packages/sqlalchemy/event/attr.py", line 514, in __call__
+    fn(*args, **kw)
+  File "/workspace/work/t48-venv/lib/python3.12/site-packages/sqlalchemy/ext/mutable.py", line 527, in load
+    val._parents[state] = key
+    ~~~~~~~~~~~~^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/weakref.py", line 427, in __setitem__
+    def __setitem__(self, key, value):
+
+KeyboardInterrupt

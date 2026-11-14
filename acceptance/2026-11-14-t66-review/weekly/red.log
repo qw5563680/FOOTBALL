@@ -1,0 +1,703 @@
+.....F.F.F.F......F.F.F.F......F.F.F.F.................................F [ 64%]
+FFF.....................................                                 [100%]
+=================================== FAILURES ===================================
+_ test_success_only_suppresses_its_monday_anchored_utc_week[early-2026-11-14T10:19:00Z-2026-11-16T00:00:00Z-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i5')
+previous = '2026-11-14T10:19:00Z', instant = '2026-11-16T00:00:00Z'
+expected = True, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 11, 16, 0, 0, tzinfo=datetime.timezone.utc), 'early', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i5/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 11, 16, 0, 0, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-16T00:00:00Z')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[early-2026-11-14T10:19:00Z-2026-11-16T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i7')
+previous = '2026-11-14T10:19:00Z', instant = '2026-11-16T08:00:00+08:00'
+expected = True, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 11, 16, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))), 'early', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i7/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 11, 16, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-16T08:00:00+08:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[early-2025-12-31T10:19:00Z-2026-01-05T00:00:00Z-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i9')
+previous = '2025-12-31T10:19:00Z', instant = '2026-01-05T00:00:00Z'
+expected = True, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 1, 5, 0, 0, tzinfo=datetime.timezone.utc), 'early', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i9/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 1, 5, 0, 0, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-01-05T00:00:00Z')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[early-2026-12-31T10:19:00Z-2027-01-04T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i11')
+previous = '2026-12-31T10:19:00Z', instant = '2027-01-04T08:00:00+08:00'
+expected = True, slot = 'early'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2027, 1, 4, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))), 'early', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i11/state/fd_collection.json'))
+E        +    where datetime.datetime(2027, 1, 4, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))) = <built-in method fromisoformat of type object at 0x145e668>('2027-01-04T08:00:00+08:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[late-2026-11-14T10:19:00Z-2026-11-16T00:00:00Z-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i18')
+previous = '2026-11-14T10:19:00Z', instant = '2026-11-16T00:00:00Z'
+expected = True, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 11, 16, 0, 0, tzinfo=datetime.timezone.utc), 'late', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i18/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 11, 16, 0, 0, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-16T00:00:00Z')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[late-2026-11-14T10:19:00Z-2026-11-16T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i20')
+previous = '2026-11-14T10:19:00Z', instant = '2026-11-16T08:00:00+08:00'
+expected = True, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 11, 16, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))), 'late', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i20/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 11, 16, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-16T08:00:00+08:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[late-2025-12-31T10:19:00Z-2026-01-05T00:00:00Z-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i22')
+previous = '2025-12-31T10:19:00Z', instant = '2026-01-05T00:00:00Z'
+expected = True, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 1, 5, 0, 0, tzinfo=datetime.timezone.utc), 'late', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i22/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 1, 5, 0, 0, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-01-05T00:00:00Z')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[late-2026-12-31T10:19:00Z-2027-01-04T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i24')
+previous = '2026-12-31T10:19:00Z', instant = '2027-01-04T08:00:00+08:00'
+expected = True, slot = 'late'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2027, 1, 4, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))), 'late', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i24/state/fd_collection.json'))
+E        +    where datetime.datetime(2027, 1, 4, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))) = <built-in method fromisoformat of type object at 0x145e668>('2027-01-04T08:00:00+08:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[auto-2026-11-14T10:19:00Z-2026-11-16T00:00:00Z-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i31')
+previous = '2026-11-14T10:19:00Z', instant = '2026-11-16T00:00:00Z'
+expected = True, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 11, 16, 0, 0, tzinfo=datetime.timezone.utc), 'auto', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i31/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 11, 16, 0, 0, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-16T00:00:00Z')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[auto-2026-11-14T10:19:00Z-2026-11-16T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i33')
+previous = '2026-11-14T10:19:00Z', instant = '2026-11-16T08:00:00+08:00'
+expected = True, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 11, 16, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))), 'auto', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i33/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 11, 16, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))) = <built-in method fromisoformat of type object at 0x145e668>('2026-11-16T08:00:00+08:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[auto-2025-12-31T10:19:00Z-2026-01-05T00:00:00Z-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i35')
+previous = '2025-12-31T10:19:00Z', instant = '2026-01-05T00:00:00Z'
+expected = True, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2026, 1, 5, 0, 0, tzinfo=datetime.timezone.utc), 'auto', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i35/state/fd_collection.json'))
+E        +    where datetime.datetime(2026, 1, 5, 0, 0, tzinfo=datetime.timezone.utc) = <built-in method fromisoformat of type object at 0x145e668>('2026-01-05T00:00:00Z')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+_ test_success_only_suppresses_its_monday_anchored_utc_week[auto-2026-12-31T10:19:00Z-2027-01-04T08:00:00+08:00-True] _
+
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i37')
+previous = '2026-12-31T10:19:00Z', instant = '2027-01-04T08:00:00+08:00'
+expected = True, slot = 'auto'
+
+    @pytest.mark.parametrize(
+        ("previous", "instant", "expected"),
+        [
+            ("2026-11-02T23:59:59Z", "2026-11-02T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-03T10:19:00Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-08T23:59:59Z", False),
+            ("2026-11-02T23:59:59Z", "2026-11-09T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-15T23:59:59Z", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T00:00:00Z", True),
+            ("2026-11-14T10:19:00Z", "2026-11-16T07:59:59+08:00", False),
+            ("2026-11-14T10:19:00Z", "2026-11-16T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2026-01-01T00:00:00Z", False),
+            ("2025-12-31T10:19:00Z", "2026-01-05T00:00:00Z", True),
+            ("2026-12-31T10:19:00Z", "2027-01-04T07:59:59+08:00", False),
+            ("2026-12-31T10:19:00Z", "2027-01-04T08:00:00+08:00", True),
+            ("2025-12-31T10:19:00Z", "2027-01-04T00:00:00Z", True),
+        ],
+    )
+    @pytest.mark.parametrize("slot", ["early", "late", "auto"])
+    def test_success_only_suppresses_its_monday_anchored_utc_week(
+        tmp_path, previous, instant, expected, slot
+    ):
+        path = tmp_path / STATE
+        write_receipt(path, previous)
+>       assert fd_due(datetime.fromisoformat(instant), slot, path) is expected
+E       AssertionError: assert False is True
+E        +  where False = fd_due(datetime.datetime(2027, 1, 4, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))), 'auto', PosixPath('/tmp/pytest-of-agent/pytest-432/test_success_only_suppresses_i37/state/fd_collection.json'))
+E        +    where datetime.datetime(2027, 1, 4, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(seconds=28800))) = <built-in method fromisoformat of type object at 0x145e668>('2027-01-04T08:00:00+08:00')
+E        +      where <built-in method fromisoformat of type object at 0x145e668> = datetime.fromisoformat
+
+tests/test_t66_fd_schedule.py:68: AssertionError
+__ test_row_warnings_keep_partial_report_but_complete_the_weekly_batch[rows] ___
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f245eb66720>
+warning = 'rows'
+
+    @pytest.mark.parametrize("warning", ["rows", "duplicates", "both"])
+    def test_row_warnings_keep_partial_report_but_complete_the_weekly_batch(
+        environment, tmp_path, monkeypatch, warning
+    ):
+        forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        if warning in ("duplicates", "both"):
+            database = tmp_path / "seed-warning/data/zucai.db"
+            restore_feeds(environment, database)
+            with sqlite3.connect(database) as db:
+                db.execute(
+                    "UPDATE matches SET league='英超',kickoff_utc='2026-11-01T12:00:00.000000Z' "
+                    "WHERE match_id='jc:1'"
+                )
+            export_feeds(database, environment, datetime(2026, 11, 2).date(), "seed-warning")
+        raw = (FIXTURES / "fd.csv").read_bytes()
+        if warning == "rows":
+            raw = raw.replace(b",2,1,H,", b",-1,1,H,")
+        elif warning == "both":
+            raw += raw.splitlines(keepends=True)[1].replace(b",2,1,H,", b",-1,1,H,")
+        with responses.RequestsMock() as api:
+            mock_apis(api)
+            api.get(FD_URL, body=raw)
+            first = run_apis(tmp_path, monkeypatch, environment, "row-warnings")
+        meta = archive_info(environment)
+        report = meta["collection"]["fd"]
+        assert report["status"] == meta["collection_status"] == "partial"
+        assert report["downloaded_files"] == report["processed_files"] == 1
+        assert report["rejected_rows"] == (1 if warning in ("rows", "both") else 0)
+        assert report["suspected_duplicates"] == (1 if warning in ("duplicates", "both") else 0)
+        for key, audit in (
+            ("rejected_rows", "fd_rejected_rows.csv"),
+            ("suspected_duplicates", "fd_suspected_duplicates.csv"),
+        ):
+            if report[key]:
+                assert (first / "data/state/audit" / audit).is_file()
+                assert f"state/audit/{audit}" in meta["files"]
+        expected = {"version": 1, STARTED: "2026-11-02T02:40:00+00:00"}
+>       assert (environment / STATE).is_file()
+E       AssertionError: assert False
+E        +  where False = is_file()
+E        +    where is_file = (PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial0/archive') / 'state/fd_collection.json').is_file
+
+/workspace/work/football-t66/tests/test_t66_fd_schedule.py:215: AssertionError
+_ test_row_warnings_keep_partial_report_but_complete_the_weekly_batch[duplicates] _
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial1/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f245e71df10>
+warning = 'duplicates'
+
+    @pytest.mark.parametrize("warning", ["rows", "duplicates", "both"])
+    def test_row_warnings_keep_partial_report_but_complete_the_weekly_batch(
+        environment, tmp_path, monkeypatch, warning
+    ):
+        forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        if warning in ("duplicates", "both"):
+            database = tmp_path / "seed-warning/data/zucai.db"
+            restore_feeds(environment, database)
+            with sqlite3.connect(database) as db:
+                db.execute(
+                    "UPDATE matches SET league='英超',kickoff_utc='2026-11-01T12:00:00.000000Z' "
+                    "WHERE match_id='jc:1'"
+                )
+            export_feeds(database, environment, datetime(2026, 11, 2).date(), "seed-warning")
+        raw = (FIXTURES / "fd.csv").read_bytes()
+        if warning == "rows":
+            raw = raw.replace(b",2,1,H,", b",-1,1,H,")
+        elif warning == "both":
+            raw += raw.splitlines(keepends=True)[1].replace(b",2,1,H,", b",-1,1,H,")
+        with responses.RequestsMock() as api:
+            mock_apis(api)
+            api.get(FD_URL, body=raw)
+            first = run_apis(tmp_path, monkeypatch, environment, "row-warnings")
+        meta = archive_info(environment)
+        report = meta["collection"]["fd"]
+        assert report["status"] == meta["collection_status"] == "partial"
+        assert report["downloaded_files"] == report["processed_files"] == 1
+        assert report["rejected_rows"] == (1 if warning in ("rows", "both") else 0)
+        assert report["suspected_duplicates"] == (1 if warning in ("duplicates", "both") else 0)
+        for key, audit in (
+            ("rejected_rows", "fd_rejected_rows.csv"),
+            ("suspected_duplicates", "fd_suspected_duplicates.csv"),
+        ):
+            if report[key]:
+                assert (first / "data/state/audit" / audit).is_file()
+                assert f"state/audit/{audit}" in meta["files"]
+        expected = {"version": 1, STARTED: "2026-11-02T02:40:00+00:00"}
+>       assert (environment / STATE).is_file()
+E       AssertionError: assert False
+E        +  where False = is_file()
+E        +    where is_file = (PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial1/archive') / 'state/fd_collection.json').is_file
+
+/workspace/work/football-t66/tests/test_t66_fd_schedule.py:215: AssertionError
+__ test_row_warnings_keep_partial_report_but_complete_the_weekly_batch[both] ___
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial2/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f245e6b0350>
+warning = 'both'
+
+    @pytest.mark.parametrize("warning", ["rows", "duplicates", "both"])
+    def test_row_warnings_keep_partial_report_but_complete_the_weekly_batch(
+        environment, tmp_path, monkeypatch, warning
+    ):
+        forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        if warning in ("duplicates", "both"):
+            database = tmp_path / "seed-warning/data/zucai.db"
+            restore_feeds(environment, database)
+            with sqlite3.connect(database) as db:
+                db.execute(
+                    "UPDATE matches SET league='英超',kickoff_utc='2026-11-01T12:00:00.000000Z' "
+                    "WHERE match_id='jc:1'"
+                )
+            export_feeds(database, environment, datetime(2026, 11, 2).date(), "seed-warning")
+        raw = (FIXTURES / "fd.csv").read_bytes()
+        if warning == "rows":
+            raw = raw.replace(b",2,1,H,", b",-1,1,H,")
+        elif warning == "both":
+            raw += raw.splitlines(keepends=True)[1].replace(b",2,1,H,", b",-1,1,H,")
+        with responses.RequestsMock() as api:
+            mock_apis(api)
+            api.get(FD_URL, body=raw)
+            first = run_apis(tmp_path, monkeypatch, environment, "row-warnings")
+        meta = archive_info(environment)
+        report = meta["collection"]["fd"]
+        assert report["status"] == meta["collection_status"] == "partial"
+        assert report["downloaded_files"] == report["processed_files"] == 1
+        assert report["rejected_rows"] == (1 if warning in ("rows", "both") else 0)
+        assert report["suspected_duplicates"] == (1 if warning in ("duplicates", "both") else 0)
+        for key, audit in (
+            ("rejected_rows", "fd_rejected_rows.csv"),
+            ("suspected_duplicates", "fd_suspected_duplicates.csv"),
+        ):
+            if report[key]:
+                assert (first / "data/state/audit" / audit).is_file()
+                assert f"state/audit/{audit}" in meta["files"]
+        expected = {"version": 1, STARTED: "2026-11-02T02:40:00+00:00"}
+>       assert (environment / STATE).is_file()
+E       AssertionError: assert False
+E        +  where False = is_file()
+E        +    where is_file = (PosixPath('/tmp/pytest-of-agent/pytest-432/test_row_warnings_keep_partial2/archive') / 'state/fd_collection.json').is_file
+
+/workspace/work/football-t66/tests/test_t66_fd_schedule.py:215: AssertionError
+______ test_saturday_success_skips_sunday_but_collects_again_next_monday _______
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-432/test_saturday_success_skips_su0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_saturday_success_skips_su0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f245e5da2d0>
+
+    def test_saturday_success_skips_sunday_but_collects_again_next_monday(
+        environment, tmp_path, monkeypatch
+    ):
+        forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        for name, instant, expected in (
+            ("saturday", "2026-11-14T10:19:00Z", "complete"),
+            ("sunday", "2026-11-15T23:59:59Z", "skipped"),
+            ("monday", "2026-11-16T00:00:00Z", "complete"),
+        ):
+            monkeypatch.setattr("test_cloud_apis.CLOCK", datetime.fromisoformat(instant))
+            with responses.RequestsMock() as api:
+                mock_apis(api, fd=expected == "complete")
+                work = run_apis(tmp_path, monkeypatch, environment, name)
+>               assert sum("football-data.co.uk" in call.request.url for call in api.calls) == (
+                    1 if expected == "complete" else 0
+                )
+E               assert 0 == 1
+E                +  where 0 = sum(<generator object test_saturday_success_skips_sunday_but_collects_again_next_monday.<locals>.<genexpr> at 0x7f245e5b8040>)
+
+/workspace/work/football-t66/tests/test_t66_fd_schedule.py:243: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+environment = PosixPath('/tmp/pytest-of-agent/pytest-432/test_saturday_success_skips_su0/archive')
+tmp_path = PosixPath('/tmp/pytest-of-agent/pytest-432/test_saturday_success_skips_su0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f245e5da2d0>
+
+    def test_saturday_success_skips_sunday_but_collects_again_next_monday(
+        environment, tmp_path, monkeypatch
+    ):
+        forget_fd_success(environment)
+        configure_fd(monkeypatch, tmp_path)
+        for name, instant, expected in (
+            ("saturday", "2026-11-14T10:19:00Z", "complete"),
+            ("sunday", "2026-11-15T23:59:59Z", "skipped"),
+            ("monday", "2026-11-16T00:00:00Z", "complete"),
+        ):
+            monkeypatch.setattr("test_cloud_apis.CLOCK", datetime.fromisoformat(instant))
+>           with responses.RequestsMock() as api:
+                 ^^^^^^^^^^^^^^^^^^^^^^^^
+
+/workspace/work/football-t66/tests/test_t66_fd_schedule.py:240: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/workspace/work/t48-venv/lib/python3.12/site-packages/responses/__init__.py:1006: in __exit__
+    self.stop(allow_assert=True)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <responses.RequestsMock object at 0x7f2465fa7320>, allow_assert = True
+
+    def stop(self, allow_assert: bool = True) -> None:
+        if self._patcher:
+            # prevent stopping unstarted patchers
+            self._patcher.stop()
+    
+            # once patcher is stopped, clean it. This is required to create a new
+            # fresh patcher on self.start()
+            self._patcher = None
+    
+        if not self.assert_all_requests_are_fired:
+            return
+    
+        if not allow_assert:
+            return
+    
+        not_called = [m for m in self.registered() if m.call_count == 0]
+        if not_called:
+>           raise AssertionError(
+                "Not all requests have been executed {!r}".format(
+                    [(match.method, match.url) for match in not_called]
+                )
+            )
+E           AssertionError: Not all requests have been executed [('GET', 'https://www.football-data.co.uk/mmz4281/2627/E0.csv')]
+
+/workspace/work/t48-venv/lib/python3.12/site-packages/responses/__init__.py:1246: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  zucai.cloud_apis:cloud_apis.py:109 2026-11-11: 响应、配置或导入校验失败 (ValueError)
+WARNING  zucai.cloud_apis:cloud_apis.py:109 2026-11-12: 响应、配置或导入校验失败 (ValueError)
+WARNING  zucai.cloud_apis:cloud_apis.py:109 2026-11-13: 响应、配置或导入校验失败 (ValueError)
+=========================== short test summary info ============================
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[early-2026-11-14T10:19:00Z-2026-11-16T00:00:00Z-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[early-2026-11-14T10:19:00Z-2026-11-16T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[early-2025-12-31T10:19:00Z-2026-01-05T00:00:00Z-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[early-2026-12-31T10:19:00Z-2027-01-04T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[late-2026-11-14T10:19:00Z-2026-11-16T00:00:00Z-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[late-2026-11-14T10:19:00Z-2026-11-16T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[late-2025-12-31T10:19:00Z-2026-01-05T00:00:00Z-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[late-2026-12-31T10:19:00Z-2027-01-04T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[auto-2026-11-14T10:19:00Z-2026-11-16T00:00:00Z-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[auto-2026-11-14T10:19:00Z-2026-11-16T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[auto-2025-12-31T10:19:00Z-2026-01-05T00:00:00Z-True]
+FAILED tests/test_t66_fd_schedule.py::test_success_only_suppresses_its_monday_anchored_utc_week[auto-2026-12-31T10:19:00Z-2027-01-04T08:00:00+08:00-True]
+FAILED tests/test_t66_fd_schedule.py::test_row_warnings_keep_partial_report_but_complete_the_weekly_batch[rows]
+FAILED tests/test_t66_fd_schedule.py::test_row_warnings_keep_partial_report_but_complete_the_weekly_batch[duplicates]
+FAILED tests/test_t66_fd_schedule.py::test_row_warnings_keep_partial_report_but_complete_the_weekly_batch[both]
+FAILED tests/test_t66_fd_schedule.py::test_saturday_success_skips_sunday_but_collects_again_next_monday
+16 failed, 96 passed in 10.24s

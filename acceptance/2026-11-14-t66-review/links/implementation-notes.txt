@@ -1,0 +1,64 @@
+T66 PR138 must-fix 1 implementation handoff
+
+Final source/test freeze is recorded in SOURCE_SHA256SUMS. No commit, push, network,
+production archive change, or full database copy was made by this agent.
+
+Architecture
+- FD import creates/updates its normal result row, then adds only
+  existing_apif.counterpart_id -> fd.match_id in the same row savepoint.
+- APIF Match team IDs, status, kickoff, result provider/check time, Result scores,
+  availability, and Team aliases remain untouched. No global team inference.
+- Exact canonical oriented IDs, or exactly one apif:team:<positive numeric ID>
+  with the other canonical side equal, are the only accepted identity forms.
+  Same league and <=3h are required. Shared teams veto competing/reversed
+  candidates in both directions; all incoming FD rows are considered before
+  any row can win by order. Unrelated external claims remain a veto.
+- One verified FDORG sibling may coexist with the APIF link on the FD anchor.
+  Existing late-FDORG import and relink restrictions stay in place for other claims.
+- Existing APIF -> FD observations recheck the full stored relation and current
+  provider observation. A new partial APIF observation without that pointer still
+  follows the original quarantine path.
+- Known APIF provider bindings require one owner across the entire Team table.
+  An opaque side cannot contradict a scoped provider binding on another team;
+  a unique binding on the actual FD opposite side is consistent and does not
+  rewrite the old opaque APIF row. Other-league bindings do not establish identity.
+- Unmapped FD raw-name opposition vs an already canonical APIF opponent retains
+  original FD admission without a guessed relation. This preserves the two such
+  USA cases; five other USA cases are genuine one-opaque-APIF candidates.
+
+Consumers
+- cloud_feeds.check_db validates every explicit APIF -> FD relation using the
+  complete database on export and restore. e5848e5 had zero such legacy pointers.
+- backtest.read_history supplies only fully verified APIF -> FD edges to the pooled
+  selector. The check precedes using a frame that omits scheduled matches, and uses
+  full Match/Team evidence. A scheduled sibling remains valid; a scheduled competitor
+  is not hidden. Bare DataFrames cannot authorize the new edge.
+- Priority remains jc > fd > fdorg > apif. Scores are not identity evidence.
+  Differing source scores are retained unchanged; the existing FD priority still
+  selects FD. No new conflict-score policy or availability policy was added.
+- fetch_fd reports linked_apif and file.apif_links; append-only
+  state/audit/fd_apif_links.csv records IDs, both original team pairs, times,
+  raw SHA/row number, basis exact_team_ids or one_opaque_apif, and FD binding flags.
+
+Evidence
+- links/red.log: original implementation 24 failed, 1 passed on the new regressions.
+- links/targeted-final.log: pre-independent-review domain run 338 passed.
+- links/review-red.log: four independent red probes reproduced: duplicate global
+  binding owner, export accepting that owner, scheduled anchor false rejection,
+  and scheduled competitor false acceptance.
+- links/edges-final.log: final new regression file, 54 passed in 3.39s.
+- All changed source and test files pass ruff check and ruff format; git diff --check
+  passed at final freeze. Root is running full-suite verification and acceptance
+  agent is replaying all 15 real files/training all 19 models on final snapshot.
+- Initial opaque-binding independent probes used a temporary ORM object with
+  .aliases.append(...), so those mutations did not reach the DB. Corrected probes
+  retain the Team object and verify persistence. Independent reviewer reports all
+  10 corrected probes passing; see internal-review/corrected-edge-probes.log.
+
+T63 integration still needs explicit work by root
+- T63 legacy_linked_representatives duplicates the old exact-name selector and
+  will need the new fully verified APIF -> FD partial relation path.
+- T63 result_source_links.record_result_link requires both canonical IDs equal.
+  A partial T66 relation cannot be misrepresented as a full canonical identity
+  proof. Preserve the opaque row and keep T63 cutoff/identity policy distinct.
+- Root owns that integration; no T63 files were edited here.

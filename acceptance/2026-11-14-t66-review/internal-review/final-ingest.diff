@@ -1,0 +1,233 @@
+diff --git a/src/zucai/cloud_feeds.py b/src/zucai/cloud_feeds.py
+index 333aca6..555f7a4 100644
+--- a/src/zucai/cloud_feeds.py
++++ b/src/zucai/cloud_feeds.py
+@@ -213,6 +213,9 @@ def check_db(db: sqlite3.Connection) -> None:
+     if db.execute("""SELECT 1 FROM matches m LEFT JOIN results r USING(match_id)
+                   WHERE (m.status='finished') <> (r.match_id IS NOT NULL) LIMIT 1""").fetchone():
+         raise ValueError("完赛状态与比分表不一致")
++    from zucai.sources.fd_apif_counterpart import validate_apif_fd_links
++
++    validate_apif_fd_links(db)
+     check_stats(db, rows=False)
+ 
+ 
+diff --git a/src/zucai/sources/apif_ingest.py b/src/zucai/sources/apif_ingest.py
+index a386344..27f76ec 100644
+--- a/src/zucai/sources/apif_ingest.py
++++ b/src/zucai/sources/apif_ingest.py
+@@ -237,6 +237,14 @@ def _link_target(session, key, game, sides, existing, per_team):
+     _check_claims(game, per_team)
+     pair = tuple(side.team.id if side.team else None for side in sides)
+     known = all(side.binding is not None for side in sides)
++    linked_fd = None
++    if existing and (existing.counterpart_id or "").startswith("fd:"):
++        from zucai.sources.fd_apif_counterpart import check_linked_observation
++
++        try:
++            linked_fd = check_linked_observation(session, existing, game, pair)
++        except CounterpartConflict as exc:
++            raise _Suspected(str(exc), exc.candidates) from exc
+     window = session.scalars(
+         select(Match).where(
+             Match.source.in_(("jc", "fd", "fdorg", "apif")),
+@@ -250,7 +258,9 @@ def _link_target(session, key, game, sides, existing, per_team):
+     for candidate in window:
+         oriented = (candidate.home_team_id, candidate.away_team_id)
+         source = candidate.source
+-        if source != "apif" and known and pair == oriented:
++        if linked_fd is not None and candidate.match_id == linked_fd.match_id:
++            exact[source].append(candidate)
++        elif source != "apif" and known and pair == oriented:
+             exact[source].append(candidate)
+         elif (
+             (source != "apif" and not known)
+@@ -271,7 +281,11 @@ def _link_target(session, key, game, sides, existing, per_team):
+     for source in ("jc", "fd", "fdorg"):
+         matches = exact[source]
+         candidates = conflicts[source] + [m.match_id for m in matches]
+-        if conflicts[source] or len(matches) > 1 or (existing and matches and source != "jc"):
++        if (
++            conflicts[source]
++            or len(matches) > 1
++            or (existing and matches and source != "jc" and linked_fd is None)
++        ):
+             raise _Suspected(f"{source} 候选身份不全、主客冲突或存在重复比赛", candidates)
+         if matches:
+             target = matches[0]
+@@ -282,6 +296,8 @@ def _link_target(session, key, game, sides, existing, per_team):
+                 except CounterpartConflict as exc:
+                     raise _Suspected(str(exc), exc.candidates) from exc
+             break
++    if linked_fd is not None and (target is None or target.match_id != linked_fd.match_id):
++        raise _Suspected("既有 apif→fd 链接与本次候选不符", [linked_fd.match_id])
+     claimed = set(session.scalars(select(Match.match_id).where(Match.counterpart_id == key)))
+     if claimed and (target is None or claimed != {target.match_id}):
+         raise _Suspected("来源比赛ID已有另一关联，当前身份或开球无法复核", claimed)
+diff --git a/src/zucai/sources/fd_counterpart.py b/src/zucai/sources/fd_counterpart.py
+index aab09f8..2ee725f 100644
+--- a/src/zucai/sources/fd_counterpart.py
++++ b/src/zucai/sources/fd_counterpart.py
+@@ -87,7 +87,14 @@ def fdorg_candidate(session, fd):
+         )
+     )
+     if claims:
+-        raise CounterpartConflict("fd/fdorg 已被其他比赛链接", claims)
++        from zucai.sources.fd_apif_counterpart import apif_candidate
++
++        # Another provider may describe this same FD anchor, but it must pass
++        # the complete bidirectional identity and claim checks independently.
++        api = apif_candidate(session, fd)
++        allowed = {api.match_id} if api and api.counterpart_id == fd.match_id else set()
++        if set(claims) - allowed:
++            raise CounterpartConflict("fd/fdorg 已被其他比赛链接", claims)
+     return candidate
+ 
+ 
+diff --git a/src/zucai/sources/fd_ingest.py b/src/zucai/sources/fd_ingest.py
+index 1fdbce6..f947c89 100644
+--- a/src/zucai/sources/fd_ingest.py
++++ b/src/zucai/sources/fd_ingest.py
+@@ -17,6 +17,7 @@ from zucai.db import get_engine, init_db, session_scope
+ from zucai.league_registry import provider_config
+ from zucai.models import ClosingOdds, Match, Result, Team
+ from zucai.sources.base import RawStore
++from zucai.sources.fd_apif_counterpart import FixtureIdentity, apif_candidate
+ from zucai.sources.fd_audit import append_unique
+ from zucai.sources.fd_counterpart import CounterpartConflict, fdorg_candidate
+ from zucai.sources.football_data import (
+@@ -37,6 +38,7 @@ COUNT_KEYS = (
+     "inserted",
+     "corrected",
+     "linked_existing",
++    "linked_apif",
+     "unchanged",
+     "assumed",
+     "rejected_rows",
+@@ -178,11 +180,41 @@ def _closing(session, key, groups):
+     return count
+ 
+ 
++def _capture_identities(session, games, aliases, leagues, seen):
++    """Read-only FD candidates, including later rows that could otherwise lose by order."""
++    identities, known = {}, {}
++    for game in games:
++        try:
++            _validate(game, seen)
++            league = leagues[game.div_code]["league"]
++            pair = []
++            for raw in (game.home_raw, game.away_raw):
++                canonical = _canonical(aliases, league, raw)
++                lookup = (canonical, normalize_team(raw))
++                if lookup not in known:
++                    team = (
++                        _lookup(session, canonical)
++                        if canonical is not None
++                        else session.scalar(select(Team).where(Team.name == normalize_team(raw)))
++                    )
++                    known[lookup] = team.id if team else None
++                pair.append(known[lookup])
++            identities.setdefault(league, []).append(
++                FixtureIdentity(fd_match_id(game), "fd", league, *pair, game.kickoff_utc)
++            )
++        except (ValueError, KeyError, TypeError):
++            continue  # The ordinary row path records malformed input without creating identities.
++    return identities
++
++
+ def import_fd_games(session, games, *, seen, assume, aliases, leagues):
+     if not isinstance(assume, timedelta) or not timedelta(0) < assume <= timedelta(days=14):
+         raise ValueError("必须显式指定--assume-known-after，正延时且不超过14天")
++    games = list(games)
++    incoming = _capture_identities(session, games, aliases, leagues, seen)
+     counts = dict.fromkeys(COUNT_KEYS, 0)
+     rejected, suspected, links, outcomes, unmatched = [], [], [], [], set()
++    apif_links = []
+     for game in games:
+         audit = dict(
+             div_code=game.div_code,
+@@ -291,6 +323,16 @@ def import_fd_games(session, games, *, seen, assume, aliases, leagues):
+                     )
+                     if fdorg is not None:
+                         fdorg.counterpart_id = key
++                match = session.get(Match, key, populate_existing=True)
++                apif = apif_candidate(
++                    session,
++                    match,
++                    incoming=incoming.get(league, ()),
++                    fd_bound=tuple(name is not None for name in names),
++                )
++                newly_linked = apif is not None and apif.counterpart_id != key
++                if newly_linked:
++                    apif.counterpart_id = key
+                 # Force row constraints before publishing counters or external identity audits.
+                 session.flush()
+                 counts["closing_groups"] += closing_groups
+@@ -303,6 +345,29 @@ def import_fd_games(session, games, *, seen, assume, aliases, leagues):
+                 )
+                 counts[outcome] += 1
+                 counts["assumed"] += int(result == "assumed")
++                if newly_linked:
++                    counts["linked_apif"] += 1
++                    apif_links.append(
++                        dict(
++                            audit,
++                            apif_id=apif.match_id,
++                            fd_id=key,
++                            league=league,
++                            apif_kickoff_utc=apif.kickoff_utc,
++                            fd_kickoff_utc=match.kickoff_utc,
++                            apif_home_team_id=apif.home_team_id,
++                            apif_away_team_id=apif.away_team_id,
++                            fd_home_team_id=match.home_team_id,
++                            fd_away_team_id=match.away_team_id,
++                            basis="exact_team_ids"
++                            if (apif.home_team_id, apif.away_team_id)
++                            == (match.home_team_id, match.away_team_id)
++                            else "one_opaque_apif",
++                            fd_home_bound=names[0] is not None,
++                            fd_away_bound=names[1] is not None,
++                            observed_utc=seen.isoformat(),
++                        )
++                    )
+                 outcomes.append(dict(audit, match_id=key, outcome=outcome))
+         except CounterpartConflict as exc:
+             counts["suspected_duplicates"] += 1
+@@ -316,6 +381,7 @@ def import_fd_games(session, games, *, seen, assume, aliases, leagues):
+         rejected=rejected,
+         suspected=suspected,
+         links=links,
++        apif_links=apif_links,
+         outcomes=outcomes,
+     )
+ 
+@@ -432,6 +498,29 @@ def fetch_fd(
+             result["rejected"] = rejected
+             _append_audit(Path(audit_dir) / "fd_rejected_rows.csv", rejected)
+             _append_audit(Path(audit_dir) / "fd_suspected_duplicates.csv", result["suspected"])
++            append_unique(
++                Path(audit_dir) / "fd_apif_links.csv",
++                (
++                    "apif_id",
++                    "fd_id",
++                    "league",
++                    "apif_kickoff_utc",
++                    "fd_kickoff_utc",
++                    "apif_home_team_id",
++                    "apif_away_team_id",
++                    "fd_home_team_id",
++                    "fd_away_team_id",
++                    "basis",
++                    "fd_home_bound",
++                    "fd_away_bound",
++                    "observed_utc",
++                    "div_code",
++                    "row_number",
++                    "raw_sha256",
++                ),
++                result["apif_links"],
++                lambda row: (row["apif_id"], row["fd_id"]),
++            )
+             for key in COUNT_KEYS:
+                 total[key] += result[key]
+             total["processed_files"] += 1
