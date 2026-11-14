@@ -2,6 +2,7 @@
 
 import json
 from collections import defaultdict
+from copy import copy
 from datetime import timedelta
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from zucai.injuries_storage import (
     verify_capture_row,
 )
 from zucai.models import ApifFixtureIndex, Match, MatchInjury, MatchLineup
+from zucai.result_source_groups import merge_known_result_groups
+from zucai.result_source_links import load_result_links
 from zucai.sources.apif_injuries import INJURY_TYPES
 from zucai.sources.apif_stats import instant
 from zucai.stats_storage import read_audit
@@ -84,6 +87,8 @@ class InjuryFeatures:
         bind = session.get_bind()
         tables = set(inspect(bind).get_table_names())
         self.matches = {row["match_id"]: row for row in _read_rows(session, Match, tables)}
+        self.result_links = load_result_links(session)
+        self._proof_views = {}
         self.indices = _read_rows(session, ApifFixtureIndex, tables)
         self.injuries = {row["id"]: row for row in _read_rows(session, MatchInjury, tables)}
         self.lineups = [
@@ -156,6 +161,26 @@ class InjuryFeatures:
         while self.groups.get(match_id, match_id) != match_id:
             match_id = self.groups[match_id]
         return match_id
+
+    def _proof_view(self, cutoff):
+        links = tuple(link for link in self.result_links if instant(link[2]) < cutoff)
+        if not links:
+            return self
+        if links not in self._proof_views:
+            view = copy(self)
+            view.groups = dict(self.groups)
+            merge_known_result_groups(view.groups, self.matches, links, cutoff)
+            view.index_groups = defaultdict(list)
+            view.group_clocks = {}
+            for row in self.indices:
+                view.index_groups[view._group(row["match_id"])].append(row)
+            for row in self.matches.values():
+                group = view._group(row["match_id"])
+                kickoff = instant(row["kickoff_utc"])
+                first, last = view.group_clocks.get(group, (kickoff, kickoff))
+                view.group_clocks[group] = min(first, kickoff), max(last, kickoff)
+            self._proof_views[links] = view
+        return self._proof_views[links]
 
     def _index(self, game):
         candidates = self.index_groups.get(self._group(game["match_id"]), [])
@@ -409,6 +434,14 @@ class InjuryFeatures:
         }
 
     def build(self, target, *, as_of, mode="strict"):
+        game = dict(self.matches.get(target["match_id"], {}), **target)
+        cutoff = min(instant(as_of), instant(game["kickoff_utc"]))
+        view = self._proof_view(cutoff)
+        earliest = view.group_clocks.get(view._group(game["match_id"]), (cutoff, cutoff))[0]
+        cutoff = min(cutoff, earliest, instant(game.get("earliest_kickoff_utc", cutoff)))
+        return self._proof_view(cutoff)._build(target, as_of=cutoff, mode=mode)
+
+    def _build(self, target, *, as_of, mode="strict"):
         if mode not in {"strict", "backfill_replay"}:
             raise ValueError("伤停可知口径须为 strict/backfill_replay")
         game = dict(self.matches.get(target["match_id"], {}), **target)

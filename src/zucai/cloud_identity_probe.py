@@ -36,7 +36,9 @@ FIELDS = (
 def identity_codes(codes=None):
     if LEAGUES == _DEFAULT_LEAGUES:
         configured = provider_config("apif")
-        allowed = {str(code) for code in provider_ids("apif", "identity_only")}
+        allowed = {str(code) for code in provider_ids("apif", "identity_only")} | {
+            code for code, entry in configured.items() if entry.get("identity_bridge")
+        }
     else:
         configured = read_json(LEAGUES)
         allowed = {str(code) for code in APIF_IDENTITY_LEAGUE_IDS}
@@ -45,7 +47,11 @@ def identity_codes(codes=None):
         not selected
         or len(selected) != len(set(selected))
         or any(
-            code not in allowed or configured.get(code, {}).get("identity_only") is not True
+            code not in allowed
+            or not (
+                configured.get(code, {}).get("identity_only")
+                or configured.get(code, {}).get("identity_bridge")
+            )
             for code in selected
         )
     ):

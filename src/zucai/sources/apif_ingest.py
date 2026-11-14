@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -221,7 +221,9 @@ def _check_capture(games, seen):
 
 
 def _check_claims(game, per_team, target=None):
-    when = datetime.fromisoformat(target.kickoff_utc) if target else game.kickoff_utc
+    when = target.kickoff_utc if target else game.kickoff_utc
+    if isinstance(when, str):
+        when = datetime.fromisoformat(when)
     others = set()
     for team_id in (game.home_provider_id, game.away_provider_id):
         for kickoff, other_id in per_team[game.league, team_id]:
@@ -233,10 +235,18 @@ def _check_claims(game, per_team, target=None):
         raise _Suspected("本批三小时内同队有多个来源比赛ID", others)
 
 
-def _link_target(session, key, game, sides, existing, per_team):
+def _link_target(session, key, game, sides, existing, per_team, *, retain=False):
     _check_claims(game, per_team)
     pair = tuple(side.team.id if side.team else None for side in sides)
     known = all(side.binding is not None for side in sides)
+    linked_fd = None
+    if existing and (existing.counterpart_id or "").startswith("fd:"):
+        from zucai.sources.fd_apif_counterpart import check_linked_observation
+
+        try:
+            linked_fd = check_linked_observation(session, existing, game, pair)
+        except CounterpartConflict as exc:
+            raise _Suspected(str(exc), exc.candidates) from exc
     window = session.scalars(
         select(Match).where(
             Match.source.in_(("jc", "fd", "fdorg", "apif")),
@@ -250,7 +260,9 @@ def _link_target(session, key, game, sides, existing, per_team):
     for candidate in window:
         oriented = (candidate.home_team_id, candidate.away_team_id)
         source = candidate.source
-        if source != "apif" and known and pair == oriented:
+        if linked_fd is not None and candidate.match_id == linked_fd.match_id:
+            exact[source].append(candidate)
+        elif source != "apif" and known and pair == oriented:
             exact[source].append(candidate)
         elif (
             (source != "apif" and not known)
@@ -267,21 +279,40 @@ def _link_target(session, key, game, sides, existing, per_team):
             conflicts[source].append(candidate.match_id)
     if conflicts["apif"]:
         raise _Suspected("同联赛三小时内已有另一 apif 比赛ID", conflicts["apif"])
+    if retain:
+        for source in ("jc", "fd", "fdorg"):
+            if conflicts[source] or len(exact[source]) > 1:
+                raise _Suspected(
+                    f"{source} 多来源赛果关系有身份冲突或多候选",
+                    conflicts[source] + [m.match_id for m in exact[source]],
+                )
+        if existing and (
+            existing.league != game.league
+            or (existing.home_team_id, existing.away_team_id) != pair
+            or abs(datetime.fromisoformat(existing.kickoff_utc) - game.kickoff_utc) > WINDOW
+        ):
+            raise _Suspected("既有付费行的身份或开球与观察不符", [key])
     target = None
     for source in ("jc", "fd", "fdorg"):
         matches = exact[source]
         candidates = conflicts[source] + [m.match_id for m in matches]
-        if conflicts[source] or len(matches) > 1 or (existing and matches and source != "jc"):
+        if (
+            conflicts[source]
+            or len(matches) > 1
+            or (not retain and existing and matches and source != "jc" and linked_fd is None)
+        ):
             raise _Suspected(f"{source} 候选身份不全、主客冲突或存在重复比赛", candidates)
         if matches:
             target = matches[0]
             _check_claims(game, per_team, target)
-            if existing and source == "jc":
+            if existing and source == "jc" and not retain:
                 try:
                     check_late_observation(session, existing, game, pair, target)
                 except CounterpartConflict as exc:
                     raise _Suspected(str(exc), exc.candidates) from exc
             break
+    if linked_fd is not None and (target is None or target.match_id != linked_fd.match_id):
+        raise _Suspected("既有 apif→fd 链接与本次候选不符", [linked_fd.match_id])
     claimed = set(session.scalars(select(Match.match_id).where(Match.counterpart_id == key)))
     if claimed and (target is None or claimed != {target.match_id}):
         raise _Suspected("来源比赛ID已有另一关联，当前身份或开球无法复核", claimed)
@@ -319,7 +350,7 @@ def _reconcile_unsettled(match, score, seen):
     return "availability_quarantined"
 
 
-def _persist(session, key, game, seen, assume, existing, sides):
+def _persist(session, key, game, seen, assume, existing, sides, *, actual_clock=False):
     old = session.get(Result, key, populate_existing=True)
     if existing and (
         existing.source != "apif"
@@ -339,7 +370,10 @@ def _persist(session, key, game, seen, assume, existing, sides):
             datetime.fromisoformat(t)
             for t in (
                 existing.result_checked_utc if existing else None,
-                old.available_utc if old else None,
+                # T63 availability is the import clock, not source observation order.
+                old.available_utc
+                if old and (not actual_clock or not (existing and existing.result_checked_utc))
+                else None,
             )
             if t
         ),
@@ -433,7 +467,9 @@ def _persist(session, key, game, seen, assume, existing, sides):
     return outcome, state == "assumed", teams
 
 
-def import_apif_games(session, games, *, seen, assume, aliases):
+def import_apif_games(
+    session, games, *, seen, assume, aliases, retain_results=False, imported_utc=None
+):
     """Import one capture in the caller's transaction, with a savepoint per fixture."""
     if not isinstance(seen, datetime) or seen.utcoffset() is None:
         raise LocalValidationError("采集时刻须含UTC偏移")
@@ -446,6 +482,10 @@ def import_apif_games(session, games, *, seen, assume, aliases):
         # SQLite can otherwise commit a top-level SAVEPOINT independently of the caller.
         conn.exec_driver_sql("BEGIN IMMEDIATE")
     index = _Teams(session, aliases)
+    from zucai.predict.training_sources import actual_result_leagues
+
+    retained_leagues = actual_result_leagues() if retain_results else set()
+    imported = imported_utc if imported_utc is not None else datetime.now(UTC)
     rows, per_team = _check_capture(games, seen)
     counts = dict.fromkeys(COUNT_KEYS, 0)
     rejected, suspected, links, outcomes = [], [], [], []
@@ -475,8 +515,50 @@ def import_apif_games(session, games, *, seen, assume, aliases):
                     raise ValueError(invalid)
                 existing = session.get(Match, key, populate_existing=True)
                 sides = index.sides(session, game, unknown)
-                target = _link_target(session, key, game, sides, existing, per_team)
-                if target:
+                retain = game.league in retained_leagues
+                if retain and (
+                    not isinstance(imported, datetime)
+                    or imported.utcoffset() is None
+                    or imported < seen
+                ):
+                    raise LocalValidationError("实际导入核验时刻须带时区且不能早于来源捕获")
+                target = _link_target(session, key, game, sides, existing, per_team, retain=retain)
+                if retain:
+                    # A linked observation still has its own original score and
+                    # clock. Existing counterpart/score fields are never replaced.
+                    outcome, assumed, teams = _persist(
+                        session, key, game, seen, None, existing, sides, actual_clock=True
+                    )
+                    session.flush()
+                    paid = session.get(Match, key)
+                    if (
+                        outcome in {"inserted", "updated", "corrected"} and game.status in FINISHED
+                    ) or outcome == "availability_corrected":
+                        score = session.get(Result, key)
+                        score.available_utc = max(
+                            datetime.fromisoformat(score.available_utc), imported
+                        )
+                    if all(side.binding is not None for side in sides):
+                        from zucai.result_source_identity import record_result_identity
+
+                        record_result_identity(session, paid, imported)
+                    if target:
+                        from zucai.result_source_links import record_result_link
+
+                        targets = session.scalars(
+                            select(Match).where(
+                                Match.source.in_(("jc", "fd", "fdorg")),
+                                Match.league == paid.league,
+                                Match.home_team_id == paid.home_team_id,
+                                Match.away_team_id == paid.away_team_id,
+                                Match.kickoff_utc.between(
+                                    game.kickoff_utc - WINDOW, game.kickoff_utc + WINDOW
+                                ),
+                            )
+                        )
+                        for other in targets:
+                            record_result_link(session, paid, other, imported)
+                elif target:
                     match_id = target.match_id
                     outcome = (
                         "linked_existing" if target.source == "jc" else "linked_" + target.source

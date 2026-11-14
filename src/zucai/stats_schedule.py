@@ -16,6 +16,7 @@ from zucai.sources.football_data import CONFIG_ROOT, LEAGUES_PATH, read_json
 from zucai.sources.sporttery import BEIJING
 from zucai.stats_client import ALLOWED_LEAGUES, DETAILS, INJURY_LEAGUES
 from zucai.stats_link import provider_season
+from zucai.stats_match_identity import matches_provider_fixture, verified_match_groups
 
 FD_CODES = ("E0", "E1", "SP1", "I1", "D1", "F1", "F2", "N1", "P1")
 ORDER = ("index", "fd", *DETAILS, "injuries")
@@ -239,8 +240,8 @@ def match_units(database, selection, now, *, daily=False):
             sale_ids = set(
                 session.scalars(select(Odds.match_id).where(Odds.pool == "had", Odds.line == 0))
             )
-            # Explicit existing links only. Precompute both directions once instead of
-            # scanning every Match again for each index and endpoint.
+            # Keep the legacy sale links and add only currently verified proof
+            # components. Retained rows need no mutable JC counterpart pointer.
             sale_jc_ids = {
                 m.match_id for m in games.values() if m.source == "jc" and m.match_id in sale_ids
             }
@@ -249,6 +250,19 @@ def match_units(database, selection, now, *, daily=False):
                 for m in games.values()
                 if m.match_id in sale_jc_ids and m.counterpart_id
             }
+            if daily and "lineups" in selection["endpoints"]:
+                groups = verified_match_groups(session, as_of=now)
+                claims = defaultdict(set)
+                for index in indexed:
+                    members = groups.get(index.match_id, frozenset({index.match_id}))
+                    claims[members].add(index.provider_fixture_id)
+                sale_targets.update(
+                    index.match_id
+                    for index in indexed
+                    if (members := groups.get(index.match_id, frozenset())) & sale_jc_ids
+                    and claims[members] == {index.provider_fixture_id}
+                    and matches_provider_fixture(members, index.provider_fixture_id)
+                )
             yesterday = now.astimezone(BEIJING).date() - timedelta(days=1)
             for endpoint in DETAILS:
                 if endpoint not in selection["endpoints"]:

@@ -284,14 +284,14 @@ jobs:
           cd "$WORK_DIR"
           python -m zucai.cloud_stats daily --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --max-requests 300
       - name: Preserve captured statistics from already downloaded fd files
-        if: ${{ env.FEED_MODE == 'apis' && steps.collect.outputs.slot == 'early' }}
+        if: ${{ env.FEED_MODE == 'apis' }}
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd "$WORK_DIR"
           if [[ -d data/raw/football-data-co-uk ]]; then
-            python -m zucai.cloud_stats daily --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --endpoints fd --max-requests 1
+            python -m zucai.cloud_stats daily --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-fd" --endpoints fd --max-requests 1
           fi
       - name: Publish verified data
         if: ${{ env.FEED_MODE == 'apis' || env.FEED_MODE == 'backfill' || env.FEED_MODE == 'probe' || env.FEED_MODE == 'identity' || env.FEED_MODE == 'reconcile' || env.FEED_MODE == 'relink-fdorg' || env.FEED_MODE == 'relink-jc' }}

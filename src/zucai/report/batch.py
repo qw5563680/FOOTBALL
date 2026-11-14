@@ -16,7 +16,13 @@ from zucai.models import Match, Odds, Prediction, Team
 from zucai.predict.base import model_sources, utc
 from zucai.predict.derive import had
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
-from zucai.predict.parameters import model_readiness
+from zucai.predict.model_definitions import (
+    DEFINITION_FIELDS,
+    FROZEN_DEFINITION_FIELDS,
+    T63_LEAGUES,
+    entry_definition_metadata,
+)
+from zucai.predict.parameters import model_readiness, read_parameters
 from zucai.predict.pooled import model_targets
 from zucai.sources.sporttery import BEIJING
 
@@ -68,6 +74,7 @@ def _models(paths, as_of, params_file=None, *, allow_empty=False):
             )
         meta["parameter_provenance"] = dict(getattr(model, "parameter_provenance", {}))
         meta["parameter_provenance"].setdefault("params_path", meta["params_path"])
+        meta["parameter_provenance"].update({key: meta[key] for key in DEFINITION_FIELDS})
         for key in keys:
             registry[key] = (model, meta, error)
     if not registry and not allow_empty:
@@ -156,6 +163,7 @@ def predict_batch(
     if not math.isfinite(market_weight) or not 0 <= market_weight <= 1:
         raise ValueError("市场实验权重必须在0至1之间")
     registry = _models(model_files, cutoff, params_file, allow_empty=allow_empty)
+    entries = read_parameters(params_file)[0]["leagues"]
     if day is not None:
         start = datetime.combine(day, time(), BEIJING)
         keys = list(
@@ -171,6 +179,7 @@ def predict_batch(
         raise ValueError("指定范围没有已核实的比赛")
     batch = {
         "schema_version": 2,
+        "model_definition_schema": 1,
         "batch_id": uuid4().hex,
         "generated_utc": created.isoformat(),
         "as_of_utc": cutoff.isoformat(),
@@ -205,6 +214,44 @@ def predict_batch(
                 "kickoff_beijing": utc(match.kickoff_utc).tz_convert(BEIJING).isoformat(),
             }
         )
+        scope = registry.get((match.source, match.league))
+        compatible = {
+            id(candidate[0]): candidate
+            for candidate in registry.values()
+            if match.league in model_targets(candidate[0])
+        }
+        attributed = scope or (next(iter(compatible.values())) if len(compatible) == 1 else None)
+        if attributed is not None:
+            provenance = attributed[1]
+            item.update(
+                {
+                    key: provenance[key]
+                    for key in (
+                        "model_name",
+                        "model_version",
+                        "p2_ready",
+                        "p2_label",
+                        *FROZEN_DEFINITION_FIELDS,
+                    )
+                }
+            )
+        else:
+            item.update(
+                p2_ready=False,
+                p2_label="实验" if match.league in T63_LEAGUES else "P2 实验",
+                paper_eligible=False,
+                model_version=None,
+            )
+            entry = entries.get(match.league, {})
+            if entry.get("sources"):
+                definition = entry_definition_metadata(match.league, entry)
+                item.update(
+                    **definition,
+                    expected_definition=True,
+                    model_name=definition["model_definition"]["model_family"],
+                )
+            else:
+                item["definition_unavailable_reason"] = "未配置该联赛明确的训练来源与模型定义"
         expected = (expected_identities or {}).get(key, {})
         if any(
             (utc(value) != utc(item[field]) if field == "kickoff_utc" else value != item[field])
@@ -218,7 +265,6 @@ def predict_batch(
         if match.status == "cancelled" or (match.status != "scheduled" and not replay):
             item["reason"] = "当前场次状态不适用于赛前预测"
             continue
-        scope = registry.get((match.source, match.league))
         if scope is None:
             item["reason"] = "缺少同来源同联赛的模型"
             continue

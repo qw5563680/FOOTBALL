@@ -50,6 +50,8 @@ def _write(path: Path, value: dict) -> None:
 
 
 def _run_files(run_id: str, run: dict) -> set[str]:
+    from zucai.source_version_archive import source_version_files
+
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", run_id) or run["run_id"] != run_id:
         raise ValueError("无效 run ID")
     files = set()
@@ -100,6 +102,7 @@ def _run_files(run_id: str, run: dict) -> set[str]:
                 if not re.fullmatch(re.escape(directory) + r"/parlay_sd-[0-9a-f]{64}\.json", name):
                     raise ValueError("复式历史版本路径无效")
                 files.add(name)
+    files.update(source_version_files(run_id, run))
     return files
 
 
@@ -144,6 +147,15 @@ def verify_forecasts(archive: Path, *, allow_unknown_odds_time: bool = False) ->
                     raise ValueError("预测批次与清单不符")
                 if {m["league"]: m["model_version"] for m in batch["models"]} != successes:
                     raise ValueError("预测模型与本次训练结果不符")
+            if "source_versions" in run:
+                from zucai.source_version_archive import verify_source_versions
+
+                verify_source_versions(
+                    archive,
+                    manifest,
+                    run,
+                    allow_unknown_odds_time=allow_unknown_odds_time,
+                )
         latest = _read(archive / LATEST)
         for league, result in latest["models"].items():
             if known_models.get(result["model_path"]) != (league, result):

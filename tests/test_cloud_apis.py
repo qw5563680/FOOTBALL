@@ -49,9 +49,30 @@ def environment(tmp_path, monkeypatch):
             "kickoff_utc,status) VALUES "
             "('jc:1','jc','Seed',1,2,'2026-10-01T12:00:00.000000Z','scheduled')"
         )
+    # Most T14 scenarios exercise the other providers; FD is explicitly fresh.
+    receipt = db.parent / "state/fd_collection.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "last_successful_run_started_utc": "2026-11-02T02:00:00+00:00",
+            }
+        )
+    )
     archive = tmp_path / "archive"
     export_feeds(db, archive, CLOCK.date(), "seed")
     return archive
+
+
+def forget_fd_success(archive):
+    """Model an old archive with no persisted successful FD collection."""
+    key = "state/fd_collection.json"
+    (archive / key).unlink(missing_ok=True)
+    path = archive / "feed_manifest.json"
+    meta = json.loads(path.read_bytes())
+    meta["files"].pop(key, None)
+    path.write_text(json.dumps(meta))
 
 
 def configure_fd(monkeypatch, tmp_path):
@@ -77,7 +98,15 @@ def run_apis(tmp_path, monkeypatch, archive, name, slot="early"):
 
 
 def mock_apis(
-    api, *, fd=False, fail_fdorg=False, rejected=False, remaining=None, apif_mode=None, paid=False
+    api,
+    *,
+    fd=False,
+    fail_fdorg=False,
+    rejected=False,
+    remaining=None,
+    apif_mode=None,
+    paid=False,
+    empty_fdorg=False,
 ):
     if fd:
         api.add(
@@ -86,6 +115,8 @@ def mock_apis(
             body=(FIXTURES / "fd.csv").read_bytes(),
         )
     doc = json.loads((FIXTURES / "fdorg.json").read_bytes())
+    if empty_fdorg:
+        doc.update(resultSet={"count": 0}, matches=[])
     if rejected:
         doc["matches"][0]["score"]["fullTime"]["home"] = -1
     api.add(
@@ -97,8 +128,8 @@ def mock_apis(
             responses.matchers.query_param_matcher(
                 {
                     "competitions": "PL,ELC,PD,SA,BL1,FL1,DED,PPL,BSA,CL",
-                    "dateFrom": "2026-10-30",
-                    "dateTo": "2026-11-06",
+                    "dateFrom": (CLOCK.date() - timedelta(days=3)).isoformat(),
+                    "dateTo": (CLOCK.date() + timedelta(days=4)).isoformat(),
                 }
             )
         ],
@@ -143,6 +174,7 @@ def mock_apis(
 def test_full_chain_restores_three_sources_closing_prices_and_reuses_quota(
     environment, tmp_path, monkeypatch
 ):
+    forget_fd_success(environment)
     configure_fd(monkeypatch, tmp_path)
     manifest_path = environment / "feed_manifest.json"
     previous = json.loads(manifest_path.read_bytes())
@@ -214,13 +246,13 @@ def test_source_failure_or_rejected_rows_marks_partial_but_keeps_other_sources(
     ("instant", "slot", "expected"),
     [
         ("2026-11-02T02:40:00+00:00", "early", True),
-        ("2026-11-02T09:40:00+00:00", "late", False),
-        ("2026-11-01T02:40:00+00:00", "early", False),
-        ("2026-11-03T02:40:00+00:00", "early", False),
-        ("2026-11-02T02:40:00+08:00", "early", False),
+        ("2026-11-02T09:40:00+00:00", "late", True),
+        ("2026-11-01T02:40:00+00:00", "early", True),
+        ("2026-11-03T02:40:00+00:00", "early", True),
+        ("2026-11-02T02:40:00+08:00", "early", True),
     ],
 )
-def test_fd_only_monday_early_utc(instant, slot, expected):
+def test_fd_without_success_evidence_is_due_in_any_slot(instant, slot, expected):
     from zucai.cloud_apis import fd_due
 
     assert fd_due(datetime.fromisoformat(instant), slot) is expected
@@ -424,6 +456,7 @@ def test_restored_api_archive_is_readable_by_four_source_training(
     from zucai.db import session_scope
     from zucai.predict.backtest import read_history
 
+    forget_fd_success(environment)
     configure_fd(monkeypatch, tmp_path)
     with responses.RequestsMock() as api:
         mock_apis(api, fd=True)

@@ -58,7 +58,7 @@ def test_replay_season_and_date_availability(tmp_path):
         engine = get_engine(db)
         with session_scope(engine) as s:
             row = s.scalars(select(Result)).one()
-            assert row.available_source == ("assumed" if mode == "season" else "captured")
+            assert row.available_source == "captured"  # T63 does not backdate new paid results.
             assert s.scalars(select(Match)).one().source == "apif"
         engine.dispose()
         meta = p.with_suffix(".json.meta.json")

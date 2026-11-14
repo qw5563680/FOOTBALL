@@ -3,12 +3,19 @@
 import json
 import math
 from collections import Counter
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from itertools import combinations, permutations
 
 from zucai.parlay.evidence import injury_evidence, legacy_filter_diagnostic
 from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unknown_team_prior
+from zucai.scoreboard.paper import (
+    PAPER_VERSION_FIELDS,
+    paper_context_allowed,
+    paper_version_allowed,
+    paper_version_matches,
+)
 from zucai.scoreboard.score import OUTCOMES, frozen_market, instant, record_key
 
 RULE = "single_plus_double_v2"
@@ -279,6 +286,7 @@ def _prepare(row, p, batch, identity, injury, catalog, at, config, *, independen
                 "prospective_verified",
             )
         },
+        **{key: deepcopy(row[key]) for key in PAPER_VERSION_FIELDS if key in row},
         team_ids=[(identity or {}).get(s + "_team_id") for s in ("home", "away")],
         probabilities=dict(p),
         probability_source=kind,
@@ -435,6 +443,25 @@ def _board(matches, batch, name, config):
     )
 
 
+def _paper_prediction_allowed(row, batch):
+    models = [
+        model
+        for model in batch.get("models", [])
+        if model.get("model_version") == row.get("model_version")
+    ]
+    parent_versioned = "model_definition_schema" in batch
+    versioned = (
+        parent_versioned
+        or any(key in row for key in PAPER_VERSION_FIELDS)
+        or any(key in model for model in models for key in PAPER_VERSION_FIELDS)
+    )
+    allowed = paper_context_allowed(batch) and paper_version_allowed(row, required=parent_versioned)
+    return allowed and (
+        not versioned
+        or (len(models) == 1 and paper_version_matches(row, models[0], required=parent_versioned))
+    )
+
+
 def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None, config=None):
     config = config or Config()
     at = instant(frozen_utc)
@@ -463,6 +490,7 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
         for row in experimental.get("predictions", []):
             if (
                 row.get("status") == "predicted"
+                and _paper_prediction_allowed(row, experimental)
                 and row.get("model_name")
                 and row.get("model_version")
                 and probabilities(row.get("model_probabilities"))
@@ -490,11 +518,13 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
             config,
         )
         p = row.get("model_probabilities")
+        version_allowed = _paper_prediction_allowed(row, batch)
         valid = (
             row.get("status") == "predicted"
             and probabilities(p)
             and batch.get("input", {}).get("market_weight", 0) == 0
             and row.get("model_version")
+            and version_allowed
         )
         if valid:
             prepared = _prepare(
@@ -523,11 +553,25 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
                     )
                 )
         else:
-            diagnostics.append(dict(match_id=mid, reasons=["model_probabilities_unavailable"]))
+            diagnostics.append(
+                dict(
+                    match_id=mid,
+                    reasons=[
+                        "model_version_not_paper_eligible"
+                        if not version_allowed
+                        else "model_probabilities_unavailable"
+                    ],
+                )
+            )
+        reference_row = {
+            key: value
+            for key, value in row.items()
+            if key not in (*PAPER_VERSION_FIELDS, "model_definition_schema")
+        }
         market = _market(row, batch)
         if market:
             market_row = {
-                **row,
+                **reference_row,
                 "model_name": "market_inverse_sp",
                 "model_version": "inverse_sp_v1",
                 "p2_label": "市场参考",
@@ -540,8 +584,9 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
         for extra in extras.get(mid, []):
             name = extra["model_name"]
             item = {
-                **row,
+                **reference_row,
                 **{k: extra.get(k) for k in ("model_name", "model_version", "model_probabilities")},
+                **{key: deepcopy(extra[key]) for key in PAPER_VERSION_FIELDS if key in extra},
                 "metadata": extra.get("metadata") or {},
                 "prior_disclosure": extra.get("prior_disclosure"),
                 "p2_ready": False,
@@ -579,6 +624,11 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
         del board["candidates"]
     return dict(
         schema_version=2,
+        **(
+            {"model_definition_schema": batch["model_definition_schema"]}
+            if "model_definition_schema" in batch
+            else {}
+        ),
         rule=RULE,
         rule_effective_utc=at.isoformat(),
         batch_id=batch["batch_id"],

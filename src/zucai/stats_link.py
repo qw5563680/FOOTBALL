@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -15,9 +15,11 @@ from zucai.sources.apif_reconcile import _formal_entry
 from zucai.sources.apif_stats import PARSER_VERSION, envelope, fixture_identity, instant
 from zucai.sources.fd_ingest import normalize_team
 from zucai.sources.football_data import read_json
+from zucai.stats_match_identity import matches_provider_fixture, verified_match_groups
 
 INDEX_REQUEST_LEAGUES = APIF_INDEX_LEAGUE_IDS
 CALENDAR_LEAGUES = {292, 113, 103, 244, 253, 169}
+SOURCE_PRIORITY = {"jc": 0, "fd": 1, "fdorg": 2, "apif": 3}
 
 
 def provider_season(kickoff, league_id):
@@ -45,9 +47,16 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
         json.dumps(aliases, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     matches = list(session.scalars(select(Match).where(Match.league == league)))
+    groups = verified_match_groups(session)
+
+    def group(match_id):
+        return groups.get(match_id, frozenset({match_id}))
+
     previous = {row.provider_fixture_id: row for row in session.scalars(select(ApifFixtureIndex))}
-    claimed = {row.match_id: row.provider_fixture_id for row in previous.values()}
-    planned, audit, preferred = [], [], {}
+    claimed = defaultdict(set)
+    for row in previous.values():
+        claimed[group(row.match_id)].add(row.provider_fixture_id)
+    planned, audit, preferred, coalesced = [], [], {}, {}
 
     def record_audit(fixture_id, reason, detail="", candidates=(), *, outcome="rejected"):
         audit.append(
@@ -150,6 +159,21 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             and {m.home_team_id, m.away_team_id} & set(sides.values())
         ]
         preferred_candidates = []
+        old = previous.get(fixture_id)
+        if (
+            len(direct) > 1
+            and not reverse
+            and not conflict
+            and len({m.source for m in direct}) == len(direct)
+            and len({group(m.match_id) for m in direct}) == 1
+        ):
+            coalesced[fixture_id] = [m.match_id for m in direct]
+            # Previously attached technical rows keep their immutable target.
+            # Only a new index selects the usual source representative.
+            pinned = next((m for m in direct if old and m.match_id == old.match_id), None)
+            direct = [
+                pinned or min(direct, key=lambda m: (SOURCE_PRIORITY.get(m.source, 99), m.match_id))
+            ]
         if (
             len(direct) == 2
             and not reverse
@@ -176,7 +200,14 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
             )
             continue
         match = direct[0]
-        old = previous.get(fixture_id)
+        if not matches_provider_fixture(groups.get(match.match_id, ()), fixture_id):
+            record_audit(
+                fixture_id,
+                "同窗冲突",
+                "同场证明中的 APIF fixture ID 与原件不符",
+                group(match.match_id),
+            )
+            continue
         if old and (
             old.match_id,
             old.home_provider_id,
@@ -194,21 +225,23 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
                 fixture_id, "同窗冲突", "既有索引禁止重指向", [old.match_id, match.match_id]
             )
             continue
-        if match.match_id in claimed and claimed[match.match_id] != fixture_id:
-            record_audit(fixture_id, "多对一", "目标已被其他 fixture 占用", [match.match_id])
+        if claimed[group(match.match_id)] - {fixture_id}:
+            record_audit(
+                fixture_id, "多对一", "同场组件已被其他 fixture 占用", group(match.match_id)
+            )
             continue
         if preferred_candidates:
             preferred[fixture_id] = preferred_candidates
         planned.append((identity, match, sides, evidence, old))
-    counts = Counter(match.match_id for _, match, _, _, _ in planned)
+    counts = Counter(group(match.match_id) for _, match, _, _, _ in planned)
     linked, unchanged = 0, 0
     for identity, match, sides, evidence, old in planned:
-        if counts[match.match_id] > 1:
+        if counts[group(match.match_id)] > 1:
             record_audit(
                 identity["provider_fixture_id"],
                 "多对一",
                 "整批多个 fixture 对应同一比赛",
-                [match.match_id],
+                group(match.match_id),
             )
             continue
         elif old:
@@ -238,6 +271,14 @@ def link_fixtures(session, raw, *, league_id, season, aliases, metadata, config=
                 "preferred_fd",
                 f"同场 fd/fdorg 双行优先关联 {match.match_id}",
                 preferred[identity["provider_fixture_id"]],
+                outcome="linked",
+            )
+        if identity["provider_fixture_id"] in coalesced:
+            record_audit(
+                identity["provider_fixture_id"],
+                "verified_same_match",
+                f"有效同场证明保留索引目标 {match.match_id}",
+                coalesced[identity["provider_fixture_id"]],
                 outcome="linked",
             )
     session.flush()

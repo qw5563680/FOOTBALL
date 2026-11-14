@@ -77,7 +77,13 @@ def api_backfill_scopes(provider, codes=None, first=None, last=None, *, today=No
                 range(config[code]["earliest_season"], today.year - (today.month < 7) + 1)
             )
         else:
-            allowed = config[code]["seasons_available"]
+            allowed = (
+                config[code].get("result_seasons_available", [])
+                if config[code].get("require_result_permission")
+                else config[code]["seasons_available"]
+            )
+        if not allowed:
+            raise ValueError(f"{code} 尚缺实际赛果读取权限核验，不能按目录或身份年份回填")
         start, end = _year(first, min(allowed)), _year(last, max(allowed))
         if start > end or any(year not in allowed for year in range(start, end + 1)):
             raise ValueError("API 回填年份超出已核验可读范围，或 --from 晚于 --to")

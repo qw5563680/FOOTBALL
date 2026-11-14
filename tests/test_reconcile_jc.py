@@ -245,6 +245,9 @@ def test_background_three_pairs_pass_unchanged_pooled_guard_after_merge(make_dat
     with session_scope(engine) as session:
         frame = read_history(session, source=f"jc,{provider}", training_leagues=scope)
     engine.dispose()
+    from zucai.predict.pooled import select_training_history
+
+    frame = select_training_history(frame, "2026-12-01T00:00:00Z")
     assert set(frame.match_id) == {p["jc_id"] for p in SAMPLE["pairs"]}
     assert frame.attrs["linked_rows_excluded"] == sorted(
         f"{provider}:{p['api_id']}" for p in SAMPLE["pairs"]

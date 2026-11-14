@@ -22,6 +22,7 @@ from zucai.predict.base import (
     utc,
 )
 from zucai.predict.calibration import fit_draw_offset
+from zucai.predict.pooled import select_training_history
 from zucai.predict.pooled_fit import FITTING_METHOD, fit_pooled_engine
 
 
@@ -57,11 +58,9 @@ class DixonColes(Model):
         )
         if not history.source.isin(sources).all():
             raise ValueError("历史数据来源超出显式选择的来源范围")
-        reject_cross_source_overlaps(history)
-        known = history["available_utc"]
-        eligible = history.loc[
-            (history.kickoff_utc < cutoff) & (known < cutoff) & (known > history.kickoff_utc)
-        ].copy()
+        if not history.attrs.get("linked_source_selection"):
+            reject_cross_source_overlaps(history)
+        eligible = select_training_history(history, cutoff)
         if getattr(self, "pooled", False) and "training_leagues" in history.attrs:
             declared = history.attrs["training_leagues"]
             if (

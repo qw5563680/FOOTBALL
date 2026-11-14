@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
+from zucai.league_registry import daily_provider_config
 from zucai.sources.api_football import ApiFootball
 from zucai.sources.apif_command import ALIASES as APIF_ALIASES
 from zucai.sources.apif_verify import infer_aliases
@@ -58,7 +59,11 @@ def write_candidates(provider, database, raw_dir, captures, output):
     aliases = read_json(FDORG_ALIASES if provider == "fdorg" else APIF_ALIASES)
     official = _read_official(database)
     store = RawStore(raw_dir)
-    source = FootballDataOrg(store=store) if provider == "fdorg" else ApiFootball(store=store)
+    source = (
+        FootballDataOrg(store=store)
+        if provider == "fdorg"
+        else ApiFootball(store=store, leagues=daily_provider_config("apif"))
+    )
     paths = {}
     groups, coverage = defaultdict(dict), defaultdict(list)
     provenance, identities = {}, {}

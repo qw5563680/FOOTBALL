@@ -42,6 +42,8 @@ manifest v2 的 `technical_data.version=3` 增加伤停分片行数和 SHA256；
 重复原件不重复写入，空值不覆盖有效值，更正保留旧版本，审计随数据分支归档。
 额外 fd 统计关联使用可选的哈希列入清单文件 `state/fd_stats_links.jsonl`，先于技术行恢复；
 旧归档没有该文件仍可恢复，T31/T32/T38 行分片格式不变。
+T66 修复后，先有统计关联、后导入赛果时，原本为空的竞彩 counterpart 可以补为该关联的同一 FD 编号；
+原有 fdorg 关系不替换，原统计证据不重写。后续新统计仍追加真实原件观察并逐行校验，不能因编号相同跳过证据。
 历史技术行 available_utc 留空、标 backfilled；伤停按下节的真实抓取时间区分。FT 与含加时分开，半场统计不可得，不补造数据。
 
 ## T33 技术特征实验（第一轮）
@@ -88,8 +90,12 @@ T34a 起 strict 按真实捕获时刻判断，已在截点前抓到的回填可�
 
 T61 只读目录由审查者在 Actions 运行：`python -m zucai.cloud_feeds probe --probe-kind catalogue --archive ../cloud-data --run-id <批次>`；
 竞彩过去12个完整北京时间月目录改用 `--probe-kind jc-catalogue`，仅限 `football-local` 自托管运行器。
+已保存的竞彩目录可离线重算：`python -m zucai.catalogue_replay --source-dir ../cloud-data/state/catalogue/43539673769-1 --out-dir ../t65-replay --run-id t65-offline-1`；只写新目录，不请求接口、不更新正式 `latest.json`。
 目录历史回填：`python -m zucai.cloud_feeds backfill --catalogue --source apif --max-requests 500 --resume --archive ../cloud-data --run-id <新批次>`。
 以上命令不在开发环境使用正式密钥；本地验证只用 `data/fixtures/` 离线样本。
+T65 审查后已核准的62个新赛事身份采用唯一中文项目名，仅开放历史回填范围（`backfill=true`、`daily=false`）；每日采集由 T68 逐赛事开启。
+日期导入和候选别名生成共用原每日范围。目录中五组冲突年份保留全部原值与指针、单独隔离，禁止进入回填计划；其他年份正常解析。
+目录列出的赛季不代表账号可读。本次只重放已归档原件，未触发回填；独立测试目录的成功指针不代表正式 `latest.json` 已更新。
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
@@ -223,7 +229,7 @@ gate 对其他操作不生效。原来的三条 cron 均保留，不保证准点
 | job | 运行器 | 时间 / 范围 |
 | --- | --- | --- |
 | `schedule-gate` | `ubuntu-latest` | 15:40 班或手动 daily 勾选 gate 时读取 `state/sfc/` 判定；不请求体育数据 |
-| `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 仅 UTC 周一早班拉已核验联赛当季，假设延时 3h |
+| `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 距上次完整成功采集满 7 个 UTC 自然日时拉已核验联赛当季，无成功记录则本班补采，假设延时仍为 3h |
 | `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 官方在售赛程与赛果 `sync` 后，分别单次请求 `/sfc/` 与 `/jczq/` 根页，归档并关联当期14场；未配置时整个 job 显示 skipped |
 | `predict` | `ubuntu-latest`，45 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告；随后生成未截止期次的14场诊断 |
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
@@ -577,7 +583,7 @@ Release 中每日实验 JSON 与冻结文件同字节；是否及时发布以 fo
 现有 predict job 使用已有 `contents: write` 的 GITHUB_TOKEN，没有新 job / 权限 / 体育数据请求。
 
 日常 apif 技术行在比赛已完赛且实际捕获晚于开球+2小时后记录 `captured/available_utc`。
-周一早班额外**离线读取本班已经下载的 fd CSV**（不再请求文件），用同样条件保存射正等统计；
+当班若下载了 fd CSV，就额外**离线读取本班已经下载的文件**（包括晚班补采，不再请求文件），用同样条件保存射正等统计；
 只沿已经核验的 `jc.counterpart_id=fd:<id>` 附着，不创建比赛/球队、不按名字匹配。
 历史回填仍全部 `backfilled`，原有相同值/相同原件不重新标时间。fd 每周一次、apif 日常增量的可用节奏不同，
 目标完整窗口已在截点前捕获、且有至少11场合格的回放训练样本时才可能出预测；不保证首日所有联赛都有结果。
@@ -934,7 +940,7 @@ T16按A1改为策略绑定：来源集合、累计训练策略、半衰期、先
 每日训练新增韩职、澳超，显式来源均为 `apif,jc`。唯一国内 APIF 训练清单为
 [`data/model/apif_history_training.json`](data/model/apif_history_training.json)，
 与采集权限表分开；以后增加此类联赛只增清单与 `params.json` 条目。
-已有 15 个国内联赛、欧战池、欧国联以及七个 identity-only 桥接联赛的规则保留。
+T60 当时保留的 15 个国内联赛，现由下节 T63 扩大来源；韩职、澳超和欧国联的来源政策不变。
 中超、丹超仅保存历史供后续池模型使用，本次没有新增其单联赛模型。
 
 韩职按 UTC 自然年、澳超按 UTC 7 月跨年分类。`read_history` 仅对明确接入的新联赛
@@ -945,6 +951,54 @@ S+1 weekly 验证：韩职选 90 天、澳超选 365 天，均为实际选参结
 历史回填含 assumed 可知时间，回测数字只作描述；有效性须由上线后的前瞻样本判断。
 训练规模、选参窗口、字节回归和离线每日流程回放见
 [`T60 验收`](reports/t60-apif-history-domestic-training/README.md)。
+
+### 既有 15 联赛的付费赛果（T63）
+
+英超、英冠、西甲、意甲、德甲、法甲、法乙、荷甲、葡超、日职、瑞超、挪超、芬超、巴甲、美职
+的新来源版本在原 `fd,jc` 外增加 `apif`；其中英超、英冠、西甲、意甲、德甲、法甲、荷甲、葡超、巴甲增加 `fdorg`。
+来源优先级仍为 `jc > fd > fdorg > apif`。新来源版本每次拟合先按当时实际可知时间过滤，再选择同场来源：
+付费结果先到可以先用，免费或竞彩结果后到才替换。独立 APIF 比分保留供每日核对，旧来源比分与旧时间不覆盖。
+
+新增来源须有唯一数字球队绑定，以及按真实核验时刻保存的身份/同场关系证明。
+旧归档没有这些证明时，不能把今日核验倒填到历史截点；历史 `assumed` 也不能冒充实际入库。
+新导入或比分修正的 `available_utc` 不早于实际导入。审计输出
+`state/audit/apif_results_crosscheck.csv`，比分及开球冲突逐场列明；旧来源已采用的比分保持原状，
+柏林联合—波鸿的判罚与场上比分差异由所有者决定。只有新增源且相互冲突的同场结果暂不训练。
+CSV 只保留冲突和身份未核实的待处理行；一致、缺赛果和缺配对仍在汇总计数中，
+`comparison_rows` 是全部比较记录数，`rows` 是实际导出的 CSV 数据行数。
+
+七个原身份桥接路线改为 `import`，保留身份索引功能，但 `daily/backfill` 仍关闭、
+`result_seasons_available=[]`。真实目录、赛季读取权限、daily 权限须由审查者核实；
+英冠/法乙/巴甲的 APIF 新映射仍待 T61 目录核准，不能因为训练清单已列入就自动下载。
+
+按 [所有者修订的任务单](https://github.com/qw5563680/FOOTBALL/pull/136)，日常冻结分两类：
+
+- 英超、西甲、意甲、德甲、法甲、葡超、巴甲保留原 `fd,jc` 参数条目和训练定义，标 **可用（旧规，考核中）**；
+  原版继续进入日常预测、纸面账户、串关和14场，同批另存新来源候选，标 **实验**；候选不供纸面账户、串关或替代14场主版本。
+- 英冠、法乙、荷甲、日职、瑞超、挪超、芬超、美职直接采用新来源版本，标 **实验**。
+  14场继续显示其有效主版本的实验概率与组合诊断，A–F纸面账户仍不纳入；诊断展示不代表批准或购买建议。
+
+七个候选使用主批的相同训练/预测截点与比赛 ID，单独保存参数、模型、训练说明和完整
+`source_versions.json`，受归档 manifest 哈希、原子写入及重复运行不覆盖约束。
+候选失败不替代旧版；候选自己的生成时间和推送后发布证明决定能否算赛前记录，不能继承主批发布时间。
+欧战保留原来源范围、优先级和可知时间规则；付费赛果先到时可以更早参与，竞彩到达后替换代表、不重复计数。
+因此静态归档拟合一致，不代表所有到达顺序下训练语料相同。
+候选尝试的成功、部分失败、失败及原因记录到 `source_version_status`，在运行摘要和日报显示；
+失败状态不冒充已生成的候选模型或预测。
+若新增 APIF 与旧 FD 只有一侧身份对得上，保留旧 FD，符合严格待核条件的 APIF 暂不重复用于训练；
+两行都在截点前可知才排除，训练说明与审计均给出编号和原因，不自动建立球队映射。
+
+新冻结记录的 `model_definition_id` 由赛事、模型族、来源集合、拟合方法、先验方法、校准方法和选参协议确定；
+每日模型文件 SHA 仍在 `model_version`，每日训练和既定协议内年度选参不产生新定义。
+新版批次要求模型和逐场版本、资格标记一致，缺失时不能降级为旧冻结兼容模式。
+原七联赛的资格只适用于固定的旧定义；改变来源或方法不沿用其资格。历史回测只供参考，不再提供按旧 gate 恢复标签的命令。
+完整批准登记和前瞻计数属于 T67，本任务不实现。
+
+来源时效与配对 Log Loss 按获审的 [事前协议](docs/experiments/T63-source-latency-protocol.md) 执行；
+结果及连续三次每日线上验收状态见验收说明，不据小样本宣称模型改善。
+[T63 验收说明](reports/t63-apif-results-for-existing-15-leagues/README.md) 区分离线实现与待审查者事项。
+后续新旧版本收益比较的[前瞻协议草案](docs/experiments/T63-prospective-source-comparison-protocol.md)
+尚待 Claude 批准；本轮未运行该实验，也未据此决定候选转正。
 
 ### 欧战联合模型（T21）
 
@@ -998,7 +1052,12 @@ python -m zucai tune --league 欧战 --db data/zucai.db --params-file work/cups-
 
 新模型的 `sources` 表示选择的来源范围，`training_source_counts` 表示截点前实际参与拟合的场数。
 T06 对范围内来源可预测，冻结格式升级为 schema 2；旧单来源模型与 schema 1 报告仍能读取。
-T14 已接入周一早班采集和数据分支恢复；历史原始 CSV 仍只保存在采集环境或 Actions artifact。
+T14 已接入日常采集和数据分支恢复；T66 改为每个 UTC 自然周（周一开始）成功采集一次，不再依赖周一早班。
+可选 `state/fd_collection.json` 记录批次的实际 UTC 开始时刻，随 feeds 哈希导出恢复。
+全部已核验联赛文件都下载并导入完成才记成功；单行拒收、疑似重复仍报告 partial，但不阻止该回执。
+整联赛失败、配置失败或无范围不更新，后续班次重试；旧归档恢复会清掉未发布的新本地回执。
+同周成功后跳过，周六补采成功也会在下周一重新采集。FD 统计复用只读取本班下载的文件，跳过采集的班次不重复打包。
+历史原始 CSV 仍只保存在采集环境或 Actions artifact，手动子集回填不记成完整日常成功。
 [时区及数据限制](docs/DATA_SOURCES.md#4-football-datacouk历史赛果与收盘赔率t08) ·
 [真实数据验收与缺口](reports/2026-11-02-t08-acceptance/README.md)。
 

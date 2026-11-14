@@ -124,14 +124,19 @@ def check_stats(db, *, rows=True):
                     WHEN 'home' THEN i.home_provider_id ELSE i.away_provider_id END))
             LIMIT 1""").fetchone():
             raise ValueError(f"技术数据 {table} 身份或主客校验失败")
-        for fixture_id, match_id, sha, location, captured, source in db.execute(f"""
+        for fixture_id, match_id, sha, location, captured, source, counterpart in db.execute(f"""
             SELECT t.provider_fixture_id,t.match_id,t.raw_sha256,t.raw_location,t.captured_utc,
-                m.source FROM {table} t JOIN matches m USING(match_id)
-            WHERE t.provider='fd' AND NOT (
-                (m.source='fd' AND t.provider_fixture_id=t.match_id)
-                OR (m.source='jc' AND COALESCE(m.counterpart_id,'')=t.provider_fixture_id))
+                m.source,m.counterpart_id FROM {table} t JOIN matches m USING(match_id)
+            WHERE t.provider='fd'
             """):
             link = fd_links.get(fixture_id)
+            legacy = (source == "fd" and fixture_id == match_id) or (
+                source == "jc" and counterpart == fixture_id
+            )
+            if link is None and legacy:
+                continue
+            # As in the writer, an existing proof remains authoritative even
+            # after a later import also supplies an exact legacy counterpart.
             if (
                 source != "jc"
                 or link is None

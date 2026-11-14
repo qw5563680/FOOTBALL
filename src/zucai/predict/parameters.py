@@ -9,6 +9,11 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from zucai.predict.base import utc
+from zucai.predict.model_definitions import (
+    T63_LEAGUES,
+    definition_metadata,
+    legacy_definition_compatible,
+)
 from zucai.predict.pooled import CUPS, POOL, POOL_FITTING_METHOD, configuration
 from zucai.predict.seasons import latest_complete_seasons
 
@@ -382,6 +387,32 @@ def _cups_p2_gate(report, *, as_of):
     )
 
 
+def _legacy_policy_ready(model, entry, definition, as_of):
+    """Retain the fixed old methods under current safety checks, without recertifying a gate."""
+    from zucai.predict.base import model_sources
+
+    return (
+        legacy_definition_compatible(definition)
+        and not getattr(model, "pooled", False)
+        and entry.get("training_policy") == TRAINING_POLICY
+        and getattr(model, "training_policy", None) == TRAINING_POLICY
+        and getattr(model, "availability_basis", "unknown") in ("strict", "mixed")
+        and getattr(model, "replayed_training_share", 0) == 0
+        and bool(entry.get("selection_as_of_utc"))
+        and utc(entry["selection_as_of_utc"]) <= utc(model.as_of) <= utc(as_of)
+        and (not entry.get("generated_utc") or utc(entry["generated_utc"]) <= utc(as_of))
+        and (
+            not getattr(model, "latest_available", None)
+            or utc(model.latest_available) < utc(model.as_of)
+        )
+        and model.half_life_days == entry.get("half_life_days")
+        and model_sources(model) == sorted(entry.get("sources", []))
+        and getattr(model, "unknown_team_prior", False)
+        and getattr(model, "prior_parameters", {}).get("method") == entry.get("unknown_team_prior")
+        and getattr(model, "draw_calibration", False) == entry.get("draw_calibration", False)
+    )
+
+
 def model_readiness(model, *, as_of, params_file=None):
     """A new config cannot silently retune or certify an incompatible fitted artifact."""
     from zucai.predict.base import model_sources
@@ -389,6 +420,7 @@ def model_readiness(model, *, as_of, params_file=None):
     doc, digest = read_parameters(params_file)
     entry = doc["leagues"].get(model.league, {})
     evidence = entry.get("p2_evidence", {})
+    definition = definition_metadata(model, entry)
     ready = bool(entry.get("p2_ready")) and bool(evidence.get("as_of_utc"))
     if ready:
         ready = (
@@ -429,9 +461,18 @@ def model_readiness(model, *, as_of, params_file=None):
             and sorted(evidence.get("training_leagues", []))
             == sorted(entry.get("training_leagues", []))
         )
+    if model.league in T63_LEAGUES:
+        ready = _legacy_policy_ready(model, entry, definition, as_of)
+        label = "可用（旧规，考核中）" if ready else "实验"
+        paper_eligible = bool(ready)
+    else:
+        label = "P2 可用" if ready else "P2 实验"
+        paper_eligible = True  # Existing non-T63 paper policies also admit experimental P2.
     return dict(
+        **definition,
         p2_ready=bool(ready),
-        p2_label="P2 可用" if ready else "P2 实验",
+        p2_label=label,
+        paper_eligible=paper_eligible,
         params_sha256=digest,
         params_path=str(parameters_path(params_file)),
         half_life_days=model.half_life_days,
