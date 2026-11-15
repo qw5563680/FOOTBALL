@@ -1306,6 +1306,33 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
     facts = dict(facts, gate_cutoff=cutoff.isoformat())
     code = str(code)
     league = facts["configs"][code]["league"]
+    season = facts["configs"][code].get("current_season")
+    if type(season) is not int or season < 1:
+        return dict(
+            provider_code=code,
+            league=league,
+            status="blocked",
+            cutoff_utc=cutoff.isoformat(),
+            official_window=facts["catalogue_window"],
+            current_season=None,
+            teams=dict(total=None, bound=None, binding_rate=None),
+            matches=dict(
+                total=None,
+                linked=None,
+                link_rate=None,
+                denominator="not_evaluated_without_current_season",
+            ),
+            blockers=["current_season_not_configured"],
+            missing_evidence=["reviewed_current_season_configuration"],
+            evidence=dict(
+                current_season=dict(
+                    status="blocked",
+                    reason="登记未配置有效 current_season；须先审定赛季，不按年份猜测。",
+                )
+            ),
+            daily_changed=False,
+            online_permission="reviewer_verification_required",
+        )
     teams, matches, blockers = _facts_coverage(facts, code)
     end = cutoff.astimezone(BEIJING).date() - timedelta(days=1)
     start = end - timedelta(days=29)

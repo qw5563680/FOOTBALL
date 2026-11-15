@@ -691,6 +691,9 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
     from zucai.identity_categories import apply_team_exceptions
 
     apply_team_exceptions(apif, teams, registry)
+    from zucai.identity_canonical import apply_created_identities
+
+    apply_created_identities(root, teams, tables, manifest)
     by_project = defaultdict(set)
     for key, team in teams.items():
         if team.get("project_team_id"):
