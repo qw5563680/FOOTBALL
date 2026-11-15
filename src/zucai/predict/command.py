@@ -9,7 +9,13 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from zucai.db import get_engine
-from zucai.predict.backtest import evaluate, read_closing, read_history, read_market
+from zucai.predict.backtest import (
+    evaluate,
+    read_closing,
+    read_hafu_market,
+    read_history,
+    read_market,
+)
 from zucai.predict.base import availability_sources, utc
 from zucai.predict.dixon_coles import DixonColes
 from zucai.predict.parameters import (
@@ -173,6 +179,14 @@ def train(
         calibration_by_season=calibration_mapping,
         **({"target_leagues": games.attrs["prediction_leagues"]} if pool else {}),
     )
+    from zucai.db import get_engine, session_scope
+
+    market_engine = get_engine(database)
+    try:
+        with session_scope(market_engine) as market_session:
+            options["hafu_market"] = read_hafu_market(market_session, games)
+    finally:
+        market_engine.dispose()
     report = evaluate(games, prices, **options)
     strict_report = (
         evaluate(games, prices, strict_availability=True, **options)

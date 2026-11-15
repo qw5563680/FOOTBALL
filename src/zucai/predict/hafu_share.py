@@ -12,6 +12,7 @@ import math
 import numpy as np
 
 MIN_HT_MATCHES = 300
+HAFU_SELECTIONS = tuple(h + f for h in "hda" for f in "hda")
 
 
 def share_from_rows(rows) -> dict | None:

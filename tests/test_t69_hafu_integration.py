@@ -18,7 +18,7 @@ DAY = date(2026, 11, 3)
 
 
 def _add_match(session, teams, index, finished, ht):
-    kickoff = datetime(2026, 9, 1, tzinfo=UTC) + timedelta(hours=3 * index)
+    kickoff = datetime(2026, 6, 1, tzinfo=UTC) + timedelta(hours=3 * index)
     source = "fd"
     match = Match(
         match_id=f"fd:{index:06d}",
@@ -78,7 +78,7 @@ def hafu_environment(tmp_path):
         teams = {name: Team(name=name) for name in "ABCD"}
         session.add_all(teams.values())
         session.flush()
-        for index in range(320):
+        for index in range(640):
             _add_match(session, teams, index, finished=True, ht=True)
         upcoming = Match(
             match_id="fd:999001",
@@ -157,7 +157,7 @@ def test_freeze_includes_half_full_time_and_preserves_wdl_and_model_hash(
     assert math.isclose(sum(half["probabilities"].values()), 1, rel_tol=0, abs_tol=1e-12)
     assert half["share"] == hint["share"]
     assert half["share_tier"] == "league"
-    assert half["share_ht_matches"] == 320
+    assert half["share_ht_matches"] == 640
     import numpy as np
 
     from zucai.predict.derive import had
@@ -204,3 +204,40 @@ def test_replay_with_fixed_cutoff_is_identical(hafu_environment):
             "half_full_time",
         ):
             assert left[key] == right[key], key
+
+
+def test_backtest_reports_nine_class_half_full_time(hafu_environment):
+    from zucai.predict.backtest import evaluate, read_history
+
+    database, _model_path, _params = hafu_environment
+    engine = get_engine(database)
+    with session_scope(engine) as session:
+        history = read_history(session, "英超", "fd")
+    result = evaluate(
+        history,
+        {},
+        since=datetime(2026, 6, 1, tzinfo=UTC),
+        as_of=NOW,
+        half_life_days=30,
+        fold="weekly",
+        hafu_market={},
+    )
+    half = result["half_full_time"]
+    assert half["model"]["n"] > 0
+    assert half["model"]["log_loss"] is not None and math.isfinite(half["model"]["log_loss"])
+    assert half["model"]["brier"] is not None and math.isfinite(half["model"]["brier"])
+    # Fixed-share baseline is scored on exactly the same paired matches.
+    assert half["fixed_half_share"]["n"] == half["model"]["n"]
+    # Every seeded row carries half-time scores.
+    assert half["excluded"].get("no_half_score", 0) == 0
+    # Early folds under the 300-match threshold are reported, never silently assumed.
+    assert half["excluded"].get("fold_share_insufficient", 0) > 0
+    # No hafu odds were seeded: the odds benchmark is empty by construction.
+    assert half["market_benchmark"]["n"] == 0
+    assert half["market_paired_model"]["n"] == 0
+    # Fold metadata discloses the share tier and sample for scored folds.
+    assert any(f.get("half_share") is not None for f in result["folds"])
+    for fold in result["folds"]:
+        if fold.get("half_share"):
+            assert fold["half_share"]["tier"] in {"league", "pool"}
+            assert fold["half_share"]["ht_matches"] >= 300
