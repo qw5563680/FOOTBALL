@@ -9,6 +9,7 @@ import pytest
 
 from test_t68_jc_kickoffs import catalogue, save_json
 from zucai import identity_binding_archive as reader
+from zucai import identity_categories
 from zucai import jc_catalogue_kickoffs as kickoffs
 from zucai.cloud_feeds import TABLES
 from zucai.identity_binding import replay
@@ -61,8 +62,22 @@ def raw(root, relative, value, url):
     return path
 
 
+def pin_categories(tmp_path, monkeypatch, approved=()):
+    """Use a copy of the category registry so tests do not follow the owner's real approvals."""
+    document = json.loads(identity_categories.PATH.read_bytes())
+    for code, entry in document["competitions"].items():
+        entry["status"] = "approved" if code in approved else "proposed"
+        if code in approved:
+            entry["review_url"] = "https://github.com/qw5563680/FOOTBALL/pull/0#synthetic-review"
+            entry["owner_approval"] = dict(by="qw5563680", utc=CAPTURED, basis="synthetic")
+    path = tmp_path / "identity_categories.json"
+    path.write_text(json.dumps(document, ensure_ascii=False))
+    monkeypatch.setattr(identity_categories, "PATH", path)
+
+
 @pytest.fixture
 def archive(tmp_path, monkeypatch):
+    pin_categories(tmp_path, monkeypatch)
     root = tmp_path / "archive"
     catalogue(root)
     monkeypatch.setattr(kickoffs, "CATALOGUE_SOURCE_RUN", "catalogue")
@@ -137,6 +152,32 @@ def test_actual_reader_uses_numbered_namespace_and_exact_snapshot_association(ar
     assert inputs["teams"][row["home"]]["official_team_id"] == "849"
     assert inputs["teams"][row["home"]]["name"] == "加的夫城"
     assert inputs["teams"][row["home"]]["category_status"] == "proposed"
+
+
+def test_category_approval_is_read_from_the_registry_and_lifts_only_the_category_gap(
+    archive, tmp_path, monkeypatch
+):
+    before = replay(archive, archive.parent / "pending", leagues=["48"])
+    pin_categories(tmp_path, monkeypatch, approved={"48"})
+    assert load(archive)["teams"]["jc-team:849"]["category_status"] == "approved"
+    after = replay(archive, archive.parent / "approved", leagues=["48"])
+
+    def candidates(result):
+        return {
+            e["candidate_id"]: e
+            for rows in result["apif"].values()
+            for e in rows.values()
+            if e.get("candidate_id")
+        }
+
+    pending, approved = candidates(before), candidates(after)
+    assert pending and set(pending) == set(approved)
+    for key, entry in pending.items():
+        assert "category_approval_pending" in entry["approval_gaps"]
+        assert "category_approval_pending" not in approved[key].get("approval_gaps", [])
+        assert approved[key]["status"] == entry["status"] == "proposed"
+        assert approved[key]["canonical_team_id"] == entry["canonical_team_id"]
+    assert after["summary"]["production_writes"] == 0
 
 
 def test_unknown_official_ids_get_creation_proposals_even_if_names_match(archive):
