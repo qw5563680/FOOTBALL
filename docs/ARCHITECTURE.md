@@ -8,6 +8,8 @@
 主客反向、多候选、已占用关系留待核，不按比分选一场；再次执行仍检查这些关系以及后来出现的竞彩行。
 临时球队已有技术数据或身份快照外键引用时保守阻断，须专项核对，不能只改比赛表留下不一致的附件。
 身份审计在 `state/audit/apif_scoped_identity_merges.csv`，关联审计沿用 `jc_relink.csv`，失败恢复审计并回滚数据库。
+线上入口：Actions 手动触发 `operation=reconcile` 且 `leagues` 非空时运行 `cloud_feeds scoped-reconcile`（恢复→合并→导出→发布）；
+清单只记 `operation/status/run_id/leagues/各计数`，明细留在上述两个审计 CSV，且该记录不进入每日状态，不替换原有各来源记录。
 
 `identity_canonical plan/apply` 是单独的审批入口。plan 读取全部已核验路线的官方数字证据，输出待审决定；
 apply 只接受与固定归档一致、逐编号审查且经所有者批准的决定，并再次核对当前库完整球队与比赛身份。
