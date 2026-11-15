@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from zucai.models import Match, Odds, Prediction, Team
 from zucai.predict.base import model_sources, utc
-from zucai.predict.derive import had
+from zucai.predict.derive import had, hafu
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 from zucai.predict.model_definitions import (
     DEFINITION_FIELDS,
@@ -147,6 +147,7 @@ def predict_batch(
     persist: bool = True,
     allow_empty: bool = False,
     prospective_evidence: dict | None = None,
+    half_share_hints: dict | None = None,
 ) -> dict:
     """Freeze probabilities; scheduled jobs may opt into read-only or empty batches."""
     cutoff, created = utc(as_of), utc(generated)
@@ -306,6 +307,17 @@ def predict_batch(
                 "experimental_blend": None,
             }
         )
+        hint = (half_share_hints or {}).get(match.league)
+        if hint is not None:
+            item["half_full_time"] = {
+                "status": "experimental",
+                "probabilities": hafu(grid, hint["share"]),
+                "share": hint["share"],
+                "share_tier": hint["tier"],
+                "share_ht_matches": hint["ht_matches"],
+                "share_ht_goals": hint["ht_goals"],
+                "share_full_goals": hint["full_goals"],
+            }
         if persist:
             _save(session, key, "dixon-coles", provenance["model_version"], probs, grid, batch)
         if market_weight and market:

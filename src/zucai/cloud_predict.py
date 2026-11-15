@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from zucai.cloud_feeds import digest, restore_feeds
 from zucai.db import get_engine
 from zucai.forecast_archive import _component, publish_forecasts, verify_forecasts
-from zucai.models import Match, SfcIssue
+from zucai.models import Match, Result, SfcIssue
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.command import train
 from zucai.predict.dixon_coles import DixonColes
@@ -104,6 +104,48 @@ def _summary(archive, run):
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
             output.write("\n".join(lines) + "\n")
+
+
+def _share_rows(session, leagues, cutoff):
+    """Eligible training rows with half-time scores, same availability rules as the fit."""
+    import pandas as pd
+
+    stmt = (
+        select(
+            Match.league,
+            Match.kickoff_utc,
+            Result.available_utc,
+            Result.home_goals,
+            Result.away_goals,
+            Result.ht_home_goals,
+            Result.ht_away_goals,
+        )
+        .join(Result, Result.match_id == Match.match_id)
+        .where(Match.status == "finished", Match.league.in_(sorted(set(leagues))))
+    )
+    rows = session.execute(stmt).all()
+    if not rows:
+        return []
+    frame = pd.DataFrame(
+        rows,
+        columns=[
+            "league",
+            "kickoff_utc",
+            "available_utc",
+            "home_goals",
+            "away_goals",
+            "ht_home_goals",
+            "ht_away_goals",
+        ],
+    )
+    frame["kickoff_utc"] = pd.to_datetime(frame["kickoff_utc"], utc=True)
+    frame["available_utc"] = pd.to_datetime(frame["available_utc"], utc=True)
+    frame = frame.loc[
+        (frame.kickoff_utc < cutoff)
+        & (frame.available_utc < cutoff)
+        & (frame.available_utc > frame.kickoff_utc)
+    ]
+    return frame.to_dict("records")
 
 
 def open_national_fixtures(session, now):
@@ -270,6 +312,20 @@ def run(
                 connection.exec_driver_sql("PRAGMA query_only=ON")
                 connection.exec_driver_sql("BEGIN")
                 with Session(bind=connection) as session:
+                    from zucai.predict.hafu_share import estimate_share
+
+                    all_rows = _share_rows(session, list(fitted), cutoff)
+                    half_share_hints = {}
+                    for league, model in fitted.items():
+                        scope = sorted(getattr(model, "training_leagues", None) or {league: 1})
+                        own = _share_rows(session, scope, cutoff)
+                        try:
+                            hints = estimate_share(own, pool_rows=own, all_rows=all_rows)
+                        except ValueError as exc:
+                            hints = None
+                            LOG.warning("%s 半场进球占比不可估计：%s", league, exc)
+                        half_share_hints[league] = hints
+                        outcomes[league]["half_share"] = hints
                     standard_days = {day, day + timedelta(days=1)}
                     national = open_national_fixtures(session, prediction_time)
                     result["sfc_extra_dates"] = sorted(
@@ -303,6 +359,7 @@ def run(
                             persist=False,
                             allow_empty=True,
                             prospective_evidence=prospective_evidence,
+                            half_share_hints=half_share_hints,
                         )
                         if forecast_day not in standard_days:
                             batch["input"]["scope"] = "sfc_only"

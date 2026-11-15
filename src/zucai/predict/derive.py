@@ -63,10 +63,25 @@ def ttg(matrix):
     return {**values, "7+": float(grid[h + a >= 7].sum())}
 
 
-def hafu(matrix):
-    """Approximate HT given FT by allocating each goal to either half with probability 1/2."""
+def hafu(matrix, share=0.5):
+    """Derive half-time/full-time probabilities by a binomial split of every
+    full-time goal with the given first-half share; share=0.5 keeps the
+    historical bit-identical arithmetic. Purely derived: never refits the
+    full-time matrix and never consumes market information."""
     grid = _grid(matrix)
-    split = [[comb(n, k) * 0.5**n for k in range(n + 1)] for n in range(grid.shape[0])]
+    if (
+        not isinstance(share, (int, float, np.floating))
+        or not np.isfinite(share)
+        or not 0 < share < 1
+    ):
+        raise ValueError("半场进球占比须为 0 与 1 之间的有限数值")
+    if float(share) == 0.5:
+        split = [[comb(n, k) * 0.5**n for k in range(n + 1)] for n in range(grid.shape[0])]
+    else:
+        split = [
+            [comb(n, k) * float(share) ** k * (1 - float(share)) ** (n - k) for k in range(n + 1)]
+            for n in range(grid.shape[0])
+        ]
     values = {half + full: 0.0 for half in "hda" for full in "hda"}
     for (h, a), p in np.ndenumerate(grid):
         full = _outcome(h, a)
