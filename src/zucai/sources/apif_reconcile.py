@@ -207,6 +207,7 @@ def reconcile(database, run_id):
         rekeyed_matches=0,
         deleted_teams=0,
         skipped_conflicts=0,
+        skipped_unlisted_leagues=0,
         unresolved_pairs=0,
     )
     merged, rekeyed = set(), set()
@@ -227,6 +228,15 @@ def reconcile(database, run_id):
                 aliases = formal[provider]
                 leagues = sorted({m.league for m in _references(session, temporary.id)})
                 for league in leagues:
+                    # T68 guard: only leagues present as keys in the formal alias
+                    # table may participate in stock merges. Other competitions'
+                    # provisional teams are skipped entirely, counted separately,
+                    # never treated as conflicts, and no match is modified.
+                    # Daily-collection leagues keep the original "unpropagated"
+                    # alert instead of a silent skip.
+                    if league not in aliases and league not in daily_leagues[provider]:
+                        report["skipped_unlisted_leagues"] += 1
+                        continue
                     row = dict(
                         run_id=run_id,
                         league=league,
@@ -369,10 +379,11 @@ def reconcile(database, run_id):
         engine.dispose()
     report.update(merged_teams=len(merged), rekeyed_matches=len(rekeyed))
     LOG.info(
-        "APIF/FDORG 身份合并 %d 队，重定向 %d 场，冲突跳过 %d",
+        "APIF/FDORG 身份合并 %d 队，重定向 %d 场，冲突跳过 %d，非正式表赛事跳过 %d",
         len(merged),
         len(rekeyed),
         report["skipped_conflicts"],
+        report["skipped_unlisted_leagues"],
     )
     return report
 
@@ -387,6 +398,7 @@ def write_summary(report):
                 f"合并临时球队 {report['merged_teams']}；删除空临时行 {report['deleted_teams']}；"
                 f"重定向不同比赛 {report['rekeyed_matches']}；"
                 f"冲突跳过 {report['skipped_conflicts']}；"
+                f"非正式表赛事跳过 {report['skipped_unlisted_leagues']} 个联赛/ID；"
                 f"尚无生效别名 {report['unresolved_pairs']} 个联赛/ID。\n\n"
                 "不请求 API，不改 match_id、赛果或冻结预测。"
                 "审计：state/audit/apif_identity_merges.csv、fdorg_identity_merges.csv。\n\n"
