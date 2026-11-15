@@ -406,18 +406,17 @@ def test_approval_survives_unrelated_archive_growth(creation):
 
 
 def test_approval_rejects_missing_original(creation):
-    """A referenced original that disappears from the restored copy rejects."""
+    """A referenced original that is missing from the restored copy rejects."""
     from zucai.identity_canonical import apply_approvals
 
     archive, db = creation
     path, item = approved(archive)
-    assert apply_approvals(db, archive, path)["created"] == 1
-    after_first = db.read_bytes()
     original = item["evidence"][0]["originals"][0]["path"]
     (db.parent / original).unlink()
+    before = db.read_bytes()
     with pytest.raises(ValueError):
         apply_approvals(db, archive, path)
-    assert db.read_bytes() == after_first
+    assert db.read_bytes() == before
 
 
 def test_approval_rejects_modified_original(creation):
@@ -432,3 +431,50 @@ def test_approval_rejects_modified_original(creation):
     with pytest.raises(ValueError):
         apply_approvals(db, archive, path)
     assert db.read_bytes() == before
+
+
+def test_identical_approval_second_run_counts_already_applied(creation, tmp_path):
+    """An identical receipt on the re-exported archive counts already_applied
+    and never re-verifies a now-existing identity."""
+    from datetime import date
+
+    from zucai.cloud_feeds import export_feeds, restore_feeds
+    from zucai.identity_canonical import apply_approvals
+
+    archive, db = creation
+    path, _ = approved(archive)
+    first = apply_approvals(db, archive, path)
+    assert first["created"] == 1
+    exported = tmp_path / "exported"
+    export_feeds(db, exported, date(2026, 11, 15), "after-creation")
+    restored = tmp_path / "restored/data/feeds.db"
+    restore_feeds(exported, restored)
+    second = apply_approvals(restored, exported, path)
+    assert second["created"] == 0
+    assert second["already_applied"] == 1
+
+
+def test_replay_after_creation_reports_duplicates_without_key_error(creation):
+    """End-to-end: identity replay over a created identity must not raise
+    KeyError('official_ids') in the duplicate report."""
+    from test_t68_identity_archive_entry import seal, table
+    from zucai.identity_binding import replay
+    from zucai.identity_canonical import apply_approvals
+
+    archive, db = creation
+    path, _ = approved(archive)
+    apply_approvals(db, archive, path)
+    with sqlite3.connect(db) as con:
+        con.row_factory = sqlite3.Row
+        teams = [dict(r) for r in con.execute("SELECT * FROM teams")]
+    table(archive, "teams", teams)
+    receipt = archive / "state/audit/jc_canonical_identities.csv"
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_bytes((db.parent / "state/audit/jc_canonical_identities.csv").read_bytes())
+    seal(archive)
+    manifest = json.loads((archive / "feed_manifest.json").read_bytes())
+    manifest["created_utc"] = datetime.now(UTC).isoformat()
+    (archive / "feed_manifest.json").write_text(json.dumps(manifest))
+    result = replay(archive, archive.parent / "after-creation", leagues=["48"])
+    assert "existing_identity_duplicates" in result
+    assert isinstance(result["existing_identity_duplicates"]["rows"], list)

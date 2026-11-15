@@ -270,14 +270,27 @@ def apply_approvals(database, archive, approvals):
     if not isinstance(codes, list) or not codes or not set(codes) <= allowed:
         raise ValueError("Creation decision route scope invalid")
     facts = load_archive(archive, leagues=codes)
+    audit = database.parent / RECEIPTS
+    before = audit.read_bytes() if audit.exists() else None
+    receipts = _read_receipts(audit)
+    receipt_by_id = {r["official_team_id"]: r for r in receipts}
     seen = set()
+    pending = []
     for decision in decisions:
         _approval(decision)
         official = decision["official_team_id"]
         if official in seen:
             raise ValueError("Duplicate creation decision")
         seen.add(official)
-        team = facts["teams"].get("jc-team:" + official)
+        existing = receipt_by_id.get(official)
+        if existing is not None:
+            if json.loads(existing["decision_json"]) != decision:
+                raise ValueError("Existing creation receipt differs from approved decision")
+            # Identical receipt: already applied, count and skip, no re-verification.
+            continue
+        pending.append(decision)
+    for decision in pending:
+        team = facts["teams"].get("jc-team:" + decision["official_team_id"])
         if team is None:
             raise ValueError("Official numeric evidence missing")
         expected = _entry(team)
@@ -300,7 +313,7 @@ def apply_approvals(database, archive, approvals):
     from zucai.cloud_feeds import STATE_FILE
 
     source_manifest = json.loads((archive / "feed_manifest.json").read_bytes())
-    for decision in decisions:
+    for decision in pending:
         for observation in decision["evidence"]:
             for reference in observation["originals"]:
                 for name in (reference["path"], reference["path"] + ".meta.json"):
@@ -323,10 +336,6 @@ def apply_approvals(database, archive, approvals):
                 fetched = meta.get("fetched_at_utc")
                 if not fetched or _utc(decision["approved_utc"]) < _utc(fetched):
                     raise ValueError("Approval cannot precede original capture")
-    audit = database.parent / RECEIPTS
-    before = audit.read_bytes() if audit.exists() else None
-    receipts = _read_receipts(audit)
-    receipt_by_id = {r["official_team_id"]: r for r in receipts}
     created = []
     engine = get_engine(database)
     try:
@@ -357,20 +366,9 @@ def apply_approvals(database, archive, approvals):
                     for k in ("source", "league", "home_team_id", "away_team_id")
                 ) or _utc(match.kickoff_utc) != _utc(row["kickoff_utc"]):
                     raise ValueError("Database fixture identity changed since proposal")
-            for decision in decisions:
+            for decision in pending:
                 official = decision["official_team_id"]
                 marker = "jc:team:" + official
-                existing = receipt_by_id.get(official)
-                if existing:
-                    target = session.get(Team, int(existing["project_team_id"]))
-                    if (
-                        json.loads(existing["decision_json"]) != decision
-                        or target is None
-                        or target.name != decision["canonical"]
-                        or marker not in target.aliases
-                    ):
-                        raise ValueError("Existing creation receipt differs from approved decision")
-                    continue
                 labels = {normalize_team(label).casefold() for label in decision["official_names"]}
                 labels.update((decision["canonical"].casefold(), marker))
                 if any(

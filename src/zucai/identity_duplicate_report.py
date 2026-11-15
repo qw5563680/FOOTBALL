@@ -15,9 +15,9 @@ def duplicate_register(inputs, result):
             continue
         source = "jc:" + team["official_team_id"]
         for proof in team.get("project_identity_evidence", []):
-            for side, official in proof["official_ids"].items():
+            for side, official in (proof.get("official_ids") or {}).items():
                 if official == team["official_team_id"]:
-                    groups[source].add(proof["project_ids"][side])
+                    groups[source].add((proof.get("project_ids") or {})[side])
                     evidence[source].append(proof)
     proposed = {}
     for conflict in result.get("existing_identity_conflicts", []):
