@@ -61,7 +61,7 @@ def test_propagate_cli_preserves_provenance_archive_and_existing_entries(history
     assert inventory(archive) == before_archive
 
 
-@pytest.mark.parametrize("provider,league,temporary", [("apif", "丹超", 10), ("fdorg", "英冠", 16)])
+@pytest.mark.parametrize("provider,league,temporary", [("apif", "丹超", 10)])
 def test_reconcile_skips_unpropagated_daily_league(history, provider, league, temporary):
     db, paths = history
     if provider == "fdorg":
@@ -96,6 +96,40 @@ def test_reconcile_skips_unpropagated_daily_league(history, provider, league, te
                 session, league, 9101
             )
             assert side.name == f"{provider}:team:9101" and side.binding is None
+    finally:
+        engine.dispose()
+
+
+def test_reconcile_skips_fdorg_league_missing_from_formal_table(history):
+    """T68 guard: a league absent from the formal table is skipped, counted
+    separately, never a conflict, and its matches stay untouched."""
+    db, paths = history
+    league, temporary = "英冠", 16
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE matches SET league=? WHERE home_team_id=?", (league, temporary))
+    report = reconcile(db, "unlisted-fdorg")
+    assert report["skipped_unlisted_leagues"] >= 1
+    with sqlite3.connect(db) as con:
+        assert (
+            con.execute(
+                "SELECT count(*) FROM matches WHERE league=? AND home_team_id=?",
+                (league, temporary),
+            ).fetchone()[0]
+            > 0
+        )
+    audit = db.parent / "state/audit/fdorg_identity_merges.csv"
+    if audit.exists():
+        rows = list(csv.DictReader(audit.open()))
+        assert all(row["league"] != league for row in rows)
+    engine = get_engine(db)
+    try:
+        from zucai.sources.fdorg_ingest import _Teams
+
+        with session_scope(engine) as session:
+            side = _Teams(session, json.loads(paths["fdorg"].read_bytes())).resolve(
+                session, league, 9101
+            )
+            assert side.name == "fdorg:team:9101" and side.binding is None
     finally:
         engine.dispose()
 

@@ -101,6 +101,52 @@ def test_reconcile_across_leagues_keeps_match_evidence_and_is_idempotent(seed):
     assert audit.read_bytes() == raw and frozen(db) == before
 
 
+def test_reconcile_skips_league_missing_from_formal_table(seed):
+    """T68 guard: unlisted leagues are skipped, counted, and never modified."""
+    from zucai.sources.apif_reconcile import reconcile
+
+    db, _ = seed
+    with sqlite3.connect(db) as con:
+        con.execute(
+            "INSERT INTO matches(match_id,source,league,home_team_id,away_team_id,"
+            "kickoff_utc,status) "
+            "VALUES('apif:90005','apif','沙职',10,2,'2024-08-24T18:00:00Z','scheduled')"
+        )
+    report = reconcile(db, "unlisted")
+    assert report["skipped_unlisted_leagues"] == 1
+    assert report["skipped_conflicts"] == 0
+    assert report["status"] == "complete"
+    # Listed-league behavior is unchanged even when the same team also appears
+    # in an unlisted league; only the unlisted match stays untouched.
+    assert report["merged_teams"] == 2
+    assert report["rekeyed_matches"] == 3
+    assert report["deleted_teams"] == 1
+    with sqlite3.connect(db) as con:
+        assert con.execute(
+            "SELECT home_team_id,away_team_id FROM matches WHERE match_id='apif:90005'"
+        ).fetchone() == (10, 2)
+    audit = db.parent / "state/audit/apif_identity_merges.csv"
+    assert all(row["league"] != "沙职" for row in csv.DictReader(audit.open()))
+
+
+def test_reconcile_existing_formal_keys_unchanged(seed):
+    """T68 guard regression: leagues listed in the formal table behave as before."""
+    from zucai.sources.apif_reconcile import reconcile
+
+    db, aliases = seed
+    before, formal = frozen(db), aliases.read_bytes()
+    with responses.RequestsMock() as http:
+        report = reconcile(db, "formal-keys")
+        assert not http.calls
+    assert report["merged_teams"] == report["deleted_teams"] == 2
+    assert report["rekeyed_matches"] == 3
+    assert report["skipped_unlisted_leagues"] == 0
+    assert report["skipped_conflicts"] == 0
+    assert frozen(db) == before and aliases.read_bytes() == formal
+    audit = db.parent / "state/audit/apif_identity_merges.csv"
+    assert len(list(csv.DictReader(audit.open()))) == 5
+
+
 @pytest.mark.parametrize(
     "problem", ["missing", "ambiguous", "binding", "provisional_alias", "window", "foreign_source"]
 )
