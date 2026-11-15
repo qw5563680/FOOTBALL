@@ -38,6 +38,7 @@ def test_missing_evidence_stays_insufficient_with_real_counts(facts):
 
 def test_zero_denominator_is_not_100_percent(facts):
     facts["official"] = []
+    facts["matches"] = []
     result = gate(facts)
     assert result["teams"]["binding_rate"] is None
     assert result["matches"]["link_rate"] is None
@@ -290,9 +291,10 @@ def test_equivalent_samples_use_fresh_complete_season_denominator(facts, tmp_pat
         with pytest.raises(ValueError, match="boundary"):
             _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
         return
-    result = _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
-    assert result["distinct_fixtures"] == 1
-    assert result["expected_distinct_fixtures"] == 1
+    # A complete denominator is necessary, but the old prose-only boundary
+    # attachment is insufficient: actual materialized execution is now required.
+    with pytest.raises(ValueError, match="boundary"):
+        _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
     facts["apif"][0]["complete"] = False
     with pytest.raises(ValueError, match="denominator"):
         _recent_replay(facts, "307", section, tmp_path, date(2026, 10, 2), date(2026, 10, 31))
@@ -724,11 +726,14 @@ def current_replay(facts, code, section, root, *, held_only=False):
 
     section.update(materialized_states(root))
     payload = (root / section["held_before"]["path"]).read_bytes()
-    path = root / "before/held.csv"
+    path = root / "before/state/audit/apif_held_unbound.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
-    section["held_before"] = dict(path="before/held.csv", sha256=sha256(payload).hexdigest())
+    section["held_before"] = dict(
+        path="before/state/audit/apif_held_unbound.csv", sha256=sha256(payload).hexdigest()
+    )
     manifest = json.loads((root / section["before_manifest"]["path"]).read_bytes())
-    manifest["files"]["held.csv"] = sha256(payload).hexdigest()
+    manifest["files"]["state/audit/apif_held_unbound.csv"] = sha256(payload).hexdigest()
     section["before_manifest"] = receipt(root, "before/feed_manifest.json", manifest)
     section["held_before_manifest"] = section["before_manifest"]
     if held_only:

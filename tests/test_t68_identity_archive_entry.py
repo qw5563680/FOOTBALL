@@ -351,9 +351,9 @@ def test_real_replay_outputs_readable_owner_evidence(archive):
     assert witness["date"] == "2026-10-31"
     assert witness["apif_provenance"][0]["pointer"] == "/response/0"
     page = (out / "owner-review.html").read_text()
-    assert "<details" in page and "加的夫城" in page and "849" in page
+    assert "<table" in page and "加的夫城" in page and "849" in page
     assert "Alpha" in page and "101" in page and "待核准" in page
-    assert "state/catalogue/" in page
+    assert "owner-review/48-849.md" in page
 
 
 def test_owner_lists_all_ambiguous_time_candidates_without_score_selection(archive):
@@ -388,7 +388,7 @@ def test_owner_markdown_index_and_competition_pages_have_stable_team_anchors(arc
     replay(archive, out, leagues=["48"])
     index = (out / "owner-review.md").read_text()
     assert "owner-review/48.md" in index
-    page = (out / "owner-review/48.md").read_text()
+    page = (out / "owner-review/48-849.md").read_text()
     assert '<a id="jc-849"></a>' in page
     assert "加的夫城" in page and "Alpha" in page
     assert "2026-10-31" in page and "切尔西" in page and "1:3" in page
@@ -486,3 +486,106 @@ def test_later_reserve_label_blocks_real_replay_independently_of_observation_ord
             and any(p["path"] == str(path.relative_to(archive)) for p in c["provenance"])
             for c in conflicts
         )
+
+
+@pytest.mark.parametrize("league_id", [73, 25])
+def test_existing_identity_from_other_competition_prevents_duplicate_creation(archive, league_id):
+    """Generic/other competition observations bind IDs, not APIF match proposals."""
+    catalogue(archive, ids=(2042404, 2042405), leagues=[24, league_id])
+    page_path = archive / "state/catalogue/catalogue/jc/2026-10/2026-10-31-p1.json"
+    page = json.loads(page_path.read_bytes())
+    other = page["value"]["matchResult"][1]
+    # Only the other competition is stored; selected cup has no project witness.
+    table(
+        archive,
+        "matches",
+        [
+            dict(
+                match_id="jc:2042405",
+                source="jc",
+                league=other["leagueNameAbbr"],
+                home_team_id=1,
+                away_team_id=2,
+                kickoff_utc=CLOCK,
+                status="finished",
+                result_provider="jc",
+                result_checked_utc=CAPTURED,
+            )
+        ],
+    )
+    table(archive, "results", [dict(match_id="jc:2042405", home_goals=1, away_goals=3)])
+    # The public fixture's score is already 1:3.
+    seal(archive)
+    inputs = load(archive)
+    assert {r["match_id"] for r in inputs["official"]} == {"jc:2042404"}
+    assert inputs["teams"]["jc-team:849"]["project_team_id"] == "1"
+    result = replay(archive, archive.parent / "cross-competition-out", leagues=["48"])
+    assert len(result["official_register"]["rows"]) == 2
+    assert all(r["identity_proposal"] is None for r in result["official_register"]["rows"])
+
+
+def test_cross_competition_identity_conflict_is_not_hidden(archive):
+    catalogue(archive, ids=(2042404, 2042405), leagues=[24, 73])
+    page = json.loads(
+        (archive / "state/catalogue/catalogue/jc/2026-10/2026-10-31-p1.json").read_bytes()
+    )
+    league = page["value"]["matchResult"][1]["leagueNameAbbr"]
+    table(
+        archive,
+        "matches",
+        [
+            dict(
+                match_id=mid,
+                source="jc",
+                league=comp,
+                home_team_id=home,
+                away_team_id=away,
+                kickoff_utc=CLOCK,
+                status="finished",
+                result_provider="jc",
+                result_checked_utc=CAPTURED,
+            )
+            for mid, comp, home, away in [
+                ("jc:2042404", "英联赛杯", 1, 2),
+                ("jc:2042405", league, 2, 1),
+            ]
+        ],
+    )
+    table(
+        archive,
+        "results",
+        [dict(match_id=mid, home_goals=1, away_goals=3) for mid in ["jc:2042404", "jc:2042405"]],
+    )
+    inputs = load(archive)
+    assert inputs["teams"]["jc-team:849"]["identity_status"] == "conflict"
+    assert inputs["teams"]["jc-team:849"]["project_team_id"] is None
+
+
+def test_owner_overview_is_compact_and_all_evidence_links_resolve(archive):
+    out = archive.parent / "compact-owner"
+    replay(archive, out, leagues=["48"])
+    overview = (out / "owner-review/48.md").read_text()
+    assert "竞彩球队 | 接口球队 | 证据场数 | 结论" in overview
+    assert "48-849.md" in overview
+    detail = (out / "owner-review/48-849.md").read_text()
+    assert "/response/0" in detail and "SHA256" in detail
+    assert "state/catalogue/" not in overview
+
+
+def test_existing_duplicate_identities_are_exported_without_merging(archive):
+    catalogue(archive, ids=(2042404, 2042405))
+    rows, _ = reader._tables(archive)
+    matches = rows["matches"]
+    table(archive, "teams", rows["teams"] + [dict(id=3, name="Other project identity", aliases=[])])
+    table(archive, "matches", [*matches, dict(matches[0], match_id="jc:2042405", home_team_id=3)])
+    table(archive, "results", [*rows["results"], dict(rows["results"][0], match_id="jc:2042405")])
+    before = {p.name: p.read_bytes() for p in (archive / "state").glob("*.jsonl")}
+    out = archive.parent / "duplicate-review"
+    result = replay(archive, out, leagues=["48"])
+    item = next(
+        r for r in result["existing_identity_duplicates"]["rows"] if r["source_id"] == "jc:849"
+    )
+    assert {r["project_team_id"] for r in item["identities"]} == {"1", "3"}
+    assert item["evidence"] and item["status"] == "review_required_no_merge"
+    assert (out / "existing-identity-duplicates.md").is_file()
+    assert before == {p.name: p.read_bytes() for p in (archive / "state").glob("*.jsonl")}

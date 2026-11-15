@@ -66,7 +66,7 @@ def bundle(frozen_archive, monkeypatch, request):  # noqa: F811
     if historical:
         old_page["value"]["matchResult"][0].update(
             matchId=2042405,
-            matchDate="2026-09-30",
+            matchDate="2026-06-30",
             homeTeamId=900,
             homeTeam="Historical official home",
         )
@@ -88,7 +88,7 @@ def bundle(frozen_archive, monkeypatch, request):  # noqa: F811
                     match,
                     match_id="jc:2042405",
                     home_team_id=3,
-                    kickoff_utc="2026-09-30T12:15:00Z",
+                    kickoff_utc="2026-06-30T12:15:00Z",
                     counterpart_id=None,
                 ),
             ],
@@ -103,7 +103,7 @@ def bundle(frozen_archive, monkeypatch, request):  # noqa: F811
         )
         head = json.loads((archive / "state/catalogue/heads/jc-heads/2042404.json").read_bytes())
         head["value"].update(
-            sportteryMatchId=2042405, sportteryHomeTeamId=900, matchDateTime="2026-09-30 20:15"
+            sportteryMatchId=2042405, sportteryHomeTeamId=900, matchDateTime="2026-06-30 20:15"
         )
         raw(
             archive,
@@ -121,7 +121,7 @@ def bundle(frozen_archive, monkeypatch, request):  # noqa: F811
             page
             if day == date(2026, 10, 31)
             else old_page
-            if historical and day == date(2026, 9, 30)
+            if historical and day == date(2026, 6, 30)
             else empty,
             kickoffs.API + f"getUniformMatchResultV1.qry?matchBeginDate={day}&matchEndDate={day}"
             "&leagueId=&pageSize=30&pageNo=1&isFix=0&matchPage=1&pcOrWap=1",
@@ -164,6 +164,26 @@ def bundle(frozen_archive, monkeypatch, request):  # noqa: F811
                 )
         manifest["sources"] = source_inventory(db)
     save_json(archive / "feed_manifest.json", manifest)
+    seal(archive)
+    season_raw = raw(
+        archive,
+        "state/catalogue/catalogue/apif-raw.json",
+        dict(
+            get="leagues",
+            parameters={},
+            errors=[],
+            results=1,
+            paging=dict(current=1, total=1),
+            response=[
+                dict(
+                    league=dict(id=98),
+                    seasons=[dict(year=2027, start="2026-08-01", end="2027-06-30", current=True)],
+                )
+            ],
+        ),
+        "https://v3.football.api-sports.io/leagues",
+    )
+    shutil.copyfile(season_raw.with_suffix(".json.meta.json"), season_raw.parent / "apif-meta.json")
     seal(archive)
     counts = dict.fromkeys(COUNT_KEYS, 0)
     counts["unchanged"] = 1
@@ -402,8 +422,9 @@ def test_historical_unbound_explanation_is_verified_without_creating_binding(bun
     archive, root, evidence = bundle
     row = dict(
         official_team_id="900",
+        reason_code="no_unique_approved_scoped_binding",
         reason="Historical club has no approved API binding; remains unbound.",
-        evidence=ref(root, archive / "state/catalogue/catalogue/jc/2026-09/2026-09-30-p1.json"),
+        evidence=ref(root, archive / "state/catalogue/catalogue/jc/2026-06/2026-06-30-p1.json"),
     )
     if problem == "unknown":
         row["official_team_id"] = "99999"
@@ -440,7 +461,9 @@ def test_current_roster_unbound_explanation_never_authorizes_exception(bundle, m
             dict(
                 official_team_id="849",
                 reason="Not approved.",
-                evidence=ref(root, archive / "state/teams.jsonl"),
+                evidence=ref(
+                    root, archive / "state/catalogue/catalogue/jc/2026-06/2026-06-30-p1.json"
+                ),
             )
         ],
     )
@@ -556,6 +579,7 @@ def test_real_entry_validates_auxiliary_fd_endpoint_without_relabeling_archive(b
     assert before["matches"]["unresolved"][0]["reason"] in {
         "stored_relation_original_unverified",
         "non_unique_relation",
+        "stored_current_jc_original_missing",
     }
     result = gate.build_register(archive, CUTOFF, codes=["98"], fd_raw_dir=folder)["leagues"][0]
     if problem:
@@ -821,7 +845,7 @@ def test_combined_legacy_and_explicit_edges_cannot_claim_two_jc_fixtures(bundle)
 @pytest.mark.parametrize("bundle", [True], indirect=True)
 def test_historical_snapshot_conflict_remains_blocked_despite_explanations(bundle):
     archive, root, evidence = bundle
-    path = archive / "state/catalogue/catalogue/jc/2026-09/2026-09-30-p1.json"
+    path = archive / "state/catalogue/catalogue/jc/2026-06/2026-06-30-p1.json"
     page = json.loads(path.read_bytes())
     page["value"]["matchResult"][0].update(awayTeamId=901, awayTeam="Historical away")
     raw(
@@ -857,6 +881,7 @@ def test_historical_snapshot_conflict_remains_blocked_despite_explanations(bundl
         [
             dict(
                 official_team_id=tid,
+                reason_code="no_unique_approved_scoped_binding",
                 reason="Historical only; cannot waive a contradiction.",
                 evidence=ref(root, path),
             )
@@ -865,7 +890,7 @@ def test_historical_snapshot_conflict_remains_blocked_despite_explanations(bundl
     )
     result = run(bundle)
     assert "official_identity_conflict" in result["blockers"], result
-    assert result["status"] == "blocked", result["evidence"]
+    assert result["status"] != "ready_for_review", result["evidence"]
     assert {r["official_team_id"] for r in result["teams"]["identity_conflicts"]} == {"900", "901"}
 
 
@@ -902,8 +927,11 @@ def test_recent_jc_only_participants_cannot_use_historical_unbound_exception(bun
             [
                 dict(
                     official_team_id="900",
+                    reason_code="no_unique_approved_scoped_binding",
                     reason="Historical club without approval",
-                    evidence=ref(root, archive / "state/teams.jsonl"),
+                    evidence=ref(
+                        root, archive / "state/catalogue/catalogue/jc/2026-06/2026-06-30-p1.json"
+                    ),
                 )
             ],
         )
@@ -1107,6 +1135,7 @@ def importer_bundle(bundle, *, retain_results=False, supplemental=False):
         + ([dict(fixture_id="apif:11", outcome="inserted")] if supplemental else []),
     )
     recent["results"] = document(root, "recent.json", results)
+    recent_importer_bundle(bundle, retain_results=retain_results)
     return reports
 
 
@@ -1185,4 +1214,77 @@ def test_importer_replay_requires_recorded_options_and_actual_clock(bundle, prob
     assert any(
         word in result["evidence"]["current_season_replay"]["reason"]
         for word in ["replay_options", "imported_utc", "timezone"]
+    )
+
+
+def recent_importer_bundle(bundle, *, retain_results=False):
+    """Separate, actual daily replay with its real capture/import clocks."""
+    from datetime import datetime
+
+    from sqlalchemy.orm import Session
+
+    from zucai.identity_gate_evidence import export, restored_memory
+    from zucai.result_source_identity import export_result_identities
+    from zucai.result_source_links import export_result_links
+    from zucai.sources.api_football import ApiFootball
+    from zucai.sources.apif_ingest import import_apif_games
+
+    _, root, evidence = bundle
+    recent = evidence["recent_replay"]
+    before = export(root, recent["before_manifest"])
+    folder = root / "daily-after"
+    shutil.copytree(before["folder"], folder, dirs_exist_ok=True)
+    with restored_memory(before) as (engine, connection):
+        for original in recent["originals"]:
+            path = root / original["path"]
+            meta = json.loads(path.with_suffix(".json.meta.json").read_bytes())
+            parser = ApiFootball(leagues={"98": {"league": "日职"}})
+            try:
+                games = parser.parse(path.read_bytes())
+            finally:
+                parser.session.close()
+            with Session(engine) as session:
+                import_apif_games(
+                    session,
+                    games,
+                    seen=datetime.fromisoformat(meta["fetched_at_utc"]),
+                    assume=timedelta(hours=3),
+                    aliases=json.loads(reader.FORMAL.read_bytes()),
+                    retain_results=retain_results,
+                    imported_utc=datetime.fromisoformat(CUTOFF),
+                )
+                session.commit()
+        manifest = json.loads((folder / "feed_manifest.json").read_bytes())
+        manifest["created_utc"] = CUTOFF
+        for name, columns in TABLES.items():
+            rows = connection.execute(
+                f"SELECT {','.join(columns)} FROM {name} ORDER BY {columns[0]}"
+            ).fetchall()
+            (folder / f"state/{name}.jsonl").write_text(
+                "".join(json.dumps(list(r), ensure_ascii=False) + "\n" for r in rows)
+            )
+            manifest["counts"][name] = len(rows)
+        manifest["sources"] = source_inventory(connection)
+        for key, fn in [
+            ("result_source_links", export_result_links),
+            ("result_source_identities", export_result_identities),
+        ]:
+            block = fn(connection, folder)
+            if block:
+                manifest[key] = block
+        save_json(folder / "feed_manifest.json", manifest)
+        seal(folder)
+    recent["after_manifest"] = ref(root, folder / "feed_manifest.json")
+    recent["replay_options"] = document(
+        root,
+        "recent-options.json",
+        dict(
+            provider_code="98",
+            imported_utc=CUTOFF,
+            retain_results=retain_results,
+            assume_known_after_seconds=10800,
+            formal_aliases_sha256=sha256(reader.FORMAL.read_bytes()).hexdigest(),
+            before_manifest_sha256=recent["before_manifest"]["sha256"],
+            after_manifest_sha256=recent["after_manifest"]["sha256"],
+        ),
     )

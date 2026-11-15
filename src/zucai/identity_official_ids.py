@@ -53,7 +53,8 @@ def associate_official(rows, tables, categories, manifest, observed_utc):
             valid = False
         if (
             valid
-            and match["status"] == row["status"] == "cancelled"
+            and match["status"] == "cancelled"
+            and (row["status"] == "cancelled" or row.get("identity_only"))
             and result is None
             and row["score"] is None
         ):
@@ -66,11 +67,13 @@ def associate_official(rows, tables, categories, manifest, observed_utc):
                 )
             )
             continue
-        valid = (
-            valid
-            and match["status"] == row["status"] == "finished"
-            and result is not None
-            and row["score"] == [result["home_goals"], result["away_goals"]]
+        valid = valid and (
+            (row.get("identity_only") and _clock(row) == when)
+            or (
+                match["status"] == row["status"] == "finished"
+                and result is not None
+                and row["score"] == [result["home_goals"], result["away_goals"]]
+            )
         )
         if not valid:
             blocked.update(row[s] for s in ("home", "away"))
@@ -89,7 +92,10 @@ def associate_official(rows, tables, categories, manifest, observed_utc):
             manifest=manifest,
             match_id=row["match_id"],
             matches_pointer=f"state/matches.jsonl#/line/{match['row_number']}",
-            results_pointer=f"state/results.jsonl#/line/{result['row_number']}",
+            results_pointer=f"state/results.jsonl#/line/{result['row_number']}"
+            if result and not row.get("identity_only")
+            else None,
+            identity_only=bool(row.get("identity_only")),
             official_provenance=deepcopy(row["provenance"]),
             official_ids={s: row[f"{s}_source_id"] for s in ("home", "away")},
             project_ids={s: str(match[f"{s}_team_id"]) for s in ("home", "away")},
@@ -119,7 +125,9 @@ def associate_official(rows, tables, categories, manifest, observed_utc):
     for key, entries in sorted(observations.items()):
         first, side = entries[0]
         category_entries = {
-            r["competition_id"]: categories.get(r["competition_id"]) for r, _ in entries
+            r["competition_id"]: categories.get(r["competition_id"])
+            for r, _ in entries
+            if r.get("competition_id") is not None
         }
         category_values = {e["category"] for e in category_entries.values() if e}
         targets = links[key]
@@ -209,6 +217,7 @@ def official_register(inputs, result):
                 project_team_id=team["project_team_id"],
                 project_identity_evidence=team["project_identity_evidence"],
                 identity_status=team["identity_status"],
+                team_category_exceptions=team.get("team_category_exceptions", []),
                 identity_proposal=dict(
                     status="proposed",
                     action="create_canonical_identity",

@@ -102,3 +102,37 @@ Task1 的 identity conflict/ambiguous/current snapshot 矛盾独立阻止开启�
 输出 `history_selection` 明列赛事、来源集合、截止与选择 ID。
 
 测试中的完整入口包明确是离线合成 fixture：不替代真实线上采集/重放证据。
+
+## PR143 审查补强后的字段与口径（2026-11-15）
+
+- 球队仍核对固定 12 个月的官方编号。场次分母是 `matches.stored_current_jc` 加未被可靠同场关联吸收的
+  `matches.pending_extra`；原归档中的 APIF `held_unbound` 和 `suspected_duplicates` 均须保留。
+  `catalogue_never_stored_ids` 只作说明，不能拿它凑分母。当前赛季日期校验 `apif-raw.json`、`apif-meta.json`
+  及 feed manifest，不把赛季编号直接当公历年。更新赛季尚未核对时仍阻断。
+- `unbound_explanations` 每项须有 `official_team_id`、`reason_code=no_unique_approved_scoped_binding`、
+  足以阅读的 `reason`（至少 8 个字符）及该官方队的已认证原件 `evidence`。可变球队表或任意短文本不能作原件证明。
+- `recent_replay.replay_options` 是有路径/SHA的 JSON：`provider_code`、`retain_results`、
+  `assume_known_after_seconds`（null 或正整数秒）、`imported_utc`、`formal_aliases_sha256`、
+  `before_manifest_sha256`、`after_manifest_sha256`。每份日期原件按真实捕获时间重新解析并导入临时数据库，
+  核对所有表、关系与逐场风险；自报拒收不能替代实际结果，导入不能早于捕获，导出不能晚于验收截止。
+- 首轮和重复轮需要不同 `run_id`，重复轮从首轮保存状态开始。第二轮报告重新运行相同导入器核实。
+  `immutable_sha256` 必须完整对应预测归档、`data/runs/` 和独立账本的真实文件，不接受 `state/matches.jsonl`
+  等可变业务表替代。恢复后的所有核心表、来源统计、关系、隔离清单和训练选择都重新比对。
+- 每个接口比赛的全部持有行都要同向、同赛事、时刻和常规赛果一致；同场另存但无关系的跨来源近邻单列待核。
+  零绑定或零有效关联不会被文字说明变成就绪。所有输出仍为审查材料，不写每日开关。
+
+最终复读补强：`equivalent.boundary_cases` 恰好六类，`fixture_ids` 必须覆盖该原件内目标赛事的全部编号，
+包含风险对双方；`outcome` 只接受 `verified`，并非凭此文字通过。每项另附 `replay`：
+`before_manifest`、`after_manifest`、`results`、`replay_options`（普通近期重放同一契约）。
+`results` 含逐编号 `outcomes` 和 `inserted`。检查器在临时内存库重新执行每一份边界原件，
+核对真实暂缓/疑似/拒收状态、前后保存表和关系；边界样本中的真实暂缓可以证明保护生效，不能算作补齐。
+分页不完整的样本必须由与普通日期重放相同的完整页保护拒绝；全部编号结果为 `partial_pages_rejected`，
+新增为零、两个独立保存目录的内容完全不变，此类样本不进入导入器。
+
+冻结库存还包含实际 `scoreboard/`、`sfc/` 目录：先验证记分板清单、串关账本和胜负彩结算的原生校验，
+再将整个目录逐文件纳入前后对照。账本被改写、漏存或多出文件均不能声称恢复相同。
+
+保守限制明确披露：风险说明满足披露要求，不代表疑似关系已经解决；当前实现仍对实际近期疑似/拒收
+以及未建立关系的跨来源近邻阻断。跨日回执会改变隔离判断，但本次不将其自动当作每日开启豁免。
+这比任务第三节“0或逐条说明”的最低文字条件更严格，须由正式审查确认后续开启材料的接受口径；
+本 PR 不批准任何真实决定，也不打开任何 daily 开关。

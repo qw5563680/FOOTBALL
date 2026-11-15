@@ -201,6 +201,8 @@ def held_inventory(root, section):
     path = target.relative_to(folder).as_posix()
     if manifest["files"].get(path) != section["held_before"]["sha256"]:
         raise ValueError("prior held inventory differs from independent archived source")
+    if path != "state/audit/apif_held_unbound.csv":
+        raise ValueError("prior held inventory must be the APIF held audit")
     reader = csv.DictReader(io.StringIO(raw.decode()))
     if not {"raw_sha256", "league", "provider_match_id"} <= set(reader.fieldnames or []):
         raise ValueError("prior held inventory schema missing")
@@ -215,6 +217,24 @@ def outcome(state, mid):
     ]
     if len({r["source"] for r in owners}) != len(owners):
         raise ValueError("non_unique replay fixture relation")
+    for other in owners[1:]:
+        first = owners[0]
+
+        def utc(value):
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=UTC)
+
+        scores = [state["results"].get(r["match_id"]) for r in (first, other)]
+        if (
+            any(
+                first.get(k) != other.get(k)
+                for k in ("league", "home_team_id", "away_team_id", "status")
+            )
+            or abs(utc(first["kickoff_utc"]) - utc(other["kickoff_utc"])) > timedelta(hours=3)
+            or any((r is None) != (scores[0] is None) for r in scores)
+            or scores[0] is not None
+            and any(scores[0][k] != scores[1][k] for k in ("home_goals", "away_goals"))
+        ):
+            raise ValueError("contradictory replay fixture owners")
     owners.sort(key=lambda r: r["match_id"] != mid)
     if not owners:
         return None
@@ -373,29 +393,6 @@ def replay_importer(facts, code, section, root, report, scope, before, after):
     finally:
         parser.session.close()
 
-    def normalized(name, rows):
-        columns = Base.metadata.tables[name].columns
-
-        def value(column, item):
-            if item is None:
-                return None
-            if str(column.type) == "DATETIME":
-                # SQLite exports omit UTC offsets; stored database timestamps are UTC.
-                instant = datetime.fromisoformat(str(item).replace("Z", "+00:00"))
-                if instant.tzinfo is not None:
-                    instant = instant.astimezone(UTC)
-                return instant.replace(tzinfo=None).isoformat()
-            if str(column.type) == "JSON" and isinstance(item, str):
-                return json.loads(item)
-            return item
-
-        return sorted(
-            json.dumps(
-                {c.name: value(c, row[c.name]) for c in columns}, sort_keys=True, ensure_ascii=False
-            )
-            for row in rows
-        )
-
     with restored_memory(before) as (engine, db):
         with Session(engine) as session:
             result = import_apif_games(
@@ -427,7 +424,7 @@ def replay_importer(facts, code, section, root, report, scope, before, after):
                         for row in connection.execute(f"SELECT {','.join(columns)} FROM {name}")
                     ]
 
-                if normalized(name, rows(db)) != normalized(name, rows(expected_db)):
+                if normalized_rows(name, rows(db)) != normalized_rows(name, rows(expected_db)):
                     raise ValueError("actual importer replay differs from exported " + name)
     return dict(
         counts={k: result[k] for k in COUNT_KEYS},
@@ -436,3 +433,134 @@ def replay_importer(facts, code, section, root, report, scope, before, after):
         retain_results=options["retain_results"],
         imported_utc=options["imported_utc"],
     )
+
+
+def normalized_rows(name, rows):
+    from zucai.models import Base
+
+    columns = Base.metadata.tables[name].columns
+
+    def value(column, item):
+        if item is None:
+            return None
+        if str(column.type) == "DATETIME":
+            # SQLite exports omit UTC offsets; stored database timestamps are UTC.
+            instant = datetime.fromisoformat(str(item).replace("Z", "+00:00"))
+            if instant.tzinfo is not None:
+                instant = instant.astimezone(UTC)
+            return instant.replace(tzinfo=None).isoformat()
+        if str(column.type) == "JSON" and isinstance(item, str):
+            return json.loads(item)
+        return item
+
+    return sorted(
+        json.dumps(
+            {c.name: value(c, row[c.name]) for c in columns}, sort_keys=True, ensure_ascii=False
+        )
+        for row in rows
+    )
+
+
+def recent_importer(facts, code, section, root, originals, reported):
+    """Re-execute daily parsing/importing; declared risk labels cannot suppress rows."""
+    from sqlalchemy.orm import Session
+
+    from zucai.identity_binding_archive import FORMAL
+    from zucai.models import Base
+    from zucai.sources.api_football import ApiFootball
+    from zucai.sources.apif_ingest import import_apif_games
+
+    options = document(root, section["replay_options"])
+    before, after = [export(root, section[k]) for k in ("before_manifest", "after_manifest")]
+    if (
+        options.get("before_manifest_sha256") != section["before_manifest"]["sha256"]
+        or options.get("after_manifest_sha256") != section["after_manifest"]["sha256"]
+        or options.get("formal_aliases_sha256") != sha256(FORMAL.read_bytes()).hexdigest()
+        or options.get("provider_code") != code
+        or type(options.get("retain_results")) is not bool
+    ):
+        raise ValueError("recent importer options scope/config/export mismatch")
+    delay = options.get("assume_known_after_seconds")
+    if delay is not None and (type(delay) is not int or not 0 < delay <= 14 * 86400):
+        raise ValueError("recent importer delay invalid")
+
+    def clock(value):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if value.utcoffset() is None:
+            raise ValueError("recent importer clock needs timezone")
+        return value.astimezone(UTC)
+
+    imported = clock(options["imported_utc"])
+    if (
+        not clock(before["manifest"]["created_utc"])
+        <= imported
+        <= clock(after["manifest"]["created_utc"])
+        <= clock(facts["gate_cutoff"])
+    ):
+        raise ValueError("recent importer/export clock contradicts cutoff")
+    pending, actual = {}, Counter()
+    with restored_memory(before) as (engine, db):
+        for reference in originals:
+            raw = proof(root, reference)
+            path = root / reference["path"]
+            meta = json.loads(path.with_suffix(path.suffix + ".meta.json").read_bytes())
+            seen = clock(meta["fetched_at_utc"])
+            if seen > imported:
+                raise ValueError("recent importer precedes original capture")
+            parser = ApiFootball(leagues={code: facts["configs"][code]})
+            try:
+                games = [
+                    g for g in parser.parse(raw) if g.league == facts["configs"][code]["league"]
+                ]
+                for r in parser.rejected:
+                    pending["apif:" + str(r["provider_match_id"])] = "rejected"
+            finally:
+                parser.session.close()
+            with Session(engine) as session:
+                result = import_apif_games(
+                    session,
+                    games,
+                    seen=seen,
+                    assume=timedelta(seconds=delay) if delay else None,
+                    aliases=json.loads(FORMAL.read_bytes()),
+                    retain_results=options["retain_results"],
+                    imported_utc=imported,
+                )
+                session.commit()
+            for key, value in result.items():
+                if type(value) is int:
+                    actual[key] += value
+            for key, label in [
+                ("held", "held_unbound"),
+                ("suspected", "suspected"),
+                ("rejected", "rejected"),
+            ]:
+                for row in result[key]:
+                    pending["apif:" + str(row["provider_match_id"])] = label
+        claims = {r["fixture_id"]: r["outcome"] for r in reported}
+        for mid, label in claims.items():
+            if (label in {"held_unbound", "suspected", "rejected"}) != (mid in pending) or (
+                mid in pending and pending[mid] != label
+            ):
+                raise ValueError("recent risk outcome differs from actual importer: " + mid)
+        if not set(pending) <= set(claims):
+            raise ValueError("recent importer risks missing from report")
+        with restored_memory(after) as (_, expected_db):
+            for name in (
+                "teams",
+                "matches",
+                "results",
+                "result_source_links",
+                "result_source_identities",
+            ):
+                columns = [c.name for c in Base.metadata.tables[name].columns]
+
+                def rows(connection, columns=columns, name=name):
+                    return [
+                        dict(zip(columns, r, strict=True))
+                        for r in connection.execute(f"SELECT {','.join(columns)} FROM {name}")
+                    ]
+
+                if normalized_rows(name, rows(db)) != normalized_rows(name, rows(expected_db)):
+                    raise ValueError("recent actual importer differs from exported " + name)
+    return dict(counts=dict(actual), pending=pending, imported_utc=options["imported_utc"])

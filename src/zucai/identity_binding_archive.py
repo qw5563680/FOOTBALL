@@ -605,7 +605,8 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
     catalogue_rows, _, catalogue = frozen.catalogue()
     clocks_by_id, clock_issues = frozen.clocks(catalogue_rows, catalogue)
     issues.extend(dict(item, reasons=["jc_clock_evidence_unverified"]) for item in clock_issues)
-    official, page_cache = [], {}
+    official, identity_rows, page_cache = [], [], {}
+    stored_jc = {r["match_id"] for r in tables["matches"] if r["source"] == "jc"}
     coverage = dict(
         start_utc=datetime.fromisoformat(catalogue["window"]["start_beijing"])
         .replace(tzinfo=kickoffs.BEIJING)
@@ -622,7 +623,8 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
     )
     for row in catalogue_rows:
         league = row["league"]
-        if row["league_id"] in kickoffs.GENERIC_IDS or league not in league_codes:
+        in_scope = row["league_id"] not in kickoffs.GENERIC_IDS and league in league_codes
+        if not in_scope and f"jc:{row['match_id']}" not in stored_jc:
             continue
         path = row["catalogue_path"]
         if path not in page_cache:
@@ -654,11 +656,11 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
             game = SportteryResults._row(original)
         except (ValueError, KeyError):
             game = None
-        official.append(
+        identity_rows.append(
             dict(
                 match_id=f"jc:{row['match_id']}",
                 league=league,
-                competition_id=league_codes[league],
+                competition_id=league_codes.get(league),
                 home_source_id=str(row["home_team_id"]),
                 away_source_id=str(row["away_team_id"]),
                 home=f"jc-team:{row['home_team_id']}",
@@ -677,10 +679,18 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
                 provenance=[proof, *clocks],
             )
         )
+        if in_scope:
+            official.append(identity_rows[-1])
+    stored_identities, stored_issues = frozen.stored_identities(tables)
+    identity_rows.extend(stored_identities)
+    issues.extend(stored_issues)
     teams, identity_issues = associate_official(
-        official, tables, categories, manifest, frozen.observed_utc
+        identity_rows, tables, categories, manifest, frozen.observed_utc
     )
     issues.extend(identity_issues)
+    from zucai.identity_categories import apply_team_exceptions
+
+    apply_team_exceptions(apif, teams, registry)
     by_project = defaultdict(set)
     for key, team in teams.items():
         if team.get("project_team_id"):

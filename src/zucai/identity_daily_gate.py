@@ -17,6 +17,7 @@ from zucai.identity_gate_evidence import (
     existing_links,
     held_inventory,
     outcome,
+    recent_importer,
     replay_importer,
     transitions,
 )
@@ -277,7 +278,21 @@ def _facts_coverage(facts, code):
     graph_conflicts = [
         c for c in graph_conflicts if set(c["members"]) & {r["match_id"] for r in official}
     ]
+    from zucai.identity_gate_inventory import current_scope, prior_pending
+
+    scope = current_scope(facts, code)
+    catalogue_count = len(official)
+    never_stored = [r["match_id"] for r in official if r["match_id"] not in matches]
+    official = [r for r in official if r["match_id"] in scope["match_ids"]]
+    if not scope["verified"]:
+        blockers.append("current_season_scope_unverified")
+    if scope["newer_current"]:
+        blockers.append("newer_season_originals_require_review")
     linked, unresolved = [], []
+    for mid in sorted(set(scope["match_ids"]) - {r["match_id"] for r in official}):
+        unresolved.append(
+            dict(jc_id=mid, provider_match_id=None, reason="stored_current_jc_original_missing")
+        )
     for row in official:
         stored = matches.get(row["match_id"], {})
         counterpart = stored.get("counterpart_id")
@@ -410,6 +425,42 @@ def _facts_coverage(facts, code):
     linked_ids = {r["jc_id"] for r in linked}
     unverified_sources = [r for r in unresolved if r["jc_id"] in linked_ids]
     unresolved = [r for r in unresolved if r["jc_id"] not in linked_ids]
+    pending = prior_pending(facts, code)
+    represented = {r["provider_match_id"] for r in linked}
+    pending_extra = [r for r in pending if r["fixture_id"] not in represented]
+    stored_by_id = {r["match_id"]: r for r in facts["matches"]}
+    resolved_extra = []
+    for row in pending_extra:
+        mid = row["fixture_id"]
+        source_rows = [
+            r for r in facts["apif"] if r["match_id"] == mid and r["competition_id"] == code
+        ]
+        match = stored_by_id.get(mid)
+        result = next((r for r in facts.get("results", []) if r["match_id"] == mid), None)
+        if (
+            match
+            and mid not in conflict_nodes
+            and source_rows
+            and result
+            and all(
+                r.get("complete")
+                and r.get("score") == [result["home_goals"], result["away_goals"]]
+                and r.get("kickoff_utc")
+                and all(
+                    _provider_project(facts, league, r[side], r["kickoff_utc"])
+                    == str(match[f"{side}_team_id"])
+                    for side in ("home", "away")
+                )
+                and abs(_clock(r["kickoff_utc"]) - _clock(match["kickoff_utc"]))
+                <= timedelta(hours=3)
+                for r in source_rows
+            )
+        ):
+            resolved_extra.append(mid)
+    total = len(scope["match_ids"]) + len(pending_extra)
+    complete = len(linked_ids) + len(resolved_extra)
+    if unresolved or len(resolved_extra) != len(pending_extra):
+        blockers.append("current_season_fixtures_unresolved")
     counts = Counter(r["source"] for r in linked)
     return (
         dict(
@@ -422,12 +473,20 @@ def _facts_coverage(facts, code):
             identity_conflicts=identity_conflicts,
         ),
         dict(
-            total=len(official),
-            linked=len(linked_ids),
-            link_rate=len(linked_ids) / len(official) if official else None,
+            total=total,
+            linked=complete,
+            link_rate=complete / total if total else None,
+            denominator="stored_current_season_jc_plus_prior_pending_apif_without_double_counting",
+            season_scope=scope,
+            stored_current_jc=len(scope["match_ids"]),
+            prior_pending=pending,
+            pending_extra=pending_extra,
+            pending_materialized_ids=resolved_extra,
+            catalogue_12_month_total=catalogue_count,
+            catalogue_never_stored_ids=never_stored,
             linked_by_source={source: counts[source] for source in ("apif", "fd")},
             apif_linked=counts["apif"],
-            apif_link_rate=counts["apif"] / len(official) if official else None,
+            apif_link_rate=counts["apif"] / total if total else None,
             relations=linked,
             unresolved=unresolved,
             unverified_source_relations=unverified_sources,
@@ -763,8 +822,7 @@ def _recent_replay(facts, code, section, root, start, end):
                 if rejected.get("provider_match_id") is None:
                     raise ValueError("unattributable rejected competitor")
                 rejected_ids.add(f"apif:{rejected['provider_match_id']}")
-            if doc["paging"] != {"current": 1, "total": 1}:
-                raise ValueError("partial daily pages")
+            _complete_pages(doc)
             if day is not None:
                 days.add(day)
             hashes.add(ref["sha256"])
@@ -880,12 +938,92 @@ def _recent_replay(facts, code, section, root, start, end):
     )
 
 
+def _verified_recent(facts, code, section, root, start, end):
+    result = _recent_replay(facts, code, section, root, start, end)
+    result["importer"] = recent_importer(
+        facts,
+        code,
+        section,
+        root,
+        section["originals"],
+        _document(root, section["results"])["outcomes"],
+    )
+    return result
+
+
+def _complete_pages(doc):
+    if doc["paging"] != {"current": 1, "total": 1}:
+        raise ValueError("partial daily pages")
+
+
+def _boundary_handling(facts, code, case, root, doc):
+    """Re-execute the named sample, never accept a prose handling declaration."""
+    section = case.get("replay")
+    if not isinstance(section, dict):
+        raise ValueError("boundary lacks materialized replay evidence")
+    report = _document(root, section["results"])
+    outcomes = report["outcomes"]
+    if (
+        len(outcomes) != len(case["fixture_ids"])
+        or {r["fixture_id"] for r in outcomes} != set(case["fixture_ids"])
+        or type(report.get("inserted")) is not int
+        or report["inserted"] < 0
+    ):
+        raise ValueError("boundary result fixture inventory differs")
+    before, after = [_export(root, section[k]) for k in ("before_manifest", "after_manifest")]
+    if before["folder"].resolve() == after["folder"].resolve():
+        raise ValueError("boundary needs independent saved exports")
+    if case["category"] == "partial_pages":
+        try:
+            _complete_pages(doc)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("boundary did not exercise partial-page rejection")
+        if (
+            report["inserted"] != 0
+            or any(r["outcome"] != "partial_pages_rejected" for r in outcomes)
+            or before["manifest"]["files"] != after["manifest"]["files"]
+            or before["tables"] != after["tables"]
+        ):
+            raise ValueError("boundary partial-page guard/state differs")
+        return dict(partial_pages_rejected=True, inserted=0)
+    _complete_pages(doc)
+    allowed = {
+        "inserted",
+        "updated",
+        "unchanged",
+        "linked",
+        "cancelled",
+        "held_unbound",
+        "suspected",
+        "rejected",
+    }
+    if any(r["outcome"] not in allowed for r in outcomes):
+        raise ValueError("boundary handling result unknown")
+    # Held is a valid negative boundary result, never permission to open daily.
+    from zucai.identity_gate_evidence import outcome
+
+    for row in outcomes:
+        if row["outcome"] == "held_unbound" and outcome(before, row["fixture_id"]) != outcome(
+            after, row["fixture_id"]
+        ):
+            raise ValueError("boundary held fixture changed stored state")
+    transitions(
+        root,
+        section,
+        [r for r in outcomes if r["outcome"] != "held_unbound"],
+        inserted=report["inserted"],
+    )
+    return recent_importer(facts, code, section, root, [case["original"]], outcomes)
+
+
 def _boundary_cases(facts, code, cases, root):
     """Require actual risky rows, not six labels attached to one easy fixture."""
     from zucai.identity_binding_archive import _proof as raw_proof
     from zucai.sources.api_football import API, ApiFootball
 
-    if {case["category"] for case in cases} != RISKS:
+    if len(cases) != len(RISKS) or {case["category"] for case in cases} != RISKS:
         raise ValueError("equivalent replay lacks risk distribution")
     pairs = {(r["home"], r["away"]) for r in facts["apif"] if r["competition_id"] == code}
     league = facts["configs"][code]["league"]
@@ -933,10 +1071,10 @@ def _boundary_cases(facts, code, cases, root):
                 raise ValueError("boundary fixture identity/time/scope mismatch")
         if (
             case["original"]["sha256"] != case["source_sha256"]
-            or not case.get("outcome")
+            or case.get("outcome") != "verified"
             or not case["fixture_ids"]
             or len(case["fixture_ids"]) != len(set(case["fixture_ids"]))
-            or not set(case["fixture_ids"]) <= {f"apif:{r['fixture']['id']}" for r in rows}
+            or set(case["fixture_ids"]) != {f"apif:{r['fixture']['id']}" for r in rows}
         ):
             raise ValueError("boundary provenance or result missing")
         tuples = [
@@ -981,6 +1119,7 @@ def _boundary_cases(facts, code, cases, root):
                 parser.session.close()
         if not valid:
             raise ValueError(f"boundary sample does not exercise {category}")
+        _boundary_handling(facts, code, case, root, doc)
 
 
 def _risk_review(section, root, risk_ids):
@@ -1031,6 +1170,13 @@ def _persistence(
         raise ValueError("second run did not actually replay with zero insertions")
     if replay_context is not None:
         facts, current_section = replay_context
+        first = _document(root, current_section["report"])
+        if (
+            repeat.get("run_id") == first.get("run_id")
+            or section["repeat_report"]["sha256"] == current_section["report"]["sha256"]
+            or section["before_manifest"]["sha256"] != current_section["after_manifest"]["sha256"]
+        ):
+            raise ValueError("repeat must follow the first replay with a distinct invocation")
         _current_replay(
             facts,
             code,
@@ -1066,7 +1212,36 @@ def _persistence(
             raise ValueError("snapshot differs from actual exported inventory")
         if not snapshot["immutable_sha256"]:
             raise ValueError("immutable artifact inventory missing")
+        from zucai.forecast_archive import verify_forecasts
+        from zucai.parlay import paper as parlay_paper
+        from zucai.scoreboard.command import read_state
+        from zucai.scoreboard.sfc import read_settled
+
+        _, _, summary, _ = read_state(state["folder"])
+        read_settled(state["folder"], summary)
+        parlay_paper.read_ledger(state["folder"], summary)
+        forecasts = verify_forecasts(state["folder"])
+        expected_immutable = dict(forecasts["files"]) if forecasts else {}
+        for candidate in [
+            state["folder"] / "ledger.jsonl",
+            *(state["folder"] / "data/runs").glob("**/*"),
+            *(state["folder"] / "scoreboard").glob("**/*"),
+            *(state["folder"] / "sfc").glob("**/*"),
+        ]:
+            if candidate.is_file():
+                if candidate.is_symlink() or any(p.is_symlink() for p in candidate.parents):
+                    raise ValueError("immutable inventory contains symlink")
+                expected_immutable[candidate.relative_to(state["folder"]).as_posix()] = sha256(
+                    candidate.read_bytes()
+                ).hexdigest()
+        if snapshot["immutable_sha256"] != expected_immutable:
+            raise ValueError("immutable snapshot omits or substitutes actual frozen artifacts")
         for path, digest in snapshot["immutable_sha256"].items():
+            if not (
+                path == "ledger.jsonl"
+                or path.startswith(("data/runs/", "forecasts/", "models/", "scoreboard/", "sfc/"))
+            ):
+                raise ValueError("immutable inventory contains mutable or unknown artifact")
             _proof(state["folder"], dict(path=path, sha256=digest))
     if snapshots[0] != snapshots[1] or snapshots[0] != snapshots[2]:
         raise ValueError("coverage/relations/quarantine/training/immutable restoration differs")
@@ -1095,7 +1270,7 @@ def _persistence(
     )
 
 
-def _unbound_explanations(teams, section, root):
+def _unbound_explanations(teams, section, root, facts):
     rows = _document(root, section)
     expected = {r["official_team_id"] for r in teams["unbound"]}
     ids = [r["official_team_id"] for r in rows]
@@ -1104,10 +1279,23 @@ def _unbound_explanations(teams, section, root):
     for row in rows:
         if (
             not isinstance(row.get("reason"), str)
-            or not row["reason"].strip()
+            or len(row["reason"].strip()) < 8
+            or row.get("reason_code") != "no_unique_approved_scoped_binding"
             or not _proof(root, row["evidence"]).strip()
         ):
             raise ValueError("unbound explanation requires nonempty reason and evidence")
+        known = {
+            p["sha256"]
+            for fixture in facts["official"]
+            for side in ("home", "away")
+            if fixture[f"{side}_source_id"] == row["official_team_id"]
+            for p in fixture.get("provenance", [])
+            if p.get("sha256")
+        }
+        if row["evidence"]["sha256"] not in known:
+            raise ValueError(
+                "unbound evidence is not an authenticated original of this official team"
+            )
     return dict(
         explained_ids=sorted(ids), pending_ids=sorted(expected - set(ids)), explanations=rows
     )
@@ -1135,6 +1323,13 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
     )
     if current_official["unbound"]:
         blockers.append("current_official_participants_unbound")
+    if not teams["bound"] or not matches["linked"]:
+        blockers.append("zero_verified_coverage")
+    from zucai.identity_gate_inventory import near_duplicates
+
+    duplicate_pairs = near_duplicates(facts, code)
+    if duplicate_pairs:
+        blockers.append("unreviewed_cross_source_near_duplicate")
     if not teams["total"] or not matches["total"]:
         missing.append("official_window_empty")
     window = complete_month_window(cutoff)
@@ -1148,6 +1343,8 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
         missing.append("official_12_month_window_mismatch")
     season = facts["configs"][code].get("current_season")
     current = [r for r in facts["apif"] if r["competition_id"] == code and r["season"] == season]
+    if any(r["competition_id"] == code and r["season"] > season for r in facts["apif"]):
+        blockers.append("newer_season_originals_require_review")
     if not current:
         missing.append("current_season_originals")
     elif any(
@@ -1160,12 +1357,16 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
     root = Path(evidence_root) if evidence_root is not None else None
     validators = {
         **(
-            {"unbound_explanations": lambda section: _unbound_explanations(teams, section, root)}
+            {
+                "unbound_explanations": lambda section: _unbound_explanations(
+                    teams, section, root, facts
+                )
+            }
             if teams["unbound"]
             else {}
         ),
         "current_season_replay": lambda section: _current_replay(facts, code, section, root),
-        "recent_replay": lambda section: _recent_replay(facts, code, section, root, start, end),
+        "recent_replay": lambda section: _verified_recent(facts, code, section, root, start, end),
         "risk_review": lambda section: _risk_review(
             section, root, details["recent_replay"]["risk_ids"]
         ),
@@ -1190,6 +1391,8 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
             ):
                 raise ValueError("missing evidence root or frozen archive/cutoff binding")
             details[key] = validate(evidence[key])
+            if key == "recent_replay" and details[key]["risk_ids"]:
+                blockers.append("recent_replay_unresolved_risks")
             if key == "recent_replay":
                 current_official = _current_participants(
                     facts, code, details[key]["official_window"]["matches"]
@@ -1218,6 +1421,7 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
         recent_window=dict(start_beijing=start.isoformat(), end_beijing=end.isoformat()),
         teams=teams,
         matches=matches,
+        unreviewed_near_duplicates=duplicate_pairs,
         current_season=season,
         current_official_participants=current_official,
         missing_evidence=missing,
@@ -1249,11 +1453,15 @@ def build_register(
     tables, manifest = _tables(archive)
     _, official_leagues, catalogue = _catalogue(archive)
     validate_approvals(loaded["formal"], require_metadata=True)
+    from zucai.identity_gate_inventory import season_windows
+
     facts = dict(
         loaded,
+        season_windows=season_windows(archive, cutoff),
         configs=configs,
         archive_root=str(archive.resolve()),
         matches=tables["matches"],
+        results=tables["results"],
         result_links=existing_links(archive, tables),
         fd_originals=load_fd(
             fd_raw_dir,

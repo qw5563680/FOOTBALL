@@ -99,9 +99,11 @@ T68 补开球时刻先离线生成清单：`python -m zucai.jc_catalogue_kickoff
 T68 严格绑定离线回放：`python -m zucai.identity_binding --archive /path/to/frozen-archive --out work/t68-binding-1`；
 可用 `--fd-raw-dir /path/to/saved-fd-originals` 加入已保存且有 sidecar 的 FD 原件。只写新的提案目录，
 不修改归档或数据库；第二遍用 `--previous-candidates work/t68-binding-1/apif.json` 并另选输出目录。
+输出 `owner-review.md` 先按赛事汇总，再链接单队原件证据；`existing-identity-duplicates.md` 单列既有身份冲突，不能据此合并。
 旧候选原样保留，诊断结果与可提案结果分开；缺准确时刻、完整竞争窗口、身份类别或唯一规范目标时继续待核。
-T68 跨日决定经 PR 批准后，只在副本显式应用：`python -m zucai.cross_day_decisions apply --db work/review/feeds.db --registry data/identity_reviews/t68-cross-day.json`。
+T68 跨日决定经所有者批准后，正常 `sync/apis` 在关联核对后自动应用；副本验收也可显式执行：`python -m zucai.cross_day_decisions apply --db work/review/feeds.db --registry data/identity_reviews/t68-cross-day.json`。
 命令只保存实际应用回执，不改比分、球队或同场关系；批准清单当前为空，默认仍隔离待核的新增来源行。
+登记移除或快照变化会停用该决定，原因写入 `state/audit/apif_cross_day_decisions.csv`；旧回执与真实应用时间保留。
 T68 每日开启条件只读检查：`python -m zucai.identity_daily_gate --archive /path/to/frozen-archive --cutoff 2026-11-14T16:30:00Z --codes 307 --out work/t68-daily-review.json`。
 可用 `--evidence /path/to/review-evidence.json` 提供同一归档、截点下有 SHA 的重放与恢复证据；
 输出须为归档外的新文件。工具只列逐队、逐场分母及缺口，不改 `daily`；`ready_for_review` 仍须审查，缺证据不判可开。

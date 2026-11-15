@@ -195,6 +195,8 @@ def _entry(entry):
         if (
             not isinstance(item["path"], str)
             or not item["path"]
+            or Path(item["path"]).is_absolute()
+            or ".." in Path(item["path"]).parts
             or not isinstance(item["sha256"], str)
             or len(item["sha256"]) != 64
             or any(c not in "0123456789abcdef" for c in item["sha256"])
@@ -271,33 +273,105 @@ def read_receipts(path):
     return document
 
 
-def load_decisions(session):
-    """Configuration alone grants nothing; current matching receipts are mandatory."""
+def decision_audit(session, registry=None):
+    """List every decision/receipt, including stale or removed ones, without authorizing it."""
     database = session.connection().engine.url.database
     if not database or database == ":memory:":
         return []
-    entries = {_sha(entry): entry for entry in read_registry()}
-    document = read_receipts(Path(database).parent / RECEIPT_FILE)
-    valid = []
-    for receipt in document["receipts"]:
-        entry = entries.get(receipt["entry_sha256"])
-        if entry is None:
-            continue
-        try:
-            current = decision_snapshot(session, entry["match_ids"])
-        except ValueError:
-            continue
-        if current != entry["snapshot"]:
-            continue
-        valid.append(
-            {
-                "match_ids": entry["match_ids"],
-                "decision": entry["decision"],
-                "decision_id": entry["decision_id"],
-                "effective_utc": receipt["applied_utc"],
-            }
+    entries = {_sha(entry): entry for entry in read_registry(registry)}
+    receipts = {
+        row["entry_sha256"]: row
+        for row in read_receipts(Path(database).parent / RECEIPT_FILE)["receipts"]
+    }
+    rows = []
+    for digest in sorted(set(entries) | set(receipts)):
+        receipt = receipts.get(digest)
+        entry = entries.get(digest) or receipt["entry"]
+        reason = ""
+        if digest not in entries:
+            reason = "registry_removed_or_changed"
+        elif _time(entry["approved_utc"]) > datetime.now(UTC):
+            reason = "approval_in_future"
+        else:
+            try:
+                if decision_snapshot(session, entry["match_ids"]) != entry["snapshot"]:
+                    reason = "snapshot_changed"
+            except ValueError:
+                reason = "snapshot_unavailable"
+            if not reason and not receipt:
+                reason = "not_applied"
+        rows.append(
+            dict(
+                decision_id=entry["decision_id"],
+                match_ids=entry["match_ids"],
+                decision=entry["decision"],
+                entry_sha256=digest,
+                applied_utc=receipt["applied_utc"] if receipt else None,
+                status="inactive" if reason else "active",
+                reason=reason,
+            )
         )
-    return valid
+    return rows
+
+
+def load_decisions(session):
+    """Configuration alone grants nothing; current matching receipts are mandatory."""
+    return [
+        dict(
+            match_ids=r["match_ids"],
+            decision=r["decision"],
+            decision_id=r["decision_id"],
+            effective_utc=r["applied_utc"],
+        )
+        for r in decision_audit(session)
+        if r["status"] == "active"
+    ]
+
+
+def audit_decisions(database, destination):
+    import csv
+    import io
+    from zoneinfo import ZoneInfo
+
+    engine = get_engine(database)
+    try:
+        with session_scope(engine) as session:
+            rows = decision_audit(session)
+    finally:
+        engine.dispose()
+    observed = datetime.now(UTC)
+    fields = [
+        "decision_id",
+        "match_ids",
+        "decision",
+        "entry_sha256",
+        "applied_utc",
+        "status",
+        "reason",
+        "observed_utc",
+        "observed_beijing",
+    ]
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fields)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(
+            dict(
+                row,
+                match_ids=json.dumps(row["match_ids"]),
+                observed_utc=observed.isoformat(),
+                observed_beijing=observed.astimezone(ZoneInfo("Asia/Shanghai")).isoformat(),
+            )
+        )
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(destination, output.getvalue().encode())
+    return dict(
+        active=sum(r["status"] == "active" for r in rows),
+        inactive=sum(r["status"] != "active" for r in rows),
+        rows=rows,
+        audit_file=destination.name,
+    )
 
 
 def apply_decisions(database, registry=None):
@@ -317,16 +391,21 @@ def apply_decisions(database, registry=None):
                 applied = datetime.now(UTC)
                 if _time(entry["approved_utc"]) > applied:
                     raise ValueError("未来批准不能应用")
-                if decision_snapshot(session, entry["match_ids"]) != entry["snapshot"]:
-                    raise ValueError("跨日决定快照已变更")
+                try:
+                    if decision_snapshot(session, entry["match_ids"]) != entry["snapshot"]:
+                        continue
+                except ValueError:
+                    continue
                 if _sha(entry) in existing:
                     continue
                 evidence = []
                 for item in entry["evidence"]:
                     source = Path(item["path"])
-                    source = source if source.is_absolute() else registry.parent / source
+                    source = registry.parent / source
                     if (
                         source.is_symlink()
+                        or any(p.is_symlink() for p in source.parents)
+                        or not source.resolve().is_relative_to(registry.parent.resolve())
                         or not source.is_file()
                         or source.stat().st_size > 1024 * 1024
                     ):

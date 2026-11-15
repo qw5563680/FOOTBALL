@@ -91,6 +91,11 @@ def enrich_register(rows, inputs, result):
                     name=candidate.get("name", ""),
                     evidence_status=candidate["evidence_status"],
                     dependency_approval_gaps=candidate.get("dependency_approval_gaps", []),
+                    same_provider_evidence=[
+                        p
+                        for p in candidate.get("evidence", [])
+                        if p.get("kind") == "same_provider_id"
+                    ],
                     witnesses=[
                         w
                         for proof in candidate.get("evidence", [])
@@ -131,77 +136,46 @@ def enrich_register(rows, inputs, result):
 
 
 def owner_html(register):
-    """Plain local HTML: expandable teams, escaped data, no requests or scripts."""
-    groups = defaultdict(list)
-    for row in register["rows"]:
-        groups[row["league"]].append(row)
+    """Small overview; detailed witnesses live in linked per-team Markdown pages."""
     parts = [
         '<!doctype html><html lang="zh-CN"><meta charset="utf-8">',
-        "<title>T68 球队身份逐项核对</title>",
-        "<style>body{font:16px/1.6 system-ui;max-width:1100px;margin:2em auto;padding:0 1em}"
-        "details{border:1px solid #ccd;padding:.7em;margin:.5em 0}summary{cursor:pointer}"
-        "pre{white-space:pre-wrap;word-break:break-word;font-size:12px}li{margin:.5em 0}</style>",
-        "<h1>球队身份逐项核对</h1><p>全部都是待审提案，不是正式绑定。"
-        "比分只用于核验已经由编号、时间和方向找到的比赛，不用于挑选候选。</p>",
-        f"<p>A范围：{register['a_official_ids']}个官方编号，"
-        f"{register['a_competition_items']}个赛事球队项。</p>",
+        "<title>T68 球队身份核对</title><h1>待核准球队提案</h1>",
+        "<p>尚未正式绑定；点球队查看全部见证、原件位置和 SHA256。</p>",
+        "<table><tr><th>赛事</th><th>竞彩球队</th><th>接口球队</th><th>证据场数</th><th>结论</th></tr>",
     ]
-    for league, rows in sorted(groups.items()):
-        parts.append(f"<h2>{escape(league)}</h2>")
-        for row in rows:
-            title = f"{' / '.join(row['official_names'])}（官方编号 {row['official_team_id']}）"
-            parts.append(
-                f"<details><summary>{escape(title)} — {escape(row['conclusion_zh'])}</summary>"
+    for row in register["rows"]:
+        target = f"owner-review/{row['competition_id']}-{row['official_team_id']}.md"
+        candidates = " / ".join(
+            f"{c['name']} ({c['provider_team_id']})" for c in row["api_candidates"]
+        )
+        if not candidates:
+            candidates = (
+                " / ".join(
+                    sorted(
+                        {
+                            f"{p[side]['name']} ({p[side]['provider_team_id']})"
+                            for p in row["possible_matches"]
+                            for side in ("home", "away")
+                        }
+                    )
+                )
+                or "未核实"
             )
-            if row["identity_proposal"]:
-                parts.append(
-                    "<p>创建身份提案：使用这个官方编号和官方名称新建规范球队，待逐条核准。</p>"
-                )
-            for candidate in row["api_candidates"]:
-                label = f"{candidate['name']}（接口编号 {candidate['provider_team_id']}）"
-                parts.append(f"<h3>{escape(label)}</h3>")
-                for gap in candidate["dependency_approval_gaps"]:
-                    explanation = (
-                        f"依赖候选 {gap['dependency_id']}；"
-                        f"最初待核候选 {gap['origin_candidate_id']}："
-                        f"{REASONS_ZH.get(gap['reason'], gap['reason'])}"
-                    )
-                    parts.append(f"<p>{escape(explanation)}</p>")
-                parts.append("<ul>")
-                for witness in candidate["witnesses"]:
-                    score = ":".join(map(str, witness["score"] or []))
-                    label = (
-                        f"{witness['date']} 对手 {witness['official_opponent']['name']}"
-                        f"（官方编号 {witness['official_opponent']['official_team_id']}），"
-                        f"常规时间主客比分 {score}；"
-                        f"{witness['official_match_id']} ↔ {witness['apif_match_id']}"
-                    )
-                    parts.append(
-                        f"<li>{escape(label)}<details><summary>原始记录：文件、哈希、位置</summary><pre>"
-                    )
-                    parts.append(escape(json.dumps(witness, ensure_ascii=False, indent=2)))
-                    parts.append("</pre></details></li>")
-                parts.append("</ul>")
-            if row["possible_matches"]:
-                parts.append(
-                    "<h3>仍待核对的全部可能比赛</h3><p>以下逐项保留，不用比分选一个。</p><ul>"
-                )
-                for possible in row["possible_matches"]:
-                    label = (
-                        f"{possible['kickoff_utc']} {possible['home']['name']}"
-                        f"（{possible['home']['provider_team_id']}）— {possible['away']['name']}"
-                        f"（{possible['away']['provider_team_id']}），{possible['apif_match_id']}"
-                    )
-                    parts.append(
-                        f"<li>{escape(label)}：{escape('；'.join(possible['reasons_zh']))}"
-                        "<details><summary>查看记录</summary><pre>"
-                        f"{escape(json.dumps(possible, ensure_ascii=False, indent=2))}"
-                        "</pre></details></li>"
-                    )
-                parts.append("</ul>")
-            parts.append("</details>")
-    parts.append("</html>\n")
-    return "\n".join(parts)
+        count = len(
+            {
+                (w["official_match_id"], w["apif_match_id"])
+                for c in row["api_candidates"]
+                for w in c["witnesses"]
+            }
+        )
+        same_source = sum(len(c["same_provider_evidence"]) for c in row["api_candidates"])
+        parts.append(
+            f'<tr><td>{escape(row["league"])}</td><td><a href="{escape(target)}">'
+            f"{escape(' / '.join(row['official_names']))} ({row['official_team_id']})</a></td>"
+            f"<td>{escape(candidates)}</td><td>{count} / 同源 {same_source}</td>"
+            f"<td>{escape(row['conclusion_zh'])}</td></tr>"
+        )
+    return "\n".join([*parts, "</table></html>\n"])
 
 
 def _md(value):
@@ -248,12 +222,32 @@ def owner_markdown(register):
             "类别是待核准的赛事默认值；预备队、青年队和身份冲突逐队核对。比分不用于挑选候选。",
             "",
         ]
-        page.extend(
-            f"- [{_md(' / '.join(r['official_names']))}（{r['official_team_id']}）]"
-            f"(#jc-{r['official_team_id']})"
-            for r in rows
-        )
+        page.extend(["| 竞彩球队 | 接口球队 | 证据场数 | 结论 |", "| --- | --- | ---: | --- |"])
         for row in rows:
+            label = _md(" / ".join(row["official_names"])) + "（" + row["official_team_id"] + "）"
+            candidates = (
+                " / ".join(
+                    _md(c["name"]) + "（" + str(c["provider_team_id"]) + "）"
+                    for c in row["api_candidates"]
+                )
+                or "未核实"
+            )
+            count = len(
+                {
+                    (w["official_match_id"], w["apif_match_id"])
+                    for c in row["api_candidates"]
+                    for w in c["witnesses"]
+                }
+            )
+            same_source = sum(len(c["same_provider_evidence"]) for c in row["api_candidates"])
+            page.append(
+                f"| [{label}]({code}-{row['official_team_id']}.md) | {candidates} | "
+                f"{count} / 同源 {same_source} | "
+                f"{_md(row['conclusion_zh'])} |"
+            )
+        overview = page
+        for row in rows:
+            page = [f"[返回赛事汇总]({code}.md)", ""]
             project = row["project_team_id"] or "尚无可靠数字关联，创建规范身份提案待核准"
             page.extend(
                 [
@@ -281,6 +275,22 @@ def owner_markdown(register):
                         f"- 依赖候选 `{gap['dependency_id']}`；"
                         f"最初待核候选 `{gap['origin_candidate_id']}`："
                         f"{REASONS_ZH.get(gap['reason'], gap['reason'])}。"
+                    )
+                for proof in candidate["same_provider_evidence"]:
+                    page.append("- 同源编号依据（不计为严格比赛见证）：")
+                    for origin in proof["formal_origins"]:
+                        page.append(
+                            f"  - 正式来源 `{_md(origin['league'])}`，"
+                            f"位置 `{_md(origin['pointer'])}`，"
+                            f"SHA256 `{origin['sha256']}`。"
+                        )
+                    page.append(
+                        f"  - 目标原件 `{proof['target']['match_id']}`，"
+                        f"赛事 `{proof['target']['competition_id']}`："
+                    )
+                    page.extend(
+                        "  - " + reference
+                        for reference in _references(proof["target"]["provenance"])
                     )
                 for witness in candidate["witnesses"]:
                     score = ":".join(map(str, witness["score"] or []))
@@ -310,5 +320,6 @@ def owner_markdown(register):
                     for reference in _references(possible["provenance"]):
                         page.append(f"  - {reference}")
             page.append("")
-        pages[f"owner-review/{code}.md"] = "\n".join(page) + "\n"
+            pages[f"owner-review/{code}-{row['official_team_id']}.md"] = "\n".join(page) + "\n"
+        pages[f"owner-review/{code}.md"] = "\n".join(overview) + "\n"
     return {"owner-review.md": "\n".join(index) + "\n", **pages}
