@@ -20,6 +20,10 @@ on:
         description: '赛事代码；probe 默认 3,848，身份核验默认七桥接；stats-backfill 可选 API ID 或 fd 九主联赛代码'
         type: string
         default: ''
+      scoped_codes:
+        description: 'reconcile 专用：逗号分隔的已核验 import 赛事代码；非空时运行范围合并而不是全量合并'
+        type: string
+        default: ''
       seasons:
         description: 'probe 年份；identity 默认 2025,2026；stats-backfill 默认 2022 起所有已开始赛季'
         type: string
@@ -262,11 +266,19 @@ jobs:
           IDENTITY_SEASONS=${IDENTITY_SEASONS:-2025,2026}
           python -m zucai.cloud_feeds identity --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source apif --leagues "$IDENTITY_LEAGUES" --seasons "$IDENTITY_SEASONS"
       - name: Reconcile verified APIF provisional identities without network
-        if: ${{ env.FEED_MODE == 'reconcile' }}
+        if: ${{ env.FEED_MODE == 'reconcile' && inputs.scoped_codes == '' }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Scoped reconcile approved bindings for listed competitions without network
+        if: ${{ env.FEED_MODE == 'reconcile' && inputs.scoped_codes != '' }}
+        env:
+          SCOPED_CODES: ${{ inputs.scoped_codes }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds scoped-reconcile --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --leagues "$SCOPED_CODES"
       - name: Relink fdorg to existing fd without network
         if: ${{ env.FEED_MODE == 'relink-fdorg' }}
         run: |

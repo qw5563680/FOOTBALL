@@ -235,3 +235,62 @@ def test_partial_time_scope_moves_only_authorized_history(scoped_db):
             "SELECT home_team_id,away_team_id FROM matches WHERE match_id='apif:12'"
         ).fetchone() == (3, 4)
         assert con.execute("SELECT COUNT(*) FROM teams WHERE id IN (3,4)").fetchone() == (2,)
+
+
+def test_cloud_scoped_reconcile_export_then_restore_stays_consistent(
+    scoped_db, tmp_path, monkeypatch
+):
+    """Online entry: restore, scoped merge, export, publish-verification; the
+    exported archive restores byte-consistent databases every time."""
+    import sys
+    from datetime import date
+
+    from test_apif_reconcile import frozen
+    from zucai.cloud_feeds import archive_info, export_feeds, main, restore_feeds
+
+    db, aliases = scoped_db
+    monkeypatch.setattr("zucai.sources.apif_scoped_reconcile.ALIASES", aliases)
+    archive = tmp_path / "archive"
+    original = export_feeds(db, archive, date(2026, 11, 3), "seed")
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(work / "summary.md"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "feeds",
+            "scoped-reconcile",
+            "--archive",
+            str(archive),
+            "--run-id",
+            "s1",
+            "--leagues",
+            "307",
+        ],
+    )
+    main()
+    merged = work / "data/zucai.db"
+    meta = archive_info(archive)
+    assert meta["collection"]["apif_scoped"]["operation"] == "scoped-reconcile"
+    assert meta["collection"]["apif_scoped"]["linked"] == 1
+    assert meta["collection"]["apif_scoped"]["rekeyed_matches"] == 1
+    # Export-then-restore consistency: independent restores agree with the
+    # merged working database, and repeated restores leave the archive stable.
+    for index in range(2):
+        restored = tmp_path / f"restored-{index}/data/zucai.db"
+        restore_feeds(archive, restored)
+        assert frozen(restored) == frozen(merged)
+    before = {
+        p.relative_to(archive).as_posix(): p.read_bytes() for p in archive.rglob("*") if p.is_file()
+    }
+    restore_feeds(archive, tmp_path / "restored-again/data/zucai.db")
+    after = {
+        p.relative_to(archive).as_posix(): p.read_bytes() for p in archive.rglob("*") if p.is_file()
+    }
+    assert after == before
+    assert original["counts"]["matches"] == meta["counts"]["matches"]
+    assert "APIF 范围身份合并" in (work / "summary.md").read_text()

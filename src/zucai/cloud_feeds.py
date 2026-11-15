@@ -713,7 +713,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("export", "sync", "apis", "verify", "backfill", "probe", "identity", "reconcile"),
+        choices=(
+            "export",
+            "sync",
+            "apis",
+            "verify",
+            "backfill",
+            "probe",
+            "identity",
+            "reconcile",
+            "scoped-reconcile",
+        ),
     )
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--db", type=Path, default=Path("data/zucai.db"))
@@ -790,10 +800,17 @@ def main():
             from zucai.sources.fd_counterpart import require_relink_actions
 
         require_relink_actions()
-    if args.command not in {"backfill", "probe", "identity"} and any(
+    if args.command not in {"backfill", "probe", "identity", "scoped-reconcile"} and any(
         v is not None for v in (args.leagues, args.source)
     ):
-        parser.error("--source / --leagues 仅供 backfill / probe / identity 使用")
+        parser.error(
+            "--source / --leagues 仅供 backfill / probe / identity / scoped-reconcile 使用"
+        )
+    if args.command == "scoped-reconcile":
+        if not args.leagues:
+            parser.error("scoped-reconcile 需要 --leagues 指定赛事代码")
+        if args.source is not None:
+            parser.error("scoped-reconcile 不接受 --source")
     if args.command != "backfill" and any(v is not None for v in (args.first, args.last)):
         parser.error("--from / --to 仅供 backfill 使用")
     if args.command not in {"probe", "identity"} and args.seasons is not None:
@@ -802,7 +819,7 @@ def main():
         parser.error("--probe-kind 仅供 probe 使用")
     if args.per_scope is not None and (args.command != "probe" or args.probe_kind != "stats"):
         parser.error("--per-scope 仅供 probe --probe-kind stats 使用")
-    if args.command == "reconcile":
+    if args.command in {"reconcile", "scoped-reconcile"}:
         from zucai.cloud_probe import require_probe_actions
 
         require_probe_actions()
@@ -855,7 +872,16 @@ def main():
     day = args.through or datetime.now(BEIJING).date()
     collection = None
     summary_collection = "apif"
-    if args.command in {"sync", "apis", "verify", "backfill", "probe", "identity", "reconcile"}:
+    if args.command in {
+        "sync",
+        "apis",
+        "verify",
+        "backfill",
+        "probe",
+        "identity",
+        "reconcile",
+        "scoped-reconcile",
+    }:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
         if target.parent != Path("data").resolve():
@@ -896,6 +922,12 @@ def main():
             "apif": reconcile(target, args.run_id),
             "jc_identity": reconcile_jc(target, args.run_id),
         }
+        day = date.fromisoformat(meta["through_beijing"])
+    if args.command == "scoped-reconcile":
+        from zucai.sources.apif_scoped_reconcile import reconcile_scoped
+
+        collection = {"apif_scoped": reconcile_scoped(target, args.leagues.split(","), args.run_id)}
+        summary_collection = "apif_scoped"
         day = date.fromisoformat(meta["through_beijing"])
     if args.command in {"probe", "identity"}:
         if args.command == "identity":
@@ -1046,17 +1078,30 @@ def main():
         verify_forecasts(archive)
         LOG.info("%s 历史回填归档恢复校验通过", provider)
         write_summary(collection[summary_collection])
-    if args.command in {"probe", "identity", "reconcile"}:
+    if args.command in {"probe", "identity", "reconcile", "scoped-reconcile"}:
         from zucai.forecast_archive import verify_forecasts
 
         with TemporaryDirectory(prefix="apif-probe-verify-") as temporary:
             restore_feeds(archive, Path(temporary) / "data/zucai.db")
         verify_forecasts(archive)
-        identity_summary(collection[summary_collection])
-        if args.command == "reconcile":
-            from zucai.sources.jc_identity import write_summary as jc_identity_summary
+        if args.command == "scoped-reconcile":
+            result = collection["apif_scoped"]
+            if os.environ.get("GITHUB_STEP_SUMMARY"):
+                with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+                    summary.write(
+                        f"### APIF 范围身份合并：{result['status']}\n\n"
+                        f"重定向比赛 {result['rekeyed_matches']} 场；"
+                        f"竞彩关联 {result['linked']} 场；"
+                        f"待人工 {len(result['pending_links'])} 项；"
+                        f"审计决定 {len(result['decisions'])} 条。\n\n"
+                        "审计：state/audit/apif_scoped_identity_merges.csv、jc_relink.csv。\n\n"
+                    )
+        else:
+            identity_summary(collection[summary_collection])
+            if args.command == "reconcile":
+                from zucai.sources.jc_identity import write_summary as jc_identity_summary
 
-            jc_identity_summary(collection["jc_identity"])
+                jc_identity_summary(collection["jc_identity"])
     if manifest["pending_result_count"]:
         LOG.warning(
             "部分归档 partial：待补抓 %d 场，拒绝清单已持久保存", manifest["pending_result_count"]
