@@ -135,6 +135,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation != 'daily' }}
         env:
           DISPATCH_OPTIONS: ${{ inputs.options }}
+          LEAGUES: ${{ inputs.leagues }}
         run: |
           python - <<'PYOPTIONS'
           import json
@@ -158,6 +159,8 @@ jobs:
               raise SystemExit("canonical_approvals must be a boolean")
           if options.get("canonical_approvals") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
               raise SystemExit("canonical_approvals is only valid for reconcile")
+          if options.get("canonical_approvals") and os.environ.get("LEAGUES", ""):
+              raise SystemExit("canonical_approvals requires empty leagues")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
@@ -363,6 +366,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation != 'daily' }}
         env:
           DISPATCH_OPTIONS: ${{ inputs.options }}
+          LEAGUES: ${{ inputs.leagues }}
         run: |
           python - <<'PYOPTIONS'
           import json
@@ -386,6 +390,8 @@ jobs:
               raise SystemExit("canonical_approvals must be a boolean")
           if options.get("canonical_approvals") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
               raise SystemExit("canonical_approvals is only valid for reconcile")
+          if options.get("canonical_approvals") and os.environ.get("LEAGUES", ""):
+              raise SystemExit("canonical_approvals requires empty leagues")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
@@ -473,6 +479,8 @@ jobs:
               raise SystemExit("canonical_approvals must be a boolean")
           if options.get("canonical_approvals") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
               raise SystemExit("canonical_approvals is only valid for reconcile")
+          if options.get("canonical_approvals") and os.environ.get("LEAGUES", ""):
+              raise SystemExit("canonical_approvals requires empty leagues")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)

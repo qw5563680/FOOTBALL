@@ -961,10 +961,11 @@ def main():
                 status="skipped",
                 created=0,
                 already_applied=0,
+                records=[],
                 reason="approved decisions list is empty",
             )
         else:
-            canonical_result = apply_approvals(target, archive, approvals)
+            canonical_result = dict(apply_approvals(target, archive, approvals), status="complete")
         collection = {
             "canonical_apply": {
                 "operation": "canonical-apply",
@@ -1169,8 +1170,10 @@ def main():
                         f"决定 {len(document['decisions'])} 条；"
                         f"创建 {result.get('created', 0)} 队；"
                         f"已存在 {result.get('already_applied', 0)} 队。\n\n"
-                        "审计：state/audit/jc_canonical_identities.csv。\n\n"
                     )
+                    for receipt in result.get("records", []):
+                        summary.write(f"- {receipt['official_team_id']} {receipt['canonical']}\n")
+                    summary.write("\n审计：state/audit/jc_canonical_identities.csv。\n\n")
         else:
             identity_summary(collection[summary_collection])
             if args.command == "reconcile":
