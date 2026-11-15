@@ -140,6 +140,10 @@ python -m zucai.jc_candidate_review inspect --db work/review/feeds.db --out work
 python -m zucai.jc_candidate_review apply --db work/review/feeds.db --plan work/jc-review-plan.json --audit work/jc-review-evidence  # 显式核验计划；只处置副本队列，不合并球队
 # T59：先进入归档外的新工作目录；本地等价验收只指向副本，不发布
 python -m zucai.cloud_candidate_review --archive /path/to/archive-copy --plan /path/to/FOOTBALL/data/jc_candidate_reviews/2026-11-13-first-five.json --run-id offline-review-1
+# T68：先恢复独立副本；以下均为离线入口，不开每日采集、不上传
+python -m zucai.sources.apif_scoped_reconcile --db work/copy/feeds.db --codes 307,1 --run-id t68-offline --out work/scoped-merges.json
+python -m zucai.identity_canonical plan --archive work/archive --out work/creation-proposals.json  # proposed；逐条审查和所有者批准
+python -m zucai.identity_canonical apply --archive work/archive --db work/copy/feeds.db --decisions work/approved-creations.json --out work/created.json
 zucai stats link --db data/zucai.db --league 2 --season 2024 --raw-file work/fixtures.json
 zucai stats ingest-apif --db data/zucai.db --endpoint statistics --raw-file work/statistics.json --fixture-file work/fixtures.json
 # 以下 API 采集命令由审查者在 Actions 执行，正式凭据只取 Secrets；开发测试用离线 fixtures
