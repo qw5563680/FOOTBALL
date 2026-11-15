@@ -246,3 +246,130 @@ def test_creation_rejects_missing_portable_original(creation):
         apply_approvals(db, archive, path)
     assert db.read_bytes() == before
     assert not (db.parent / "state/audit/jc_canonical_identities.csv").exists()
+
+
+def _cloud_env(monkeypatch, work):
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(work / "summary.md"))
+
+
+def _strip_unknown_catalogue_files(root):
+    """Fixture archives carry nested catalogue shapes that the strict manifest
+    reader rejects; drop only those keys so the online export re-reads cleanly."""
+    manifest_path = root / "feed_manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["files"] = {
+        key: sha
+        for key, sha in manifest["files"].items()
+        if not key.startswith("state/catalogue/backfill/")
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+
+
+def _ensure_closing_odds(root):
+    path = root / "state/closing_odds.jsonl"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("")
+
+
+def test_cloud_canonical_apply_empty_approvals_changes_nothing(creation, tmp_path, monkeypatch):
+    """Online entry with the checked-in empty approvals list is a no-op export."""
+    import sys
+    from datetime import date
+
+    from test_apif_reconcile import frozen
+    from zucai.cloud_feeds import export_feeds, main, restore_feeds
+
+    archive, db = creation
+    _ensure_closing_odds(db.parent)
+    exported = tmp_path / "exported"
+    seed = export_feeds(
+        db,
+        exported,
+        date(2026, 11, 15),
+        "seed",
+        collection={"apif": {"status": "complete", "run_id": "seed"}},
+    )
+    _strip_unknown_catalogue_files(exported)
+    empty = tmp_path / "empty-approvals.json"
+    empty.write_text('{"version": 1, "archive_sha256": "", "codes": [], "decisions": []}')
+    monkeypatch.setattr("zucai.cloud_feeds.CANONICAL_APPROVALS_PATH", empty)
+    work = tmp_path / "work"
+    work.mkdir()
+    _cloud_env(monkeypatch, work)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["feeds", "canonical-apply", "--archive", str(exported), "--run-id", "c1"],
+    )
+    main()
+    meta = json.loads((exported / "feed_manifest.json").read_bytes())
+    record = meta["collection"]["canonical_apply"]
+    assert record["status"] == "skipped" and record["created"] == 0
+    assert set(record) == {
+        "operation",
+        "status",
+        "run_id",
+        "created",
+        "already_applied",
+        "decisions",
+    }
+    assert meta["collection"]["apif"] == {"status": "complete", "run_id": "seed"}
+    from zucai.cloud_feeds import daily_collection
+
+    assert "canonical_apply" not in daily_collection(meta["collection"])
+    # Nothing changed: a restore equals the pre-run database byte for byte.
+    restored = tmp_path / "restored/data/feeds.db"
+    restore_feeds(exported, restored)
+    assert frozen(restored) == frozen(db)
+    assert meta["counts"] == seed["counts"]
+
+
+def test_cloud_canonical_apply_export_then_restore_stays_consistent(
+    creation, tmp_path, monkeypatch
+):
+    """Online entry: restore, apply approvals, export; restores stay consistent."""
+    import sys
+
+    from test_apif_reconcile import frozen
+    from zucai.cloud_feeds import main, restore_feeds
+
+    archive, db = creation
+    _ensure_closing_odds(archive)
+    _ensure_closing_odds(db.parent)
+    seal(archive)
+    _strip_unknown_catalogue_files(archive)
+    path, _ = approved(archive)
+    monkeypatch.setattr("zucai.cloud_feeds.CANONICAL_APPROVALS_PATH", path)
+    work = tmp_path / "work"
+    work.mkdir()
+    _cloud_env(monkeypatch, work)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["feeds", "canonical-apply", "--archive", str(archive), "--run-id", "c2"],
+    )
+    main()
+    merged = work / "data/zucai.db"
+    meta = json.loads((archive / "feed_manifest.json").read_bytes())
+    record = meta["collection"]["canonical_apply"]
+    assert record["status"] == "complete" and record["created"] == 1
+    assert len(json.dumps(record)) < 2000
+    from zucai.cloud_feeds import daily_collection
+
+    assert "canonical_apply" not in daily_collection(meta["collection"])
+    for index in range(2):
+        restored = tmp_path / f"restored-{index}/data/feeds.db"
+        restore_feeds(archive, restored)
+        assert frozen(restored) == frozen(merged)
+    before = {
+        p.relative_to(archive).as_posix(): p.read_bytes() for p in archive.rglob("*") if p.is_file()
+    }
+    restore_feeds(archive, tmp_path / "restored-again/data/feeds.db")
+    after = {
+        p.relative_to(archive).as_posix(): p.read_bytes() for p in archive.rglob("*") if p.is_file()
+    }
+    assert after == before

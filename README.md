@@ -176,6 +176,7 @@ python -m zucai.cloud_feeds backfill --relink-fdorg --archive ../cloud-data --ru
 python -m zucai.cloud_feeds backfill --relink-jc --archive ../cloud-data --run-id jc-links-1  # 仅审查者在 Actions 手动补 API 先到、竞彩后到的链接，不联网
 python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 校正已核验的 APIF/FDORG 与显式批准的竞彩身份，不联网
 python -m zucai.cloud_feeds scoped-reconcile --archive ../cloud-data --run-id scoped-merge-1 --leagues 307,1  # 仅审查者在 Actions：按已核验 import 路线代码做范围身份合并，不联网；Actions 手动触发时 operation=reconcile 且 leagues 非空即此路径，为空走旧全量合并
+python -m zucai.cloud_feeds canonical-apply --archive ../cloud-data --run-id canonical-1  # 仅审查者在 Actions：读取 data/identity_reviews/t68-canonical-approvals.json 的已批准决定，恢复后执行规范身份创建、导出、发布，不联网；Actions 手动触发时 operation=reconcile 且 options={"canonical_approvals":true} 即此路径；决定清单为空时不做任何修改
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases proposals --scope cups-history --archive ../cloud-data --out docs/aliases/2026-11-04-apif-cups-history.md  # 第二批历史清单，只读、不覆盖
 # T68 完成之前不运行 aliases propagate；下方仅保留既有命令说明

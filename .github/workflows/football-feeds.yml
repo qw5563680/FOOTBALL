@@ -140,9 +140,9 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals"}
           if not isinstance(options, dict) or set(options) - allowed:
-              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests")
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests, canonical_approvals")
           if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs"}:
               raise SystemExit("invalid probe_kind")
           budget = options.get("max_requests", 5)
@@ -154,6 +154,10 @@ jobs:
               raise SystemExit("catalogue must be a boolean")
           if options.get("catalogue") and os.environ.get("ZUCAI_OPERATION") != "backfill":
               raise SystemExit("catalogue is only valid for backfill")
+          if type(options.get("canonical_approvals", False)) is not bool:
+              raise SystemExit("canonical_approvals must be a boolean")
+          if options.get("canonical_approvals") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
+              raise SystemExit("canonical_approvals is only valid for reconcile")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
@@ -262,19 +266,25 @@ jobs:
           IDENTITY_SEASONS=${IDENTITY_SEASONS:-2025,2026}
           python -m zucai.cloud_feeds identity --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --source apif --leagues "$IDENTITY_LEAGUES" --seasons "$IDENTITY_SEASONS"
       - name: Reconcile verified APIF provisional identities without network
-        if: ${{ env.FEED_MODE == 'reconcile' && inputs.leagues == '' }}
+        if: ${{ env.FEED_MODE == 'reconcile' && inputs.leagues == '' && fromJSON(inputs.options || '{}').canonical_approvals != true }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Scoped reconcile approved bindings for listed competitions without network
-        if: ${{ env.FEED_MODE == 'reconcile' && inputs.leagues != '' }}
+        if: ${{ env.FEED_MODE == 'reconcile' && inputs.leagues != '' && fromJSON(inputs.options || '{}').canonical_approvals != true }}
         env:
           SCOPED_CODES: ${{ inputs.leagues }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds scoped-reconcile --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --leagues "$SCOPED_CODES"
+      - name: Apply approved canonical identity creations without network
+        if: ${{ env.FEED_MODE == 'reconcile' && fromJSON(inputs.options || '{}').canonical_approvals == true }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds canonical-apply --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Relink fdorg to existing fd without network
         if: ${{ env.FEED_MODE == 'relink-fdorg' }}
         run: |
@@ -358,9 +368,9 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals"}
           if not isinstance(options, dict) or set(options) - allowed:
-              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests")
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests, canonical_approvals")
           if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs"}:
               raise SystemExit("invalid probe_kind")
           budget = options.get("max_requests", 5)
@@ -372,6 +382,10 @@ jobs:
               raise SystemExit("catalogue must be a boolean")
           if options.get("catalogue") and os.environ.get("ZUCAI_OPERATION") != "backfill":
               raise SystemExit("catalogue is only valid for backfill")
+          if type(options.get("canonical_approvals", False)) is not bool:
+              raise SystemExit("canonical_approvals must be a boolean")
+          if options.get("canonical_approvals") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
+              raise SystemExit("canonical_approvals is only valid for reconcile")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
@@ -441,9 +455,9 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals"}
           if not isinstance(options, dict) or set(options) - allowed:
-              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests")
+              raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests, canonical_approvals")
           if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs"}:
               raise SystemExit("invalid probe_kind")
           budget = options.get("max_requests", 5)
@@ -455,6 +469,10 @@ jobs:
               raise SystemExit("catalogue must be a boolean")
           if options.get("catalogue") and os.environ.get("ZUCAI_OPERATION") != "backfill":
               raise SystemExit("catalogue is only valid for backfill")
+          if type(options.get("canonical_approvals", False)) is not bool:
+              raise SystemExit("canonical_approvals must be a boolean")
+          if options.get("canonical_approvals") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
+              raise SystemExit("canonical_approvals is only valid for reconcile")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
