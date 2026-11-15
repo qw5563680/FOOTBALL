@@ -80,7 +80,10 @@ TABLES = {
 }
 MANIFEST = "feed_manifest.json"
 BACKFILL_COLLECTIONS = {source: f"{source}_backfill" for source in ("apif", "fdorg", "fd")}
-MANUAL_COLLECTIONS = {"apif_scoped"}
+MANUAL_COLLECTIONS = {"apif_scoped", "canonical_apply"}
+CANONICAL_APPROVALS_PATH = (
+    Path(__file__).resolve().parents[2] / "data/identity_reviews/t68-canonical-approvals.json"
+)
 BACKFILL_OPERATIONS = {"backfill", "catalogue-backfill"}
 MONTH = r"[0-9]{4}-(?:0[1-9]|1[0-2])"
 CANDIDATE_REVIEW_DIR = "state/audit/jc_candidate_reviews"
@@ -725,6 +728,7 @@ def main():
             "identity",
             "reconcile",
             "scoped-reconcile",
+            "canonical-apply",
         ),
     )
     parser.add_argument("--archive", required=True, type=Path)
@@ -821,7 +825,7 @@ def main():
         parser.error("--probe-kind 仅供 probe 使用")
     if args.per_scope is not None and (args.command != "probe" or args.probe_kind != "stats"):
         parser.error("--per-scope 仅供 probe --probe-kind stats 使用")
-    if args.command in {"reconcile", "scoped-reconcile"}:
+    if args.command in {"reconcile", "scoped-reconcile", "canonical-apply"}:
         from zucai.cloud_probe import require_probe_actions
 
         require_probe_actions()
@@ -883,6 +887,7 @@ def main():
         "identity",
         "reconcile",
         "scoped-reconcile",
+        "canonical-apply",
     }:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
@@ -942,6 +947,36 @@ def main():
             }
         }
         summary_collection = "apif_scoped"
+        day = date.fromisoformat(meta["through_beijing"])
+    if args.command == "canonical-apply":
+        from zucai.identity_canonical import apply_approvals
+
+        approvals = Path(CANONICAL_APPROVALS_PATH)
+        document = json.loads(approvals.read_bytes())
+        if document.get("version") != 1 or not isinstance(document.get("decisions"), list):
+            raise ValueError("创建决定文件版本或 decisions 结构无效")
+        if not document["decisions"]:
+            canonical_result = dict(
+                operation="canonical-apply",
+                status="skipped",
+                created=0,
+                already_applied=0,
+                records=[],
+                reason="approved decisions list is empty",
+            )
+        else:
+            canonical_result = dict(apply_approvals(target, archive, approvals), status="complete")
+        collection = {
+            "canonical_apply": {
+                "operation": "canonical-apply",
+                "status": canonical_result["status"],
+                "run_id": args.run_id,
+                "created": canonical_result.get("created", 0),
+                "already_applied": canonical_result.get("already_applied", 0),
+                "decisions": len(document["decisions"]),
+            }
+        }
+        summary_collection = "canonical_apply"
         day = date.fromisoformat(meta["through_beijing"])
     if args.command in {"probe", "identity"}:
         if args.command == "identity":
@@ -1069,6 +1104,10 @@ def main():
         previous = separate_backfill_collection(meta.get("collection", {}))
         published_collection = {**previous, **collection}
         status_collection = daily_collection(previous)
+    elif args.command == "canonical-apply":
+        previous = separate_backfill_collection(meta.get("collection", {}))
+        published_collection = {**previous, **collection}
+        status_collection = daily_collection(previous)
     manifest = export_feeds(
         target,
         archive,
@@ -1096,7 +1135,7 @@ def main():
         verify_forecasts(archive)
         LOG.info("%s 历史回填归档恢复校验通过", provider)
         write_summary(collection[summary_collection])
-    if args.command in {"probe", "identity", "reconcile", "scoped-reconcile"}:
+    if args.command in {"probe", "identity", "reconcile", "scoped-reconcile", "canonical-apply"}:
         from zucai.forecast_archive import verify_forecasts
 
         with TemporaryDirectory(prefix="apif-probe-verify-") as temporary:
@@ -1122,6 +1161,19 @@ def main():
                         f"审计决定 {len(result['decisions'])} 条。\n\n"
                         "审计：state/audit/apif_scoped_identity_merges.csv、jc_relink.csv。\n\n"
                     )
+        elif args.command == "canonical-apply":
+            result = canonical_result
+            if os.environ.get("GITHUB_STEP_SUMMARY"):
+                with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+                    summary.write(
+                        f"### 规范身份创建：{result['status']}\n\n"
+                        f"决定 {len(document['decisions'])} 条；"
+                        f"创建 {result.get('created', 0)} 队；"
+                        f"已存在 {result.get('already_applied', 0)} 队。\n\n"
+                    )
+                    for receipt in result.get("records", []):
+                        summary.write(f"- {receipt['official_team_id']} {receipt['canonical']}\n")
+                    summary.write("\n审计：state/audit/jc_canonical_identities.csv。\n\n")
         else:
             identity_summary(collection[summary_collection])
             if args.command == "reconcile":

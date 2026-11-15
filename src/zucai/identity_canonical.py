@@ -252,9 +252,12 @@ def apply_approvals(database, archive, approvals):
     if not database.is_file():
         raise ValueError("Creation requires an existing restored database")
     document = json.loads(Path(approvals).read_bytes())
-    tables, manifest = _tables(archive)
-    if document.get("version") != 1 or document.get("archive_sha256") != manifest["sha256"]:
-        raise ValueError("Creation decision frozen archive mismatch")
+    tables, _ = _tables(archive)
+    if document.get("version") != 1:
+        raise ValueError("Creation decision document version invalid")
+    # archive_sha256 is descriptive only: approvals must survive unrelated
+    # daily archive rewrites, so every decision is re-verified against the
+    # current archive below instead of binding the whole archive digest.
     decisions = document.get("decisions")
     if not isinstance(decisions, list) or not decisions:
         raise ValueError("Explicit creation decisions required")
@@ -267,52 +270,72 @@ def apply_approvals(database, archive, approvals):
     if not isinstance(codes, list) or not codes or not set(codes) <= allowed:
         raise ValueError("Creation decision route scope invalid")
     facts = load_archive(archive, leagues=codes)
+    audit = database.parent / RECEIPTS
+    before = audit.read_bytes() if audit.exists() else None
+    receipts = _read_receipts(audit)
+    receipt_by_id = {r["official_team_id"]: r for r in receipts}
     seen = set()
+    pending = []
     for decision in decisions:
         _approval(decision)
         official = decision["official_team_id"]
         if official in seen:
             raise ValueError("Duplicate creation decision")
         seen.add(official)
-        team = facts["teams"].get("jc-team:" + official)
+        existing = receipt_by_id.get(official)
+        if existing is not None:
+            if json.loads(existing["decision_json"]) != decision:
+                raise ValueError("Existing creation receipt differs from approved decision")
+            # Identical receipt: already applied, count and skip, no re-verification.
+            continue
+        pending.append(decision)
+    for decision in pending:
+        team = facts["teams"].get("jc-team:" + decision["official_team_id"])
         if team is None:
             raise ValueError("Official numeric evidence missing")
         expected = _entry(team)
         if expected["blockers"] or any(
-            decision.get(k) != expected[k]
-            for k in ("canonical", "category", "evidence", "evidence_sha256", "official_names")
+            decision.get(k) != expected[k] for k in ("canonical", "category", "official_names")
         ):
             raise ValueError("Creation evidence/category/name invalid or identity already exists")
-        if _utc(decision["approved_utc"]) < _utc(facts["summary"]["observed_utc"]):
-            raise ValueError("Approval cannot precede archive observation")
+        # The approved evidence must be self-consistent and a subset of the
+        # current evidence: matches added after approval must not invalidate it.
+        approved_evidence = decision.get("evidence")
+        if not approved_evidence or sha256(
+            _json(approved_evidence).encode()
+        ).hexdigest() != decision.get("evidence_sha256"):
+            raise ValueError("Creation evidence digest invalid")
+        current_evidence = {_json(row) for row in expected["evidence"]}
+        if any(_json(row) not in current_evidence for row in approved_evidence):
+            raise ValueError("Approved evidence is not a subset of current evidence")
     # The restored DB must carry the originals that its exported receipt will cite.
     # Merely pointing at an external archive would produce a non-portable approval.
     from zucai.cloud_feeds import STATE_FILE
-    from zucai.identity_gate_evidence import proof
 
     source_manifest = json.loads((archive / "feed_manifest.json").read_bytes())
-    checked_paths = set()
-    for decision in decisions:
+    for decision in pending:
         for observation in decision["evidence"]:
             for reference in observation["originals"]:
                 for name in (reference["path"], reference["path"] + ".meta.json"):
-                    if name in checked_paths:
-                        continue
-                    try:
-                        if not re.fullmatch(STATE_FILE, name):
-                            raise ValueError("Creation original is outside feeds export policy")
-                        proof(
-                            database.parent, dict(path=name, sha256=source_manifest["files"][name])
-                        )
-                    except (KeyError, OSError) as exc:
-                        raise ValueError(
-                            "Creation originals must be restored beside the database"
-                        ) from exc
-                    checked_paths.add(name)
-    audit = database.parent / RECEIPTS
-    before = audit.read_bytes() if audit.exists() else None
-    receipts = _read_receipts(audit)
-    receipt_by_id = {r["official_team_id"]: r for r in receipts}
+                    if not re.fullmatch(STATE_FILE, name):
+                        raise ValueError("Creation original is outside feeds export policy")
+        try:
+            _verify_creation_originals(database.parent, decision, source_manifest)
+        except (KeyError, OSError) as exc:
+            raise ValueError("Creation originals must be restored beside the database") from exc
+        # The approval must not precede the capture of any original it cites.
+        for observation in decision["evidence"]:
+            for reference in observation["originals"]:
+                meta_path = database.parent / (reference["path"] + ".meta.json")
+                try:
+                    meta = json.loads(meta_path.read_bytes())
+                except (OSError, ValueError) as exc:
+                    raise ValueError(
+                        "Creation original metadata missing beside the database"
+                    ) from exc
+                fetched = meta.get("fetched_at_utc")
+                if not fetched or _utc(decision["approved_utc"]) < _utc(fetched):
+                    raise ValueError("Approval cannot precede original capture")
     created = []
     engine = get_engine(database)
     try:
@@ -343,20 +366,9 @@ def apply_approvals(database, archive, approvals):
                     for k in ("source", "league", "home_team_id", "away_team_id")
                 ) or _utc(match.kickoff_utc) != _utc(row["kickoff_utc"]):
                     raise ValueError("Database fixture identity changed since proposal")
-            for decision in decisions:
+            for decision in pending:
                 official = decision["official_team_id"]
                 marker = "jc:team:" + official
-                existing = receipt_by_id.get(official)
-                if existing:
-                    target = session.get(Team, int(existing["project_team_id"]))
-                    if (
-                        json.loads(existing["decision_json"]) != decision
-                        or target is None
-                        or target.name != decision["canonical"]
-                        or marker not in target.aliases
-                    ):
-                        raise ValueError("Existing creation receipt differs from approved decision")
-                    continue
                 labels = {normalize_team(label).casefold() for label in decision["official_names"]}
                 labels.update((decision["canonical"].casefold(), marker))
                 if any(
