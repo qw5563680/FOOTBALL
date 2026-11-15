@@ -232,7 +232,9 @@ def reconcile(database, run_id):
                     # table may participate in stock merges. Other competitions'
                     # provisional teams are skipped entirely, counted separately,
                     # never treated as conflicts, and no match is modified.
-                    if league not in aliases:
+                    # Daily-collection leagues keep the original "unpropagated"
+                    # alert instead of a silent skip.
+                    if league not in aliases and league not in daily_leagues[provider]:
                         report["skipped_unlisted_leagues"] += 1
                         continue
                     row = dict(

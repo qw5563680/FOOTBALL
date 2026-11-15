@@ -61,7 +61,7 @@ def test_propagate_cli_preserves_provenance_archive_and_existing_entries(history
     assert inventory(archive) == before_archive
 
 
-@pytest.mark.parametrize("provider,league,temporary", [("apif", "丹超", 10)])
+@pytest.mark.parametrize("provider,league,temporary", [("apif", "丹超", 10), ("fdorg", "英冠", 16)])
 def test_reconcile_skips_unpropagated_daily_league(history, provider, league, temporary):
     db, paths = history
     if provider == "fdorg":
@@ -101,10 +101,10 @@ def test_reconcile_skips_unpropagated_daily_league(history, provider, league, te
 
 
 def test_reconcile_skips_fdorg_league_missing_from_formal_table(history):
-    """T68 guard: a league absent from the formal table is skipped, counted
-    separately, never a conflict, and its matches stay untouched."""
+    """T68 guard: a non-daily league absent from the formal table is skipped,
+    counted separately, never a conflict, and its matches stay untouched."""
     db, paths = history
-    league, temporary = "英冠", 16
+    league, temporary = "挪超", 16
     with sqlite3.connect(db) as con:
         con.execute("UPDATE matches SET league=? WHERE home_team_id=?", (league, temporary))
     report = reconcile(db, "unlisted-fdorg")
