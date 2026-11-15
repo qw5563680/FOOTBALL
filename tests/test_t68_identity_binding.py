@@ -1102,8 +1102,9 @@ def test_review_stats_index_respects_formal_time_scope(tmp_path, year, expected)
     engine.dispose()
 
 
-@pytest.mark.parametrize("case", ["bridge", "database", "infer", "target_anchor"])
-def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
+@pytest.mark.parametrize("case", ["bridge", "infer", "target_anchor"])
+def test_review_cup_cannot_remove_scope_without_independent_legacy_proof(tmp_path, case):
+    from dataclasses import replace
     from datetime import datetime
 
     from zucai.db import get_engine, init_db, session_scope
@@ -1113,7 +1114,7 @@ def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
 
     fixture = json.loads((FIXTURE.parents[2] / "t20/identity.json").read_text())
     aliases = deepcopy(fixture["domestic_aliases"])
-    # Only one typed ID; an old inference pass must not use it to infer its opponent either.
+    # Only one typed ID; it cannot choose among otherwise ambiguous fixtures.
     aliases["合成国内联赛"].pop("9102")
     entry = aliases["合成国内联赛"]["9101"]
     entry["binding_scope"] = dict(
@@ -1134,7 +1135,7 @@ def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
                 Team(
                     id=1,
                     name="合成甲",
-                    aliases=["apif:欧罗巴:team:9101"] if case == "database" else [],
+                    aliases=[],
                 ),
                 Team(id=2, name="合成乙", aliases=[]),
             ]
@@ -1152,7 +1153,7 @@ def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
             )
         )
     engine.dispose()
-    if case in {"bridge", "database"}:
+    if case == "bridge":
         output = _bridge("apif", database, "欧罗巴", {"9101": "Alpha"}, aliases)
         assert not output.get("9101", {}).get("canonical")
         return
@@ -1161,6 +1162,9 @@ def test_review_cup_cannot_remove_scope_through_legacy_routes(tmp_path, case):
         row["kickoff_utc"] = datetime.fromisoformat(row["kickoff_utc"])
         row["full"], row["half"] = tuple(row["full"]), tuple(row["half"])
         games.append(ApiGame(provider="apif", league="欧罗巴", **row))
+    games.append(
+        replace(games[0], provider_match_id=90002, home_provider_id=9103, away_provider_id=9104)
+    )
     capture = dict(
         games=games,
         scope={"league_id": "3", "season": 2024},
@@ -1205,3 +1209,297 @@ def test_review_prior_t68_global_owner_conflict_withdraws_witness(mod, inputs, o
     assert changed["apif"]["测试联赛"]["101"]["evidence_status"] == "withdrawn_conflict"
     assert changed["apif"]["测试联赛"]["101"]["conflicting_owners"]
     assert changed["apif"]["测试联赛"]["103"]["evidence_status"] == "withdrawn_dependency"
+
+
+def test_draw_only_has_no_orientation_without_numbered_opponent(mod, inputs):
+    for source in ("apif", "official"):
+        inputs[source][0]["score"] = [1, 1]
+    result = propose(mod, inputs)
+    assert not ready(result)
+    assert any("orientation_unproven_draw_only" in r["reasons"] for r in result["unverified"])
+
+
+def test_all_consistent_witnesses_retained_including_later_draw(mod, inputs):
+    for source, mid in [("apif", "apif:11"), ("official", "jc:21")]:
+        inputs[source].append(
+            dict(inputs[source][0], match_id=mid, kickoff_utc="2020-06-02T12:00:00Z", score=[1, 1])
+        )
+    result = propose(mod, inputs)
+    assert len(ready(result)) == 2
+    assert all(len(e["evidence"]) == 2 for e in ready(result))
+
+
+@pytest.mark.parametrize("label", ["Jong Ajax", "Barcelona B", "Real Madrid Castilla", "Mainz II"])
+def test_reserve_markers_veto_first_team_category(mod, inputs, label):
+    inputs["apif"][0]["home_name"] = label
+    assert not ready(propose(mod, inputs))
+
+
+def test_namespaced_known_identity_eliminates_incompatible_edges(mod, inputs):
+    inputs = layered(inputs)
+    inputs["teams"] = {f"jc-team:{k}": v for k, v in inputs["teams"].items()}
+    for row in inputs["official"]:
+        for side in ("home", "away"):
+            row[side] = f"jc-team:{row[side]}"
+    result = propose(mod, inputs)
+    assert result["apif"]["测试联赛"]["103"]["layer"] == 2
+
+
+def test_numbered_identity_does_not_become_ambiguous_from_same_display_name(mod, inputs):
+    inputs["teams"]["1"]["official_team_id"] = "201"
+    inputs["teams"]["2"]["official_team_id"] = "202"
+    inputs["teams"]["2"]["name"] = inputs["teams"]["1"]["name"]
+    assert len(ready(propose(mod, inputs))) == 2
+
+
+def test_pending_category_matches_are_explicitly_conditional(mod, inputs):
+    for team in inputs["teams"].values():
+        team["category_status"] = "proposed"
+    result = propose(mod, inputs)
+    assert not ready(result)
+    assert result["summary"]["conditional_verified"] == 2
+    assert all(
+        e["evidence_status"] == "conditional_verified" and e["status"] == "proposed"
+        for e in result["apif"]["测试联赛"].values()
+    )
+
+
+def test_known_answer_totals_derive_from_supplied_formal_table(mod):
+    formal = {"未知赛事": {"10": {"canonical": "甲队", "status": "approved"}}}
+    result = mod.known_answers({"apif": {}, "unverified": []}, formal)
+    assert result["expected_counts"] == {"未知赛事": 1}
+    assert result["expected_total"] == 1
+    assert "new_competition_reference" not in result
+
+
+def test_conflicting_official_numbers_across_categories_expose_both_targets(mod, inputs):
+    second = deepcopy(inputs["apif"][0])
+    second.update(
+        match_id="apif:11",
+        league="另一类别",
+        competition_id="99",
+        kickoff_utc="2020-06-02T12:00:00Z",
+    )
+    other = deepcopy(inputs["official"][0])
+    other.update(
+        match_id="jc:21",
+        league="另一类别",
+        competition_id="99",
+        home="3",
+        away="4",
+        kickoff_utc="2020-06-02T12:00:00Z",
+    )
+    inputs["apif"].append(second)
+    inputs["official"].append(other)
+    result = propose(mod, inputs)
+    assert not ready(result)
+    first = result["apif"]["测试联赛"]["101"]
+    assert {e["canonical_team_id"] for e in first["conflicting_candidates"]} == {"1", "3"}
+
+
+def test_formal_project_name_is_not_replaced_by_changed_official_label(mod, inputs):
+    team = inputs["teams"]["1"]
+    team.update(
+        name="官方新显示名", project_name="甲队", official_team_id="201", project_team_id="1"
+    )
+    formal = {"测试联赛": {"101": {"canonical": "甲队", "status": "approved"}}}
+    result = propose(mod, inputs, formal=formal)
+    assert result["apif"]["测试联赛"]["101"]["canonical"] == "甲队"
+
+
+def test_source_pending_category_cannot_be_reported_strict(mod, inputs):
+    inputs["apif"][0]["category_status"] = "proposed"
+    assert not ready(propose(mod, inputs))
+
+
+def test_known_answers_accepts_unchanged_legacy_proposals(mod):
+    legacy = {"测试联赛": {"10": {"canonical": "甲队", "status": "proposed"}}}
+    result = mod.known_answers(
+        {"apif": legacy, "unverified": []},
+        {"测试联赛": {"10": {"canonical": "甲队", "status": "approved"}}},
+    )
+    assert result["rows"][0]["outcome"] == "not_reproduced"
+    assert result["rows"][0]["actual"]["candidate_id"] is None
+
+
+def test_official_reserve_marker_also_vetoes_first_team_category(mod, inputs):
+    inputs["teams"]["1"]["name"] = "Jong Ajax"
+    assert not ready(propose(mod, inputs))
+
+
+def test_unrelated_prior_layer_does_not_become_dependency(mod, inputs):
+    inputs = layered(inputs)
+    for key, name in [("5", "无关甲"), ("6", "无关乙")]:
+        inputs["teams"][key] = dict(name=name, category="club/men/senior/first")
+    inputs["apif"].append(
+        dict(
+            inputs["apif"][0],
+            match_id="apif:13",
+            home="105",
+            away="106",
+            kickoff_utc="2020-06-01T18:00:00Z",
+        )
+    )
+    inputs["official"].append(
+        dict(
+            inputs["official"][0],
+            match_id="jc:23",
+            home="5",
+            away="6",
+            kickoff_utc="2020-06-01T18:00:00Z",
+        )
+    )
+    result = propose(mod, inputs)
+    entries = result["apif"]["测试联赛"]
+    assert entries["105"]["candidate_id"] not in entries["103"]["depends_on"]
+    assert entries["106"]["candidate_id"] not in entries["103"]["depends_on"]
+
+
+def test_preserved_legacy_queue_review_has_conditional_numbered_metadata(mod, inputs):
+    for key, team in inputs["teams"].items():
+        team.update(official_team_id=key, project_team_id=key, category_status="proposed")
+    previous = {"测试联赛": {"101": {"canonical": "甲队", "status": "proposed"}}}
+    result = propose(mod, inputs, previous=previous)
+    assert result["apif"]["测试联赛"]["101"] == previous["测试联赛"]["101"]
+    review = result["existing_candidate_reviews"][0]
+    assert review["evidence_status"] == "conditional_verified"
+    assert review["official_team_id"] == "1"
+
+
+def test_reviewed_competition_default_allows_unflagged_participants(mod, inputs):
+    # f890cdcf: competition defaults apply; identified exceptions are reviewed separately.
+    inputs["apif"][0]["category_evidence"] = [
+        dict(category="club/men/senior/first", status="approved")
+    ]
+    assert len(ready(propose(mod, inputs))) == 2
+
+
+def test_known_answers_reports_conditional_reproduction_separately(mod):
+    candidate = dict(candidate_id="test", canonical="甲队", evidence_status="conditional_verified")
+    result = mod.known_answers(
+        {"apif": {"测试联赛": {"1": candidate}}, "unverified": []},
+        {"测试联赛": {"1": dict(status="approved", canonical="甲队")}},
+    )
+    assert result["reproduced"] == 0
+    assert result["conditional_reproduced"] == 1
+    assert result["rows"][0]["outcome"] == "reproduced_conditional"
+
+
+@pytest.mark.parametrize("label_location", ["retained", "current"])
+def test_every_official_label_vetoes_with_provenance(mod, inputs, label_location):
+    proof = dict(path="official/later.json", sha256="c" * 64, pointer="/value/matchResult/1")
+    target = inputs["teams"]["1"]
+    target.update(name="Neutral name", official_team_id="201", official_names=["Neutral name"])
+    if label_location == "retained":
+        target["official_names"].append("Jong Ajax")
+        target["official_name_evidence"] = [
+            dict(label="Jong Ajax", match_id="jc:later", side="home", provenance=[proof])
+        ]
+    else:
+        inputs["official"][0]["home_name"] = "Jong Ajax"
+        inputs["official"][0]["provenance"] = [proof]
+    result = propose(mod, inputs)
+    assert not ready(result)
+    conflicts = [c for row in result["unverified"] for c in row.get("category_conflicts", [])]
+    assert any(c["label"] == "Jong Ajax" and proof in c["provenance"] for c in conflicts)
+
+
+@pytest.mark.parametrize("legacy_anchor", [False, True])
+def test_pending_anchor_creation_keeps_locally_approved_dependents_conditional(
+    mod, inputs, legacy_anchor
+):
+    layered(inputs)
+    for key, team in inputs["teams"].items():
+        team.update(
+            category_status="approved", identity_status="existing_numbered", project_team_id=key
+        )
+    inputs["teams"]["1"]["identity_status"] = "creation_proposed"
+    previous = (
+        {"测试联赛": {"101": dict(canonical="甲队", status="auto_verified")}}
+        if legacy_anchor
+        else {}
+    )
+    result = propose(mod, inputs, previous=previous)
+    entries = result["apif"]["测试联赛"]
+    for key in ["103", "104"]:
+        assert entries[key]["evidence_status"] == "conditional_verified"
+        assert "dependency_approval_pending" in entries[key]["approval_gaps"]
+        assert (
+            dict(
+                dependency_id="t68:apif:98:101:1",
+                origin_candidate_id="t68:apif:98:101:1",
+                reason="canonical_identity_creation_pending",
+            )
+            in entries[key]["dependency_approval_gaps"]
+        )
+    assert entries["102"]["evidence_status"] == "strict_verified"
+    if legacy_anchor:
+        assert entries["101"] == previous["测试联赛"]["101"]
+    inputs["teams"]["1"]["identity_status"] = "existing_numbered"
+    resolved = propose(mod, inputs, previous=previous)["apif"]["测试联赛"]
+    assert resolved["103"]["evidence_status"] == "strict_verified"
+    assert not resolved["103"].get("dependency_approval_gaps")
+
+
+def test_pending_approval_propagates_to_fixed_point_with_root_reason(mod, inputs):
+    layered(inputs)
+    for key, name in [("5", "戊队"), ("6", "己队")]:
+        inputs["teams"][key] = dict(name=name, category="club/men/senior/first")
+    inputs["apif"].extend(
+        [
+            dict(
+                inputs["apif"][0],
+                match_id="apif:13",
+                home="105",
+                away="106",
+                kickoff_utc="2020-06-03T12:00:00Z",
+            ),
+            dict(
+                inputs["apif"][0],
+                match_id="apif:14",
+                home="103",
+                away="106",
+                kickoff_utc="2020-06-03T12:00:00Z",
+                status="NS",
+                score=None,
+            ),
+        ]
+    )
+    inputs["official"].append(
+        dict(
+            inputs["official"][0],
+            match_id="jc:22",
+            home="5",
+            away="6",
+            kickoff_utc="2020-06-03T12:00:00Z",
+        )
+    )
+    for row in inputs["apif"] + inputs["official"]:
+        row["coverage"] = dict(start_utc="2020-05-31T00:00:00Z", end_utc="2020-06-05T00:00:00Z")
+    # Put deeper dependents first in output key ordering, requiring more than one pass.
+    renumber = dict(
+        zip(
+            ["101", "102", "103", "104", "105", "106"],
+            ["901", "902", "801", "802", "701", "702"],
+            strict=True,
+        )
+    )
+    for row in inputs["apif"]:
+        row["home"], row["away"] = renumber[row["home"]], renumber[row["away"]]
+    for key, team in inputs["teams"].items():
+        team.update(
+            category_status="approved", identity_status="existing_numbered", project_team_id=key
+        )
+    inputs["teams"]["1"]["identity_status"] = "creation_proposed"
+    result = propose(mod, inputs)
+    entry = result["apif"]["测试联赛"]["701"]
+    assert entry["layer"] == 3
+    assert entry["evidence_status"] == "conditional_verified"
+    assert (
+        dict(
+            dependency_id="t68:apif:98:801:3",
+            origin_candidate_id="t68:apif:98:901:1",
+            reason="canonical_identity_creation_pending",
+        )
+        in entry["dependency_approval_gaps"]
+    )

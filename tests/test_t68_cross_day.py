@@ -236,7 +236,7 @@ def approval(db, tmp_path, monkeypatch, *, action="different_match", pair=(API, 
                 "approval_ref": "https://github.com/qw5563680/FOOTBALL/pull/999999999",
                 "evidence": [
                     {
-                        "path": str(evidence),
+                        "path": evidence.name,
                         "sha256": hashlib.sha256(evidence.read_bytes()).hexdigest(),
                         "observed_utc": approved,
                     }
@@ -333,7 +333,7 @@ def test_invalid_approval_cannot_be_applied(db, tmp_path, monkeypatch, bad):
         document["decisions"].append(copy.deepcopy(entry))
         document["decisions"][1]["decision"] = "same_match"
     elif bad == "raw_tamper":
-        Path(entry["evidence"][0]["path"]).write_text("changed")
+        (registry.parent / entry["evidence"][0]["path"]).write_text("changed")
     elif bad == "snapshot":
         entry["snapshot"] = {}
     else:

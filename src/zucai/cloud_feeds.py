@@ -989,6 +989,9 @@ def main():
 
         checked_at = datetime.now(UTC)
         links = reconcile_source_results(target, checked_at)
+        from zucai.cross_day_decisions import apply_decisions
+
+        apply_decisions(target)
         audit = audit_source_results(
             target, target.parent / "state/audit/apif_results_crosscheck.csv"
         )

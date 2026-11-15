@@ -109,11 +109,71 @@ def _category_veto(label, category):
     return bool(
         (re.search(r"\b(?:Women|W)\b|女", label, re.I) and "/women/" not in category)
         or (
-            re.search(r"\b(?:II|Reserves?)\b|预备", label, re.I)
+            re.search(r"\b(?:II|B|Jong|Castilla|Reserves?)\b|预备", label, re.I)
             and not category.endswith("/reserve")
         )
         or (youth and re.sub(r"[- ]", "", youth[0]).upper() not in category)
     )
+
+
+def _target_category(team, row):
+    return (
+        team.get("category_overrides", {})
+        .get(str(row["competition_id"]), {})
+        .get("category", team.get("category"))
+    )
+
+
+def _source_label_veto(row, side):
+    exception = row.get(side + "_category_exception", {})
+    label = row.get(side + "_name", "")
+    return _category_veto(label, row.get(side + "_category")) and label not in exception.get(
+        "allowed_labels", []
+    )
+
+
+def _official_label_conflicts(official, teams):
+    """Every observed label may veto; no label positively establishes identity."""
+    conflicts = {}
+    for side in ("home", "away"):
+        target = teams.get(str(official.get(side)), {})
+        observations = list(target.get("official_name_evidence", []))
+        documented = {item["label"] for item in observations}
+        for label in [target.get("name"), *target.get("official_names", [])]:
+            if label not in documented:
+                observations.append(
+                    dict(
+                        label=label,
+                        match_id=None,
+                        side=side,
+                        provenance=target.get("provenance", []),
+                    )
+                )
+        observations.append(
+            dict(
+                label=official.get(f"{side}_name"),
+                match_id=official["match_id"],
+                side=side,
+                provenance=official.get("provenance", []),
+            )
+        )
+        for observation in observations:
+            label = observation["label"]
+            if (
+                isinstance(label, str)
+                and _category_veto(label, _target_category(target, official))
+                and label
+                not in target.get("category_overrides", {})
+                .get(str(official["competition_id"]), {})
+                .get("allowed_labels", [])
+            ):
+                item = dict(
+                    observation,
+                    identity_key=str(official[side]),
+                    category=_target_category(target, official),
+                )
+                conflicts[_json(item)] = item
+    return [conflicts[key] for key in sorted(conflicts)]
 
 
 def _pair_reasons(source, official, teams, *, diagnostic=False):
@@ -136,25 +196,39 @@ def _pair_reasons(source, official, teams, *, diagnostic=False):
     for side in ("home", "away"):
         target = teams.get(str(official.get(side)))
         category = source.get(f"{side}_category")
+        exception = source.get(side + "_category_exception")
+        if exception and (target or {}).get("official_team_id") != exception["official_team_id"]:
+            reasons.append("category_conflict")
+        override = (target or {}).get("category_overrides", {}).get(str(source["competition_id"]))
+        if override and override["provider_team_id"] != str(source[side]):
+            reasons.append("category_conflict")
         if not target or not target.get("name") or target.get("ambiguous"):
             reasons.append("canonical_target_not_unique")
         elif diagnostic:
             continue
         elif not valid_identity_category(category) or not valid_identity_category(
-            target.get("category")
+            _target_category(target, source)
         ):
             reasons.append("category_evidence_missing")
-        elif category != target["category"]:
+        elif category != _target_category(target, source):
             reasons.append("category_conflict")
-        if _category_veto(source.get(f"{side}_name", ""), category):
+        if _source_label_veto(source, side):
             reasons.append("category_conflict")
+    if not diagnostic and _official_label_conflicts(official, teams):
+        reasons.append("category_conflict")
     return sorted(set(reasons))
 
 
 def _formal_targets(formal, teams):
     names = defaultdict(set)
     for key, team in teams.items():
-        names[team["name"]].add(str(key))
+        # Official labels never resolve a formal project target. Only a numbered
+        # project association (or legacy caller's project team) can do so.
+        if team.get("official_team_id"):
+            if team.get("project_team_id") and team.get("project_name"):
+                names[team["project_name"]].add(str(key))
+        else:
+            names[team["name"]].add(str(team.get("identity_key", key)))
     targets, league_targets = defaultdict(set), defaultdict(set)
     for league, entries in formal.items():
         for key, entry in entries.items():
@@ -173,7 +247,7 @@ def _formal_targets(formal, teams):
 def _compatible(source, official, known):
     reverse = {target: key for key, target in known.items()}
     return all(
-        (not str(official[side]).isdigit())
+        str(official[side]).startswith("unresolved:")
         or (
             (str(source[side]) not in known or known[str(source[side])] == str(official[side]))
             and (
@@ -183,6 +257,48 @@ def _compatible(source, official, known):
         )
         for side in ("home", "away")
     )
+
+
+def _propagate_approval_gaps(entries):
+    """Carry pending root approvals through required anchors, never granting authority."""
+    by_id = {
+        entry["candidate_id"]: entry
+        for entry in entries
+        if entry.get("candidate_id")
+        and entry.get("evidence_status") in {"strict_verified", "conditional_verified"}
+    }
+    origins = {
+        cid: {
+            (cid, reason)
+            for reason in entry.get("approval_gaps", [])
+            if reason != "dependency_approval_pending"
+        }
+        | {
+            (gap["origin_candidate_id"], gap["reason"])
+            for gap in entry.get("dependency_approval_gaps", [])
+        }
+        for cid, entry in by_id.items()
+    }
+    changed = True
+    while changed:
+        changed = False
+        for cid, entry in by_id.items():
+            before = len(origins[cid])
+            for dependency in entry.get("depends_on", []):
+                origins[cid].update(origins.get(dependency, set()))
+            changed |= len(origins[cid]) != before
+    for entry in by_id.values():
+        dependencies = [
+            dict(dependency_id=dependency, origin_candidate_id=origin, reason=reason)
+            for dependency in sorted(set(entry.get("depends_on", [])))
+            for origin, reason in sorted(origins.get(dependency, set()))
+        ]
+        if dependencies:
+            entry["dependency_approval_gaps"] = dependencies
+            entry["approval_gaps"] = sorted(
+                set(entry.get("approval_gaps", [])) | {"dependency_approval_pending"}
+            )
+            entry["evidence_status"] = "conditional_verified"
 
 
 def propose_bindings(
@@ -211,7 +327,7 @@ def propose_bindings(
     teams = {str(key): deepcopy(value) for key, value in teams.items()}
     names = Counter(team["name"] for team in teams.values())
     for team in teams.values():
-        if names[team["name"]] != 1:
+        if not team.get("official_team_id") and names[team["name"]] != 1:
             team["ambiguous"] = True
     formal, previous = formal or {}, deepcopy(previous or {})
     sources, source_conflicts = _deduplicate(apif)
@@ -224,7 +340,12 @@ def propose_bindings(
             canonical = entry.get("canonical")
             if canonical is None:
                 continue
-            found = {key for key, team in teams.items() if team["name"] == canonical}
+            found = {
+                team.get("identity_key", key)
+                for key, team in teams.items()
+                if (team.get("project_name") or team["name"]) == canonical
+                and (not team.get("official_team_id") or team.get("project_team_id"))
+            }
             globals_[str(key)].update(found or {"unresolved:" + str(canonical)})
     reject = set(reject) | {
         entry["candidate_id"]
@@ -317,6 +438,10 @@ def propose_bindings(
             ),
         )
         row["reasons"] = sorted(set(row["reasons"]) | set(reasons))
+        if j is not None and "category_conflict" in reasons:
+            conflicts = _official_label_conflicts(counterparts[j], teams)
+            if conflicts:
+                row["category_conflicts"] = conflicts
 
     for i, row in enumerate(sources):
         if _clock(row) is None:
@@ -363,7 +488,7 @@ def propose_bindings(
                 if len(targets) != 1 or key in conflicted_keys or globals_[key] != targets:
                     continue
                 target = next(iter(targets))
-                category = teams.get(target, {}).get("category")
+                category = _target_category(teams.get(target, {}), row)
                 typed = valid_identity_category(category) and category in {
                     row.get("home_category"),
                     row.get("away_category"),
@@ -396,7 +521,6 @@ def propose_bindings(
             if left[i] != 1 or right[j] != 1:
                 issue(i, j, ["not_bidirectionally_unique"])
                 continue
-            processed.add((i, j))
             reasons = _pair_reasons(source, other, teams, diagnostic=diagnostic)
             if incomplete(source):
                 reasons.append("incomplete_competitor_window")
@@ -409,8 +533,19 @@ def propose_bindings(
                 if formal_reverse[source["league"], target] - {key}:
                     reasons.append("canonical_has_other_provider_id")
             if reasons:
+                processed.add((i, j))
                 issue(i, j, reasons)
                 continue
+            known = anchors(i)
+            numbered_anchors = {
+                str(source[side])
+                for side in ("home", "away")
+                if known.get(str(source[side])) == str(other[side])
+            }
+            if source["score"][0] == source["score"][1] and not numbered_anchors:
+                issue(i, j, ["orientation_unproven_draw_only"])
+                continue
+            processed.add((i, j))
             evidence = dict(
                 kind="strict_oriented_fixture",
                 apif=source,
@@ -420,7 +555,23 @@ def propose_bindings(
                 complete_raw_competitors=True,
                 layer=layer,
             )
-            dependencies = sorted(dependency_ids[source["league"]])
+            used = set()
+            for x, y in temporal:
+                if x != i and y != j:
+                    continue
+                if (x, y) in edges:
+                    continue
+                for key, target in known.items():
+                    if not _compatible(sources[x], counterparts[y], {key: target}):
+                        used.add(key)
+            if source["score"][0] == source["score"][1]:
+                used.update(numbered_anchors)
+            dependencies = sorted(
+                entry["candidate_id"]
+                for (league, key, target), entry in candidates.items()
+                if league == source["league"] and key in used and known.get(key) == target
+            )
+            evidence["numbered_anchors"] = {key: known[key] for key in sorted(used)}
             pending.append((i, j, evidence, dependencies))
         if not pending:
             break
@@ -440,9 +591,9 @@ def propose_bindings(
                         provider_competition_id=source["competition_id"],
                         provider_team_id=key,
                         name=source.get(f"{side}_name", ""),
-                        canonical=teams[target]["name"],
+                        canonical=teams[target].get("project_name") or teams[target]["name"],
                         canonical_team_id=target,
-                        category=teams[target]["category"],
+                        category=_target_category(teams[target], source),
                         status="proposed",
                         evidence_status="strict_verified",
                         layer=layer,
@@ -454,12 +605,13 @@ def propose_bindings(
                         .astimezone(ZoneInfo("Asia/Shanghai"))
                         .isoformat(),
                         binding_scope=dict(
-                            leagues=[source["league"]], category=teams[target]["category"]
+                            leagues=[source["league"]],
+                            category=_target_category(teams[target], source),
                         ),
                         evidence=[],
                     )
                     added = True
-                if not candidates[business]["evidence"]:
+                if evidence not in candidates[business]["evidence"]:
                     candidates[business]["evidence"].append(evidence)
             witnesses.append(witness_ids)
             issues.pop((i, j), None)
@@ -527,9 +679,24 @@ def propose_bindings(
             or formal_reverse[league, target] - {key}
         ):
             entry["evidence_status"] = "withdrawn_conflict"
+            entry["conflicting_candidates"] = [
+                dict(
+                    league=other_league,
+                    canonical_team_id=other_target,
+                    category=teams[other_target].get("category"),
+                    evidence=other_entry["evidence"],
+                )
+                for (other_league, other_key, other_target), other_entry in candidates.items()
+                if other_key == key
+            ]
             invalid.add(entry["candidate_id"])
         prior_target = prior.get("canonical_team_id") if prior else None
-        if prior and prior_target is None and prior.get("canonical") == teams[target]["name"]:
+        if (
+            prior
+            and prior_target is None
+            and prior.get("canonical")
+            == (teams[target].get("project_name") or teams[target]["name"])
+        ):
             prior_target = target
         if prior and prior.get("canonical") is not None and prior_target != target:
             entry["evidence_status"] = "withdrawn_conflict"
@@ -591,10 +758,10 @@ def propose_bindings(
         output.setdefault(league, {})[key] = entry
     for entries in output.values():
         for entry in entries.values():
-            if (
-                entry.get("candidate_id") in invalid
-                and entry.get("evidence_status") == "strict_verified"
-            ):
+            if entry.get("candidate_id") in invalid and entry.get("evidence_status") in {
+                "strict_verified",
+                "conditional_verified",
+            }:
                 entry["evidence_status"] = (
                     "rejected" if entry["candidate_id"] in reject else "withdrawn_dependency"
                 )
@@ -606,21 +773,65 @@ def propose_bindings(
     for j in range(len(counterparts)):
         if j not in official_indices:
             issue(None, j, ["no_provider_in_window"])
+    review_groups = [*output.values(), {str(i): e for i, e in enumerate(existing_reviews)}]
+    for rows in review_groups:
+        for entry in rows.values():
+            target = teams.get(str(entry.get("canonical_team_id")), {})
+            gaps = []
+            if target.get("category_status") not in (None, "approved") or any(
+                proof.get("apif", proof.get("target", {})).get("category_status")
+                not in (None, "approved")
+                for proof in entry.get("evidence", [])
+            ):
+                gaps.append("category_approval_pending")
+            if target.get("identity_status") == "creation_proposed":
+                gaps.append("canonical_identity_creation_pending")
+            entry.update(
+                {
+                    k: target[k]
+                    for k in (
+                        "official_team_id",
+                        "project_team_id",
+                        "identity_status",
+                        "category_evidence",
+                        "project_identity_evidence",
+                    )
+                    if k in target
+                }
+            )
+            if gaps and entry.get("evidence_status") in {"strict_verified", "conditional_verified"}:
+                entry["evidence_status"] = "conditional_verified"
+                entry["approval_gaps"] = gaps
+    _propagate_approval_gaps([entry for rows in review_groups for entry in rows.values()])
     if diagnostic:
         for rows in output.values():
             for entry in rows.values():
-                if entry.get("evidence_status") == "strict_verified":
+                if entry.get("evidence_status") in {"strict_verified", "conditional_verified"}:
                     entry["evidence_status"] = "diagnostic_only"
                     entry["not_for_approval"] = "Identity category checks were not applied."
     entries = [e for rows in output.values() for e in rows.values()]
     return dict(
         apif=output,
+        existing_identity_conflicts=[
+            dict(
+                provider_team_id=key,
+                existing_identity_keys=sorted(globals_[key]),
+                observations=conflicting_observations[key],
+            )
+            for key in sorted(conflicted_keys)
+        ],
         existing_candidate_reviews=existing_reviews,
         unverified=list(issues.values()),
         summary=dict(
             new_candidates=new,
             legacy_preserved=sum(not e.get("candidate_id") for e in entries),
             strict_verified=sum(e.get("evidence_status") == "strict_verified" for e in entries),
+            conditional_verified=sum(
+                e.get("evidence_status") == "conditional_verified" for e in entries
+            ),
+            existing_conditional_reviews=sum(
+                e.get("evidence_status") == "conditional_verified" for e in existing_reviews
+            ),
             withdrawn=sum(
                 e.get("evidence_status")
                 in {"rejected", "withdrawn_conflict", "withdrawn_dependency"}
@@ -651,7 +862,9 @@ def _previous_queue(archive, explicit):
     if not path.is_file():
         if declared or explicit:
             raise ValueError("previous candidate queue is missing")
-        return {}, dict(path=str(path), status="not_declared")
+        return {}, dict(
+            path=relative if not explicit else "explicit_previous_candidates", status="not_declared"
+        )
     raw = path.read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     if declared and declared != sha:
@@ -662,7 +875,9 @@ def _previous_queue(archive, explicit):
     ):
         raise ValueError("previous candidate queue schema is invalid")
     return value, dict(
-        path=str(path), sha256=sha, source="explicit_replay" if explicit else "frozen_manifest"
+        path="explicit_previous_candidates" if explicit else relative,
+        sha256=sha,
+        source="explicit_replay" if explicit else "frozen_manifest",
     )
 
 
@@ -675,11 +890,13 @@ def replay(archive, out, *, leagues=None, previous_candidates=None, reject=(), f
     previous, previous_provenance = _previous_queue(archive, previous_candidates)
     inputs = load_archive(Path(archive), leagues=leagues, fd_raw_dir=fd_raw_dir)
     inputs["summary"]["previous_candidates"] = previous_provenance
+    observed_utc = inputs["summary"].get("observed_utc")
     result = propose_bindings(
         inputs["apif"],
         inputs["official"],
         inputs["teams"],
         formal=inputs["formal"],
+        observed_utc=observed_utc,
         previous=previous,
         reject=reject,
         occupied=inputs["occupied"],
@@ -690,6 +907,7 @@ def replay(archive, out, *, leagues=None, previous_candidates=None, reject=(), f
         inputs["official"],
         inputs["teams"],
         formal=inputs["formal"],
+        observed_utc=observed_utc,
         occupied=inputs["occupied"],
         diagnostic=True,
         use_formal_anchors=False,
@@ -699,6 +917,7 @@ def replay(archive, out, *, leagues=None, previous_candidates=None, reject=(), f
         inputs["official"],
         inputs["teams"],
         formal=inputs["formal"],
+        observed_utc=observed_utc,
         occupied=inputs["occupied"],
         diagnostic=True,
     )
@@ -733,6 +952,13 @@ def replay(archive, out, *, leagues=None, previous_candidates=None, reject=(), f
     )
     result["unverified"].extend(inputs["issues"])
     result["known_answers"] = known_answers(result, inputs["formal"])
+    if inputs["summary"].get("observed_utc"):
+        from zucai.identity_official_ids import official_register
+
+        result["official_register"] = official_register(inputs, result)
+        from zucai.identity_duplicate_report import duplicate_register
+
+        result["existing_identity_duplicates"] = duplicate_register(inputs, result)
     out.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=out.parent) as temporary:
         staged = Path(temporary) / "proposals"
@@ -741,30 +967,65 @@ def replay(archive, out, *, leagues=None, previous_candidates=None, reject=(), f
             (staged / f"{name}.json").write_text(
                 json.dumps(value, ensure_ascii=False, indent=2) + "\n"
             )
+        if "official_register" in result:
+            from zucai.identity_duplicate_report import duplicate_markdown
+
+            (staged / "existing-identity-duplicates.md").write_text(
+                duplicate_markdown(result["existing_identity_duplicates"]), encoding="utf-8"
+            )
+            from zucai.identity_review_report import owner_html, owner_markdown
+
+            (staged / "owner-review.html").write_text(
+                owner_html(result["official_register"]), encoding="utf-8"
+            )
+            for relative, content in owner_markdown(result["official_register"]).items():
+                path = staged / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
         staged.rename(out)
     return result
 
 
 def known_answers(result, formal):
-    expected = {"日职": 19, "瑞超": 14, "挪超": 14, "美职": 17, "韩职": 12, "芬超": 6, "澳超": 11}
+    expected = {
+        league: sum(e.get("status") in ACTIVE for e in entries.values())
+        for league, entries in sorted(formal.items())
+    }
     rows, opposite = [], []
     for league, target_count in expected.items():
         for key, old in formal.get(league, {}).items():
             if old.get("status") not in ACTIVE:
                 continue
             candidate = result["apif"].get(league, {}).get(key)
+            review = next(
+                (
+                    e
+                    for e in result.get("existing_candidate_reviews", [])
+                    if e.get("league") == league and e.get("provider_team_id") == key
+                ),
+                None,
+            )
+            candidate = review or candidate
             status = "not_reproduced"
             if candidate and candidate.get("evidence_status") in {
                 "strict_verified",
                 "diagnostic_only",
+                "conditional_verified",
             }:
                 status = "reproduced" if candidate["canonical"] == old["canonical"] else "opposite"
+                if (
+                    status == "reproduced"
+                    and candidate["evidence_status"] == "conditional_verified"
+                ):
+                    status = "reproduced_conditional"
             item = dict(
                 league=league,
                 provider_team_id=key,
                 expected_canonical=old["canonical"],
                 outcome=status,
-                actual={k: candidate[k] for k in ("candidate_id", "canonical", "evidence_status")}
+                actual={
+                    k: candidate.get(k) for k in ("candidate_id", "canonical", "evidence_status")
+                }
                 if candidate
                 else None,
                 reasons=sorted(
@@ -785,19 +1046,12 @@ def known_answers(result, formal):
                 opposite.append(item)
     return dict(
         expected_counts=expected,
-        expected_total=93,
+        expected_total=sum(expected.values()),
         compared_formal_items=len(rows),
         reproduced=sum(row["outcome"] == "reproduced" for row in rows),
+        conditional_reproduced=sum(row["outcome"] == "reproduced_conditional" for row in rows),
         opposite=opposite,
         rows=rows,
-        new_competition_reference=dict(
-            possible=107,
-            finished_db_matches=150,
-            note=(
-                "Review aggregate only; no per-item artifact supplied. "
-                "Fixed JC catalogue ends 2026-10-31."
-            ),
-        ),
     )
 
 
@@ -834,15 +1088,26 @@ def same_provider_proposals(
             if (
                 not valid_identity_category(category)
                 or len(targets[key]) != 1
-                or _category_veto(row.get(f"{side}_name", ""), category)
+                or _source_label_veto(row, side)
             ):
                 continue
             target = next(iter(targets[key]))
             team = teams.get(target)
             if (
                 not team
-                or team.get("category") != category
+                or _target_category(team, row) != category
                 or reverse[row["league"], target] - {key}
+            ):
+                continue
+            exception = row.get(side + "_category_exception", {})
+            override = team.get("category_overrides", {}).get(str(row["competition_id"]), {})
+            if (
+                exception
+                and exception["official_team_id"] != team.get("official_team_id")
+                or override
+                and override["provider_team_id"] != key
+                or team.get("ambiguous")
+                or _official_label_conflicts(dict(row, **{side: target}), {target: team})
             ):
                 continue
             origins = []
@@ -877,7 +1142,7 @@ def same_provider_proposals(
                 candidate_id=_id(row, key, target),
                 status="proposed",
                 evidence_status="strict_verified",
-                canonical=team["name"],
+                canonical=team.get("project_name") or team["name"],
                 canonical_team_id=target,
                 name=row.get(f"{side}_name", ""),
                 category=category,

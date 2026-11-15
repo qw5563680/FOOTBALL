@@ -99,12 +99,16 @@ T68 补开球时刻先离线生成清单：`python -m zucai.jc_catalogue_kickoff
 T68 严格绑定离线回放：`python -m zucai.identity_binding --archive /path/to/frozen-archive --out work/t68-binding-1`；
 可用 `--fd-raw-dir /path/to/saved-fd-originals` 加入已保存且有 sidecar 的 FD 原件。只写新的提案目录，
 不修改归档或数据库；第二遍用 `--previous-candidates work/t68-binding-1/apif.json` 并另选输出目录。
+输出 `owner-review.md` 先按赛事汇总，再链接单队原件证据；`existing-identity-duplicates.md` 单列既有身份冲突，不能据此合并。
 旧候选原样保留，诊断结果与可提案结果分开；缺准确时刻、完整竞争窗口、身份类别或唯一规范目标时继续待核。
-T68 跨日决定经 PR 批准后，只在副本显式应用：`python -m zucai.cross_day_decisions apply --db work/review/feeds.db --registry data/identity_reviews/t68-cross-day.json`。
+T68 跨日决定经所有者批准后，正常 `sync/apis` 在关联核对后自动应用；副本验收也可显式执行：`python -m zucai.cross_day_decisions apply --db work/review/feeds.db --registry data/identity_reviews/t68-cross-day.json`。
 命令只保存实际应用回执，不改比分、球队或同场关系；批准清单当前为空，默认仍隔离待核的新增来源行。
-T68 每日开启条件只读检查：`python -m zucai.identity_daily_gate --archive /path/to/frozen-archive --cutoff 2026-11-14T10:43:21.807840+00:00 --codes 307 --out work/t68-daily-review.json`。
+登记移除或快照变化会停用该决定，原因写入 `state/audit/apif_cross_day_decisions.csv`；旧回执与真实应用时间保留。
+T68 每日开启条件只读检查：`python -m zucai.identity_daily_gate --archive /path/to/frozen-archive --cutoff 2026-11-14T16:30:00Z --codes 307 --out work/t68-daily-review.json`。
 可用 `--evidence /path/to/review-evidence.json` 提供同一归档、截点下有 SHA 的重放与恢复证据；
 输出须为归档外的新文件。工具只列逐队、逐场分母及缺口，不改 `daily`；`ready_for_review` 仍须审查，缺证据不判可开。
+可选 `--fd-raw-dir /path/to/saved-fd-originals` 核验独立保存的 FD 原件；其来源不计入冻结归档。
+证据包的导出、重放与逐队原因字段见 [每日检查证据格式](docs/experiments/T68-daily-gate-evidence.md)。
 已保存的竞彩目录可离线重算：`python -m zucai.catalogue_replay --source-dir ../cloud-data/state/catalogue/43539673769-1 --out-dir ../t65-replay --run-id t65-offline-1`；只写新目录，不请求接口、不更新正式 `latest.json`。
 目录历史回填：`python -m zucai.cloud_feeds backfill --catalogue --source apif --max-requests 500 --resume --archive ../cloud-data --run-id <新批次>`。
 以上命令不在开发环境使用正式密钥；本地验证只用 `data/fixtures/` 离线样本。
@@ -169,7 +173,8 @@ python -m zucai.cloud_feeds backfill --relink-jc --archive ../cloud-data --run-i
 python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 校正已核验的 APIF/FDORG 与显式批准的竞彩身份，不联网
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases proposals --scope cups-history --archive ../cloud-data --out docs/aliases/2026-11-04-apif-cups-history.md  # 第二批历史清单，只读、不覆盖
-zucai aliases propagate --archive ../cloud-data  # 只读归档，将已生效同源 ID 写入有临时历史的联赛正式别名；提交审查后再 reconcile
+# T68 完成之前不运行 aliases propagate；下方仅保留既有命令说明
+zucai aliases propagate --archive ../cloud-data  # 将已生效同源 ID 写入正式别名；提交审查后再 reconcile
 zucai aliases evaluate --provider apif --leagues 3,848 --archive ../cloud-data --out work/identity-evaluation.json
 python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和赛果，更新记分板与虚拟账户
 python -m zucai.daily_digest --archive ../cloud-data --out ../cloud-data/daily  # 只读冻结数字，生成每日摘要
@@ -428,6 +433,9 @@ T20 的三项欧战在导入前另做运行期核验：复用同源已生效的�
 历史回填（包括直接 fetch 重复指定 `--season`）先下载所选全部赛季，再统一核验，
 避免先入库的未知身份挡住较新赛季的证据。后续下载失败仍保留此前完整范围的导入结果。
 依据写入 `state/audit/{fdorg,apif}_cup_aliases.csv`，已入库的来源 ID 绑定随数据库归档保存。
+APIF 杯赛旧路线只用不带范围的正式条目、库内杯赛关联及完整比赛证据；新 `binding_scope` 条目不作锚点，
+也不阻断独立的库内回退或同份原件里其他球队的推断。所有比赛保留在竞争图中，新旧规范名冲突仍拒绝；
+无独立旧证据时，目标杯赛的带范围条目只保留自身授权，继续按每场范围检查。
 无法核验的保留 `fdorg:team:<id>` / `apif:team:<id>`，写入各源未对齐 CSV，不猜中文名。
 导入器仍拒绝直接重绑已有独立身份。T23 另提供审查者手动触发的 `operation=reconcile`：
 T29 将其扩展为：同一 apif ID 在任意联赛的正式别名为 `auto_verified/approved`，即可在该 ID
@@ -439,7 +447,9 @@ Actions 摘要显示合并球队、重定向比赛、删除空临时行和冲突
 少于 20/60 场数量、两源临时身份数及欧战出场数。统计沿用任务单 2025-07-01 UTC 起的 jc 参赛样本，
 不代表当前销售状态；库内场数也不是有效训练场数。先 reconcile，再 backfill；第二次 reconcile 合并 0。
 它不接受 source/leagues/seasons，检查全库两源临时身份；没有任何正式生效同源 ID 的 proposed 不处理。
-先用 `aliases propagate --archive ../cloud-data` 将已生效 ID 传播到有临时历史的各联赛正式文件，
+T68 完成之前不运行旧的 `aliases propagate` 工具（任务单第七节第 10 条）；只读 `_plan` 诊断不会写入生效绑定。
+旧工具在当前归档上的 566 条计划全部落在新赛事，不能绕过 T68 的逐条提案、类别证据与审批。
+以下为既有流程说明：`aliases propagate --archive ../cloud-data` 将已生效 ID 传播到有临时历史的各联赛正式文件，
 命令逐条输出来源、目标、状态及证据；不改归档或数据库。来源状态和批准字段原样保留，不自动批准新 ID。
 提交传播后的文件供审查，再由 Claude 运行 reconcile。日常采集的非欧战联赛如尚无本联赛正式生效条目，
 reconcile 跳过并记录“目标联赛正式别名未传播”，避免合并旧历史后反而拦住新比赛；导入器规则保持不变。

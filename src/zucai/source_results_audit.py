@@ -644,11 +644,15 @@ def audit_source_results(database, destination):
     writer.writerows(actionable)
     destination.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write(destination, output.getvalue().encode("utf-8"))
+    from zucai.cross_day_decisions import audit_decisions
+
+    decisions = audit_decisions(database, destination.parent / "apif_cross_day_decisions.csv")
     counts = Counter(row["classification"] for row in rows)
     unmatched, unverified = counts["unmatched"], counts["unverified"]
     matched = len(rows) - unmatched - unverified
     return {
         "status": "complete" if apif_count else "no_apif_results",
+        "cross_day_decisions": decisions,
         "rows": len(actionable),
         "raw_actionable_rows": raw_actionable_rows,
         "temporary_identity_rows": sum(row["comparison_rows"] for row in summaries),
