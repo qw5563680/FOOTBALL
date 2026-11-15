@@ -251,7 +251,13 @@ def test_cloud_scoped_reconcile_export_then_restore_stays_consistent(
     db, aliases = scoped_db
     monkeypatch.setattr("zucai.sources.apif_scoped_reconcile.ALIASES", aliases)
     archive = tmp_path / "archive"
-    original = export_feeds(db, archive, date(2026, 11, 3), "seed")
+    original = export_feeds(
+        db,
+        archive,
+        date(2026, 11, 3),
+        "seed",
+        collection={"apif": {"status": "complete", "run_id": "seed"}},
+    )
     work = tmp_path / "work"
     work.mkdir()
     monkeypatch.chdir(work)
@@ -275,9 +281,32 @@ def test_cloud_scoped_reconcile_export_then_restore_stays_consistent(
     main()
     merged = work / "data/zucai.db"
     meta = archive_info(archive)
-    assert meta["collection"]["apif_scoped"]["operation"] == "scoped-reconcile"
-    assert meta["collection"]["apif_scoped"]["linked"] == 1
-    assert meta["collection"]["apif_scoped"]["rekeyed_matches"] == 1
+    record = meta["collection"]["apif_scoped"]
+    assert record["operation"] == "scoped-reconcile"
+    assert record["linked"] == 1
+    assert record["rekeyed_matches"] == 1
+    # Manifest record stays slim: only status and counts, no match lists or
+    # full decisions; bounded size; original per-source records survive.
+    assert set(record) == {
+        "operation",
+        "status",
+        "run_id",
+        "leagues",
+        "rekeyed_matches",
+        "linked",
+        "pending_links",
+        "decisions",
+    }
+    assert isinstance(record["decisions"], int) and "changed_match_ids" not in record
+    assert len(json.dumps(record)) < 2000
+    assert meta["collection"]["apif"] == {"status": "complete", "run_id": "seed"}
+    # The manual operation must never enter the daily status.
+    from zucai.cloud_feeds import daily_collection
+
+    daily = daily_collection(meta["collection"])
+    assert "apif_scoped" not in daily
+    assert daily["apif"] == {"status": "complete", "run_id": "seed"}
+    assert "赛事：307 沙职。" in (work / "summary.md").read_text()
     # Export-then-restore consistency: independent restores agree with the
     # merged working database, and repeated restores leave the archive stable.
     for index in range(2):
