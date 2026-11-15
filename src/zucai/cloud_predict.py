@@ -174,6 +174,7 @@ def run(
         models = stage / "models" / run_id
         models.mkdir(parents=True)
         outcomes, fitted = {}, {}
+        own_shares = {}
         for league, entry in config["leagues"].items():
             selected = resolve_parameters(league, as_of=cutoff, params_file=params)
             model_path = f"models/{run_id}/{league}.pkl"
@@ -207,6 +208,7 @@ def run(
                 training["smoke_backtest_is_p2_evidence"] = False
                 _json(stage / train_path, training)
                 fitted[league] = model
+                own_shares[league] = training.get("half_share_training")
                 result.update(
                     status="trained",
                     model_path=model_path,
@@ -270,6 +272,20 @@ def run(
                 connection.exec_driver_sql("PRAGMA query_only=ON")
                 connection.exec_driver_sql("BEGIN")
                 with Session(bind=connection) as session:
+                    from zucai.predict.hafu_share import combine_shares, tiered_share
+
+                    combined = combine_shares(list(own_shares.values()))
+                    half_share_hints = {}
+                    for league, model in fitted.items():
+                        hints = tiered_share(
+                            own_shares.get(league),
+                            combined,
+                            pooled=getattr(model, "pooled", False),
+                        )
+                        half_share_hints[league] = hints
+                        outcomes[league]["half_share"] = hints
+                        if hints is None:
+                            LOG.warning("%s 半场进球占比不可估计", league)
                     standard_days = {day, day + timedelta(days=1)}
                     national = open_national_fixtures(session, prediction_time)
                     result["sfc_extra_dates"] = sorted(
@@ -303,6 +319,7 @@ def run(
                             persist=False,
                             allow_empty=True,
                             prospective_evidence=prospective_evidence,
+                            half_share_hints=half_share_hints,
                         )
                         if forecast_day not in standard_days:
                             batch["input"]["scope"] = "sfc_only"

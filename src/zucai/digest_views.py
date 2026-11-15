@@ -13,6 +13,7 @@ from zucai.digest_context import (
 )
 from zucai.digest_display import BEIJING, _instant, _link, _match, _number, _probabilities, _text
 from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time, same_collection_attempt
+from zucai.predict.hafu_share import HAFU_LABELS
 from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.scoreboard.score import enrich_prior_disclosures
 
@@ -189,11 +190,13 @@ def forecast_sections(
                 or ["该批次无未开球比赛；已开球场次见复盘。", ""]
             )
             continue
+        has_half = any(row.get("half_full_time") for row in rows)
         lines.extend(
             [
                 "| 竞彩编号 | 北京开球 | 联赛 / 对阵 | 胜 / 平 / 负 | 模型版本 | P2 | 比分前五 | "
-                "冻结赔率采集时间（北京时间） |",
-                "| --- | --- | --- | --- | --- | --- | --- | --- |",
+                "冻结赔率采集时间（北京时间） |" + (" 半全场（实验） |" if has_half else ""),
+                "| --- | --- | --- | --- | --- | --- | --- | --- |"
+                + (" --- |" if has_half else ""),
             ]
         )
         versions = {}
@@ -207,6 +210,7 @@ def forecast_sections(
             if row["status"] != "predicted":
                 lines.append(
                     f"{head} | 未预测：{_text(row.get('reason'))} | — | — | — | 未冻结赔率 |"
+                    + (" — |" if has_half else "")
                 )
                 continue
             scores = (
@@ -224,10 +228,22 @@ def forecast_sections(
             reference = _text(version)
             if re.fullmatch(r"[0-9a-fA-F]{64}", version):
                 reference = versions.setdefault(version, f"M{len(versions) + 1}")
+            half = row.get("half_full_time")
+            half_text = "—"
+            if half and half.get("status") == "experimental":
+                probs = " ".join(
+                    f"{HAFU_LABELS[key]} {_number(value, 2, percent=True)}"
+                    for key, value in half["probabilities"].items()
+                )
+                half_text = (
+                    f"{probs}；占比 {half['share']:.4f}（{half['share_tier']}，"
+                    f"{half['share_ht_matches']} 场）"
+                )
             lines.append(
                 f"{head} | {_probabilities(row)} | {_text(row['model_name'])} / {reference} | "
                 f"{status} | {scores} | "
                 f"{odds_time(row, checked_at=checked_at)} |"
+                + (f" {half_text} |" if has_half else "")
             )
         lines.append("")
         if note := prior_footnote(rows):

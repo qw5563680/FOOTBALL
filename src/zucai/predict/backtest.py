@@ -18,9 +18,16 @@ from zucai.predict.base import (
     reject_cross_source_overlaps,
     utc,
 )
-from zucai.predict.derive import had
+from zucai.predict.derive import had, hafu
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
-from zucai.predict.pooled import POOL_FITTING_METHOD
+from zucai.predict.hafu_share import (
+    HAFU_LABELS,
+    HAFU_SELECTIONS,
+    MIN_HT_MATCHES,
+    ht_outcome_from_scores,
+    share_from_rows,
+)
+from zucai.predict.pooled import POOL_FITTING_METHOD, select_training_history
 from zucai.predict.seasons import (
     parse_seasons,
     season_bounds,
@@ -68,6 +75,8 @@ def read_history(
             away.aliases.label("away_aliases"),
             Result.home_goals,
             Result.away_goals,
+            Result.ht_home_goals,
+            Result.ht_away_goals,
             Match.home_team_id.label("home_id"),
             Match.away_team_id.label("away_id"),
             counterpart.source.label("counterpart_source"),
@@ -301,6 +310,45 @@ def read_closing(session: Session, games: pd.DataFrame):
     )
 
 
+def hafu_market_probabilities(rows, kickoffs):
+    """Latest complete, coherent, strictly pre-kickoff nine-way hafu quote per match.
+
+    Comparison benchmark only: these probabilities never enter any estimate,
+    model, calibration or selection.
+    """
+    snapshots = defaultdict(dict)
+    for key, stamp, selection, price in rows:
+        if key in kickoffs and selection in HAFU_SELECTIONS:
+            time = utc(stamp)
+            if time < kickoffs[key]:
+                snapshots[key, time][selection] = price
+    latest = {}
+    for (key, _time), snapshot in sorted(snapshots.items()):
+        if set(snapshot) != set(HAFU_SELECTIONS):
+            continue
+        prices = np.array([snapshot[k] for k in HAFU_SELECTIONS], dtype=float)
+        if np.isfinite(prices).all() and (prices > 1).all():
+            inverse = 1 / prices
+            latest[key] = tuple(inverse / inverse.sum())
+    return latest
+
+
+def read_hafu_market(session: Session, games: pd.DataFrame):
+    query = (
+        select(Odds.match_id, Odds.snapshot_utc, Odds.selection, Odds.price)
+        .join(Match, Match.match_id == Odds.match_id)
+        .where(
+            Match.match_id.in_(games.match_id.tolist()),
+            Odds.pool == "hafu",
+            Odds.line == 0,
+            Odds.snapshot_utc < Match.kickoff_utc,
+        )
+    )
+    return hafu_market_probabilities(
+        session.execute(query), dict(zip(games.match_id, games.kickoff_utc, strict=True))
+    )
+
+
 def _metrics(observations):
     if not observations:
         return {
@@ -337,6 +385,46 @@ def _metrics(observations):
         "draw_mean": float(probs[:, 1].mean()),
         "draw_rate": float(target[:, 1].mean()),
         "draw_bias": float(probs[:, 1].mean() - target[:, 1].mean()),
+    }
+
+
+def _hafu_metrics(observations):
+    if not observations:
+        return {"n": 0, "log_loss": None, "brier": None, "calibration": [], "outcomes": []}
+    actual, forecasts = zip(*observations, strict=True)
+    probs = np.asarray(forecasts)
+    target = np.eye(9)[list(actual)]
+    bins = np.minimum((probs * 10).astype(int), 9)
+    calibration = []
+    for i in range(10):
+        mask = bins == i
+        if mask.any():
+            calibration.append(
+                {
+                    "lower": i / 10,
+                    "n": int(mask.sum()),
+                    "mean_p": float(probs[mask].mean()),
+                    "observed": float(target[mask].mean()),
+                }
+            )
+    assigned = probs[np.arange(len(actual)), list(actual)]
+    outcomes = [
+        {
+            "outcome": HAFU_SELECTIONS[i],
+            "label": HAFU_LABELS[HAFU_SELECTIONS[i]],
+            "n": len(actual),
+            "mean_p": float(probs[:, i].mean()),
+            "actual": int(target[:, i].sum()),
+            "observed": float(target[:, i].mean()),
+        }
+        for i in range(9)
+    ]
+    return {
+        "n": len(actual),
+        "log_loss": float(-np.log(np.maximum(assigned, 1e-15)).mean()),
+        "brier": float(np.square(probs - target).sum(axis=1).mean()),
+        "calibration": calibration,
+        "outcomes": outcomes,
     }
 
 
@@ -395,6 +483,7 @@ def evaluate(
     draw_calibration=False,
     calibration_by_season=None,
     target_leagues=None,
+    hafu_market=None,
 ):
     if fold not in ("weekly", "monthly"):
         raise ValueError("fold 须为weekly或monthly")
@@ -451,6 +540,11 @@ def evaluate(
         for boundary, season in zip(boundaries, evaluation.season, strict=True)
     ]
     records, folds = [], []
+    half_records = []
+    half_excluded = Counter()
+    league_half_excluded = defaultdict(Counter)
+    league_half_scored = Counter()
+    league_evaluated = Counter()
     skipped = Counter()
     season_skipped = defaultdict(Counter)
     training_count = assumed_training_count = replayed_training_count = 0
@@ -511,6 +605,15 @@ def evaluate(
         training_count += model.training_rows
         assumed_training_count += model.assumed_training_rows
         replayed_training_count += model.replayed_training_rows
+        # The share comes from exactly the rows this fold's fit consumed.
+        fit_rows = select_training_history(history, cutoff)
+        fold_half = share_from_rows(fit_rows.to_dict("records"))
+        fold_half = (
+            dict(tier="pool" if pooled else "league", **fold_half)
+            if fold_half is not None and fold_half["ht_matches"] >= MIN_HT_MATCHES
+            else None
+        )
+        info["half_share"] = fold_half
         fold_records = []
         for row in fixtures.to_dict("records"):
             try:
@@ -540,6 +643,35 @@ def evaluate(
             if pooled:
                 record["league"] = row["league"]
             fold_records.append(record)
+            ht_actual = ht_outcome_from_scores(row.get("ht_home_goals"), row.get("ht_away_goals"))
+            scored_league = row["league"] if pooled else league
+            if pooled:
+                league_evaluated[scored_league] += 1
+            if ht_actual is None:
+                half_excluded["no_half_score"] += 1
+                if pooled:
+                    league_half_excluded[scored_league]["no_half_score"] += 1
+            elif fold_half is None:
+                half_excluded["fold_share_insufficient"] += 1
+                if pooled:
+                    league_half_excluded[scored_league]["fold_share_insufficient"] += 1
+            else:
+                derived = hafu(matrix, fold_half["share"])
+                fixed = hafu(matrix, 0.5)
+                half_records.append(
+                    dict(
+                        match_id=row["match_id"],
+                        season=season,
+                        league=scored_league,
+                        actual=HAFU_SELECTIONS.index(ht_actual + "hda"[record["actual"]]),
+                        probabilities=tuple(derived[k] for k in HAFU_SELECTIONS),
+                        fixed=tuple(fixed[k] for k in HAFU_SELECTIONS),
+                        market=hafu_market.get(row["match_id"]) if hafu_market else None,
+                        share=fold_half["share"],
+                        tier=fold_half["tier"],
+                    )
+                )
+                league_half_scored[scored_league] += 1
         records.extend(fold_records)
         n = len(fold_records)
         assumed = sum(r["available_source"] == "assumed" for r in fold_records)
@@ -573,8 +705,32 @@ def evaluate(
                 (period.season == season).sum() - (evaluation.season == season).sum()
             ),
         )
+
+    def _half_block(rows):
+        model_rows = rows
+        market_rows = [r for r in rows if r["market"] is not None]
+        return {
+            "model": _hafu_metrics([(r["actual"], r["probabilities"]) for r in model_rows]),
+            "fixed_half_share": _hafu_metrics([(r["actual"], r["fixed"]) for r in model_rows]),
+            "market_benchmark": _hafu_metrics([(r["actual"], r["market"]) for r in market_rows]),
+            "market_paired_model": _hafu_metrics(
+                [(r["actual"], r["probabilities"]) for r in market_rows]
+            ),
+        }
+
     result = dict(
         **_summary(records),
+        half_full_time={
+            **_half_block(half_records),
+            "excluded": dict(half_excluded),
+            "note": (
+                "半全场九分类计分：Log Loss 为主、Brier 为辅；固定占比 1/2 与开赛前最后一次"
+                "竞彩半全场赔率去水隐含概率仅作对照基准，不进入任何估计或模型。"
+                "回测折内带半场比分的训练行不足 300 场时整折不计分（fold_share_insufficient）；"
+                "线上每日预测在同类情况下会回退到当次运行全部模型的训练行，"
+                "因此低覆盖联赛的线上回退路径在回测里没有被评估。"
+            ),
+        },
         availability_basis="replayed"
         if replayed_training_count or replayed_eval_count
         else "mixed"
@@ -616,6 +772,20 @@ def evaluate(
                         [r for r in records if r["league"] == name and r["season"] == season]
                     )
                     for season in by_season
+                }
+                for name in target_leagues
+            },
+            half_by_league={
+                name: {
+                    **_half_block([r for r in half_records if r["league"] == name]),
+                    "excluded": dict(league_half_excluded[name]),
+                    "scored": int(league_half_scored[name]),
+                    "evaluated": int(league_evaluated[name]),
+                    "note": (
+                        "半场数据不足，暂不评估"
+                        if league_half_scored[name] == 0 and league_evaluated[name]
+                        else None
+                    ),
                 }
                 for name in target_leagues
             },

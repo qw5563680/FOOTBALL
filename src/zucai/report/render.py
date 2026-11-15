@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from zucai.predict.base import model_sources
+from zucai.predict.hafu_share import HAFU_LABELS
 from zucai.predict.model_definitions import (
     FROZEN_DEFINITION_FIELDS,
     T63_LEAGUES,
@@ -309,6 +310,26 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
             if not isinstance(blend, dict) or market is None:
                 raise ValueError("实验混合必须为含市场快照的对象")
             _triplet(blend.get("probabilities"), "experimental_blend", probabilities=True)
+        half = prediction.get("half_full_time")
+        if half is not None:
+            if not isinstance(half, dict) or half.get("status") != "experimental":
+                raise ValueError("half_full_time 必须为标记实验的对象")
+            probabilities = half.get("probabilities")
+            if not isinstance(probabilities, dict) or set(probabilities) != {
+                h + f for h in "hda" for f in "hda"
+            }:
+                raise ValueError("半全场概率必须是九个赛果的映射")
+            if any(not _number(value) or not 0 <= value <= 1 for value in probabilities.values()):
+                raise ValueError("半全场概率必须在 [0,1]")
+            if not math.isclose(sum(probabilities.values()), 1, abs_tol=1e-6):
+                raise ValueError("半全场概率之和必须为 1")
+            if not _number(half.get("share")) or not 0 < half["share"] < 1:
+                raise ValueError("半场进球占比必须在 (0,1)")
+            if half.get("share_tier") not in {"league", "pool", "all"}:
+                raise ValueError("半场进球占比层级必须为 league/pool/all")
+            for key in ("share_ht_matches", "share_ht_goals", "share_full_goals"):
+                if type(half.get(key)) is not int or half[key] < 0:
+                    raise ValueError("半场占比样本计数必须为非负整数")
 
 
 def _json_bytes(value: object) -> bytes:
@@ -473,6 +494,27 @@ def _markdown(batch: dict) -> str:
             f"- {_md(prediction['match_id'])}：{scores}；市场快照（北京时间）：{snapshot}；"
             f"模型：{_md(prediction['model_name'])} / {_md(prediction['model_version'])}。"
         )
+    half = [p for p in batch["predictions"] if p.get("half_full_time")]
+    if half:
+        lines.extend(
+            [
+                "",
+                "半全场（实验，纯推导量；不参与任何下注建议，BET 禁用）：",
+                "",
+            ]
+        )
+        for prediction in half:
+            half_full = prediction["half_full_time"]
+            probs = "；".join(
+                f"{HAFU_LABELS[key]} {_percent(value)}"
+                for key, value in half_full["probabilities"].items()
+            )
+            lines.append(
+                f"- {_md(prediction['home'])} vs {_md(prediction['away'])}"
+                f"（{_md(prediction['match_id'])}）：{probs}；半场进球占比 "
+                f"{half_full['share']:.6g}（{half_full['share_tier']}，"
+                f"{half_full['share_ht_matches']} 场）。"
+            )
     blends = [p for p in batch["predictions"] if p.get("experimental_blend") is not None]
     if blends:
         lines.extend(
@@ -561,6 +603,23 @@ def _csv_bytes(batch: dict) -> bytes:
         columns.extend(
             ["home_unknown_team", "away_unknown_team", "prior_method", "prior_disclosure"]
         )
+    if any(prediction.get("half_full_time") for prediction in batch["predictions"]):
+        columns.extend(
+            [
+                "hafu_hh",
+                "hafu_hd",
+                "hafu_ha",
+                "hafu_dh",
+                "hafu_dd",
+                "hafu_da",
+                "hafu_ah",
+                "hafu_ad",
+                "hafu_aa",
+                "hafu_share",
+                "hafu_share_tier",
+                "hafu_share_ht_matches",
+            ]
+        )
     writer = csv.DictWriter(stream, fieldnames=columns)
     writer.writeheader()
     for prediction in batch["predictions"]:
@@ -614,6 +673,25 @@ def _csv_bytes(batch: dict) -> bytes:
                 prior_method=detail["method"],
                 prior_disclosure=prior_export_label(prediction),
             )
+        half = prediction.get("half_full_time")
+        if "hafu_hh" in columns:
+            if half is not None:
+                row.update({f"hafu_{key}": value for key, value in half["probabilities"].items()})
+                row.update(
+                    {
+                        "hafu_share": half["share"],
+                        "hafu_share_tier": half["share_tier"],
+                        "hafu_share_ht_matches": half["share_ht_matches"],
+                    }
+                )
+            else:
+                row.update(
+                    {
+                        "hafu_share": None,
+                        "hafu_share_tier": None,
+                        "hafu_share_ht_matches": None,
+                    }
+                )
         writer.writerow({key: _csv_cell(value) for key, value in row.items()})
     return stream.getvalue().encode("utf-8-sig")
 

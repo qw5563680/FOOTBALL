@@ -406,6 +406,7 @@ SQLite data/zucai.db  (matches / odds / results / sfc_issues ...)
 | `zucai/predict/base.py` | `Model` 抽象类：`fit(df)`、`predict_score_matrix(row) -> ndarray[10,10]`、`save/load` |
 | `zucai/predict/dixon_coles.py` | 基线模型，带时间衰减的泊松攻防强度 |
 | `zucai/predict/derive.py` | 由比分矩阵推导各玩法概率 |
+| `zucai/predict/hafu_share.py` | 半全场推导：`hafu(matrix, share)` 二项拆分九种结果（`share=0.5` 与 T05 旧实现逐位相同）；占比只用同截点训练行估计（带半场比分 <300 场时按池、再按当次全部模型行回退，层级与样本写入输出）；半全场赔率只作对照基准，不进入任何估计 |
 | `zucai/report/` | markdown / csv 输出，期望值计算 |
 
 ### 欧战数据来源（T20）

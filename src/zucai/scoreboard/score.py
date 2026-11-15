@@ -11,6 +11,7 @@ from pathlib import Path
 from zucai.cloud_feeds import digest
 from zucai.forecast_archive import verify_forecasts
 from zucai.forecast_publication import publication_times
+from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, ht_outcome_from_scores
 from zucai.prediction_disclosure import prior_disclosure
 from zucai.report.render import load_batch
 from zucai.sources.sporttery import BEIJING
@@ -68,6 +69,7 @@ def read_results(database: Path) -> dict:
         rows = connection.execute(
             "SELECT m.match_id,m.source,m.league,m.kickoff_utc,m.status,"
             "h.name AS home,a.name AS away,r.home_goals,r.away_goals,"
+            "r.ht_home_goals,r.ht_away_goals,"
             "r.available_utc,r.available_source FROM matches m "
             "JOIN teams h ON h.id=m.home_team_id JOIN teams a ON a.id=m.away_team_id "
             "LEFT JOIN results r ON r.match_id=m.match_id"
@@ -185,6 +187,27 @@ def _loss(probabilities, actual):
     }
 
 
+def _hafu_score(row, result):
+    """Nine-class score recorded only for forecasts that carry the derived field."""
+    half = row.get("half_full_time")
+    if not half or half.get("status") != "experimental":
+        return None
+    ht = ht_outcome_from_scores(result.get("ht_home_goals"), result.get("ht_away_goals"))
+    if ht is None:
+        return {"status": "unscored_no_half_score", "actual": None}
+    probabilities = half["probabilities"]
+    actual = ht + outcome(result)
+    return {
+        "status": "scored",
+        "actual": actual,
+        "probabilities": dict(probabilities),
+        "log_loss": -math.log(max(probabilities[actual], 1e-15)),
+        "brier": sum((probabilities[key] - int(key == actual)) ** 2 for key in HAFU_SELECTIONS),
+        "share": half["share"],
+        "share_tier": half["share_tier"],
+    }
+
+
 def score_forecasts(forecasts, results, existing, as_of, *, experimental=False):
     excluded = Counter()
     latest = {
@@ -251,6 +274,7 @@ def score_forecasts(forecasts, results, existing, as_of, *, experimental=False):
                 "model": _loss(row["model_probabilities"], actual),
                 "uniform": _loss(dict.fromkeys(OUTCOMES, 1 / 3), actual),
                 "market": {**market, **_loss(market["probabilities"], actual)} if market else None,
+                "half_full_time": _hafu_score(row, result),
                 **({"validation_status": "experimental_unadopted"} if experimental else {}),
             }
         )
@@ -297,11 +321,60 @@ def _statistics(rows, column):
     }
 
 
+def _hafu_statistics(rows):
+    scored = [
+        r for r in rows if r.get("half_full_time") and r["half_full_time"]["status"] == "scored"
+    ]
+    bins = [[] for _ in range(10)]
+    outcomes = [[] for _ in HAFU_SELECTIONS]
+    for row in scored:
+        block = row["half_full_time"]
+        for key, probability in block["probabilities"].items():
+            bins[min(int(probability * 10), 9)].append((probability, int(block["actual"] == key)))
+            outcomes[HAFU_SELECTIONS.index(key)].append((probability, int(block["actual"] == key)))
+    n = len(scored)
+
+    def mean(values):
+        return sum(values) / len(values) if values else None
+
+    return {
+        "n": n,
+        "log_loss": mean([r["half_full_time"]["log_loss"] for r in scored]),
+        "brier": mean([r["half_full_time"]["brier"] for r in scored]),
+        "unscored_no_half_score": sum(
+            1
+            for r in rows
+            if r.get("half_full_time") and r["half_full_time"]["status"] == "unscored_no_half_score"
+        ),
+        "calibration": [
+            {
+                "lower": index / 10,
+                "n": len(values),
+                "mean_p": mean([v[0] for v in values]),
+                "observed": mean([v[1] for v in values]),
+            }
+            for index, values in enumerate(bins)
+        ],
+        "outcomes": [
+            {
+                "outcome": HAFU_SELECTIONS[index],
+                "label": HAFU_LABELS[HAFU_SELECTIONS[index]],
+                "n": len(values),
+                "mean_p": mean([v[0] for v in values]),
+                "actual": int(sum(v[1] for v in values)),
+                "observed": mean([v[1] for v in values]),
+            }
+            for index, values in enumerate(outcomes)
+        ],
+    }
+
+
 def _aggregate(rows):
     return {
         "n": len(rows),
         **{key: _statistics(rows, key) for key in ("model", "uniform", "market")},
         "market_paired_model": _statistics([r for r in rows if r["market"]], "model"),
+        "half_full_time": _hafu_statistics(rows),
     }
 
 
