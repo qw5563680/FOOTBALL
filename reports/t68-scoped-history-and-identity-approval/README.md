@@ -92,9 +92,9 @@ PYTHONPATH=src python -m zucai.identity_daily_gate --archive /path/to/8b900f4 \
 
 [完整证据目录](https://github.com/qw5563680/FOOTBALL/tree/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115) · [验收压缩包](https://github.com/qw5563680/FOOTBALL/blob/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115/t68-scoped-history-evidence.zip)
 
-[410行重放对照](https://github.com/qw5563680/FOOTBALL/blob/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115/historical-replay-410.csv) · 
-[剩余12行](https://github.com/qw5563680/FOOTBALL/blob/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115/remaining-saudi-12.csv) · 
-[47场FD差额](https://github.com/qw5563680/FOOTBALL/blob/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115/coverage-additional-relations.csv) · 
+[410行重放对照](https://github.com/qw5563680/FOOTBALL/blob/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115/historical-replay-410.csv) ·
+[剩余12行](https://github.com/qw5563680/FOOTBALL/blob/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115/remaining-saudi-12.csv) ·
+[47场FD差额](https://github.com/qw5563680/FOOTBALL/blob/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115/coverage-additional-relations.csv) ·
 [257个待创建编号清单](https://github.com/qw5563680/FOOTBALL/blob/3f79afd74c8e60f954f983b9a4b7607fba3f2ec0/acceptance/t68-scoped-history-20261115/canonical-creation-queue.csv)
 
 包SHA256：`2a91463651d367cd20dae34cc1595484b74a22eb1f847d2bc4a5db2e1d971719`，16533136字节，596项；解压后逐项SHA256SUMS.json，已检查无访问密钥。
