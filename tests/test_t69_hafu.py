@@ -9,8 +9,11 @@ import pytest
 from zucai.predict.derive import had, hafu
 from zucai.predict.hafu_share import (
     MIN_HT_MATCHES,
+    combine_shares,
     estimate_share,
+    ht_outcome_from_scores,
     share_from_rows,
+    tiered_share,
     validate_share,
 )
 
@@ -91,17 +94,54 @@ def test_hafu_rejects_invalid_share():
 def test_share_from_rows_uses_only_rows_with_half_scores():
     rows = [
         dict(ht_home_goals=1, ht_away_goals=0, home_goals=2, away_goals=1),
-        dict(ht_home_goals=0, ht_away_goals=0, home_goals=0, away_goals=0),  # goalless ignored
+        dict(ht_home_goals=0, ht_away_goals=0, home_goals=0, away_goals=0),  # counted match
         dict(ht_home_goals=None, ht_away_goals=None, home_goals=3, away_goals=0),  # no half
         dict(ht_home_goals=-1, ht_away_goals=0, home_goals=1, away_goals=0),  # invalid
         dict(ht_home_goals=2, ht_away_goals=3, home_goals=1, away_goals=1),  # ht > full
         dict(ht_home_goals=1, ht_away_goals=1, home_goals=2, away_goals=2),
     ]
     result = share_from_rows(rows)
-    assert result["ht_matches"] == 2
+    assert result["ht_matches"] == 3
     assert result["ht_goals"] == 3
     assert result["full_goals"] == 7
     assert math.isclose(result["share"], 3 / 7)
+
+
+def test_share_from_rows_accepts_integral_floats():
+    rows = [
+        dict(ht_home_goals=1.0, ht_away_goals=0.0, home_goals=2.0, away_goals=1.0),
+        dict(ht_home_goals=float("nan"), ht_away_goals=0.0, home_goals=1.0, away_goals=0.0),
+    ]
+    result = share_from_rows(rows)
+    assert result["ht_matches"] == 1
+    assert result["share"] == 1 / 3
+
+
+def test_ht_outcome_accepts_integral_floats_and_nan():
+    assert ht_outcome_from_scores(2.0, 1.0) == "h"
+    assert ht_outcome_from_scores(1, 1) == "d"
+    assert ht_outcome_from_scores(0, 1) == "a"
+    assert ht_outcome_from_scores(np.nan, 1.0) is None
+    assert ht_outcome_from_scores(None, 0) is None
+    assert ht_outcome_from_scores(0.5, 0) is None
+    assert ht_outcome_from_scores(-1, 0) is None
+
+
+def test_combine_and_tiered_share():
+    a = dict(share=0.44, ht_matches=200, ht_goals=88, full_goals=200)
+    b = dict(share=0.40, ht_matches=200, ht_goals=80, full_goals=200)
+    combined = combine_shares([a, b])
+    assert combined["ht_matches"] == 400
+    assert math.isclose(combined["share"], 168 / 400)
+    # Domestic model below threshold falls back to the combined sample.
+    assert tiered_share(a, combined)["tier"] == "all"
+    # Sufficient own sample wins for a domestic model.
+    big = dict(share=0.46, ht_matches=MIN_HT_MATCHES, ht_goals=138, full_goals=300)
+    assert tiered_share(big, combined)["tier"] == "league"
+    # A pooled model's own rows are its pool.
+    assert tiered_share(big, combined, pooled=True)["tier"] == "pool"
+    # Nothing estimable anywhere.
+    assert tiered_share(None, None) is None
 
 
 def test_estimate_share_tiers_fallback():

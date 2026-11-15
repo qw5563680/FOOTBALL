@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from zucai.predict.base import model_sources
+from zucai.predict.hafu_share import HAFU_LABELS
 from zucai.predict.model_definitions import (
     FROZEN_DEFINITION_FIELDS,
     T63_LEAGUES,
@@ -504,11 +505,13 @@ def _markdown(batch: dict) -> str:
         )
         for prediction in half:
             half_full = prediction["half_full_time"]
-            probs = " ".join(
-                f"{key} {_percent(value)}" for key, value in half_full["probabilities"].items()
+            probs = "；".join(
+                f"{HAFU_LABELS[key]} {_percent(value)}"
+                for key, value in half_full["probabilities"].items()
             )
             lines.append(
-                f"- {_md(prediction['match_id'])}：{probs}；半场进球占比 "
+                f"- {_md(prediction['home'])} vs {_md(prediction['away'])}"
+                f"（{_md(prediction['match_id'])}）：{probs}；半场进球占比 "
                 f"{half_full['share']:.6g}（{half_full['share_tier']}，"
                 f"{half_full['share_ht_matches']} 场）。"
             )
@@ -600,6 +603,23 @@ def _csv_bytes(batch: dict) -> bytes:
         columns.extend(
             ["home_unknown_team", "away_unknown_team", "prior_method", "prior_disclosure"]
         )
+    if any(prediction.get("half_full_time") for prediction in batch["predictions"]):
+        columns.extend(
+            [
+                "hafu_hh",
+                "hafu_hd",
+                "hafu_ha",
+                "hafu_dh",
+                "hafu_dd",
+                "hafu_da",
+                "hafu_ah",
+                "hafu_ad",
+                "hafu_aa",
+                "hafu_share",
+                "hafu_share_tier",
+                "hafu_share_ht_matches",
+            ]
+        )
     writer = csv.DictWriter(stream, fieldnames=columns)
     writer.writeheader()
     for prediction in batch["predictions"]:
@@ -653,6 +673,25 @@ def _csv_bytes(batch: dict) -> bytes:
                 prior_method=detail["method"],
                 prior_disclosure=prior_export_label(prediction),
             )
+        half = prediction.get("half_full_time")
+        if "hafu_hh" in columns:
+            if half is not None:
+                row.update({f"hafu_{key}": value for key, value in half["probabilities"].items()})
+                row.update(
+                    {
+                        "hafu_share": half["share"],
+                        "hafu_share_tier": half["share_tier"],
+                        "hafu_share_ht_matches": half["share_ht_matches"],
+                    }
+                )
+            else:
+                row.update(
+                    {
+                        "hafu_share": None,
+                        "hafu_share_tier": None,
+                        "hafu_share_ht_matches": None,
+                    }
+                )
         writer.writerow({key: _csv_cell(value) for key, value in row.items()})
     return stream.getvalue().encode("utf-8-sig")
 

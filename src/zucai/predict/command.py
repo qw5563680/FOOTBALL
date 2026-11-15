@@ -206,6 +206,11 @@ def train(
         if training.attrs.get("pending_fd_identity_overlaps")
         else []
     )
+    from zucai.predict.hafu_share import share_from_rows
+
+    half_share_training = share_from_rows(
+        select_training_history(training, cutoff).to_dict("records")
+    )
     return {
         **definition,
         "model_name": "dixon-coles",
@@ -214,6 +219,7 @@ def train(
         "sources": model.sources,
         "training_source_counts": model.training_source_counts,
         "training_rows": model.training_rows,
+        "half_share_training": half_share_training,
         **({"source_identity_exclusions": identity_exclusions} if identity_exclusions else {}),
         "availability_basis": model.availability_basis,
         "assumed_training_share": model.assumed_training_share,

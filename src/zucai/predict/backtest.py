@@ -21,12 +21,13 @@ from zucai.predict.base import (
 from zucai.predict.derive import had, hafu
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 from zucai.predict.hafu_share import (
+    HAFU_LABELS,
     HAFU_SELECTIONS,
     MIN_HT_MATCHES,
     ht_outcome_from_scores,
     share_from_rows,
 )
-from zucai.predict.pooled import POOL_FITTING_METHOD
+from zucai.predict.pooled import POOL_FITTING_METHOD, select_training_history
 from zucai.predict.seasons import (
     parse_seasons,
     season_bounds,
@@ -389,7 +390,7 @@ def _metrics(observations):
 
 def _hafu_metrics(observations):
     if not observations:
-        return {"n": 0, "log_loss": None, "brier": None, "calibration": []}
+        return {"n": 0, "log_loss": None, "brier": None, "calibration": [], "outcomes": []}
     actual, forecasts = zip(*observations, strict=True)
     probs = np.asarray(forecasts)
     target = np.eye(9)[list(actual)]
@@ -407,11 +408,23 @@ def _hafu_metrics(observations):
                 }
             )
     assigned = probs[np.arange(len(actual)), list(actual)]
+    outcomes = [
+        {
+            "outcome": HAFU_SELECTIONS[i],
+            "label": HAFU_LABELS[HAFU_SELECTIONS[i]],
+            "n": len(actual),
+            "mean_p": float(probs[:, i].mean()),
+            "actual": int(target[:, i].sum()),
+            "observed": float(target[:, i].mean()),
+        }
+        for i in range(9)
+    ]
     return {
         "n": len(actual),
         "log_loss": float(-np.log(np.maximum(assigned, 1e-15)).mean()),
         "brier": float(np.square(probs - target).sum(axis=1).mean()),
         "calibration": calibration,
+        "outcomes": outcomes,
     }
 
 
@@ -592,12 +605,9 @@ def evaluate(
         training_count += model.training_rows
         assumed_training_count += model.assumed_training_rows
         replayed_training_count += model.replayed_training_rows
-        eligible = history.loc[
-            (history.kickoff_utc < cutoff)
-            & (history.available_utc < cutoff)
-            & (history.available_utc > history.kickoff_utc)
-        ]
-        fold_half = share_from_rows(eligible.to_dict("records"))
+        # The share comes from exactly the rows this fold's fit consumed.
+        fit_rows = select_training_history(history, cutoff)
+        fold_half = share_from_rows(fit_rows.to_dict("records"))
         fold_half = (
             dict(tier="pool" if pooled else "league", **fold_half)
             if fold_half is not None and fold_half["ht_matches"] >= MIN_HT_MATCHES
@@ -716,6 +726,9 @@ def evaluate(
             "note": (
                 "半全场九分类计分：Log Loss 为主、Brier 为辅；固定占比 1/2 与开赛前最后一次"
                 "竞彩半全场赔率去水隐含概率仅作对照基准，不进入任何估计或模型。"
+                "回测折内带半场比分的训练行不足 300 场时整折不计分（fold_share_insufficient）；"
+                "线上每日预测在同类情况下会回退到当次运行全部模型的训练行，"
+                "因此低覆盖联赛的线上回退路径在回测里没有被评估。"
             ),
         },
         availability_basis="replayed"

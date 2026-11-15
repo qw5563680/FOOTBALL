@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from zucai.cloud_feeds import digest, restore_feeds
 from zucai.db import get_engine
 from zucai.forecast_archive import _component, publish_forecasts, verify_forecasts
-from zucai.models import Match, Result, SfcIssue
+from zucai.models import Match, SfcIssue
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.command import train
 from zucai.predict.dixon_coles import DixonColes
@@ -106,48 +106,6 @@ def _summary(archive, run):
             output.write("\n".join(lines) + "\n")
 
 
-def _share_rows(session, leagues, cutoff):
-    """Eligible training rows with half-time scores, same availability rules as the fit."""
-    import pandas as pd
-
-    stmt = (
-        select(
-            Match.league,
-            Match.kickoff_utc,
-            Result.available_utc,
-            Result.home_goals,
-            Result.away_goals,
-            Result.ht_home_goals,
-            Result.ht_away_goals,
-        )
-        .join(Result, Result.match_id == Match.match_id)
-        .where(Match.status == "finished", Match.league.in_(sorted(set(leagues))))
-    )
-    rows = session.execute(stmt).all()
-    if not rows:
-        return []
-    frame = pd.DataFrame(
-        rows,
-        columns=[
-            "league",
-            "kickoff_utc",
-            "available_utc",
-            "home_goals",
-            "away_goals",
-            "ht_home_goals",
-            "ht_away_goals",
-        ],
-    )
-    frame["kickoff_utc"] = pd.to_datetime(frame["kickoff_utc"], utc=True)
-    frame["available_utc"] = pd.to_datetime(frame["available_utc"], utc=True)
-    frame = frame.loc[
-        (frame.kickoff_utc < cutoff)
-        & (frame.available_utc < cutoff)
-        & (frame.available_utc > frame.kickoff_utc)
-    ]
-    return frame.to_dict("records")
-
-
 def open_national_fixtures(session, now):
     """Include only unstarted, mapped Nations League fixtures from issues still open."""
     by_day = {}
@@ -216,6 +174,7 @@ def run(
         models = stage / "models" / run_id
         models.mkdir(parents=True)
         outcomes, fitted = {}, {}
+        own_shares = {}
         for league, entry in config["leagues"].items():
             selected = resolve_parameters(league, as_of=cutoff, params_file=params)
             model_path = f"models/{run_id}/{league}.pkl"
@@ -249,6 +208,7 @@ def run(
                 training["smoke_backtest_is_p2_evidence"] = False
                 _json(stage / train_path, training)
                 fitted[league] = model
+                own_shares[league] = training.get("half_share_training")
                 result.update(
                     status="trained",
                     model_path=model_path,
@@ -312,20 +272,20 @@ def run(
                 connection.exec_driver_sql("PRAGMA query_only=ON")
                 connection.exec_driver_sql("BEGIN")
                 with Session(bind=connection) as session:
-                    from zucai.predict.hafu_share import estimate_share
+                    from zucai.predict.hafu_share import combine_shares, tiered_share
 
-                    all_rows = _share_rows(session, list(fitted), cutoff)
+                    combined = combine_shares(list(own_shares.values()))
                     half_share_hints = {}
                     for league, model in fitted.items():
-                        scope = sorted(getattr(model, "training_leagues", None) or {league: 1})
-                        own = _share_rows(session, scope, cutoff)
-                        try:
-                            hints = estimate_share(own, pool_rows=own, all_rows=all_rows)
-                        except ValueError as exc:
-                            hints = None
-                            LOG.warning("%s 半场进球占比不可估计：%s", league, exc)
+                        hints = tiered_share(
+                            own_shares.get(league),
+                            combined,
+                            pooled=getattr(model, "pooled", False),
+                        )
                         half_share_hints[league] = hints
                         outcomes[league]["half_share"] = hints
+                        if hints is None:
+                            LOG.warning("%s 半场进球占比不可估计", league)
                     standard_days = {day, day + timedelta(days=1)}
                     national = open_national_fixtures(session, prediction_time)
                     result["sfc_extra_dates"] = sorted(

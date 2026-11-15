@@ -11,7 +11,7 @@ from pathlib import Path
 from zucai.cloud_feeds import digest
 from zucai.forecast_archive import verify_forecasts
 from zucai.forecast_publication import publication_times
-from zucai.predict.hafu_share import HAFU_SELECTIONS, ht_outcome_from_scores
+from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, ht_outcome_from_scores
 from zucai.prediction_disclosure import prior_disclosure
 from zucai.report.render import load_batch
 from zucai.sources.sporttery import BEIJING
@@ -326,10 +326,12 @@ def _hafu_statistics(rows):
         r for r in rows if r.get("half_full_time") and r["half_full_time"]["status"] == "scored"
     ]
     bins = [[] for _ in range(10)]
+    outcomes = [[] for _ in HAFU_SELECTIONS]
     for row in scored:
         block = row["half_full_time"]
         for key, probability in block["probabilities"].items():
             bins[min(int(probability * 10), 9)].append((probability, int(block["actual"] == key)))
+            outcomes[HAFU_SELECTIONS.index(key)].append((probability, int(block["actual"] == key)))
     n = len(scored)
 
     def mean(values):
@@ -352,6 +354,17 @@ def _hafu_statistics(rows):
                 "observed": mean([v[1] for v in values]),
             }
             for index, values in enumerate(bins)
+        ],
+        "outcomes": [
+            {
+                "outcome": HAFU_SELECTIONS[index],
+                "label": HAFU_LABELS[HAFU_SELECTIONS[index]],
+                "n": len(values),
+                "mean_p": mean([v[0] for v in values]),
+                "actual": int(sum(v[1] for v in values)),
+                "observed": mean([v[1] for v in values]),
+            }
+            for index, values in enumerate(outcomes)
         ],
     }
 
