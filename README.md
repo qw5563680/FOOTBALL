@@ -421,6 +421,9 @@ T23 的七个 **identity-only** 联赛只用于核验球队 ID，不进入每日
 核验流程为先运行 `operation=probe options={"probe_kind":"leagues"}`（leagues 留空选择这七个），
 每个 ID 一次 `/leagues?id=` 请求，核对名称、国家和联赛类型；这不是赛季权限证明。
 有成功审计后再运行 `operation=identity`，默认七联赛、`seasons=2025,2026`，最多 14 次 fixtures 请求。
+T68 第八节第 11 项起允许显式给出 2021–2024 历史赛季：`seasons=2021` 一联赛一季一次请求，
+跨四个历史赛季最多 7 × 4 = 28 次；默认范围不变，历史赛季只在显式给出时请求。
+英冠 40、法乙 62、巴甲 71 尚未进入赛事登记，须先经联赛探测与登记才能显式请求。
 identity 不额外查询 status，不补拉分页；不完整响应不作为核验依据。它只用已有 jc 和 T08 已核验的 fd
 比赛图生成候选证据，写入 `state/alias_candidates/apif.json` 和 `state/audit/apif_identity.csv`，
 不改变比赛、球队、赛果、冻结预测或竞彩水位。请求间隔 6.1 秒、reserve=10 保持原样。
@@ -463,7 +466,8 @@ reconcile 跳过并记录“目标联赛正式别名未传播”，避免合并�
 Actions → **Run workflow** 选择代码分支后使用以下参数（`days` 默认 3，`slot` 默认 auto）：
 `source` 选项统一为 fd / fdorg / apif，用于 backfill；probe 固定 apif，避免页面默认 fd 造成误用。
 `leagues` 输入默认留空，由步骤脚本决定：probe 用 `3,848`，backfill 用该来源默认范围。
-`seasons` 供赛季 probe（留空用 `2021-2026`）及 identity（留空用 `2025,2026`）；
+`seasons` 供赛季 probe（留空用 `2021-2026`）及 identity（留空用 `2025,2026`；
+显式给出时允许 2021–2026，一请求一季）；
 `probe_kind=leagues` 只查元数据，不接收年份；`from_season` / `to_season` 仅供 backfill，含首尾。
 
 T30 的 `probe_kind=stats` 只在手动 Actions 中探测逐场技术统计、事件、阵容、球员与伤停。

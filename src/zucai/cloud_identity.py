@@ -1,5 +1,7 @@
 """Reviewer-triggered, identity-only season captures. Never import matches or aliases."""
 
+import csv
+import io
 import json
 import logging
 import re
@@ -35,12 +37,45 @@ FIELDS = (
     "country",
     "canonical",
     "status",
+    "appearances_2021",
+    "appearances_2022",
+    "appearances_2023",
+    "appearances_2024",
     "appearances_2025",
     "appearances_2026",
     "jc_references",
     "reason",
     "evidence",
 )
+LEGACY_IDENTITY_FIELDS = FIELDS[:8] + FIELDS[12:]
+IDENTITY_UPGRADE_COLUMNS = (
+    "appearances_2021",
+    "appearances_2022",
+    "appearances_2023",
+    "appearances_2024",
+)
+
+
+def upgrade_identity_audit(path):
+    """T68 第八节第 11 项：13 列旧审计表一次升级为 17 列，旧行新增四列留空。"""
+    if not path.exists() or not path.stat().st_size:
+        return
+    with path.open(encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream, strict=True)
+        if reader.fieldnames == list(FIELDS):
+            return
+        if reader.fieldnames != list(LEGACY_IDENTITY_FIELDS):
+            raise ValueError("identity 审计表字段无效，拒绝覆盖已有证据")
+        previous = list(reader)
+    if any(None in row or any(v is None for v in row.values()) for row in previous):
+        raise ValueError("identity 审计表行无效，拒绝覆盖已有证据")
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=FIELDS)
+    writer.writeheader()
+    writer.writerows(
+        dict(row, **{column: "" for column in IDENTITY_UPGRADE_COLUMNS}) for row in previous
+    )
+    _atomic_write(path, buffer.getvalue().encode("utf-8"))
 
 
 def identity_scopes(codes=None, seasons=None):
@@ -48,8 +83,9 @@ def identity_scopes(codes=None, seasons=None):
     seasons = "2025,2026" if seasons is None else seasons
     if seasons == "2025-2026":
         seasons = "2025,2026"
-    if not re.fullmatch(r"202[56](?:,202[56])*", seasons):
-        raise ValueError("identity 仅核验 2025、2026 两季")
+    # T68 第八节第 11 项：fd 历史覆盖到的 2021 至 2024 赛季也允许身份核验。
+    if not re.fullmatch(r"202[1-6](?:,202[1-6])*", seasons):
+        raise ValueError("identity 仅核验 2021 至 2026 赛季")
     years = [int(year) for year in seasons.split(",")]
     if len(years) != len(set(years)):
         raise ValueError("identity 年份不得重复")
@@ -91,7 +127,7 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
         for code, config in selected.items():
             league = config["league"]
             games, provenance, intervals = {}, {}, []
-            appearances = {year: Counter() for year in (2025, 2026)}
+            appearances = {year: Counter() for year in range(2021, 2027)}
             inconsistent = False
             for year in years:
                 record_scope(state / "audit/apif_identity_scopes.csv", code, league, year)
@@ -206,6 +242,10 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
                             country=config["country"],
                             canonical=entry.get("canonical") or "",
                             status=entry["status"],
+                            appearances_2021=appearances[2021][key],
+                            appearances_2022=appearances[2022][key],
+                            appearances_2023=appearances[2023][key],
+                            appearances_2024=appearances[2024][key],
                             appearances_2025=appearances[2025][key],
                             appearances_2026=appearances[2026][key],
                             jc_references=json.dumps(references, ensure_ascii=False),
@@ -240,6 +280,7 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
                 row.update(status="proposed", canonical="", reason=str(exc))
             for item in report["leagues"].values():
                 item.update(auto_verified=0, proposed=item["teams"])
+        upgrade_identity_audit(state / "audit/apif_identity.csv")
         append_csv(state / "audit/apif_identity.csv", FIELDS, all_audit)
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(

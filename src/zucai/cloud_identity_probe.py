@@ -18,6 +18,22 @@ from zucai.sources.api_football import (
 from zucai.sources.base import RawStore
 from zucai.sources.football_data import read_json
 
+# T68 第八节第 11 项：库里有 fd 历史、但没有接口比赛的联赛，纳入历史赛季身份核验。
+# 其中 39/140/135/78/61/88/94 本就在已核准的 identity-only 范围内；40/62/71 尚未进入
+# provider_config，在登记之前集合不改变任何行为（identity_codes 只在显式给出且已配置时放行）。
+HISTORICAL_IDENTITY_LEAGUE_IDS = {
+    "39",
+    "140",
+    "135",
+    "78",
+    "61",
+    "88",
+    "94",
+    "40",
+    "62",
+    "71",
+}
+
 _DEFAULT_LEAGUES = LEAGUES
 FIELDS = (
     "run_id",
@@ -34,6 +50,9 @@ FIELDS = (
 
 
 def identity_codes(codes=None):
+    # T68 第八节第 11 项：库里有 fd 历史、但没有接口比赛的联赛纳入历史赛季身份核验；
+    # 历史联赛只在显式给出 codes 时允许，保持默认范围不变。
+    historical = HISTORICAL_IDENTITY_LEAGUE_IDS
     if LEAGUES == _DEFAULT_LEAGUES:
         configured = provider_config("apif")
         allowed = {str(code) for code in provider_ids("apif", "identity_only")} | {
@@ -42,6 +61,8 @@ def identity_codes(codes=None):
     else:
         configured = read_json(LEAGUES)
         allowed = {str(code) for code in APIF_IDENTITY_LEAGUE_IDS}
+    if codes is not None:
+        allowed = allowed | {code for code in historical if code in configured}
     selected = sorted(allowed) if codes is None else codes.split(",")
     if (
         not selected
@@ -51,11 +72,12 @@ def identity_codes(codes=None):
             or not (
                 configured.get(code, {}).get("identity_only")
                 or configured.get(code, {}).get("identity_bridge")
+                or (codes is not None and code in historical)
             )
             for code in selected
         )
     ):
-        raise ValueError("identity 仅支持已核准 identity-only 桥接联赛，不得重复")
+        raise ValueError("identity 仅支持已核准 identity-only 桥接联赛与 fd 历史联赛，不得重复")
     return {code: configured[code] for code in selected}
 
 

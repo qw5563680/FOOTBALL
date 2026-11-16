@@ -969,7 +969,9 @@ apif 回填的每季和联赛摘要新增前后对齐率：同一批不同球队
 日期解析、直接 fetch 和 backfill 均无法把桥接联赛导入比赛库。候选初始状态为
 `verification_status=needs_verification`、`verified_utc=null`；Claude 实测后改为 `verified`，
 时间逐条取元数据审计，`metadata_probe` 保留 run、数据提交与原件哈希。
-`seasons_available` 仍为空；`identity_seasons=[2025,2026]` 只限定身份核验目标，不开放比赛导入。
+`seasons_available` 仍为空；`identity_seasons` 默认仍是 2025、2026，只限定身份核验目标，
+不开放比赛导入；T68 第八节第 11 项起 2021–2024 历史赛季（fd 历史覆盖的联赛）也在允许范围，
+但仅在显式给出时请求，默认范围不变。
 
 `probe --probe-kind leagues` 只调用 `/leagues?id=`，将 ID、名称、国家、类型及安全原件核对结果
 写入 `state/audit/apif_league_probes.csv`。`identity` 必须找到各联赛最新的成功记录，
