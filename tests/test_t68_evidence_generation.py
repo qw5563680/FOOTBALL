@@ -1,7 +1,10 @@
 """T68 第八节第 10 项：生成的开启证据必须能被真实入口（build_register）核验。"""
 
+import hashlib
 import json
 from pathlib import Path
+
+import pytest
 
 from test_t68_daily_gate_entry import CUTOFF, bundle  # noqa: F401
 from test_t68_identity_archive_entry import archive as frozen_archive  # noqa: F401
@@ -31,6 +34,31 @@ def _seed_recent_originals(archive, root):
         target.write_bytes(day_json.read_bytes())
         meta = json.loads(Path(str(day_json) + ".meta.json").read_bytes())
         Path(str(target) + ".meta.json").write_text(json.dumps(meta, ensure_ascii=False))
+    manifest_path = archive / "feed_manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["created_utc"] = CUTOFF
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    seal(archive)
+
+
+def _seed_equivalent_archive(archive, root):
+    """JC supplements plus a freshly-captured season original, but NO date
+    captures: the generator must take the equivalent mode."""
+    for day_json in sorted((root / "jc").glob("*.json")):
+        if day_json.name.endswith(".meta.json"):
+            continue
+        day = day_json.stem
+        target = archive / f"state/catalogue/supplement/jc/2026-11/{day}-p1.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(day_json.read_bytes())
+        meta = json.loads(Path(str(day_json) + ".meta.json").read_bytes())
+        Path(str(target) + ".meta.json").write_text(json.dumps(meta, ensure_ascii=False))
+    # The season original must be captured after the window end and at most at
+    # the gate cutoff; CUTOFF sits on the window's end boundary, so it qualifies.
+    for meta_path in (archive / "state/catalogue").glob("**/fixtures_one.json.meta.json"):
+        meta = json.loads(meta_path.read_bytes())
+        meta["fetched_at_utc"] = CUTOFF
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False))
     manifest_path = archive / "feed_manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
     manifest["created_utc"] = CUTOFF
@@ -86,6 +114,77 @@ def test_archive_without_held_audit_generates_empty_list(bundle):  # noqa: F811
     assert result["teams"]["bound"] == 2
     assert result["matches"]["linked"] == 1
     assert result["status"] == "ready_for_review", result["evidence"]
+
+
+def test_forecast_archive_carries_into_exports_and_passes_the_gate(bundle):  # noqa: F811
+    """Real archives carry a root forecast manifest plus models; the exports must
+    preserve both (the second review's crash: forecasts/ without the manifest)."""
+    archive, root, _handcrafted = bundle
+    _seed_recent_originals(archive, root)
+    (archive / "models").mkdir()
+    latest = {"models": {}}
+    (archive / "models/latest.json").write_text(json.dumps(latest) + "\n", encoding="utf-8")
+    manifest = {
+        "version": 1,
+        "algorithm": "sha256",
+        "runs": {},
+        "files": {
+            "models/latest.json": hashlib.sha256(
+                (archive / "models/latest.json").read_bytes()
+            ).hexdigest()
+        },
+    }
+    (archive / "forecast_manifest.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    seal(archive)
+    out = root / "generated"
+    generated = generate(archive, "98", cutoff=CUTOFF, run_id="gen-1", out_root=out)
+    for name in (
+        "current-before",
+        "current-after",
+        "repeat-before",
+        "repeat-after",
+        "restored-export",
+        "recent-before",
+        "recent-after",
+    ):
+        assert (out / "98" / name / "forecast_manifest.json").is_file(), name
+        assert (out / "98" / name / "models/latest.json").is_file(), name
+    result = gate.build_register(
+        archive, CUTOFF, codes=["98"], evidence={"98": generated}, evidence_root=out
+    )["leagues"][0]
+    assert result["teams"]["bound"] == 2
+    assert result["matches"]["linked"] == 1
+    assert result["status"] == "ready_for_review", result["evidence"]
+
+
+def test_failed_generation_never_modifies_the_archive(bundle, monkeypatch):  # noqa: F811
+    import zucai.identity_gate_evidence_gen as evidence_gen
+
+    archive, root, _handcrafted = bundle
+    _seed_recent_originals(archive, root)
+    before = {
+        p.relative_to(archive).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in archive.rglob("*")
+        if p.is_file()
+    }
+    original = evidence_gen._export_state
+    calls = {"count": 0}
+
+    def flaky(database, source_archive, folder, day, cutoff):
+        calls["count"] += 1
+        if calls["count"] == 4:
+            raise RuntimeError("injected export failure")
+        return original(database, source_archive, folder, day, cutoff)
+
+    monkeypatch.setattr(evidence_gen, "_export_state", flaky)
+    with pytest.raises(RuntimeError, match="injected export failure"):
+        generate(archive, "98", cutoff=CUTOFF, run_id="gen-fail", out_root=root / "fail-out")
+    after = {
+        p.relative_to(archive).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in archive.rglob("*")
+        if p.is_file()
+    }
+    assert after == before, set(after) ^ set(before)
 
 
 def test_cloud_identity_evidence_entry_persists_only_small_artifacts(  # noqa: F811
@@ -193,3 +292,32 @@ def test_cloud_identity_evidence_entry_persists_only_small_artifacts(  # noqa: F
     from zucai.cloud_feeds import restore_feeds
 
     restore_feeds(clean, tmp_path / "restored/data/feeds.db")
+
+
+def test_equivalent_mode_recent_replay_passes_the_gate(bundle):  # noqa: F811
+    """没有日期原件时走 equivalent 模式：赛季原件当分母，六类边界样例齐备，
+    生成的证据仍能被真实入口核验为 ready_for_review。"""
+    archive, root, _handcrafted = bundle
+    _seed_equivalent_archive(archive, root)
+    out = root / "generated"
+    generated = generate(archive, "98", cutoff=CUTOFF, run_id="gen-1", out_root=out)
+    assert generated["recent_replay"]["mode"] == "equivalent"
+    cases = json.loads((out / "98" / "recent-boundary-cases.json").read_bytes())
+    assert {case["category"] for case in cases} == {
+        "unbound",
+        "same_team_same_time",
+        "reversed",
+        "rejected",
+        "partial_pages",
+        "cross_day",
+    }
+    for case in cases:
+        assert case["outcome"] == "verified"
+        assert case["fixture_ids"]
+        assert case["replay"]["results"]
+    result = gate.build_register(
+        archive, CUTOFF, codes=["98"], evidence={"98": generated}, evidence_root=out
+    )["leagues"][0]
+    assert result["teams"]["bound"] == 2
+    assert result["matches"]["linked"] == 1
+    assert result["status"] == "ready_for_review", result["evidence"]

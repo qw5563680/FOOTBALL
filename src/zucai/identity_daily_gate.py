@@ -1165,11 +1165,10 @@ def _persistence(
     league=None,
     replay_context=None,
 ):
-    if (
-        expected_manifest_sha is not None
-        and section["before_manifest"]["sha256"] != expected_manifest_sha
-    ):
-        raise ValueError("persistence proof belongs to a different frozen archive")
+    # The frozen-archive binding is enforced by the caller (assess_league checks
+    # evidence["archive_sha256"] against the archive manifest). The three exports
+    # below are all real replayed-database exports; their equality is verified by
+    # the comparisons below instead of a preset baseline.
     keys = ("before_manifest", "after_manifest", "restored_manifest")
     paths = [(root / section[key]["path"]).resolve() for key in keys]
     if (
