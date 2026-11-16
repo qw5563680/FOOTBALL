@@ -5,7 +5,8 @@ import csv
 import io
 import json
 import re
-from datetime import UTC, datetime, timedelta
+from collections import defaultdict
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
@@ -70,25 +71,254 @@ def _entry(team):
     )
 
 
+INTERNATIONAL_COUNTRIES = {"World", "International", "Europe"}
+
+
+def _import_configs(registry):
+    return {
+        code: entry["config"]
+        for code, entry in registry["providers"]["apif"].items()
+        if entry["status"] == "verified" and entry.get("mode") == "import"
+    }
+
+
+def _country_by_code(registry):
+    countries = {}
+    for row in registry.get("competitions", []):
+        proposal = row.get("api_catalogue_proposal") or {}
+        for entry in proposal.get("entries", []):
+            code = str(entry.get("code"))
+            if entry.get("country"):
+                countries[code] = entry["country"]
+    return countries
+
+
+def _binding_index(facts):
+    """jc official number -> the witness-complete binding proposals that carry it."""
+    from zucai.identity_binding import propose_bindings
+
+    proposals = propose_bindings(
+        facts["apif"],
+        facts["official"],
+        facts["teams"],
+        formal=facts["formal"],
+        observed_utc=facts["summary"].get("observed_utc"),
+        occupied=facts["occupied"],
+        formal_sha256=facts["summary"].get("formal_aliases_sha256"),
+    )
+    index = defaultdict(list)
+    for entries in proposals["apif"].values():
+        for entry in entries.values():
+            target = entry.get("canonical_team_id") or ""
+            if target.startswith("jc-team:"):
+                index[target[len("jc-team:") :]].append(entry)
+    return index
+
+
+def _unique_provider(entries):
+    # strict_verified and conditional_verified both carry complete same-match
+    # witnesses; conditional only lacks the stored-counterpart strengthening.
+    providers = {
+        str(entry.get("provider_team_id"))
+        for entry in entries
+        if entry.get("evidence_status") in {"strict_verified", "conditional_verified"}
+        and entry.get("provider_team_id")
+    }
+    return next(iter(providers)) if len(providers) == 1 else None
+
+
+def _formal_target(facts, provider_id):
+    """Approved alias-table entry for the provider team id, when it names a stored team."""
+    names = {
+        normalize_team(other["name"])
+        for other_key, other in facts["teams"].items()
+        if other_key.startswith("project-team:") and other.get("name")
+    }
+    for entries in facts["formal"].values():
+        for pid, entry in entries.items():
+            if str(pid) != str(provider_id):
+                continue
+            if entry.get("status") not in {"approved", "auto_verified"}:
+                continue
+            canonical = normalize_team(entry.get("canonical"))
+            if canonical not in names:
+                continue
+            for other_key, other in facts["teams"].items():
+                if (
+                    other_key.startswith("project-team:")
+                    and other.get("name")
+                    and normalize_team(other["name"]) == canonical
+                ):
+                    return other["project_team_id"], entry.get("canonical")
+    return None
+
+
+def _same_name_target(facts, team):
+    for other_key, other in facts["teams"].items():
+        if not other_key.startswith("project-team:") or other.get("identity_key") != other_key:
+            continue
+        if (
+            team.get("name")
+            and other.get("name")
+            and normalize_team(other["name"]) == normalize_team(team["name"])
+        ):
+            return other["project_team_id"], other["name"]
+    return None
+
+
+def _competition_of(facts, team):
+    for observation in team.get("official_name_evidence", []):
+        for row in facts["official"]:
+            if row.get("match_id") == observation.get("match_id"):
+                return str(row.get("competition_id"))
+    return None
+
+
+def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_code):
+    """Leagues whose stored, unbound, fd/fdorg-only teams share the candidate's country."""
+    candidate_country = countries.get(str(candidate_code))
+    if not candidate_country or candidate_country in INTERNATIONAL_COUNTRIES:
+        international = True
+    else:
+        international = False
+    league_codes = {config.get("league"): code for code, config in configs.items()}
+    teams_sources = defaultdict(set)
+    teams_leagues = defaultdict(set)
+    for row in tables["matches"]:
+        for side in ("home", "away"):
+            tid = row.get(f"{side}_team_id")
+            if tid is None:
+                continue
+            teams_sources[str(tid)].add(row.get("source"))
+            if row.get("league"):
+                teams_leagues[str(tid)].add(row["league"])
+    unbound = {
+        other["project_team_id"]
+        for other_key, other in facts["teams"].items()
+        if other_key.startswith("project-team:") and other.get("identity_key") == other_key
+    }
+    leagues = set()
+    for tid in unbound:
+        sources = teams_sources.get(tid, set())
+        if not sources or not sources <= {"fd", "fdorg"}:
+            continue
+        for league in teams_leagues.get(tid, set()):
+            country = countries.get(league_codes.get(league) or "")
+            if international or country == candidate_country:
+                leagues.add(league)
+    return sorted(leagues)
+
+
+def _existing_team_verdict(facts, tables, team, key, *, configs, countries, index, code=None):
+    """三结论之一：「新建」「关联库内既有球队」「待核」（T68 第八节第 7 项，2026-11-16 更正版）。
+
+    关联既有球队只能来自：绑定提案给出唯一、见证齐全的接口球队编号 X，且
+    X 在别名表已有获批条目指向库内球队；或库内已有同名中文球队（竞彩同步时
+    建立、尚无官方编号证据）。名称相似度、译名、人工对照表一律不参与。
+    没有检查到证据时不得默认「新建」。
+    """
+    official = team["official_team_id"]
+    if code is None:
+        code = _competition_of(facts, team)
+    entries = index.get(str(official), [])
+    provider_id = _unique_provider(entries)
+    has_provider_originals = any(
+        str(row.get("competition_id")) == str(code) for row in facts.get("apif", [])
+    )
+    if provider_id is None and has_provider_originals:
+        return dict(
+            status="pending_review",
+            missing=[
+                "绑定提案未给出唯一且见证齐全的接口球队编号 X（无法与库内既有球队做比赛证据比对）"
+            ],
+            basis="no_unique_witnessed_provider_team",
+        )
+    if provider_id is not None:
+        formal_target = _formal_target(facts, provider_id)
+        if formal_target is not None:
+            project_team_id, canonical = formal_target
+            return dict(
+                status="existing",
+                basis="approved_alias_entry",
+                project_team_id=project_team_id,
+                provider_team_id=provider_id,
+                canonical=canonical,
+                说明=(
+                    f"接口球队编号 {provider_id} 在别名表已有获批条目指向库内球队 "
+                    f"{canonical}（同一接口球队编号），不是新建。"
+                ),
+            )
+    same_name = _same_name_target(facts, team)
+    if same_name is not None:
+        project_team_id, name = same_name
+        return dict(
+            status="existing",
+            basis="same_chinese_name_without_official_evidence",
+            project_team_id=project_team_id,
+            说明=(
+                f"库内已有同名中文球队 {name}（竞彩同步时建立、尚无官方编号证据），"
+                "关联并补编号证据，不是新建。"
+            ),
+        )
+    leagues = _fd_only_leagues_in_country(tables, facts, configs, countries, code)
+    if leagues:
+        return dict(
+            status="pending_review",
+            missing=[
+                f"库内 {league} 存在只由 fd/fdorg 建立、无获批接口编号的球队，"
+                f"与该赛事同属一个国家；需要 {league} 历史赛季的接口原件"
+                "（只用于身份核对，不进训练）才能判断是否同一球队"
+                for league in leagues
+            ],
+            basis="unverified_same_country_fd_teams",
+        )
+    if provider_id is not None:
+        return dict(
+            status="new",
+            basis="unique_witnessed_provider_team_without_existing_indication",
+            说明=(
+                f"接口球队编号 {provider_id} 见证齐全且唯一，别名表无获批条目、"
+                "库内无同名中文球队、无同国 fd/fdorg 无编号球队，可新建。"
+            ),
+        )
+    return dict(
+        status="new",
+        basis="archive_without_provider_originals",
+        说明=(
+            "该归档不含该赛事的接口原件，无法在此归档上复核接口球队编号 X；"
+            "库内无获批别名条目、无同名中文球队、无同国 fd/fdorg 无编号球队，可新建。"
+        ),
+    )
+
+
+def _verdict_context(facts, tables, registry):
+    configs = _import_configs(registry)
+    countries = _country_by_code(registry)
+    index = _binding_index(facts)
+    return configs, countries, index
+
+
 def propose(archive, *, codes=None):
     from zucai.identity_binding_archive import _tables, load_archive
     from zucai.league_registry import load_registry
 
-    allowed = {
-        c for c, e in load_registry()["providers"]["apif"].items() if e["status"] == "verified"
-    }
+    registry = load_registry()
+    allowed = {c for c, e in registry["providers"]["apif"].items() if e["status"] == "verified"}
     codes = sorted(allowed if codes is None else codes)
     if not codes or not set(codes) <= allowed:
         raise ValueError("Creation proposals require verified catalogue routes")
     facts = load_archive(archive, leagues=codes)
     tables, _ = _tables(archive)
+    configs, countries, index = _verdict_context(facts, tables, registry)
     rows = [
         (key, team)
         for key, team in sorted(facts["teams"].items())
         if key.startswith("jc-team:") and team["identity_status"] == "creation_proposed"
     ]
     verdicts = {
-        team["official_team_id"]: _existing_team_verdict(facts, tables, team, key)
+        team["official_team_id"]: _existing_team_verdict(
+            facts, tables, team, key, configs=configs, countries=countries, index=index
+        )
         for key, team in rows
     }
     return dict(
@@ -99,114 +329,6 @@ def propose(archive, *, codes=None):
         existing_team_verdicts=verdicts,
         production_writes=0,
     )
-
-
-def _existing_team_verdict(facts, tables, team, key):
-    """三结论之一：「新建」「关联库内既有球队」「待核」。
-
-    关联既有球队只能来自比赛证据（同一场比赛在两个来源里开球时刻、主客方向、
-    常规时间比分一致，且对手身份已确定），或库内已有同名中文球队（竞彩同步时
-    建立、尚无官方编号证据）。任何名称相似度、译名或人工对照表都不参与判断。
-    """
-    matches = {r["match_id"]: r for r in tables["matches"]}
-    results = {r["match_id"]: r for r in tables["results"]}
-    pending = []
-    for observation in team.get("official_name_evidence", []):
-        match_id = observation.get("match_id")
-        side = observation.get("side")
-        stored = matches.get(match_id)
-        if stored is None or side not in ("home", "away"):
-            continue
-        counterpart = stored.get("counterpart_id")
-        if not counterpart:
-            continue
-        opposite = "away" if side == "home" else "home"
-        other = matches.get(counterpart)
-        if other is None:
-            pending.append(dict(match_id=match_id, missing=[f"关联源比赛 {counterpart} 不在库"]))
-            continue
-        k1, k2 = stored.get("kickoff_utc"), other.get("kickoff_utc")
-        kickoff_ok = bool(k1 and k2 and abs(_utc(k1) - _utc(k2)) <= timedelta(hours=3))
-        r1, r2 = results.get(match_id), results.get(counterpart)
-        score_ok = bool(
-            r1
-            and r2
-            and r1.get("home_goals") is not None
-            and r2.get("home_goals") is not None
-            and (r1["home_goals"], r1["away_goals"]) == (r2["home_goals"], r2["away_goals"])
-        )
-        candidate_tid = other.get(f"{side}_team_id")
-        opponent_tid = other.get(f"{opposite}_team_id")
-        opponent_key = None
-        opponent_entry = next(
-            (
-                (other_key, entry)
-                for other_key, entry in facts["teams"].items()
-                if other_key != key
-                and other_key.startswith("jc-team:")
-                and entry.get("project_team_id") is not None
-                and str(entry["project_team_id"]) == str(stored.get(f"{opposite}_team_id"))
-                and entry.get("identity_status") != "conflict"
-            ),
-            (None, None),
-        )
-        if opponent_entry is not None:
-            opponent_key, opponent_entry = opponent_entry
-        opponent_ok = bool(
-            candidate_tid is not None
-            and opponent_tid is not None
-            and opponent_entry
-            and str(opponent_entry["project_team_id"]) == str(opponent_tid)
-        )
-        if kickoff_ok and score_ok and opponent_ok:
-            return dict(
-                status="existing",
-                basis="match_evidence",
-                project_team_id=str(candidate_tid),
-                evidence=[
-                    dict(
-                        jc_match_id=match_id,
-                        provider_match_id=counterpart,
-                        side=side,
-                        kickoff_utc=[str(k1), str(k2)],
-                        score=[int(r1["home_goals"]), int(r1["away_goals"])],
-                        opponent_jc_key=opponent_key,
-                        opponent_project_team_id=str(opponent_tid),
-                        provenance=observation.get("originals", []),
-                    )
-                ],
-            )
-        missing = []
-        if not kickoff_ok:
-            missing.append("开球时刻不一致或缺失")
-        if not score_ok:
-            missing.append("常规时间比分不一致或缺失")
-        if not opponent_ok:
-            missing.append("对手身份未确定")
-        pending.append(dict(match_id=match_id, provider_match_id=counterpart, missing=missing))
-    for other_key, other in facts["teams"].items():
-        if not other_key.startswith("project-team:") or other.get("identity_key") != other_key:
-            continue
-        if (
-            team.get("name")
-            and other.get("name")
-            and normalize_team(other["name"]) == normalize_team(team["name"])
-        ):
-            return dict(
-                status="existing",
-                basis="same_chinese_name_without_official_evidence",
-                project_team_id=other["project_team_id"],
-                evidence=[
-                    dict(
-                        project_team_name=other["name"],
-                        official_team_id=team["official_team_id"],
-                        provenance=other.get("provenance", []),
-                    )
-                ],
-            )
-    if pending:
-        return dict(status="pending_review", missing=pending)
-    return dict(status="new", evidence=[])
 
 
 def _approval(decision):
@@ -377,13 +499,25 @@ def apply_approvals(database, archive, approvals):
         raise ValueError("Explicit creation decisions required")
     from zucai.league_registry import load_registry
 
-    allowed = {
-        c for c, e in load_registry()["providers"]["apif"].items() if e["status"] == "verified"
-    }
+    registry = load_registry()
+    allowed = {c for c, e in registry["providers"]["apif"].items() if e["status"] == "verified"}
     codes = document.get("codes")
     if not isinstance(codes, list) or not codes or not set(codes) <= allowed:
         raise ValueError("Creation decision route scope invalid")
     facts = load_archive(archive, leagues=codes)
+    verdict_configs, verdict_countries, verdict_index = _verdict_context(facts, tables, registry)
+    verdicts = {}
+    for key, team in facts["teams"].items():
+        if key.startswith("jc-team:") and team.get("official_team_id"):
+            verdicts[team["official_team_id"]] = _existing_team_verdict(
+                facts,
+                tables,
+                team,
+                key,
+                configs=verdict_configs,
+                countries=verdict_countries,
+                index=verdict_index,
+            )
     audit = database.parent / RECEIPTS
     before = audit.read_bytes() if audit.exists() else None
     receipts = _read_receipts(audit)
@@ -407,6 +541,25 @@ def apply_approvals(database, archive, approvals):
         team = facts["teams"].get("jc-team:" + decision["official_team_id"])
         if team is None:
             raise ValueError("Official numeric evidence missing")
+        # T68 第八节第 7 项：apply 在运行时重新计算既有球队结论；
+        # 不是「新建」的一律拒绝创建。
+        verdict = verdicts.get(decision["official_team_id"])
+        if verdict is None:
+            verdict = _existing_team_verdict(
+                facts,
+                tables,
+                team,
+                "jc-team:" + decision["official_team_id"],
+                configs=verdict_configs,
+                countries=verdict_countries,
+                index=verdict_index,
+            )
+        if verdict["status"] != "new":
+            raise ValueError(
+                f"创建被拒绝：官方编号 {decision['official_team_id']} "
+                f"结论为 {verdict['status']}（{verdict.get('basis')}）；"
+                f"{verdict.get('说明') or '；'.join(verdict.get('missing', []))}"
+            )
         expected = _entry(team)
         if expected["blockers"] or any(
             decision.get(k) != expected[k] for k in ("canonical", "category", "official_names")
