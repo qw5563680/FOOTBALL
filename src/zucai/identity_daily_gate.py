@@ -425,6 +425,22 @@ def _facts_coverage(facts, code):
     linked_ids = {r["jc_id"] for r in linked}
     unverified_sources = [r for r in unresolved if r["jc_id"] in linked_ids]
     unresolved = [r for r in unresolved if r["jc_id"] not in linked_ids]
+    # Cancelled jc fixtures without any stored result are not unresolved:
+    # they were never played, so there is nothing left to link. They are
+    # reported separately with their ids; postponed/moved/resultless fixtures
+    # keep counting as unresolved.
+    cancelled_without_result = []
+    remaining = []
+    for entry in unresolved:
+        settled = any(
+            result.get("match_id") == entry["jc_id"] and result.get("home_goals") is not None
+            for result in facts.get("results", [])
+        )
+        if matches.get(entry["jc_id"], {}).get("status") == "cancelled" and not settled:
+            cancelled_without_result.append(entry["jc_id"])
+        else:
+            remaining.append(entry)
+    unresolved = remaining
     pending = prior_pending(facts, code)
     represented = {r["provider_match_id"] for r in linked}
     pending_extra = [r for r in pending if r["fixture_id"] not in represented]
@@ -489,6 +505,8 @@ def _facts_coverage(facts, code):
             apif_link_rate=counts["apif"] / total if total else None,
             relations=linked,
             unresolved=unresolved,
+            cancelled_without_result_count=len(cancelled_without_result),
+            cancelled_without_result_ids=cancelled_without_result,
             unverified_source_relations=unverified_sources,
             relation_conflicts=graph_conflicts,
         ),
