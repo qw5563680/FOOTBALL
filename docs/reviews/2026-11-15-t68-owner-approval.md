@@ -278,3 +278,18 @@
   - 清单新增 `apif_backfill` 记录，原有来源记录不变；
   - `forecasts/`、`models/`、`scoreboard/`、`daily/`、`sfc/` 无变化。
 - 尚未完成：沙职不在每日采集名单里，以后的赛程与赛果不会自动更新；沙职还没有模型（T62）。
+
+## 登记沙职当前赛季（2026-11-16 00:10 UTC，随本 PR 交所有者合并）
+
+沙职开启每日采集的检查第一道阻断是登记里没有 `current_season`。本 PR 只在 `data/league_map.json` 的接口路线 307 写入
+`current_season: 2026` 并补两条证据；`daily` 保持 `false`，`seasons_available` 不变。
+
+- 证据一：数据分支已有的接口赛事目录原件 `state/catalogue/43539439430-1/apif-raw.json`（`/response/269/seasons/10`）：
+  2026 赛季，2026-08-13 至 2027-05-29，`current` 为真。不按年份推断。
+- 证据二：所有者批准的线上导入（Actions 运行 43766439235）实际取到该赛季：HTTP 200、306 场、1 页、无错误，
+  原件 `state/catalogue/43766439235-1/backfill/api-football/2026-11-15/fixtures_215726315209Z_9b29a0e3c75840378c67033d20574d45.json`。
+- 没有新增接口请求。现有的赛季探测入口（`operation=probe`）只允许 3、848 与九个旧联赛，不能探测 307，所以用上面两份已归档的原件。
+- 影响范围：读取接口路线 `current_season` 的只有每日开启检查与清点工具；每日采集、回填、训练、预测都不读这一项。
+- 审查者在数据分支 `6352f61` 的副本上用改后的登记重跑 `identity_daily_gate --codes 307`：赛季范围已核验，球队 21/21，
+  比赛 28 场关联 27 场；剩余阻断只有 `current_season_fixtures_unresolved`（已取消的 `jc:2041980`，任务单第八节第 9 项），
+  另缺四份须由审查者在 Actions 上取得的证据。`daily_changed` 为假。
