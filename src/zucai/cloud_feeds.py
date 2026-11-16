@@ -80,7 +80,7 @@ TABLES = {
 }
 MANIFEST = "feed_manifest.json"
 BACKFILL_COLLECTIONS = {source: f"{source}_backfill" for source in ("apif", "fdorg", "fd")}
-MANUAL_COLLECTIONS = {"apif_scoped", "canonical_apply"}
+MANUAL_COLLECTIONS = {"apif_scoped", "canonical_apply", "identity_evidence"}
 CANONICAL_APPROVALS_PATH = (
     Path(__file__).resolve().parents[2] / "data/identity_reviews/t68-canonical-approvals.json"
 )
@@ -729,6 +729,7 @@ def main():
             "reconcile",
             "scoped-reconcile",
             "canonical-apply",
+            "identity-evidence",
         ),
     )
     parser.add_argument("--archive", required=True, type=Path)
@@ -806,9 +807,13 @@ def main():
             from zucai.sources.fd_counterpart import require_relink_actions
 
         require_relink_actions()
-    if args.command not in {"backfill", "probe", "identity", "scoped-reconcile"} and any(
-        v is not None for v in (args.leagues, args.source)
-    ):
+    if args.command not in {
+        "backfill",
+        "probe",
+        "identity",
+        "scoped-reconcile",
+        "identity-evidence",
+    } and any(v is not None for v in (args.leagues, args.source)):
         parser.error(
             "--source / --leagues 仅供 backfill / probe / identity / scoped-reconcile 使用"
         )
@@ -825,7 +830,7 @@ def main():
         parser.error("--probe-kind 仅供 probe 使用")
     if args.per_scope is not None and (args.command != "probe" or args.probe_kind != "stats"):
         parser.error("--per-scope 仅供 probe --probe-kind stats 使用")
-    if args.command in {"reconcile", "scoped-reconcile", "canonical-apply"}:
+    if args.command in {"reconcile", "scoped-reconcile", "canonical-apply", "identity-evidence"}:
         from zucai.cloud_probe import require_probe_actions
 
         require_probe_actions()
@@ -888,6 +893,7 @@ def main():
         "reconcile",
         "scoped-reconcile",
         "canonical-apply",
+        "identity-evidence",
     }:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
@@ -978,6 +984,72 @@ def main():
         }
         summary_collection = "canonical_apply"
         day = date.fromisoformat(meta["through_beijing"])
+    if args.command == "identity-evidence":
+        from zucai.identity_daily_gate import build_register
+        from zucai.identity_gate_evidence_gen import generate
+        from zucai.league_registry import load_registry
+
+        codes = sorted(set((args.leagues or "").split(","))) if args.leagues else []
+        if not codes:
+            parser.error("identity-evidence 需要 --leagues 提供已核准的接口赛事编号")
+        registry = load_registry()
+        import_codes = {
+            c
+            for c, e in registry["providers"]["apif"].items()
+            if e["status"] == "verified" and e.get("mode") == "import"
+        }
+        if not set(codes) <= import_codes:
+            raise ValueError("identity-evidence 仅接受已核准的导入赛事编号")
+        cutoff = datetime.now(UTC).isoformat()
+        evidence_root = archive / f"state/identity_gate_evidence/{args.run_id}"
+        evidence = {}
+        for code in codes:
+            evidence[code] = generate(
+                archive,
+                code,
+                cutoff=cutoff,
+                run_id=args.run_id,
+                out_root=evidence_root / code,
+            )
+        register = build_register(
+            archive, cutoff, codes=codes, evidence=evidence, evidence_root=evidence_root
+        )
+        summaries = {
+            code: dict(
+                status=entry["status"],
+                teams_bound=entry["teams"]["bound"],
+                matches_linked=entry["matches"]["linked"],
+                blockers=sorted(entry["blockers"]),
+                missing=sorted(entry["missing_evidence"]),
+            )
+            for code, entry in register["leagues"].items()
+        }
+        from zucai.cloud_predict import _json as cloud_json
+
+        cloud_json(evidence_root / "register.json", register)
+        collection = {
+            "identity_evidence": {
+                "operation": "identity-evidence",
+                "status": "complete",
+                "run_id": args.run_id,
+                "codes": codes,
+                "leagues": summaries,
+            }
+        }
+        summary_collection = "identity_evidence"
+        day = date.fromisoformat(meta["through_beijing"])
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+                summary.write("### 开启证据生成与开启检查\n\n")
+                for code, item in summaries.items():
+                    summary.write(
+                        f"- {code}：{item['status']}；绑定 {item['teams_bound']} 队；"
+                        f"关联 {item['matches_linked']} 场；阻断 {item['blockers']}；"
+                        f"缺项 {item['missing']}。\n"
+                    )
+                summary.write(
+                    f"\n证据与检查结论：{evidence_root.relative_to(archive).as_posix()}/register.json。\n\n"
+                )
     if args.command in {"probe", "identity"}:
         if args.command == "identity":
             from zucai.cloud_identity import collect_identity as collector
@@ -1108,6 +1180,10 @@ def main():
         previous = separate_backfill_collection(meta.get("collection", {}))
         published_collection = {**previous, **collection}
         status_collection = daily_collection(previous)
+    elif args.command == "identity-evidence":
+        previous = separate_backfill_collection(meta.get("collection", {}))
+        published_collection = {**previous, **collection}
+        status_collection = daily_collection(previous)
     manifest = export_feeds(
         target,
         archive,
@@ -1135,7 +1211,14 @@ def main():
         verify_forecasts(archive)
         LOG.info("%s 历史回填归档恢复校验通过", provider)
         write_summary(collection[summary_collection])
-    if args.command in {"probe", "identity", "reconcile", "scoped-reconcile", "canonical-apply"}:
+    if args.command in {
+        "probe",
+        "identity",
+        "reconcile",
+        "scoped-reconcile",
+        "canonical-apply",
+        "identity-evidence",
+    }:
         from zucai.forecast_archive import verify_forecasts
 
         with TemporaryDirectory(prefix="apif-probe-verify-") as temporary:
@@ -1174,6 +1257,8 @@ def main():
                     for receipt in result.get("records", []):
                         summary.write(f"- {receipt['official_team_id']} {receipt['canonical']}\n")
                     summary.write("\n审计：state/audit/jc_canonical_identities.csv。\n\n")
+        elif args.command == "identity-evidence":
+            pass  # 逐赛事摘要已在生成步骤写入
         else:
             identity_summary(collection[summary_collection])
             if args.command == "reconcile":

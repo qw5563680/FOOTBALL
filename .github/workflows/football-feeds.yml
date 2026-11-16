@@ -141,7 +141,7 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals", "identity_evidence"}
           if not isinstance(options, dict) or set(options) - allowed:
               raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests, canonical_approvals")
           if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs"}:
@@ -161,6 +161,10 @@ jobs:
               raise SystemExit("canonical_approvals is only valid for reconcile")
           if options.get("canonical_approvals") and os.environ.get("LEAGUES", ""):
               raise SystemExit("canonical_approvals requires empty leagues")
+          if type(options.get("identity_evidence", False)) is not bool:
+              raise SystemExit("identity_evidence must be a boolean")
+          if options.get("identity_evidence") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
+              raise SystemExit("identity_evidence is only valid for reconcile")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
@@ -283,11 +287,19 @@ jobs:
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds scoped-reconcile --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --leagues "$SCOPED_CODES"
       - name: Apply approved canonical identity creations without network
-        if: ${{ env.FEED_MODE == 'reconcile' && fromJSON(inputs.options || '{}').canonical_approvals == true }}
+        if: ${{ env.FEED_MODE == 'reconcile' && fromJSON(inputs.options || '{}').canonical_approvals == true && fromJSON(inputs.options || '{}').identity_evidence != true }}
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
           python -m zucai.cloud_feeds canonical-apply --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Generate opening evidence and run the opening check without network
+        if: ${{ env.FEED_MODE == 'reconcile' && fromJSON(inputs.options || '{}').identity_evidence == true }}
+        env:
+          EVIDENCE_CODES: ${{ inputs.leagues }}
+        run: |
+          mkdir "$WORK_DIR"
+          cd "$WORK_DIR"
+          python -m zucai.cloud_feeds identity-evidence --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --leagues "$EVIDENCE_CODES"
       - name: Relink fdorg to existing fd without network
         if: ${{ env.FEED_MODE == 'relink-fdorg' }}
         run: |
@@ -372,7 +384,7 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals", "identity_evidence"}
           if not isinstance(options, dict) or set(options) - allowed:
               raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests, canonical_approvals")
           if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs"}:
@@ -392,6 +404,10 @@ jobs:
               raise SystemExit("canonical_approvals is only valid for reconcile")
           if options.get("canonical_approvals") and os.environ.get("LEAGUES", ""):
               raise SystemExit("canonical_approvals requires empty leagues")
+          if type(options.get("identity_evidence", False)) is not bool:
+              raise SystemExit("identity_evidence must be a boolean")
+          if options.get("identity_evidence") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
+              raise SystemExit("identity_evidence is only valid for reconcile")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
@@ -461,7 +477,7 @@ jobs:
           import json
           import os
           options = json.loads(os.environ.get("DISPATCH_OPTIONS") or "{}")
-          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals"}
+          allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals", "identity_evidence"}
           if not isinstance(options, dict) or set(options) - allowed:
               raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests, canonical_approvals")
           if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs"}:
@@ -481,6 +497,10 @@ jobs:
               raise SystemExit("canonical_approvals is only valid for reconcile")
           if options.get("canonical_approvals") and os.environ.get("LEAGUES", ""):
               raise SystemExit("canonical_approvals requires empty leagues")
+          if type(options.get("identity_evidence", False)) is not bool:
+              raise SystemExit("identity_evidence must be a boolean")
+          if options.get("identity_evidence") and os.environ.get("ZUCAI_OPERATION") != "reconcile":
+              raise SystemExit("identity_evidence is only valid for reconcile")
           if options.get("slot", "auto") not in ("auto", "early", "late"):
               raise SystemExit("slot must be auto, early or late")
           count = options.get("per_scope", 1)
