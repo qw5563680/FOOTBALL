@@ -317,8 +317,8 @@ def test_cloud_identity_evidence_entry_persists_only_small_artifacts(  # noqa: F
 
 
 def test_equivalent_mode_never_fabricates_boundary_samples(bundle):  # noqa: F811
-    """没有日期原件时走 equivalent 模式：真实窗口照常重放，但程序不构造边界样例，
-    也不借用别的原件的抓取元数据；六类如实列为缺项，开启检查据此判定证据不足。"""
+    """没有日期原件时走 equivalent 模式：真实窗口照常重放；程序不构造边界样例，
+    也不借用别的原件的抓取元数据。六类边界处置由离线测试保证，开启检查如实写明这一点。"""
     archive, root, _handcrafted = bundle
     _seed_equivalent_archive(archive, root)
     out = root / "generated"
@@ -326,14 +326,10 @@ def test_equivalent_mode_never_fabricates_boundary_samples(bundle):  # noqa: F81
     assert generated["generation_errors"] == {}
     assert generated["recent_replay"]["mode"] == "equivalent"
     assert json.loads((out / "98" / "recent-boundary-cases.json").read_bytes()) == []
-    assert {item["category"] for item in generated["recent_replay"]["boundary_missing"]} == {
-        "unbound",
-        "same_team_same_time",
-        "reversed",
-        "rejected",
-        "partial_pages",
-        "cross_day",
-    }
+    assert {
+        item["category"]: item["covered_by_test"]
+        for item in generated["recent_replay"]["boundary_missing"]
+    } == gate.BOUNDARY_TESTS
     # 证据目录里除了归档原件的原样副本，没有任何新写出的“原件”。
     assert not list((out / "98").glob("case-*"))
     originals = {
@@ -347,11 +343,22 @@ def test_equivalent_mode_never_fabricates_boundary_samples(bundle):  # noqa: F81
     result = gate.build_register(
         archive, CUTOFF, codes=["98"], evidence={"98": generated}, evidence_root=out
     )["leagues"][0]
-    assert result["status"] == "insufficient_evidence"
-    assert "recent_replay" in result["missing_evidence"]
-    assert "risk distribution" in result["evidence"]["recent_replay"]["reason"]
-    assert "current_season_replay" not in result["missing_evidence"]
-    assert "persistence" not in result["missing_evidence"]
+    assert result["status"] == "ready_for_review", result["evidence"]
+    assert result["evidence"]["recent_replay"]["boundary"] == dict(
+        real_samples=[], covered_by_tests=gate.BOUNDARY_TESTS
+    )
+
+
+def test_boundary_categories_must_be_known_and_unique():
+    """附了样例就得是已知类别且不重复；样例本身仍按原规则逐条核对。"""
+    for cases in (
+        [dict(category="made_up")],
+        [dict(category="unbound"), dict(category="unbound")],
+    ):
+        with pytest.raises(ValueError, match="boundary categories invalid"):
+            gate._boundary_cases(
+                dict(apif=[], configs={"98": dict(league="日职")}), "98", cases, None
+            )
 
 
 def test_entry_keeps_every_league_in_the_gate_when_generation_fails(  # noqa: F811
@@ -437,3 +444,21 @@ def test_archive_content_binding_accepts_only_the_same_archive(tmp_path):
     (export / "state/teams.jsonl").unlink()
     with pytest.raises(ValueError, match="different frozen archive"):
         bind()
+
+
+def test_freshness_is_judged_per_fixture_not_per_capture():
+    """真实归档里同一场比赛每次抓取各有一行：只要有一次完整且在窗口结束之后的抓取就算新鲜；
+    只有旧抓取、或新抓取不完整，都不算。"""
+    from datetime import UTC, datetime
+
+    end = datetime(2026, 11, 15, 16, tzinfo=UTC)
+    old = [dict(fetched_at_utc="2026-11-14T06:00:00Z")]
+    new = [dict(fetched_at_utc="2026-11-15T21:57:00Z")]
+    rows = [
+        dict(match_id="apif:1", complete=True, provenance=old),
+        dict(match_id="apif:1", complete=True, provenance=new),
+        dict(match_id="apif:2", complete=True, provenance=old),
+        dict(match_id="apif:3", complete=False, provenance=new),
+        dict(match_id="apif:3", complete=True, provenance=old),
+    ]
+    assert gate._fresh_fixtures(rows, end) == {"apif:1": True, "apif:2": False, "apif:3": False}

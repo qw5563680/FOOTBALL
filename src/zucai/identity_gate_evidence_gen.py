@@ -334,17 +334,12 @@ def _equivalent_original(facts, archive, code, start, end, cutoff):
     ]
     if not expected:
         raise ValueError(f"{code} 30 天窗口内没有接口场次，无法生成 equivalent 重放证据")
-    fresh = all(
-        r.get("complete")
-        and any(
-            p.get("fetched_at_utc") and _clock(p["fetched_at_utc"]) >= end_utc
-            for p in r.get("provenance", [])
-        )
-        for r in expected
-    )
-    if not fresh:
+    from zucai.identity_daily_gate import _fresh_fixtures
+
+    stale = sorted(mid for mid, ok in _fresh_fixtures(expected, end_utc).items() if not ok)
+    if stale:
         raise ValueError(
-            f"{code} 30 天窗口内接口场次不完整或缺少窗口结束之后的新鲜捕获；"
+            f"{code} 30 天窗口内有 {len(stale)} 场缺少窗口结束之后的完整捕获（如 {stale[:3]}）；"
             "请先对该联赛跑目录回填并重新导入，再生成开启证据"
         )
     expected_ids = {str(r["match_id"]).split(":", 1)[1] for r in expected}
@@ -419,7 +414,7 @@ def generate(archive, code, *, cutoff, run_id, out_root, restorable=None, held_a
     References inside the evidence dict are relative to ``out_root`` and carry the
     competition prefix.
     """
-    from zucai.identity_daily_gate import RISKS, _recent_official
+    from zucai.identity_daily_gate import BOUNDARY_TESTS, RISKS, _recent_official
     from zucai.identity_gate_evidence import export as gate_export
     from zucai.identity_gate_evidence import snapshot
 
@@ -730,11 +725,15 @@ def generate(archive, code, *, cutoff, run_id, out_root, restorable=None, held_a
             )
             if recent_mode == "equivalent":
                 # 边界样例只接受归档里真实存在、可直接引用的原件。本程序不构造样例，
-                # 也不把别的原件的抓取地址与时间挪给改写过的页面；没有就如实列为缺项，
-                # 由开启检查按现行规则给出结论。
+                # 也不把别的原件的抓取地址与时间挪给改写过的页面。六类边界处置由
+                # identity_daily_gate.BOUNDARY_TESTS 列出的离线测试统一保证。
                 recent_section["boundary_cases"] = doc("recent-boundary-cases.json", [])
                 recent_section["boundary_missing"] = [
-                    dict(category=category, reason="归档内没有可直接引用的真实样例，未构造")
+                    dict(
+                        category=category,
+                        reason="归档内没有可直接引用的真实样例，未构造；由离线测试覆盖",
+                        covered_by_test=BOUNDARY_TESTS[category],
+                    )
                     for category in sorted(RISKS)
                 ]
 

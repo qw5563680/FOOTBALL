@@ -35,6 +35,13 @@ from zucai.sources.apif_aliases import binding_scope_allows, validate_approvals
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 RISKS = {"unbound", "same_team_same_time", "reversed", "rejected", "partial_pages", "cross_day"}
+# T68 第八节第 10 项修订（所有者 2026-11-17 选定方案 A）：六类边界处置是导入程序自身的行为，
+# 对所有赛事相同，由下列离线测试在 CI 里统一保证；各赛事的 equivalent 证据不必各交一份样例。
+# 证据里若附了样例，仍按原规则逐条核对，且只接受归档里真实存在的原件。
+BOUNDARY_TESTS = {
+    category: f"tests/test_t68_boundary_handling.py::test_boundary_{category}"
+    for category in sorted(RISKS)
+}
 
 
 def _clock(value):
@@ -797,11 +804,7 @@ def _recent_replay(facts, code, section, root, start, end):
             and r.get("kickoff_utc")
             and first_utc <= _clock(r["kickoff_utc"]) < end_utc
         ]
-        if not expected or any(
-            not r.get("complete")
-            or not any(_clock(p.get("fetched_at_utc", "")) >= end_utc for p in r["provenance"])
-            for r in expected
-        ):
+        if not expected or not all(_fresh_fixtures(expected, end_utc).values()):
             raise ValueError("equivalent replay has no fresh complete real denominator")
         expected_ids = {r["match_id"] for r in expected}
     parser = ApiFootball(leagues={code: {"league": facts["configs"][code]["league"]}})
@@ -888,11 +891,13 @@ def _recent_replay(facts, code, section, root, start, end):
     )
     if not known <= {f"apif:{mid}" for mid in fixtures}:
         raise ValueError("daily originals omitted known archived fixtures")
-    # Equivalent samples require the same real denominator, plus explicit boundary cases.
+    # Equivalent samples require the same real denominator. Boundary handling is
+    # guaranteed by BOUNDARY_TESTS; any attached samples are still verified one by one.
+    boundary = None
     if mode == "equivalent":
         if {f"apif:{mid}" for mid in fixtures} != expected_ids:
             raise ValueError("equivalent sample differs from real fixture denominator")
-        _boundary_cases(facts, code, _document(root, section["boundary_cases"]), root)
+        boundary = _boundary_cases(facts, code, _document(root, section["boundary_cases"]), root)
     replay = _document(root, section["results"])
     if set(replay.get("official_match_ids", [])) != set(official["official_match_ids"]):
         raise ValueError("replay official denominator differs from verified JC originals")
@@ -954,6 +959,7 @@ def _recent_replay(facts, code, section, root, start, end):
         risk_ids=sorted(set(replay["risk_ids"])),
         official_match_ids=official["official_match_ids"],
         official_window=official,
+        **({"boundary": boundary} if boundary is not None else {}),
     )
 
 
@@ -968,6 +974,24 @@ def _verified_recent(facts, code, section, root, start, end):
         _document(root, section["results"])["outcomes"],
     )
     return result
+
+
+def _fresh_fixtures(rows, end_utc):
+    """Per distinct fixture: is there one complete capture taken after the window closed?
+
+    A real archive keeps one row per fixture per capture, so earlier captures of the
+    same fixture are necessarily older; freshness is a property of the fixture.
+    """
+    fresh = {}
+    for row in rows:
+        fresh[row["match_id"]] = fresh.get(row["match_id"], False) or (
+            bool(row.get("complete"))
+            and any(
+                p.get("fetched_at_utc") and _clock(p["fetched_at_utc"]) >= end_utc
+                for p in row.get("provenance", [])
+            )
+        )
+    return fresh
 
 
 def _complete_pages(doc):
@@ -1042,8 +1066,9 @@ def _boundary_cases(facts, code, cases, root):
     from zucai.identity_binding_archive import _proof as raw_proof
     from zucai.sources.api_football import API, ApiFootball
 
-    if len(cases) != len(RISKS) or {case["category"] for case in cases} != RISKS:
-        raise ValueError("equivalent replay lacks risk distribution")
+    categories = [case["category"] for case in cases]
+    if len(categories) != len(set(categories)) or not set(categories) <= RISKS:
+        raise ValueError("equivalent replay boundary categories invalid")
     pairs = {(r["home"], r["away"]) for r in facts["apif"] if r["competition_id"] == code}
     league = facts["configs"][code]["league"]
     for case in cases:
@@ -1139,6 +1164,10 @@ def _boundary_cases(facts, code, cases, root):
         if not valid:
             raise ValueError(f"boundary sample does not exercise {category}")
         _boundary_handling(facts, code, case, root, doc)
+    return dict(
+        real_samples=sorted(categories),
+        covered_by_tests={c: BOUNDARY_TESTS[c] for c in sorted(RISKS - set(categories))},
+    )
 
 
 def _risk_review(section, root, risk_ids):
