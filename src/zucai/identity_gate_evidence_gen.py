@@ -234,16 +234,7 @@ def _immutable_inventory(folder):
 
 def _sanitize_archive(archive, work, target_name="restorable"):
     """Materialize a manifest-clean copy so restore_feeds accepts every state file."""
-    import re
-
-    from zucai.cloud_feeds import (
-        FD_LINK_FILE,
-        MONTH,
-        RESULT_IDENTITY_FILE,
-        RESULT_LINK_FILE,
-        STATE_FILE,
-        STATS_FILES,
-    )
+    from zucai.identity_gate_evidence import restorable_state_file as acceptable
 
     target = Path(work) / target_name
 
@@ -258,17 +249,6 @@ def _sanitize_archive(archive, work, target_name="restorable"):
     shutil.copytree(Path(archive), target, copy_function=copy_entry)
     manifest_path = target / "feed_manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
-    allowed = STATS_FILES | {FD_LINK_FILE, RESULT_LINK_FILE, RESULT_IDENTITY_FILE}
-
-    def acceptable(key):
-        return key in allowed or re.fullmatch(
-            rf"state/(?:teams|matches|results|closing_odds)\.jsonl|"
-            rf"state/(?:unmatched_teams|rejected_results)\.csv|"
-            rf"state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|"
-            rf"state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
-            key,
-        )
-
     dropped = sorted(key for key in manifest["files"] if not acceptable(key))
     manifest["files"] = {key: sha for key, sha in manifest["files"].items() if acceptable(key)}
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
@@ -429,406 +409,6 @@ def _classify(before_state, after_state, fixture_ids, import_results, rejected_r
     return outcomes, inserted
 
 
-def _boundary_case_doc(parent_doc, rows, paging=None):
-    value = json.loads(json.dumps(parent_doc))
-    value["response"] = json.loads(json.dumps(rows))
-    value["results"] = len(rows)
-    if paging is not None:
-        value["paging"] = paging
-    return value
-
-
-def _write_case_original(file_root, category, parent_doc, parent_meta, rows, paging=None):
-    # One shallow dir per case: the export inside shares this dir, and deeper
-    # nesting would push Windows MAX_PATH on long catalogue keys.
-    folder = file_root / f"case-{category}"
-    folder.mkdir(parents=True, exist_ok=True)
-    value = _boundary_case_doc(parent_doc, rows, paging)
-    raw_bytes = (json.dumps(value, ensure_ascii=False) + "\n").encode("utf-8")
-    path = folder / "original.json"
-    path.write_bytes(raw_bytes)
-    sha = hashlib.sha256(raw_bytes).hexdigest()
-    sidecar = dict(parent_meta)
-    sidecar["sha256"] = sha
-    Path(str(path) + ".meta.json").write_text(
-        json.dumps(sidecar, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    return path
-
-
-def _replay_case(facts, code, file_root, work, base_db, day, cutoff, imported, category, case_rows):
-    """Replay one boundary sample on a copy of the pre-replay snapshot."""
-    from zucai.identity_gate_evidence import export as gate_export
-
-    case_db = work / "recent/data" / f"{category}.db"
-    case_dir = file_root / f"case-{category}"
-    shutil.copyfile(base_db, case_db)
-    if category == "partial_pages":
-        # The partial-page guard must reject before any write: no import runs
-        # and the after export stays byte-identical to the before export.
-        case_after = _export_state(case_db, facts["archive_root"], case_dir, day, cutoff)
-        outcomes = [
-            dict(fixture_id=f"apif:{row['fixture']['id']}", outcome="partial_pages_rejected")
-            for row in case_rows
-        ]
-        inserted = 0
-    else:
-        parser = ApiFootball(leagues={code: facts["configs"][code]})
-        try:
-            raw = (case_dir / "original.json").read_bytes()
-            games = parser.parse(raw)
-            rejected_rows = list(parser.rejected)
-        finally:
-            parser.session.close()
-        import_results = _run_importer(
-            case_db, games, _clock(cutoff), imported, retain_results=False
-        )
-        case_after = _export_state(case_db, facts["archive_root"], case_dir, day, cutoff)
-        before_state = gate_export(
-            file_root, _ref(file_root, file_root / "recent-before/feed_manifest.json")
-        )
-        after_state = gate_export(file_root, _ref(file_root, case_after / "feed_manifest.json"))
-        fixture_ids = {f"apif:{row['fixture']['id']}" for row in case_rows}
-        outcomes, inserted = _classify(
-            before_state, after_state, fixture_ids, import_results, rejected_rows
-        )
-    results = dict(
-        fixture_ids=sorted(f"apif:{row['fixture']['id']}" for row in case_rows),
-        outcomes=outcomes,
-        inserted=inserted,
-    )
-    before_ref = _ref(file_root, file_root / "recent-before/feed_manifest.json")
-    before_ref["path"] = f"{code}/{before_ref['path']}"
-    after_ref = _ref(file_root, case_after / "feed_manifest.json")
-    after_ref["path"] = f"{code}/{after_ref['path']}"
-    options = dict(
-        provider_code=code,
-        imported_utc=cutoff,
-        retain_results=False,
-        assume_known_after_seconds=None,
-        formal_aliases_sha256=hashlib.sha256(FORMAL.read_bytes()).hexdigest(),
-        before_manifest_sha256=before_ref["sha256"],
-        after_manifest_sha256=after_ref["sha256"],
-    )
-    results_doc = _document(file_root, f"case-{category}/results.json", results)
-    results_doc["path"] = f"{code}/{results_doc['path']}"
-    options_doc = _document(file_root, f"case-{category}/options.json", options)
-    options_doc["path"] = f"{code}/{options_doc['path']}"
-    return dict(
-        before_manifest=before_ref,
-        after_manifest=after_ref,
-        results=results_doc,
-        replay_options=options_doc,
-    )
-
-
-def _boundary_samples(
-    facts, code, file_root, work, base_db, day, cutoff, imported, chosen_doc, chosen_meta
-):
-    """Six equivalent-mode boundary samples, each with a materialized replay."""
-    from zucai.identity_daily_gate import _bound
-
-    def case_ref(path):
-        item = _ref(file_root, path)
-        item["path"] = f"{code}/{item['path']}"
-        return item
-
-    league = facts["configs"][code]["league"]
-    pairs = {(r["home"], r["away"]) for r in facts["apif"] if r["competition_id"] == code}
-
-    # Scan every archived season capture for REAL risky rows: a reverse-pair
-    # row and a row carrying a team with no current binding.
-    real_reversed = None
-    real_unbound = None
-    for _season_ref, season_meta, season_doc in _season_archive_originals(
-        facts["archive_root"], code
-    ):
-        for row in season_doc.get("response", []):
-            if str(row.get("league", {}).get("id")) != str(code):
-                continue
-            when = _row_when(row)
-            if when is None:
-                continue
-            home = str(row.get("teams", {}).get("home", {}).get("id"))
-            away = str(row.get("teams", {}).get("away", {}).get("id"))
-            if real_reversed is None and (away, home) in pairs:
-                real_reversed = (season_doc, season_meta, row)
-            if real_unbound is None and (
-                not _bound(facts, league, home, when.isoformat())
-                or not _bound(facts, league, away, when.isoformat())
-            ):
-                real_unbound = (season_doc, season_meta, row)
-
-    template = None
-    for row in chosen_doc.get("response", []):
-        if str(row.get("league", {}).get("id")) == str(code):
-            template = row
-            break
-    if template is None:
-        raise ValueError(f"{code} equivalent 原件没有该赛事的场次行，无法构建边界样例")
-    template_when = _row_when(template)
-
-    def new_row(row, fixture_id, when):
-        value = json.loads(json.dumps(row))
-        value["fixture"]["id"] = fixture_id
-        value["fixture"]["date"] = when.isoformat()
-        value["fixture"]["timestamp"] = int(when.timestamp())
-        return value
-
-    def swap_teams(row):
-        value = json.loads(json.dumps(row))
-        value["teams"]["home"], value["teams"]["away"] = (
-            value["teams"]["away"],
-            value["teams"]["home"],
-        )
-        value["goals"]["home"], value["goals"]["away"] = (
-            value["goals"]["away"],
-            value["goals"]["home"],
-        )
-        for key in ("halftime", "fulltime"):
-            if key in value.get("score", {}):
-                value["score"][key]["home"], value["score"][key]["away"] = (
-                    value["score"][key]["away"],
-                    value["score"][key]["home"],
-                )
-        return value
-
-    cases = []
-
-    # 1) reversed — a real reverse-pair row when one is archived, else a
-    # constructed home/away swap of the template row.
-    if real_reversed is not None:
-        parent_doc, parent_meta, row = real_reversed
-        case_path = _write_case_original(file_root, "reversed", parent_doc, parent_meta, [row])
-        cases.append(
-            dict(
-                category="reversed",
-                original=case_ref(case_path),
-                source_sha256=digest(case_path),
-                outcome="verified",
-                fixture_ids=[f"apif:{row['fixture']['id']}"],
-                basis="库内真实反向配对场次（主客互易的两场正式比赛），复核双向归属结论",
-                replay=_replay_case(
-                    facts,
-                    code,
-                    file_root,
-                    work,
-                    base_db,
-                    day,
-                    cutoff,
-                    imported,
-                    "reversed",
-                    [row],
-                ),
-            )
-        )
-    else:
-        swapped = swap_teams(template)
-        swapped = new_row(swapped, 99000004, template_when)
-        case_path = _write_case_original(file_root, "reversed", chosen_doc, chosen_meta, [swapped])
-        cases.append(
-            dict(
-                category="reversed",
-                original=case_ref(case_path),
-                source_sha256=digest(case_path),
-                outcome="verified",
-                fixture_ids=["apif:99000004"],
-                basis="模板场次主客对调构建的反向样例，触发主客冲突的风险处置",
-                replay=_replay_case(
-                    facts,
-                    code,
-                    file_root,
-                    work,
-                    base_db,
-                    day,
-                    cutoff,
-                    imported,
-                    "reversed",
-                    [swapped],
-                ),
-            )
-        )
-
-    # 2) unbound — a real old-season unbound row when one is archived, else a
-    # template row whose home id carries no binding.
-    if real_unbound is not None:
-        parent_doc, parent_meta, row = real_unbound
-        case_path = _write_case_original(file_root, "unbound", parent_doc, parent_meta, [row])
-        cases.append(
-            dict(
-                category="unbound",
-                original=case_ref(case_path),
-                source_sha256=digest(case_path),
-                outcome="verified",
-                fixture_ids=[f"apif:{row['fixture']['id']}"],
-                basis="历史赛季真实场次（含未绑定球队），复核未绑定球队的风险处置",
-                replay=_replay_case(
-                    facts,
-                    code,
-                    file_root,
-                    work,
-                    base_db,
-                    day,
-                    cutoff,
-                    imported,
-                    "unbound",
-                    [row],
-                ),
-            )
-        )
-    else:
-        unbound = new_row(template, 99000003, template_when)
-        unbound["teams"]["home"]["id"] = 999999
-        unbound["teams"]["home"]["name"] = "未绑定测试球队"
-        case_path = _write_case_original(file_root, "unbound", chosen_doc, chosen_meta, [unbound])
-        cases.append(
-            dict(
-                category="unbound",
-                original=case_ref(case_path),
-                source_sha256=digest(case_path),
-                outcome="verified",
-                fixture_ids=["apif:99000003"],
-                basis="模板场次主队编号替换为未绑定编号 999999，触发未绑定球队的暂缓处置",
-                replay=_replay_case(
-                    facts,
-                    code,
-                    file_root,
-                    work,
-                    base_db,
-                    day,
-                    cutoff,
-                    imported,
-                    "unbound",
-                    [unbound],
-                ),
-            )
-        )
-
-    # 3) partial_pages — paging.total=2; no import runs and the after export
-    # must stay byte-identical to the before export.
-    partial_row = json.loads(json.dumps(template))
-    partial_path = _write_case_original(
-        file_root,
-        "partial_pages",
-        chosen_doc,
-        chosen_meta,
-        [partial_row],
-        paging={"current": 1, "total": 2},
-    )
-    cases.append(
-        dict(
-            category="partial_pages",
-            original=case_ref(partial_path),
-            source_sha256=digest(partial_path),
-            outcome="verified",
-            fixture_ids=[f"apif:{partial_row['fixture']['id']}"],
-            basis="分页总数标记为 2 的不完整样例，验证完整页保护拒绝且状态零变化",
-            replay=_replay_case(
-                facts,
-                code,
-                file_root,
-                work,
-                base_db,
-                day,
-                cutoff,
-                imported,
-                "partial_pages",
-                [partial_row],
-            ),
-        )
-    )
-
-    # 4) rejected — a forfeit row the parser refuses.
-    rejected_row = json.loads(json.dumps(template))
-    rejected_row["fixture"]["status"]["short"] = "AWD"
-    rejected_row["fixture"]["status"]["long"] = "Match awarded"
-    rejected_path = _write_case_original(
-        file_root, "rejected", chosen_doc, chosen_meta, [rejected_row]
-    )
-    cases.append(
-        dict(
-            category="rejected",
-            original=case_ref(rejected_path),
-            source_sha256=digest(rejected_path),
-            outcome="verified",
-            fixture_ids=[f"apif:{rejected_row['fixture']['id']}"],
-            basis="判罚（AWD）状态的模板行，验证解析器拒绝且导入为零",
-            replay=_replay_case(
-                facts,
-                code,
-                file_root,
-                work,
-                base_db,
-                day,
-                cutoff,
-                imported,
-                "rejected",
-                [rejected_row],
-            ),
-        )
-    )
-
-    # 5) same_team_same_time — two new rows one hour apart.
-    same_a = new_row(template, 99000001, template_when - timedelta(hours=48))
-    same_b = new_row(template, 99000002, template_when - timedelta(hours=47))
-    same_path = _write_case_original(
-        file_root, "same_team_same_time", chosen_doc, chosen_meta, [same_a, same_b]
-    )
-    cases.append(
-        dict(
-            category="same_team_same_time",
-            original=case_ref(same_path),
-            source_sha256=digest(same_path),
-            outcome="verified",
-            fixture_ids=["apif:99000001", "apif:99000002"],
-            basis="同队间隔一小时的两个编号，验证三小时内同队重复被双双隔离",
-            replay=_replay_case(
-                facts,
-                code,
-                file_root,
-                work,
-                base_db,
-                day,
-                cutoff,
-                imported,
-                "same_team_same_time",
-                [same_a, same_b],
-            ),
-        )
-    )
-
-    # 6) cross_day — the same pair 24 hours apart.
-    cross_a = new_row(template, 99000005, template_when - timedelta(hours=49))
-    cross_b = new_row(template, 99000006, template_when - timedelta(hours=25))
-    cross_path = _write_case_original(
-        file_root, "cross_day", chosen_doc, chosen_meta, [cross_a, cross_b]
-    )
-    cases.append(
-        dict(
-            category="cross_day",
-            original=case_ref(cross_path),
-            source_sha256=digest(cross_path),
-            outcome="verified",
-            fixture_ids=["apif:99000005", "apif:99000006"],
-            basis="同一对阵间隔 24 小时的两个编号，验证跨日场次正常入库",
-            replay=_replay_case(
-                facts,
-                code,
-                file_root,
-                work,
-                base_db,
-                day,
-                cutoff,
-                imported,
-                "cross_day",
-                [cross_a, cross_b],
-            ),
-        )
-    )
-
-    return cases
-
-
 def generate(archive, code, *, cutoff, run_id, out_root, restorable=None, held_audit_source=None):
     """Produce the four evidence pieces for one competition; returns the evidence dict.
 
@@ -839,7 +419,7 @@ def generate(archive, code, *, cutoff, run_id, out_root, restorable=None, held_a
     References inside the evidence dict are relative to ``out_root`` and carry the
     competition prefix.
     """
-    from zucai.identity_daily_gate import _recent_official
+    from zucai.identity_daily_gate import RISKS, _recent_official
     from zucai.identity_gate_evidence import export as gate_export
     from zucai.identity_gate_evidence import snapshot
 
@@ -871,6 +451,8 @@ def generate(archive, code, *, cutoff, run_id, out_root, restorable=None, held_a
     day = _clock(cutoff).astimezone(BEIJING).date()
     imported = _clock(cutoff)
 
+    generation_errors = {}
+    recent_section = risk_document = None
     with TemporaryDirectory(prefix="zucai-evidence-", ignore_cleanup_errors=True) as temporary:
         work = Path(temporary)
         # The gate's held reconciliation reads the audit from a materialized state:
@@ -1010,182 +592,182 @@ def generate(archive, code, *, cutoff, run_id, out_root, restorable=None, held_a
             persistence[key] = doc(f"{key}.json", snap)
             persistence[key + "_manifest"] = state_ref
 
-        # ---- Recent 30-day replay (dates mode first; equivalent mode when the
-        # archive carries no UTC-date captures).
-        start, end = (
-            _clock(cutoff).astimezone(BEIJING).date() - timedelta(days=30),
-            (_clock(cutoff).astimezone(BEIJING).date() - timedelta(days=1)),
-        )
-        first_utc, end_utc = _window_bounds(start, end)
-        originals = _date_originals(archive, code, start, end)
-        if originals:
-            recent_mode = "dates"
-        else:
-            recent_mode = "equivalent"
-            chosen_original = _equivalent_original(facts, archive, code, start, end, cutoff)
-            originals = [chosen_original]
-        recent_section = dict(mode=recent_mode, originals=[], official_originals=[])
-        recent_section["originals"] = [
-            _prefix(_copy_original(file_root, archive, r), code) for r in originals
-        ]
-        official_originals = []
-        scan_roots = [
-            Path(facts["archive_root"]) / "state/catalogue/catalogue/jc",
-            Path(facts["archive_root"]) / "state/catalogue/supplement/jc",
-        ]
-        scan_roots += sorted(Path(facts["archive_root"]).glob("state/catalogue/*/jc"))
-        seen_pages = set()
-        for scan_root in scan_roots:
-            for month_dir in sorted(scan_root.glob("*-*")):
-                for page in sorted(month_dir.glob("*-p*.json")):
-                    if page.name.endswith(".meta.json"):
-                        continue
-                    try:
-                        when = date.fromisoformat(page.stem.split("-p")[0])
-                    except ValueError:
-                        continue
-                    if start <= when <= end:
-                        relative = page.relative_to(Path(facts["archive_root"])).as_posix()
-                        if relative not in seen_pages:
-                            seen_pages.add(relative)
-                            official_originals.append(dict(path=relative, sha256=digest(page)))
-        official_originals = [
-            _prefix(_copy_original(file_root, archive, r), code) for r in official_originals
-        ]
-        recent_section["official_originals"] = official_originals
-        official = _recent_official(facts, code, recent_section, out_root, start, end)
+        try:
+            # ---- Recent 30-day replay (dates mode first; equivalent mode when the
+            # archive carries no UTC-date captures).
+            start, end = (
+                _clock(cutoff).astimezone(BEIJING).date() - timedelta(days=30),
+                (_clock(cutoff).astimezone(BEIJING).date() - timedelta(days=1)),
+            )
+            first_utc, end_utc = _window_bounds(start, end)
+            originals = _date_originals(archive, code, start, end)
+            if originals:
+                recent_mode = "dates"
+            else:
+                recent_mode = "equivalent"
+                chosen_original = _equivalent_original(facts, archive, code, start, end, cutoff)
+                originals = [chosen_original]
+            recent_section = dict(mode=recent_mode, originals=[], official_originals=[])
+            recent_section["originals"] = [
+                _prefix(_copy_original(file_root, archive, r), code) for r in originals
+            ]
+            official_originals = []
+            scan_roots = [
+                Path(facts["archive_root"]) / "state/catalogue/catalogue/jc",
+                Path(facts["archive_root"]) / "state/catalogue/supplement/jc",
+            ]
+            scan_roots += sorted(Path(facts["archive_root"]).glob("state/catalogue/*/jc"))
+            seen_pages = set()
+            for scan_root in scan_roots:
+                for month_dir in sorted(scan_root.glob("*-*")):
+                    for page in sorted(month_dir.glob("*-p*.json")):
+                        if page.name.endswith(".meta.json"):
+                            continue
+                        try:
+                            when = date.fromisoformat(page.stem.split("-p")[0])
+                        except ValueError:
+                            continue
+                        if start <= when <= end:
+                            relative = page.relative_to(Path(facts["archive_root"])).as_posix()
+                            if relative not in seen_pages:
+                                seen_pages.add(relative)
+                                official_originals.append(dict(path=relative, sha256=digest(page)))
+            official_originals = [
+                _prefix(_copy_original(file_root, archive, r), code) for r in official_originals
+            ]
+            recent_section["official_originals"] = official_originals
+            official = _recent_official(facts, code, recent_section, out_root, start, end)
 
-        recent_restored = work / "recent/data/feeds.db"
-        restore_feeds(restorable, recent_restored)
-        _ensure_held(recent_restored.parent)
-        recent_before = _export_state(
-            recent_restored, archive, file_root / "recent-before", day, cutoff
-        )
-        outcomes, fixture_ids, raw_hashes = [], set(), set()
-        import_results = dict(held=[], suspected=[], rejected=[])
-        rejected_rows = []
-        parser = ApiFootball(leagues={code: facts["configs"][code]})
-        if recent_mode == "equivalent":
-            # One pristine snapshot of the pre-replay database: the boundary
-            # samples each replay on their own copy of this snapshot.
-            base_db = work / "recent/base.db"
-            shutil.copyfile(recent_restored, base_db)
-            import_db = work / "recent/import.db"
-            shutil.copyfile(base_db, import_db)
-            chosen_ref = originals[0]
-            chosen_meta = json.loads(
-                (Path(facts["archive_root"]) / (chosen_ref["path"] + ".meta.json")).read_bytes()
+            recent_restored = work / "recent/data/feeds.db"
+            restore_feeds(restorable, recent_restored)
+            _ensure_held(recent_restored.parent)
+            recent_before = _export_state(
+                recent_restored, archive, file_root / "recent-before", day, cutoff
             )
-            try:
-                raw = proof(Path(facts["archive_root"]), chosen_ref)
-                chosen_doc = json.loads(raw)
-                recent_games = parser.parse(raw)
-                rejected_rows = list(parser.rejected)
-            finally:
-                parser.session.close()
-            if rejected_rows:
-                raise ValueError(f"{code} equivalent 原件存在解析拒绝行，无法生成重放结论")
-            import_results = _run_importer(
-                import_db, recent_games, imported, imported, retain_results=False
-            )
-            for game in recent_games:
-                fixture_ids.add(f"apif:{game.provider_match_id}")
-            raw_hashes.add(chosen_ref["sha256"])
-            # The claimed denominator is the 30-day window rows only.
-            fixture_ids = {
-                f"apif:{int(r['fixture']['id'])}"
-                for r in chosen_doc.get("response", [])
-                if str(r.get("league", {}).get("id")) == str(code)
-                and (_when := _row_when(r)) is not None
-                and first_utc <= _when < end_utc
-            }
-            recent_db = import_db
-        else:
-            recent_db = recent_restored
-            try:
-                for original in originals:
-                    raw = proof(Path(facts["archive_root"]), original)
+            outcomes, fixture_ids, raw_hashes = [], set(), set()
+            import_results = dict(held=[], suspected=[], rejected=[])
+            rejected_rows = []
+            parser = ApiFootball(leagues={code: facts["configs"][code]})
+            if recent_mode == "equivalent":
+                # Replay on a copy so the pre-replay export stays the baseline.
+                import_db = work / "recent/import.db"
+                shutil.copyfile(recent_restored, import_db)
+                chosen_ref = originals[0]
+                try:
+                    raw = proof(Path(facts["archive_root"]), chosen_ref)
+                    chosen_doc = json.loads(raw)
                     recent_games = parser.parse(raw)
-                    _run_importer(recent_db, recent_games, seen, imported, retain_results=False)
-                    for game in recent_games:
-                        fixture_ids.add(f"apif:{game.provider_match_id}")
-                    raw_hashes.add(original["sha256"])
-            finally:
-                parser.session.close()
-        recent_after = _export_state(recent_db, archive, file_root / "recent-after", day, cutoff)
-        recent_section["before_manifest"] = ref(recent_before / "feed_manifest.json")
-        recent_section["after_manifest"] = ref(recent_after / "feed_manifest.json")
-        before_state = gate_export(file_root, _ref(file_root, recent_before / "feed_manifest.json"))
-        after_state = gate_export(file_root, _ref(file_root, recent_after / "feed_manifest.json"))
-        outcomes, inserted_count = _classify(
-            before_state, after_state, fixture_ids, import_results, rejected_rows
-        )
-        risk_ids = sorted(
-            {r["fixture_id"] for r in outcomes if r["outcome"] in {"suspected", "rejected"}}
-        )
-        recent_section["risk_ids"] = risk_ids
-        recent_invocation = dict(invocation, run_id=f"{run_id}-recent")
-        recent_options = dict(
-            **recent_invocation,
-            before_manifest_sha256=recent_section["before_manifest"]["sha256"],
-            after_manifest_sha256=recent_section["after_manifest"]["sha256"],
-            cutoff_utc=cutoff,
-            formal_aliases_sha256=hashlib.sha256(FORMAL.read_bytes()).hexdigest(),
-        )
-        recent_options["invocation_evidence"] = doc("recent-invocation.json", recent_invocation)
-        recent_section["replay_options"] = doc("recent-options.json", recent_options)
-        recent_section["results"] = doc(
-            "recent-report.json",
-            dict(
-                fixture_ids=sorted(fixture_ids),
-                raw_sha256=sorted(raw_hashes),
-                inserted=inserted_count,
-                risk_ids=risk_ids,
-                outcomes=outcomes,
-                official_match_ids=sorted(official["official_match_ids"]),
-            ),
-        )
-        if recent_mode == "equivalent":
-            recent_section["boundary_cases"] = doc(
-                "recent-boundary-cases.json",
-                _boundary_samples(
-                    facts,
-                    code,
-                    file_root,
-                    work,
-                    base_db,
-                    day,
-                    cutoff,
-                    imported,
-                    chosen_doc,
-                    chosen_meta,
+                    rejected_rows = list(parser.rejected)
+                finally:
+                    parser.session.close()
+                if rejected_rows:
+                    raise ValueError(f"{code} equivalent 原件存在解析拒绝行，无法生成重放结论")
+                import_results = _run_importer(
+                    import_db, recent_games, imported, imported, retain_results=False
+                )
+                for game in recent_games:
+                    fixture_ids.add(f"apif:{game.provider_match_id}")
+                raw_hashes.add(chosen_ref["sha256"])
+                # The claimed denominator is the 30-day window rows only.
+                fixture_ids = {
+                    f"apif:{int(r['fixture']['id'])}"
+                    for r in chosen_doc.get("response", [])
+                    if str(r.get("league", {}).get("id")) == str(code)
+                    and (_when := _row_when(r)) is not None
+                    and first_utc <= _when < end_utc
+                }
+                recent_db = import_db
+            else:
+                recent_db = recent_restored
+                try:
+                    for original in originals:
+                        raw = proof(Path(facts["archive_root"]), original)
+                        recent_games = parser.parse(raw)
+                        _run_importer(recent_db, recent_games, seen, imported, retain_results=False)
+                        for game in recent_games:
+                            fixture_ids.add(f"apif:{game.provider_match_id}")
+                        raw_hashes.add(original["sha256"])
+                finally:
+                    parser.session.close()
+            recent_after = _export_state(
+                recent_db, archive, file_root / "recent-after", day, cutoff
+            )
+            recent_section["before_manifest"] = ref(recent_before / "feed_manifest.json")
+            recent_section["after_manifest"] = ref(recent_after / "feed_manifest.json")
+            before_state = gate_export(
+                file_root, _ref(file_root, recent_before / "feed_manifest.json")
+            )
+            after_state = gate_export(
+                file_root, _ref(file_root, recent_after / "feed_manifest.json")
+            )
+            outcomes, inserted_count = _classify(
+                before_state, after_state, fixture_ids, import_results, rejected_rows
+            )
+            risk_ids = sorted(
+                {r["fixture_id"] for r in outcomes if r["outcome"] in {"suspected", "rejected"}}
+            )
+            recent_section["risk_ids"] = risk_ids
+            recent_invocation = dict(invocation, run_id=f"{run_id}-recent")
+            recent_options = dict(
+                **recent_invocation,
+                before_manifest_sha256=recent_section["before_manifest"]["sha256"],
+                after_manifest_sha256=recent_section["after_manifest"]["sha256"],
+                cutoff_utc=cutoff,
+                formal_aliases_sha256=hashlib.sha256(FORMAL.read_bytes()).hexdigest(),
+            )
+            recent_options["invocation_evidence"] = doc("recent-invocation.json", recent_invocation)
+            recent_section["replay_options"] = doc("recent-options.json", recent_options)
+            recent_section["results"] = doc(
+                "recent-report.json",
+                dict(
+                    fixture_ids=sorted(fixture_ids),
+                    raw_sha256=sorted(raw_hashes),
+                    inserted=inserted_count,
+                    risk_ids=risk_ids,
+                    outcomes=outcomes,
+                    official_match_ids=sorted(official["official_match_ids"]),
                 ),
             )
+            if recent_mode == "equivalent":
+                # 边界样例只接受归档里真实存在、可直接引用的原件。本程序不构造样例，
+                # 也不把别的原件的抓取地址与时间挪给改写过的页面；没有就如实列为缺项，
+                # 由开启检查按现行规则给出结论。
+                recent_section["boundary_cases"] = doc("recent-boundary-cases.json", [])
+                recent_section["boundary_missing"] = [
+                    dict(category=category, reason="归档内没有可直接引用的真实样例，未构造")
+                    for category in sorted(RISKS)
+                ]
 
-        # ---- Risk review.
-        risk_rows = []
-        for risk in [r for r in outcomes if r["outcome"] in {"suspected", "rejected"}]:
-            evidence = doc(
-                f"risk-{risk['fixture_id'].replace(':', '-')}.json",
-                dict(kind="replay_risk", fixture_id=risk["fixture_id"]),
-            )
-            risk_rows.append(
-                dict(
-                    fixture_id=risk["fixture_id"],
-                    reason="接口与库内既有比赛疑似重复，保持隔离待人工核验",
-                    disposition="quarantined",
-                    review_evidence=evidence,
+            # ---- Risk review.
+            risk_rows = []
+            for risk in [r for r in outcomes if r["outcome"] in {"suspected", "rejected"}]:
+                evidence = doc(
+                    f"risk-{risk['fixture_id'].replace(':', '-')}.json",
+                    dict(kind="replay_risk", fixture_id=risk["fixture_id"]),
                 )
-            )
-        risk_document = doc("risk-review.json", risk_rows)
+                risk_rows.append(
+                    dict(
+                        fixture_id=risk["fixture_id"],
+                        reason="接口与库内既有比赛疑似重复，保持隔离待人工核验",
+                        disposition="quarantined",
+                        review_evidence=evidence,
+                    )
+                )
+            risk_document = doc("risk-review.json", risk_rows)
+        except Exception as exc:  # noqa: BLE001 - 如实记录未能生成的部分，不中断其余证据
+            generation_errors["recent_replay"] = f"{type(exc).__name__}: {exc}"
+            recent_section = risk_document = None
 
-    return dict(
+    evidence = dict(
         provider_code=code,
         cutoff_utc=cutoff,
         archive_sha256=digest(archive / "feed_manifest.json"),
         current_season_replay=current_section,
-        recent_replay=recent_section,
-        risk_review=risk_document,
         persistence=persistence,
         sanitized_manifest_exclusions=dropped,
+        generation_errors=generation_errors,
     )
+    if recent_section is not None:
+        evidence["recent_replay"] = recent_section
+        evidence["risk_review"] = risk_document
+    return evidence

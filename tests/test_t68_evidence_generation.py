@@ -187,11 +187,8 @@ def test_failed_generation_never_modifies_the_archive(bundle, monkeypatch):  # n
     assert after == before, set(after) ^ set(before)
 
 
-def test_cloud_identity_evidence_entry_persists_only_small_artifacts(  # noqa: F811
-    bundle,  # noqa: F811
-    tmp_path,
-    monkeypatch,
-):
+def _entry_archive(bundle, tmp_path, monkeypatch):  # noqa: F811
+    """A manifest-clean archive plus the environment the online entry runs in."""
     import shutil
     from datetime import UTC as REAL_UTC
     from datetime import datetime as real_datetime
@@ -261,10 +258,35 @@ def test_cloud_identity_evidence_entry_persists_only_small_artifacts(  # noqa: F
             "98",
         ],
     )
+    return clean, before
+
+
+def test_cloud_identity_evidence_entry_persists_only_small_artifacts(  # noqa: F811
+    bundle,  # noqa: F811
+    tmp_path,
+    monkeypatch,
+):
+    from zucai import cloud_feeds
+
+    clean, before = _entry_archive(bundle, tmp_path, monkeypatch)
+    # 体积限制：超过阈值的状态快照只登记哈希与字节数，不落盘。
+    monkeypatch.setattr(cloud_feeds, "EVIDENCE_DOCUMENT_LIMIT", 600)
     cloud_feeds.main()
     register = clean / "state/identity_gate_evidence/ev-1/register.json"
     index = clean / "state/identity_gate_evidence/ev-1/98/index.json"
     assert register.is_file() and index.is_file()
+    documents = json.loads(index.read_bytes())["documents"]
+    assert {item["persisted"] for item in documents.values()} == {True, False}
+    for name, item in documents.items():
+        assert (index.parent / name).is_file() == item["persisted"] == (item["bytes"] <= 600)
+        assert len(item["sha256"]) == 64
+    assert {p.name for p in index.parent.iterdir()} == {"index.json"} | {
+        name for name, item in documents.items() if item["persisted"]
+    }
+    persisted = json.loads((clean / "feed_manifest.json").read_bytes())["collection"][
+        "identity_evidence"
+    ]["leagues"]["98"]["persisted_bytes"]
+    assert 0 < persisted <= cloud_feeds.EVIDENCE_LEAGUE_LIMIT
     evidence_meta = json.loads((clean / "feed_manifest.json").read_bytes())
     record = evidence_meta["collection"]["identity_evidence"]
     assert record["status"] == "complete" and record["codes"] == ["98"]
@@ -294,16 +316,17 @@ def test_cloud_identity_evidence_entry_persists_only_small_artifacts(  # noqa: F
     restore_feeds(clean, tmp_path / "restored/data/feeds.db")
 
 
-def test_equivalent_mode_recent_replay_passes_the_gate(bundle):  # noqa: F811
-    """没有日期原件时走 equivalent 模式：赛季原件当分母，六类边界样例齐备，
-    生成的证据仍能被真实入口核验为 ready_for_review。"""
+def test_equivalent_mode_never_fabricates_boundary_samples(bundle):  # noqa: F811
+    """没有日期原件时走 equivalent 模式：真实窗口照常重放，但程序不构造边界样例，
+    也不借用别的原件的抓取元数据；六类如实列为缺项，开启检查据此判定证据不足。"""
     archive, root, _handcrafted = bundle
     _seed_equivalent_archive(archive, root)
     out = root / "generated"
     generated = generate(archive, "98", cutoff=CUTOFF, run_id="gen-1", out_root=out)
+    assert generated["generation_errors"] == {}
     assert generated["recent_replay"]["mode"] == "equivalent"
-    cases = json.loads((out / "98" / "recent-boundary-cases.json").read_bytes())
-    assert {case["category"] for case in cases} == {
+    assert json.loads((out / "98" / "recent-boundary-cases.json").read_bytes()) == []
+    assert {item["category"] for item in generated["recent_replay"]["boundary_missing"]} == {
         "unbound",
         "same_team_same_time",
         "reversed",
@@ -311,13 +334,106 @@ def test_equivalent_mode_recent_replay_passes_the_gate(bundle):  # noqa: F811
         "partial_pages",
         "cross_day",
     }
-    for case in cases:
-        assert case["outcome"] == "verified"
-        assert case["fixture_ids"]
-        assert case["replay"]["results"]
+    # 证据目录里除了归档原件的原样副本，没有任何新写出的“原件”。
+    assert not list((out / "98").glob("case-*"))
+    originals = {
+        p.relative_to(out / "98").as_posix()
+        for p in (out / "98" / "state" / "catalogue").rglob("*")
+        if p.is_file()
+    }
+    assert originals
+    for relative in originals:
+        assert (out / "98" / relative).read_bytes() == (archive / relative).read_bytes(), relative
     result = gate.build_register(
         archive, CUTOFF, codes=["98"], evidence={"98": generated}, evidence_root=out
     )["leagues"][0]
-    assert result["teams"]["bound"] == 2
-    assert result["matches"]["linked"] == 1
-    assert result["status"] == "ready_for_review", result["evidence"]
+    assert result["status"] == "insufficient_evidence"
+    assert "recent_replay" in result["missing_evidence"]
+    assert "risk distribution" in result["evidence"]["recent_replay"]["reason"]
+    assert "current_season_replay" not in result["missing_evidence"]
+    assert "persistence" not in result["missing_evidence"]
+
+
+def test_entry_keeps_every_league_in_the_gate_when_generation_fails(  # noqa: F811
+    bundle,  # noqa: F811
+    tmp_path,
+    monkeypatch,
+):
+    """证据生成失败的赛事仍进入开启检查：入口正常结束，登记如实列出缺项与失败原因。"""
+    import zucai.identity_gate_evidence_gen as evidence_gen
+    from zucai import cloud_feeds
+
+    clean, _before = _entry_archive(bundle, tmp_path, monkeypatch)
+
+    def broken(*args, **kwargs):
+        raise ValueError("注入的生成失败")
+
+    monkeypatch.setattr(evidence_gen, "generate", broken)
+    cloud_feeds.main()
+    run_dir = clean / "state/identity_gate_evidence/ev-1"
+    league = json.loads((run_dir / "register.json").read_bytes())["leagues"][0]
+    assert league["provider_code"] == "98"
+    assert league["status"] == "insufficient_evidence"
+    assert set(league["missing_evidence"]) >= {
+        "current_season_replay",
+        "recent_replay",
+        "risk_review",
+        "persistence",
+    }
+    index = json.loads((run_dir / "98/index.json").read_bytes())
+    assert index["generation_errors"] == {"all": "ValueError: 注入的生成失败"}
+    record = json.loads((clean / "feed_manifest.json").read_bytes())["collection"][
+        "identity_evidence"
+    ]
+    assert record["leagues"]["98"]["generation_errors"] == {"all": "ValueError: 注入的生成失败"}
+    assert "未能生成（all）：ValueError: 注入的生成失败" in (Path.cwd() / "summary.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_archive_content_binding_accepts_only_the_same_archive(tmp_path):
+    """持久化基线与冻结归档逐文件核对：字节相同通过；JSON 仅排版不同通过；内容不同或缺失不通过。"""
+    archive, export = tmp_path / "archive", tmp_path / "export"
+    for folder in (archive, export):
+        (folder / "state/sfc").mkdir(parents=True)
+        (folder / "state/catalogue").mkdir(parents=True)
+    (archive / "state/teams.jsonl").write_text('[1, "a"]\n', encoding="utf-8")
+    (export / "state/teams.jsonl").write_text('[1, "a"]\n', encoding="utf-8")
+    (archive / "state/sfc/26158.json").write_text('{\n  "issue": 1,\n  "rows": [1, 2]\n}\n')
+    (export / "state/sfc/26158.json").write_text('{"issue": 1, "rows": [1, 2]}')
+
+    def files(folder):
+        return {
+            p.relative_to(folder).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in folder.rglob("*")
+            if p.is_file()
+        }
+
+    def bind():
+        manifest = archive / "feed_manifest.json"
+        manifest.unlink(missing_ok=True)
+        manifest.write_text(json.dumps(dict(files=files(archive))), encoding="utf-8")
+        facts = dict(
+            archive_root=str(archive),
+            manifest=dict(
+                path="feed_manifest.json",
+                sha256=hashlib.sha256(manifest.read_bytes()).hexdigest(),
+            ),
+        )
+        gate._archive_content_binding(
+            facts, dict(folder=export, manifest=dict(files=files(export)))
+        )
+
+    # 原始抓取文件不属于导出状态，只在归档一侧存在也不影响核对。
+    (archive / "state/catalogue/raw.json").write_text("{}", encoding="utf-8")
+    bind()
+    (export / "state/sfc/26158.json").write_text('{"issue": 2, "rows": [1, 2]}')
+    with pytest.raises(ValueError, match="different frozen archive"):
+        bind()
+    (export / "state/sfc/26158.json").write_text('{"issue": 1, "rows": [1, 2]}')
+    (export / "state/teams.jsonl").write_text('[1,  "a"]\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="different frozen archive"):
+        bind()
+    (export / "state/teams.jsonl").unlink()
+    with pytest.raises(ValueError, match="different frozen archive"):
+        bind()

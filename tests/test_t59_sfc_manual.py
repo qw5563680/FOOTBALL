@@ -96,6 +96,17 @@ def test_manual_fetch_archives_all_rows_when_one_national_id_is_unknown(
             == []
         )
         assert export_sfc_state(connection, archive) == ["state/sfc/26156.json"]
+        # 内容未变时不重写：另一种换行的既有文件原样保留；内容变了才重写。
+        issue_path = archive / "state/sfc/26156.json"
+        windows_bytes = issue_path.read_bytes().replace(b"\n", b"\r\n")
+        issue_path.write_bytes(windows_bytes)
+        assert export_sfc_state(connection, archive) == ["state/sfc/26156.json"]
+        assert issue_path.read_bytes() == windows_bytes
+        issue_path.write_bytes(
+            windows_bytes.replace(b'"schema_version": 1', b'"schema_version": 0')
+        )
+        assert export_sfc_state(connection, archive) == ["state/sfc/26156.json"]
+        assert b"\r\n" not in issue_path.read_bytes()
     saved = json.loads((archive / "state/sfc/26156.json").read_text())
     assert saved["issue"]["snapshot"] == record.snapshot
     assert len(saved["matches"]) == 13

@@ -32,6 +32,34 @@ def document(root, reference):
     return json.loads(proof(root, reference))
 
 
+def restorable_state_file(key):
+    """Whether a manifest key is a state file that restore accepts and export rewrites.
+
+    Raw captures and audit files are inputs, not exported state; they are bound by
+    their own per-file proofs, never by an export comparison.
+    """
+    import re
+
+    from zucai.cloud_feeds import (
+        FD_LINK_FILE,
+        MONTH,
+        RESULT_IDENTITY_FILE,
+        RESULT_LINK_FILE,
+        STATE_FILE,
+        STATS_FILES,
+    )
+
+    return key in STATS_FILES | {FD_LINK_FILE, RESULT_LINK_FILE, RESULT_IDENTITY_FILE} or bool(
+        re.fullmatch(
+            rf"state/(?:teams|matches|results|closing_odds)\.jsonl|"
+            rf"state/(?:unmatched_teams|rejected_results)\.csv|"
+            rf"state/odds/{MONTH}\.jsonl|matches/{MONTH}\.csv|"
+            rf"state/sfc/[0-9]{{5}}\.json|{STATE_FILE}",
+            key,
+        )
+    )
+
+
 def export(root, reference):
     """Read schema-checked rows and recalculate the collector's source inventory."""
     from zucai.cloud_feeds import TABLES, source_inventory

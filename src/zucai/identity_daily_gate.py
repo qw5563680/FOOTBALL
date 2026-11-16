@@ -19,6 +19,7 @@ from zucai.identity_gate_evidence import (
     outcome,
     recent_importer,
     replay_importer,
+    restorable_state_file,
     transitions,
 )
 from zucai.identity_gate_evidence import (
@@ -1155,6 +1156,40 @@ def _risk_review(section, root, risk_ids):
     return dict(reviewed=len(rows))
 
 
+def _archive_content_binding(facts, state):
+    """Every restorable state file of the frozen archive must reappear in the export unchanged.
+
+    Byte-identical files pass by hash. A JSON file whose bytes differ passes only when
+    both sides parse to the same value (re-serialisation changes layout, not content).
+    """
+    archive_root = facts.get("archive_root")
+    if not archive_root:
+        raise ValueError("persistence proof cannot be bound to the frozen archive")
+    manifest_bytes = (Path(archive_root) / facts["manifest"]["path"]).read_bytes()
+    if sha256(manifest_bytes).hexdigest() != facts["manifest"]["sha256"]:
+        raise ValueError("frozen archive manifest changed while the gate was running")
+    exported = state["manifest"]["files"]
+    different = []
+    for path, sha in sorted(json.loads(manifest_bytes)["files"].items()):
+        if not restorable_state_file(path) or exported.get(path) == sha:
+            continue
+        same = False
+        if path in exported and path.endswith(".json"):
+            try:
+                same = json.loads((Path(archive_root) / path).read_bytes()) == json.loads(
+                    (state["folder"] / path).read_bytes()
+                )
+            except (OSError, ValueError):
+                same = False
+        if not same:
+            different.append(path)
+    if different:
+        raise ValueError(
+            "persistence proof belongs to a different frozen archive: "
+            f"{len(different)} file(s) differ, first {different[:5]}"
+        )
+
+
 def _persistence(
     section,
     root,
@@ -1165,10 +1200,15 @@ def _persistence(
     league=None,
     replay_context=None,
 ):
-    # The frozen-archive binding is enforced by the caller (assess_league checks
-    # evidence["archive_sha256"] against the archive manifest). The three exports
-    # below are all real replayed-database exports; their equality is verified by
-    # the comparisons below instead of a preset baseline.
+    # 持久化基线必须属于同一份冻结归档。清单文件逐字节相同时直接成立；基线是重放后数据库的
+    # 真实导出时，清单不可能逐字节相同，改为逐文件核对内容（T68 第八节第 10 项修订）。
+    if (
+        expected_manifest_sha is not None
+        and section["before_manifest"]["sha256"] != expected_manifest_sha
+    ):
+        if replay_context is None:
+            raise ValueError("persistence proof belongs to a different frozen archive")
+        _archive_content_binding(replay_context[0], _export(root, section["before_manifest"]))
     keys = ("before_manifest", "after_manifest", "restored_manifest")
     paths = [(root / section[key]["path"]).resolve() for key in keys]
     if (

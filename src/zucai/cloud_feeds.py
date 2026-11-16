@@ -81,6 +81,9 @@ TABLES = {
 MANIFEST = "feed_manifest.json"
 BACKFILL_COLLECTIONS = {source: f"{source}_backfill" for source in ("apif", "fdorg", "fd")}
 MANUAL_COLLECTIONS = {"apif_scoped", "canonical_apply", "identity_evidence"}
+# T68 第八节第 10 项的体积限制：单个赛事单次运行进数据分支的内容不超过 1 MB。
+EVIDENCE_LEAGUE_LIMIT = 1_000_000
+EVIDENCE_DOCUMENT_LIMIT = 64_000
 CANONICAL_APPROVALS_PATH = (
     Path(__file__).resolve().parents[2] / "data/identity_reviews/t68-canonical-approvals.json"
 )
@@ -1047,7 +1050,7 @@ def main():
                 )
             evidence_root = work_root / "evidence"
             evidence = {}
-            failed = {}
+            generation_errors = {}
             for code in codes:
                 try:
                     evidence[code] = generate(
@@ -1059,12 +1062,19 @@ def main():
                         restorable=restorable,
                         held_audit_source=held_audit_source,
                     )
-                except Exception as exc:  # noqa: BLE001 - per-code honest status
-                    failed[code] = f"{type(exc).__name__}: {exc}"
+                except Exception as exc:  # noqa: BLE001 - 如实记录，不中断其余赛事
+                    generation_errors[code] = {"all": f"{type(exc).__name__}: {exc}"}
+                else:
+                    if evidence[code].get("generation_errors"):
+                        generation_errors[code] = dict(evidence[code]["generation_errors"])
+                for part, message in sorted(generation_errors.get(code, {}).items()):
+                    LOG.warning("%s 开启证据未能生成（%s）：%s", code, part, message)
+            # 每个请求的赛事都进入开启检查：没有证据的部分由检查程序如实列为缺项，
+            # 阻断项照常给出；生成失败的原因另列，不替代检查结论。
             register = build_register(
                 archive,
                 cutoff,
-                codes=[c for c in codes if c not in failed],
+                codes=codes,
                 evidence=evidence,
                 evidence_root=evidence_root,
             )
@@ -1077,67 +1087,73 @@ def main():
                     matches_linked=entry["matches"]["linked"],
                     blockers=sorted(entry["blockers"]),
                     missing=sorted(entry["missing_evidence"]),
+                    generation_errors=generation_errors.get(code, {}),
                 )
-            for code, message in sorted(failed.items()):
-                summaries[code] = dict(status="error", message=message)
             # Persist only the small artifacts; large state exports stay in the
             # temporary working directory (task item 10 volume limit).
             for code in codes:
-                if code not in evidence:
-                    continue
                 code_dir = run_dir / str(code)
                 code_dir.mkdir(parents=True, exist_ok=True)
+                produced = evidence.get(code, {})
                 index = dict(
                     provider_code=code,
                     cutoff_utc=cutoff,
-                    archive_sha256=evidence[code]["archive_sha256"],
-                    sanitized_manifest_exclusions=evidence[code].get(
-                        "sanitized_manifest_exclusions", []
-                    ),
+                    archive_sha256=produced.get("archive_sha256"),
+                    sanitized_manifest_exclusions=produced.get("sanitized_manifest_exclusions", []),
+                    generation_errors=generation_errors.get(code, {}),
                     documents={},
                 )
                 for name in sorted((evidence_root / str(code)).glob("*.json")):
-                    persist_target = code_dir / name.name
-                    persist_target.write_bytes(name.read_bytes())
+                    size = name.stat().st_size
+                    # 体积限制：小文档原样留存；大的状态快照只登记哈希与字节数。
+                    persisted = size <= EVIDENCE_DOCUMENT_LIMIT
+                    if persisted:
+                        (code_dir / name.name).write_bytes(name.read_bytes())
                     index["documents"][name.name] = {
-                        "sha256": digest(persist_target),
-                        "bytes": persist_target.stat().st_size,
+                        "sha256": digest(name),
+                        "bytes": size,
+                        "persisted": persisted,
                     }
-                index["current_season_replay"] = {
-                    "before_manifest_sha256": evidence[code]["current_season_replay"][
-                        "before_manifest"
-                    ]["sha256"],
-                    "after_manifest_sha256": evidence[code]["current_season_replay"][
-                        "after_manifest"
-                    ]["sha256"],
-                    "held_audit_source": evidence[code]["current_season_replay"].get(
-                        "held_audit_source"
-                    ),
-                }
-                index["persistence"] = {
-                    key: evidence[code]["persistence"][f"{key}_manifest"]["sha256"]
-                    for key in ("before_repeat", "after_repeat", "restored")
-                }
-                index["recent_replay"] = {
-                    "mode": evidence[code]["recent_replay"].get("mode"),
-                    "originals": evidence[code]["recent_replay"].get("originals", []),
-                    "official_originals": evidence[code]["recent_replay"].get(
-                        "official_originals", []
-                    ),
-                    "boundary_cases": evidence[code]["recent_replay"].get("boundary_cases", {}),
-                    "before_manifest_sha256": evidence[code]["recent_replay"]["before_manifest"][
-                        "sha256"
-                    ],
-                    "after_manifest_sha256": evidence[code]["recent_replay"]["after_manifest"][
-                        "sha256"
-                    ],
-                }
+                current = produced.get("current_season_replay")
+                if current:
+                    index["current_season_replay"] = {
+                        "before_manifest_sha256": current["before_manifest"]["sha256"],
+                        "after_manifest_sha256": current["after_manifest"]["sha256"],
+                        "held_audit_source": current.get("held_audit_source"),
+                    }
+                persisted = produced.get("persistence")
+                if persisted:
+                    index["persistence"] = {
+                        key: persisted[f"{key}_manifest"]["sha256"]
+                        for key in ("before_repeat", "after_repeat", "restored")
+                    }
+                recent = produced.get("recent_replay")
+                if recent:
+                    index["recent_replay"] = {
+                        "mode": recent.get("mode"),
+                        "originals": recent.get("originals", []),
+                        "official_originals": recent.get("official_originals", []),
+                        "boundary_cases": recent.get("boundary_cases", {}),
+                        "boundary_missing": recent.get("boundary_missing", []),
+                        "before_manifest_sha256": recent["before_manifest"]["sha256"],
+                        "after_manifest_sha256": recent["after_manifest"]["sha256"],
+                    }
                 from zucai.cloud_predict import _json as cloud_json
 
                 cloud_json(code_dir / "index.json", index)
-            from zucai.cloud_predict import _json as cloud_json
-
-            cloud_json(run_dir / "register.json", register)
+            # 检查结论紧凑写出；每个赛事（自己的目录加自己那份结论）不得超过体积上限。
+            (run_dir / "register.json").write_text(
+                json.dumps(register, ensure_ascii=False, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            for entry in register["leagues"]:
+                code = entry["provider_code"]
+                size = sum(
+                    p.stat().st_size for p in (run_dir / str(code)).rglob("*") if p.is_file()
+                ) + len(json.dumps(entry, ensure_ascii=False, separators=(",", ":")).encode())
+                summaries[code]["persisted_bytes"] = size
+                if size > EVIDENCE_LEAGUE_LIMIT:
+                    raise ValueError(f"{code} 留存证据 {size} 字节，超过单赛事单次上限")
         collection = {
             "identity_evidence": {
                 "operation": "identity-evidence",
@@ -1154,14 +1170,14 @@ def main():
             with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
                 summary.write("### 开启证据生成与开启检查\n\n")
                 for code, item in summaries.items():
-                    if item.get("status") == "error":
-                        summary.write(f"- {code}：error；{item['message']}。\n")
-                        continue
                     summary.write(
                         f"- {code}：{item['status']}；绑定 {item['teams_bound']} 队；"
                         f"关联 {item['matches_linked']} 场；阻断 {item['blockers']}；"
                         f"缺项 {item['missing']}。\n"
                     )
+                    for part, message in sorted(item["generation_errors"].items()):
+                        summary.write(f"  - 未能生成（{part}）：{message}\n")
+                    summary.write(f"  - 留存证据 {item['persisted_bytes']} 字节\n")
                 summary.write(
                     f"\n证据索引与检查结论：state/identity_gate_evidence/{args.run_id}/"
                     "（register.json 与各赛事 index.json，体积受限）。\n\n"
