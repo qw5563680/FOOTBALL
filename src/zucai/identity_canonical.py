@@ -5,7 +5,7 @@ import csv
 import io
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
@@ -71,7 +71,7 @@ def _entry(team):
 
 
 def propose(archive, *, codes=None):
-    from zucai.identity_binding_archive import load_archive
+    from zucai.identity_binding_archive import _tables, load_archive
     from zucai.league_registry import load_registry
 
     allowed = {
@@ -81,18 +81,132 @@ def propose(archive, *, codes=None):
     if not codes or not set(codes) <= allowed:
         raise ValueError("Creation proposals require verified catalogue routes")
     facts = load_archive(archive, leagues=codes)
+    tables, _ = _tables(archive)
     rows = [
-        _entry(team)
+        (key, team)
         for key, team in sorted(facts["teams"].items())
         if key.startswith("jc-team:") and team["identity_status"] == "creation_proposed"
     ]
+    verdicts = {
+        team["official_team_id"]: _existing_team_verdict(facts, tables, team, key)
+        for key, team in rows
+    }
     return dict(
         version=1,
         archive_sha256=facts["summary"]["manifest"]["sha256"],
-        decisions=rows,
+        decisions=[_entry(team) for _key, team in rows],
         codes=codes,
+        existing_team_verdicts=verdicts,
         production_writes=0,
     )
+
+
+def _existing_team_verdict(facts, tables, team, key):
+    """三结论之一：「新建」「关联库内既有球队」「待核」。
+
+    关联既有球队只能来自比赛证据（同一场比赛在两个来源里开球时刻、主客方向、
+    常规时间比分一致，且对手身份已确定），或库内已有同名中文球队（竞彩同步时
+    建立、尚无官方编号证据）。任何名称相似度、译名或人工对照表都不参与判断。
+    """
+    matches = {r["match_id"]: r for r in tables["matches"]}
+    results = {r["match_id"]: r for r in tables["results"]}
+    pending = []
+    for observation in team.get("official_name_evidence", []):
+        match_id = observation.get("match_id")
+        side = observation.get("side")
+        stored = matches.get(match_id)
+        if stored is None or side not in ("home", "away"):
+            continue
+        counterpart = stored.get("counterpart_id")
+        if not counterpart:
+            continue
+        opposite = "away" if side == "home" else "home"
+        other = matches.get(counterpart)
+        if other is None:
+            pending.append(dict(match_id=match_id, missing=[f"关联源比赛 {counterpart} 不在库"]))
+            continue
+        k1, k2 = stored.get("kickoff_utc"), other.get("kickoff_utc")
+        kickoff_ok = bool(k1 and k2 and abs(_utc(k1) - _utc(k2)) <= timedelta(hours=3))
+        r1, r2 = results.get(match_id), results.get(counterpart)
+        score_ok = bool(
+            r1
+            and r2
+            and r1.get("home_goals") is not None
+            and r2.get("home_goals") is not None
+            and (r1["home_goals"], r1["away_goals"]) == (r2["home_goals"], r2["away_goals"])
+        )
+        candidate_tid = other.get(f"{side}_team_id")
+        opponent_tid = other.get(f"{opposite}_team_id")
+        opponent_key = None
+        opponent_entry = next(
+            (
+                (other_key, entry)
+                for other_key, entry in facts["teams"].items()
+                if other_key != key
+                and other_key.startswith("jc-team:")
+                and entry.get("project_team_id") is not None
+                and str(entry["project_team_id"]) == str(stored.get(f"{opposite}_team_id"))
+                and entry.get("identity_status") != "conflict"
+            ),
+            (None, None),
+        )
+        if opponent_entry is not None:
+            opponent_key, opponent_entry = opponent_entry
+        opponent_ok = bool(
+            candidate_tid is not None
+            and opponent_tid is not None
+            and opponent_entry
+            and str(opponent_entry["project_team_id"]) == str(opponent_tid)
+        )
+        if kickoff_ok and score_ok and opponent_ok:
+            return dict(
+                status="existing",
+                basis="match_evidence",
+                project_team_id=str(candidate_tid),
+                evidence=[
+                    dict(
+                        jc_match_id=match_id,
+                        provider_match_id=counterpart,
+                        side=side,
+                        kickoff_utc=[str(k1), str(k2)],
+                        score=[int(r1["home_goals"]), int(r1["away_goals"])],
+                        opponent_jc_key=opponent_key,
+                        opponent_project_team_id=str(opponent_tid),
+                        provenance=observation.get("originals", []),
+                    )
+                ],
+            )
+        missing = []
+        if not kickoff_ok:
+            missing.append("开球时刻不一致或缺失")
+        if not score_ok:
+            missing.append("常规时间比分不一致或缺失")
+        if not opponent_ok:
+            missing.append("对手身份未确定")
+        pending.append(dict(match_id=match_id, provider_match_id=counterpart, missing=missing))
+    for other_key, other in facts["teams"].items():
+        if not other_key.startswith("project-team:") or other.get("identity_key") != other_key:
+            continue
+        if (
+            team.get("name")
+            and other.get("name")
+            and normalize_team(other["name"]) == normalize_team(team["name"])
+        ):
+            return dict(
+                status="existing",
+                basis="same_chinese_name_without_official_evidence",
+                project_team_id=other["project_team_id"],
+                evidence=[
+                    dict(
+                        project_team_name=other["name"],
+                        official_team_id=team["official_team_id"],
+                        provenance=other.get("provenance", []),
+                    )
+                ],
+            )
+    if pending:
+        return dict(status="pending_review", missing=pending)
+    return dict(status="new", evidence=[])
 
 
 def _approval(decision):
