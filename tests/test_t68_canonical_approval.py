@@ -263,8 +263,36 @@ def _strip_unknown_catalogue_files(root):
     manifest["files"] = {
         key: sha
         for key, sha in manifest["files"].items()
-        if not key.startswith("state/catalogue/backfill/")
+        if not key.startswith("state/catalogue/backfill/backfill/api-football/day/")
     }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+
+
+def _seed_provider_original(source_state, exported):
+    """Materialize a manifest-conforming copy of the season original inside an
+    exported archive so it still witnesses the provider identity (T68 gate)."""
+    import hashlib
+    from pathlib import Path
+
+    source = (
+        Path(source_state) / "state/catalogue/backfill/backfill/api-football/day/fixtures_one.json"
+    )
+    relative = (
+        "state/catalogue/backfill/backfill/api-football/2026-11-14/"
+        "fixtures_202611140100Z_8b900f4aabbccddeeff0011223344556.json"
+    )
+    target = Path(exported) / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(source.read_bytes())
+    meta = json.loads(Path(str(source) + ".meta.json").read_bytes())
+    meta_target = Path(str(target) + ".meta.json")
+    meta_target.write_text(json.dumps(meta, ensure_ascii=False))
+    manifest_path = Path(exported) / "feed_manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    for path in (target, meta_target):
+        manifest["files"][path.relative_to(Path(exported)).as_posix()] = hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -294,6 +322,7 @@ def test_cloud_canonical_apply_empty_approvals_changes_nothing(creation, tmp_pat
         collection={"apif": {"status": "complete", "run_id": "seed"}},
     )
     _strip_unknown_catalogue_files(exported)
+    _seed_provider_original(db.parent, exported)
     empty = tmp_path / "empty-approvals.json"
     empty.write_text('{"version": 1, "archive_sha256": "", "codes": [], "decisions": []}')
     monkeypatch.setattr("zucai.cloud_feeds.CANONICAL_APPROVALS_PATH", empty)
@@ -343,6 +372,7 @@ def test_cloud_canonical_apply_export_then_restore_stays_consistent(
     exported = tmp_path / "exported"
     export_feeds(db, exported, date(2026, 11, 15), "seed")
     _strip_unknown_catalogue_files(exported)
+    _seed_provider_original(db.parent, exported)
     path, _ = approved(exported)
     monkeypatch.setattr("zucai.cloud_feeds.CANONICAL_APPROVALS_PATH", path)
     work = tmp_path / "work"
