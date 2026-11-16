@@ -19,6 +19,8 @@ from zucai.sources.base import RawStore
 from zucai.sources.football_data import read_json
 
 # T68 第八节第 11 项：库里有 fd 历史、但没有接口比赛的联赛，纳入历史赛季身份核验。
+# 其中 39/140/135/78/61/88/94 本就在已核准的 identity-only 范围内；40/62/71 尚未进入
+# provider_config，在登记之前集合不改变任何行为（identity_codes 只在显式给出且已配置时放行）。
 HISTORICAL_IDENTITY_LEAGUE_IDS = {
     "39",
     "140",

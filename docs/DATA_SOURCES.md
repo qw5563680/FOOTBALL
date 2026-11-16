@@ -1008,8 +1008,8 @@ robots 沿用上文记录，本轮未重新探测。真实证据：
 七个条目的 `verification_status=verified`，`verified_utc` 原样取
 [`apif_league_probes.csv`](https://github.com/qw5563680/FOOTBALL/blob/68c1c2bff2f16c983d97524c1a621812bd405754/state/audit/apif_league_probes.csv)
 对应行的 `observed_utc`，配置保留 probe run/提交/原件哈希。元数据均列 2010–2026，
-不据此开放导入：仍为 `identity_only=true`、`seasons_available=[]`、`identity_seasons=[2025,2026]`，
-不进入日采集、backfill 或直接 fetch 导入。
+不据此开放导入：仍为 `identity_only=true`、`seasons_available=[]`，`identity_seasons` 默认
+仍是 2025、2026，历史赛季（2021–2024）仅在显式给出时请求；不进入日采集、backfill 或直接 fetch 导入。
 
 [`state/alias_candidates/apif.json`](https://github.com/qw5563680/FOOTBALL/blob/68c1c2bff2f16c983d97524c1a621812bd405754/state/alias_candidates/apif.json)
 七联赛的 130 条 `auto_verified` 已按中文联赛键原样复制进正式别名，所有 evidence 字段保留。
