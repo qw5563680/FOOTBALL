@@ -237,8 +237,7 @@ def forecast_sections(
                 )
                 tier = HAFU_TIER_LABELS.get(half["share_tier"], half["share_tier"])
                 half_text = (
-                    f"{probs}；占比 {half['share']:.4f}（{tier}，"
-                    f"{half['share_ht_matches']} 场）"
+                    f"{probs}；占比 {half['share']:.4f}（{tier}，{half['share_ht_matches']} 场）"
                 )
             lines.append(
                 f"{head} | {_probabilities(row)} | {_text(row['model_name'])} / {reference} | "

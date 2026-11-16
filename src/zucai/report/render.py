@@ -509,9 +509,7 @@ def _markdown(batch: dict) -> str:
                 f"{HAFU_LABELS[key]} {_percent(half_full['probabilities'][key])}"
                 for key in HAFU_SELECTIONS
             )
-            tier = HAFU_TIER_LABELS.get(
-                half_full["share_tier"], half_full["share_tier"]
-            )
+            tier = HAFU_TIER_LABELS.get(half_full["share_tier"], half_full["share_tier"])
             lines.append(
                 f"- {_md(prediction['home'])} vs {_md(prediction['away'])}"
                 f"（{_md(prediction['match_id'])}）：{probs}；半场进球占比 "
