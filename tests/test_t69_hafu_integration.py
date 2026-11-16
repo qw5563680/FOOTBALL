@@ -292,11 +292,15 @@ def test_report_csv_and_digest_carry_half_full_time(hafu_environment, tmp_path):
     assert "hafu_share_tier" in csv_text
     markdown = (directory / "report.md").read_text(encoding="utf-8")
     assert "胜/胜" in markdown and "半场进球占比" in markdown
+    assert "（联赛，" in markdown
+    probs_line = next(line for line in markdown.splitlines() if "胜/胜" in line)
+    assert probs_line.index("胜/胜") < probs_line.index("负/负")
     digest_lines = forecast_sections([(DAY.isoformat(), str(path), batch)], DAY, "repo")
     digest_text = "\n".join(digest_lines)
     assert "半全场（实验）" in digest_text
     assert "胜/胜" in digest_text
-    assert "占比" in digest_text
+    assert "（联赛，" in digest_text
+    assert digest_text.index("胜/胜") < digest_text.index("负/负")
 
 
 def test_backtest_reports_nine_class_half_full_time(hafu_environment):

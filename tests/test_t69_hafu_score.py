@@ -63,3 +63,12 @@ def test_hafu_statistics_aggregates_only_scored_rows():
     assert stats["brier"] == 0.5
     assert stats["unscored_no_half_score"] == 1
     assert isinstance(stats["calibration"], list)
+    assert len(stats["outcomes"]) == 9
+
+
+def test_hafu_statistics_empty_nodes_write_no_bins_or_outcome_rows():
+    stats = _hafu_statistics([{}, {}])
+    assert stats["n"] == 0
+    assert stats["log_loss"] is None
+    assert stats["calibration"] == []
+    assert stats["outcomes"] == []

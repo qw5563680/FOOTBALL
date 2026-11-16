@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from zucai.predict.base import model_sources
-from zucai.predict.hafu_share import HAFU_LABELS
+from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, HAFU_TIER_LABELS
 from zucai.predict.model_definitions import (
     FROZEN_DEFINITION_FIELDS,
     T63_LEAGUES,
@@ -506,14 +506,14 @@ def _markdown(batch: dict) -> str:
         for prediction in half:
             half_full = prediction["half_full_time"]
             probs = "；".join(
-                f"{HAFU_LABELS[key]} {_percent(value)}"
-                for key, value in half_full["probabilities"].items()
+                f"{HAFU_LABELS[key]} {_percent(half_full['probabilities'][key])}"
+                for key in HAFU_SELECTIONS
             )
+            tier = HAFU_TIER_LABELS.get(half_full["share_tier"], half_full["share_tier"])
             lines.append(
                 f"- {_md(prediction['home'])} vs {_md(prediction['away'])}"
                 f"（{_md(prediction['match_id'])}）：{probs}；半场进球占比 "
-                f"{half_full['share']:.6g}（{half_full['share_tier']}，"
-                f"{half_full['share_ht_matches']} 场）。"
+                f"{half_full['share']:.6g}（{tier}，{half_full['share_ht_matches']} 场）。"
             )
     blends = [p for p in batch["predictions"] if p.get("experimental_blend") is not None]
     if blends:

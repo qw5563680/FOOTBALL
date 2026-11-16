@@ -337,6 +337,29 @@ def _hafu_statistics(rows):
     def mean(values):
         return sum(values) / len(values) if values else None
 
+    # Nodes with no scored rows must not write empty bins or outcome rows.
+    calibration = [
+        {
+            "lower": index / 10,
+            "n": len(values),
+            "mean_p": mean([v[0] for v in values]),
+            "observed": mean([v[1] for v in values]),
+        }
+        for index, values in enumerate(bins)
+        if values
+    ]
+    outcome_rows = [
+        {
+            "outcome": HAFU_SELECTIONS[index],
+            "label": HAFU_LABELS[HAFU_SELECTIONS[index]],
+            "n": len(values),
+            "mean_p": mean([v[0] for v in values]),
+            "actual": int(sum(v[1] for v in values)),
+            "observed": mean([v[1] for v in values]),
+        }
+        for index, values in enumerate(outcomes)
+        if values
+    ]
     return {
         "n": n,
         "log_loss": mean([r["half_full_time"]["log_loss"] for r in scored]),
@@ -346,26 +369,8 @@ def _hafu_statistics(rows):
             for r in rows
             if r.get("half_full_time") and r["half_full_time"]["status"] == "unscored_no_half_score"
         ),
-        "calibration": [
-            {
-                "lower": index / 10,
-                "n": len(values),
-                "mean_p": mean([v[0] for v in values]),
-                "observed": mean([v[1] for v in values]),
-            }
-            for index, values in enumerate(bins)
-        ],
-        "outcomes": [
-            {
-                "outcome": HAFU_SELECTIONS[index],
-                "label": HAFU_LABELS[HAFU_SELECTIONS[index]],
-                "n": len(values),
-                "mean_p": mean([v[0] for v in values]),
-                "actual": int(sum(v[1] for v in values)),
-                "observed": mean([v[1] for v in values]),
-            }
-            for index, values in enumerate(outcomes)
-        ],
+        "calibration": calibration,
+        "outcomes": outcome_rows,
     }
 
 
