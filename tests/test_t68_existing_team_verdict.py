@@ -55,6 +55,78 @@ def test_pending_review_without_unique_provider_id():
     assert "未给出唯一且见证齐全的接口球队编号" in verdict["missing"][0]
 
 
+def test_pending_review_when_archive_lacks_provider_originals():
+    facts = {"teams": {}, "official": [], "formal": {}, "apif": []}
+    verdict = _unit(facts=facts)
+    assert verdict["status"] == "pending_review"
+    assert any("归档里没有该赛事的接口原件" in item for item in verdict["missing"])
+
+
+def test_pending_review_when_same_country_fd_teams_live_in_candidate_league():
+    """A candidate-status route must be covered by the country mapping too."""
+    facts = {
+        "teams": {
+            "project-team:9": {
+                "name": "Old home",
+                "project_team_id": "9",
+                "identity_key": "project-team:9",
+                "provenance": [],
+            }
+        },
+        "official": [],
+        "formal": {},
+        "apif": [{"competition_id": "48"}],
+    }
+    tables = {
+        "matches": [{"source": "fd", "league": "候选联赛", "home_team_id": 9, "away_team_id": 8}],
+        "results": [],
+    }
+    configs = {"48": {"league": "英联赛杯"}, "999": {"league": "候选联赛"}}
+    countries = {"48": "England", "999": "England"}
+    verdict = _unit(
+        facts=facts,
+        tables=tables,
+        configs=configs,
+        countries=countries,
+        index={"508": [{"provider_team_id": "102", "evidence_status": "strict_verified"}]},
+    )
+    assert verdict["status"] == "pending_review"
+    assert any("候选联赛" in item for item in verdict["missing"])
+
+
+def test_undetermined_league_country_counts_as_same_country():
+    facts = {
+        "teams": {
+            "project-team:9": {
+                "name": "Old home",
+                "project_team_id": "9",
+                "identity_key": "project-team:9",
+                "provenance": [],
+            }
+        },
+        "official": [],
+        "formal": {},
+        "apif": [{"competition_id": "48"}],
+    }
+    tables = {
+        "matches": [
+            {"source": "fd", "league": "无国家登记联赛", "home_team_id": 9, "away_team_id": 8}
+        ],
+        "results": [],
+    }
+    configs = {"48": {"league": "英联赛杯"}, "998": {"league": "无国家登记联赛"}}
+    countries = {"48": "England"}
+    verdict = _unit(
+        facts=facts,
+        tables=tables,
+        configs=configs,
+        countries=countries,
+        index={"508": [{"provider_team_id": "102", "evidence_status": "strict_verified"}]},
+    )
+    assert verdict["status"] == "pending_review"
+    assert any("无国家登记联赛" in item for item in verdict["missing"])
+
+
 def test_pending_review_with_multiple_provider_ids():
     def entry(provider):
         return {"provider_team_id": provider, "evidence_status": "strict_verified"}

@@ -75,10 +75,12 @@ INTERNATIONAL_COUNTRIES = {"World", "International", "Europe"}
 
 
 def _import_configs(registry):
+    # Country/league mapping covers every registered import route, whatever
+    # its status: an undetermined country is treated as same-country below.
     return {
         code: entry["config"]
         for code, entry in registry["providers"]["apif"].items()
-        if entry["status"] == "verified" and entry.get("mode") == "import"
+        if entry.get("mode") == "import"
     }
 
 
@@ -203,8 +205,10 @@ def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_cod
         if not sources or not sources <= {"fd", "fdorg"}:
             continue
         for league in teams_leagues.get(tid, set()):
-            country = countries.get(league_codes.get(league) or "")
-            if international or country == candidate_country:
+            # An undetermined league country counts as same-country: when in
+            # doubt the verdict must stay 待核, never fall through to 新建.
+            country = countries.get(str(league_codes.get(league) or ""))
+            if international or country is None or country == candidate_country:
                 leagues.add(league)
     return sorted(leagues)
 
@@ -225,29 +229,33 @@ def _existing_team_verdict(facts, tables, team, key, *, configs, countries, inde
     has_provider_originals = any(
         str(row.get("competition_id")) == str(code) for row in facts.get("apif", [])
     )
-    if provider_id is None and has_provider_originals:
+    if provider_id is None:
         return dict(
             status="pending_review",
-            missing=[
-                "绑定提案未给出唯一且见证齐全的接口球队编号 X（无法与库内既有球队做比赛证据比对）"
-            ],
+            missing=(
+                ["归档里没有该赛事的接口原件，无法复核接口球队编号 X"]
+                if not has_provider_originals
+                else [
+                    "绑定提案未给出唯一且见证齐全的接口球队编号 X"
+                    "（无法与库内既有球队做比赛证据比对）"
+                ]
+            ),
             basis="no_unique_witnessed_provider_team",
         )
-    if provider_id is not None:
-        formal_target = _formal_target(facts, provider_id)
-        if formal_target is not None:
-            project_team_id, canonical = formal_target
-            return dict(
-                status="existing",
-                basis="approved_alias_entry",
-                project_team_id=project_team_id,
-                provider_team_id=provider_id,
-                canonical=canonical,
-                说明=(
-                    f"接口球队编号 {provider_id} 在别名表已有获批条目指向库内球队 "
-                    f"{canonical}（同一接口球队编号），不是新建。"
-                ),
-            )
+    formal_target = _formal_target(facts, provider_id)
+    if formal_target is not None:
+        project_team_id, canonical = formal_target
+        return dict(
+            status="existing",
+            basis="approved_alias_entry",
+            project_team_id=project_team_id,
+            provider_team_id=provider_id,
+            canonical=canonical,
+            说明=(
+                f"接口球队编号 {provider_id} 在别名表已有获批条目指向库内球队 "
+                f"{canonical}（同一接口球队编号），不是新建。"
+            ),
+        )
     same_name = _same_name_target(facts, team)
     if same_name is not None:
         project_team_id, name = same_name
@@ -272,21 +280,12 @@ def _existing_team_verdict(facts, tables, team, key, *, configs, countries, inde
             ],
             basis="unverified_same_country_fd_teams",
         )
-    if provider_id is not None:
-        return dict(
-            status="new",
-            basis="unique_witnessed_provider_team_without_existing_indication",
-            说明=(
-                f"接口球队编号 {provider_id} 见证齐全且唯一，别名表无获批条目、"
-                "库内无同名中文球队、无同国 fd/fdorg 无编号球队，可新建。"
-            ),
-        )
     return dict(
         status="new",
-        basis="archive_without_provider_originals",
+        basis="unique_witnessed_provider_team_without_existing_indication",
         说明=(
-            "该归档不含该赛事的接口原件，无法在此归档上复核接口球队编号 X；"
-            "库内无获批别名条目、无同名中文球队、无同国 fd/fdorg 无编号球队，可新建。"
+            f"接口球队编号 {provider_id} 见证齐全且唯一，别名表无获批条目、"
+            "库内无同名中文球队、无同国 fd/fdorg 无编号球队，可新建。"
         ),
     )
 
