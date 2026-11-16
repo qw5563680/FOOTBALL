@@ -1001,32 +1001,90 @@ def main():
         if not set(codes) <= import_codes:
             raise ValueError("identity-evidence 仅接受已核准的导入赛事编号")
         cutoff = datetime.now(UTC).isoformat()
-        evidence_root = archive / f"state/identity_gate_evidence/{args.run_id}"
-        evidence = {}
-        for code in codes:
-            evidence[code] = generate(
-                archive,
-                code,
-                cutoff=cutoff,
-                run_id=args.run_id,
-                out_root=evidence_root / code,
+        run_dir = archive / f"state/identity_gate_evidence/{args.run_id}"
+        with TemporaryDirectory(
+            prefix="zucai-evidence-entry-", ignore_cleanup_errors=True
+        ) as temporary:
+            work_root = Path(temporary)
+            evidence = {}
+            for code in codes:
+                evidence[code] = generate(
+                    archive,
+                    code,
+                    cutoff=cutoff,
+                    run_id=args.run_id,
+                    out_root=work_root,
+                )
+            register = build_register(
+                archive, cutoff, codes=codes, evidence=evidence, evidence_root=work_root
             )
-        register = build_register(
-            archive, cutoff, codes=codes, evidence=evidence, evidence_root=evidence_root
-        )
-        summaries = {
-            code: dict(
-                status=entry["status"],
-                teams_bound=entry["teams"]["bound"],
-                matches_linked=entry["matches"]["linked"],
-                blockers=sorted(entry["blockers"]),
-                missing=sorted(entry["missing_evidence"]),
-            )
-            for code, entry in register["leagues"].items()
-        }
-        from zucai.cloud_predict import _json as cloud_json
+            summaries = {}
+            for entry in register["leagues"]:
+                code = entry["provider_code"]
+                summaries[code] = dict(
+                    status=entry["status"],
+                    teams_bound=entry["teams"]["bound"],
+                    matches_linked=entry["matches"]["linked"],
+                    blockers=sorted(entry["blockers"]),
+                    missing=sorted(entry["missing_evidence"]),
+                )
+            # Persist only the small artifacts; large state exports stay in the
+            # temporary working directory (task item 10 volume limit).
+            for code in codes:
+                code_dir = run_dir / str(code)
+                code_dir.mkdir(parents=True, exist_ok=True)
+                index = dict(
+                    provider_code=code,
+                    cutoff_utc=cutoff,
+                    archive_sha256=evidence[code]["archive_sha256"],
+                    sanitized_manifest_exclusions=evidence[code].get(
+                        "sanitized_manifest_exclusions", []
+                    ),
+                    documents={},
+                )
+                for name in sorted((work_root / str(code)).glob("*.json")):
+                    if name.parent != work_root / str(code):
+                        continue
+                    persist_target = code_dir / name.name
+                    persist_target.write_bytes(name.read_bytes())
+                    index["documents"][name.name] = {
+                        "sha256": digest(persist_target),
+                        "bytes": persist_target.stat().st_size,
+                    }
+                index["current_season_replay"] = {
+                    "before_manifest_sha256": evidence[code]["current_season_replay"][
+                        "before_manifest"
+                    ]["sha256"],
+                    "after_manifest_sha256": evidence[code]["current_season_replay"][
+                        "after_manifest"
+                    ]["sha256"],
+                    "held_audit_source": evidence[code]["current_season_replay"].get(
+                        "held_audit_source"
+                    ),
+                }
+                index["persistence"] = {
+                    key: evidence[code]["persistence"][f"{key}_manifest"]["sha256"]
+                    for key in ("before_repeat", "after_repeat", "restored")
+                }
+                index["recent_replay"] = {
+                    "mode": evidence[code]["recent_replay"].get("mode"),
+                    "originals": evidence[code]["recent_replay"].get("originals", []),
+                    "official_originals": evidence[code]["recent_replay"].get(
+                        "official_originals", []
+                    ),
+                    "before_manifest_sha256": evidence[code]["recent_replay"]["before_manifest"][
+                        "sha256"
+                    ],
+                    "after_manifest_sha256": evidence[code]["recent_replay"]["after_manifest"][
+                        "sha256"
+                    ],
+                }
+                from zucai.cloud_predict import _json as cloud_json
 
-        cloud_json(evidence_root / "register.json", register)
+                cloud_json(code_dir / "index.json", index)
+            from zucai.cloud_predict import _json as cloud_json
+
+            cloud_json(run_dir / "register.json", register)
         collection = {
             "identity_evidence": {
                 "operation": "identity-evidence",
@@ -1037,7 +1095,8 @@ def main():
             }
         }
         summary_collection = "identity_evidence"
-        day = date.fromisoformat(meta["through_beijing"])
+        through = meta.get("through_beijing")
+        day = date.fromisoformat(through) if through else date.today()
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
                 summary.write("### 开启证据生成与开启检查\n\n")
@@ -1048,7 +1107,8 @@ def main():
                         f"缺项 {item['missing']}。\n"
                     )
                 summary.write(
-                    f"\n证据与检查结论：{evidence_root.relative_to(archive).as_posix()}/register.json。\n\n"
+                    f"\n证据索引与检查结论：state/identity_gate_evidence/{args.run_id}/"
+                    "（register.json 与各赛事 index.json，体积受限）。\n\n"
                 )
     if args.command in {"probe", "identity"}:
         if args.command == "identity":

@@ -179,6 +179,11 @@ def _copy_original(root, archive, ref):
     return dict(path=ref["path"], sha256=ref["sha256"])
 
 
+def _prefix(item, code):
+    item["path"] = f"{code}/{item['path']}"
+    return item
+
+
 def _immutable_inventory(folder):
     from zucai.forecast_archive import verify_forecasts
 
@@ -224,15 +229,15 @@ def _sanitize_archive(archive, work):
             key,
         )
 
+    dropped = sorted(key for key in manifest["files"] if not acceptable(key))
     manifest["files"] = {key: sha for key, sha in manifest["files"].items() if acceptable(key)}
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-    return target
+    return target, dropped
 
 
 def _date_originals(archive, code, start, end):
     """Archived UTC-date captures; season originals under backfill/ are excluded."""
     originals = []
-    manifest = json.loads((Path(archive) / "feed_manifest.json").read_bytes())
     first_utc = datetime.combine(start, datetime.min.time(), BEIJING).astimezone(UTC)
     end_utc = datetime.combine(end + timedelta(days=1), datetime.min.time(), BEIJING).astimezone(
         UTC
@@ -252,13 +257,18 @@ def _date_originals(archive, code, start, end):
         when = params["date"][0]
         if first_utc.date().isoformat() <= when <= end_utc.date().isoformat():
             relative = path.relative_to(Path(archive)).as_posix()
-            if relative in manifest["files"]:
-                originals.append(dict(path=relative, sha256=manifest["files"][relative]))
+            originals.append(dict(path=relative, sha256=digest(path)))
     return originals
 
 
 def generate(archive, code, *, cutoff, run_id, out_root):
-    """Produce the four evidence pieces for one competition; returns the evidence dict."""
+    """Produce the four evidence pieces for one competition; returns the evidence dict.
+
+    All large intermediates (archive copy, state exports) live under ``out_root``,
+    which callers must place in a temporary working directory — never inside the
+    data archive. References inside the evidence dict are relative to ``out_root``
+    and carry the competition prefix.
+    """
     from zucai.identity_daily_gate import _recent_official
     from zucai.identity_gate_evidence import export as gate_export
     from zucai.identity_gate_evidence import outcome as state_outcome
@@ -266,10 +276,19 @@ def generate(archive, code, *, cutoff, run_id, out_root):
 
     archive = Path(archive)
     out_root = Path(out_root)
-    # Every reference is relative to the evidence root the gate receives;
-    # callers pass one directory per competition (per-run subdirectories).
-    code_root = out_root
-    code_root.mkdir(parents=True, exist_ok=True)
+    file_root = out_root / str(code)
+    file_root.mkdir(parents=True, exist_ok=True)
+
+    def doc(name, value):
+        item = _document(file_root, name, value)
+        item["path"] = f"{code}/{name}"
+        return item
+
+    def ref(path):
+        item = _ref(file_root, path)
+        item["path"] = f"{code}/{item['path']}"
+        return item
+
     facts = _facts(archive, [code], cutoff)
     season = facts["configs"][code]["current_season"]
     if not season:
@@ -280,7 +299,21 @@ def generate(archive, code, *, cutoff, run_id, out_root):
 
     with TemporaryDirectory(prefix="zucai-evidence-", ignore_cleanup_errors=True) as temporary:
         work = Path(temporary)
-        restorable = _sanitize_archive(archive, work)
+        # The gate's held reconciliation reads the audit from the frozen archive:
+        # when the archive carries none, materialize an empty list there and say so.
+        held_audit_source = "archive"
+        if not (Path(archive) / HELD_PATH).is_file():
+            held_path = Path(archive) / HELD_PATH
+            held_path.parent.mkdir(parents=True, exist_ok=True)
+            held_path.write_text(HELD_HEADER, encoding="utf-8")
+            manifest_path = Path(archive) / "feed_manifest.json"
+            archive_manifest = json.loads(manifest_path.read_bytes())
+            archive_manifest["files"][HELD_PATH] = digest(held_path)
+            manifest_path.write_text(
+                json.dumps(archive_manifest, ensure_ascii=False, indent=2) + "\n"
+            )
+            held_audit_source = "generated_empty_archive_has_no_held_audit"
+        restorable, dropped = _sanitize_archive(archive, work)
         games, provenance, _raw = _parse_season(facts, code, season)
         source_ref = provenance[0]
         meta = json.loads(
@@ -294,11 +327,11 @@ def generate(archive, code, *, cutoff, run_id, out_root):
         _ensure_held(restored.parent)
         before_folder = _export_state(restored, archive, work / "current-before", day, cutoff)
         current_result = _run_importer(restored, games, seen, imported, retain_results=False)
-        archive_copy = _carry(code_root, archive, "archive-copy")
-        before_folder = _carry(code_root, before_folder, "current-before")
-        before_ref = _ref(code_root, before_folder / "feed_manifest.json")
-        after_ref = _ref(code_root, archive_copy / "feed_manifest.json")
-        held_ref = _ref(code_root, archive_copy / HELD_PATH)
+        archive_copy = _carry(file_root, archive, "archive-copy")
+        before_folder = _carry(file_root, before_folder, "current-before")
+        before_ref = ref(before_folder / "feed_manifest.json")
+        after_ref = ref(archive_copy / "feed_manifest.json")
+        held_ref = ref(archive_copy / HELD_PATH)
         scope = dict(
             code=code,
             season=season,
@@ -323,25 +356,25 @@ def generate(archive, code, *, cutoff, run_id, out_root):
             cutoff_utc=cutoff,
             formal_aliases_sha256=hashlib.sha256(FORMAL.read_bytes()).hexdigest(),
         )
-        options["invocation_evidence"] = _document(code_root, "current-invocation.json", invocation)
+        options["invocation_evidence"] = doc("current-invocation.json", invocation)
         current_section = dict(
-            report=_document(
-                code_root,
+            report=doc(
                 "current-report.json",
                 dict(run_id=run_id, processed_files=1, scopes=[scope]),
             ),
-            replay_options=_document(code_root, "current-options.json", options),
+            replay_options=doc("current-options.json", options),
             before_manifest=before_ref,
             after_manifest=after_ref,
             held_before=held_ref,
             held_before_manifest=after_ref,
+            held_audit_source=held_audit_source,
         )
 
         # ---- Persistence: a second, distinct replay must insert zero rows; the
         # three states are byte-identical copies of the archive (zero changes).
         repeat_result = _run_importer(restored, games, seen, imported, retain_results=False)
-        repeat_after = _carry(code_root, archive, "repeat-after")
-        restored_export = _carry(code_root, archive, "restored-export")
+        repeat_after = _carry(file_root, archive, "repeat-after")
+        restored_export = _carry(file_root, archive, "restored-export")
         repeat_report = dict(
             run_id=f"{run_id}-repeat",
             processed_files=1,
@@ -359,10 +392,10 @@ def generate(archive, code, *, cutoff, run_id, out_root):
             ],
         )
         persistence = dict(
-            repeat_report=_document(code_root, "repeat-report.json", repeat_report),
-            before_manifest=_ref(code_root, archive_copy / "feed_manifest.json"),
-            after_manifest=_ref(code_root, repeat_after / "feed_manifest.json"),
-            restored_manifest=_ref(code_root, restored_export / "feed_manifest.json"),
+            repeat_report=doc("repeat-report.json", repeat_report),
+            before_manifest=ref(archive_copy / "feed_manifest.json"),
+            after_manifest=ref(repeat_after / "feed_manifest.json"),
+            restored_manifest=ref(restored_export / "feed_manifest.json"),
         )
         repeat_invocation = dict(invocation, run_id=f"{run_id}-repeat")
         repeat_options = dict(
@@ -372,20 +405,19 @@ def generate(archive, code, *, cutoff, run_id, out_root):
             cutoff_utc=cutoff,
             formal_aliases_sha256=hashlib.sha256(FORMAL.read_bytes()).hexdigest(),
         )
-        repeat_options["invocation_evidence"] = _document(
-            code_root, "repeat-invocation.json", repeat_invocation
-        )
-        persistence["replay_options"] = _document(code_root, "repeat-options.json", repeat_options)
+        repeat_options["invocation_evidence"] = doc("repeat-invocation.json", repeat_invocation)
+        persistence["replay_options"] = doc("repeat-options.json", repeat_options)
         for key, folder in (
             ("before_repeat", before_folder),
             ("after_repeat", repeat_after),
             ("restored", restored_export),
         ):
-            ref = _ref(code_root, folder / "feed_manifest.json")
-            state = gate_export(code_root, ref)
+            state_ref = ref(folder / "feed_manifest.json")
+            state = gate_export(file_root, _ref(file_root, folder / "feed_manifest.json"))
             snap = snapshot(state, cutoff, league)
             snap["immutable_sha256"] = _immutable_inventory(folder)
-            persistence[key] = _document(code_root, f"{key}.json", snap)
+            persistence[key] = doc(f"{key}.json", snap)
+            persistence[key + "_manifest"] = state_ref
 
         # ---- Recent 30-day replay.
         start, end = (
@@ -398,11 +430,10 @@ def generate(archive, code, *, cutoff, run_id, out_root):
             raise ValueError(
                 f"{code} 30 天窗口内没有日期原件；equivalent 模式（含边界样例）留待下一提交"
             )
-        recent_section["originals"] = [_copy_original(code_root, archive, r) for r in originals]
+        recent_section["originals"] = [
+            _prefix(_copy_original(file_root, archive, r), code) for r in originals
+        ]
         official_originals = []
-        manifest_files = json.loads(
-            (Path(facts["archive_root"]) / "feed_manifest.json").read_bytes()
-        ).get("files", {})
         for scan_root in (
             Path(facts["archive_root"]) / "state/catalogue/catalogue/jc",
             Path(facts["archive_root"]) / "state/catalogue/supplement/jc",
@@ -417,13 +448,12 @@ def generate(archive, code, *, cutoff, run_id, out_root):
                         continue
                     if start <= when <= end:
                         relative = page.relative_to(Path(facts["archive_root"])).as_posix()
-                        if relative in manifest_files:
-                            official_originals.append(
-                                dict(path=relative, sha256=manifest_files[relative])
-                            )
-        official_originals = [_copy_original(code_root, archive, r) for r in official_originals]
+                        official_originals.append(dict(path=relative, sha256=digest(page)))
+        official_originals = [
+            _prefix(_copy_original(file_root, archive, r), code) for r in official_originals
+        ]
         recent_section["official_originals"] = official_originals
-        official = _recent_official(facts, code, recent_section, code_root, start, end)
+        official = _recent_official(facts, code, recent_section, out_root, start, end)
 
         recent_restored = work / "recent/data/feeds.db"
         restore_feeds(restorable, recent_restored)
@@ -432,22 +462,22 @@ def generate(archive, code, *, cutoff, run_id, out_root):
         outcomes, fixture_ids, raw_hashes = [], set(), set()
         parser = ApiFootball(leagues={code: facts["configs"][code]})
         try:
-            for ref in recent_section["originals"]:
-                raw = proof(Path(facts["archive_root"]), dict(ref, path=ref["path"]))
+            for original in originals:
+                raw = proof(Path(facts["archive_root"]), original)
                 recent_games = parser.parse(raw)
                 _run_importer(recent_restored, recent_games, seen, imported, retain_results=False)
                 for game in recent_games:
                     fixture_ids.add(f"apif:{game.provider_match_id}")
-                raw_hashes.add(ref["sha256"])
+                raw_hashes.add(original["sha256"])
         finally:
             parser.session.close()
         recent_after = _export_state(recent_restored, archive, work / "recent-after", day, cutoff)
-        recent_before = _carry(code_root, recent_before, "recent-before")
-        recent_after = _carry(code_root, recent_after, "recent-after")
-        recent_section["before_manifest"] = _ref(code_root, recent_before / "feed_manifest.json")
-        recent_section["after_manifest"] = _ref(code_root, recent_after / "feed_manifest.json")
-        before_state = gate_export(code_root, recent_section["before_manifest"])
-        after_state = gate_export(code_root, recent_section["after_manifest"])
+        recent_before = _carry(file_root, recent_before, "recent-before")
+        recent_after = _carry(file_root, recent_after, "recent-after")
+        recent_section["before_manifest"] = ref(recent_before / "feed_manifest.json")
+        recent_section["after_manifest"] = ref(recent_after / "feed_manifest.json")
+        before_state = gate_export(file_root, _ref(file_root, recent_before / "feed_manifest.json"))
+        after_state = gate_export(file_root, _ref(file_root, recent_after / "feed_manifest.json"))
         inserted_count = 0
         for mid in sorted(fixture_ids):
             old, new = state_outcome(before_state, mid), state_outcome(after_state, mid)
@@ -479,14 +509,9 @@ def generate(archive, code, *, cutoff, run_id, out_root):
             cutoff_utc=cutoff,
             formal_aliases_sha256=hashlib.sha256(FORMAL.read_bytes()).hexdigest(),
         )
-        recent_options["invocation_evidence"] = _document(
-            code_root, "recent-invocation.json", recent_invocation
-        )
-        recent_section["replay_options"] = _document(
-            code_root, "recent-options.json", recent_options
-        )
-        recent_section["results"] = _document(
-            code_root,
+        recent_options["invocation_evidence"] = doc("recent-invocation.json", recent_invocation)
+        recent_section["replay_options"] = doc("recent-options.json", recent_options)
+        recent_section["results"] = doc(
             "recent-report.json",
             dict(
                 fixture_ids=sorted(fixture_ids),
@@ -501,8 +526,7 @@ def generate(archive, code, *, cutoff, run_id, out_root):
         # ---- Risk review.
         risk_rows = []
         for risk in [r for r in outcomes if r["outcome"] in {"suspected", "rejected"}]:
-            evidence = _document(
-                code_root,
+            evidence = doc(
                 f"risk-{risk['fixture_id'].replace(':', '-')}.json",
                 dict(kind="replay_risk", fixture_id=risk["fixture_id"]),
             )
@@ -514,7 +538,7 @@ def generate(archive, code, *, cutoff, run_id, out_root):
                     review_evidence=evidence,
                 )
             )
-        risk_document = _document(code_root, "risk-review.json", risk_rows)
+        risk_document = doc("risk-review.json", risk_rows)
 
     return dict(
         provider_code=code,
@@ -524,4 +548,5 @@ def generate(archive, code, *, cutoff, run_id, out_root):
         recent_replay=recent_section,
         risk_review=risk_document,
         persistence=persistence,
+        sanitized_manifest_exclusions=dropped,
     )
