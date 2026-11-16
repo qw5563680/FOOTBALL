@@ -22,6 +22,7 @@ HAFU_LABELS = {
     "ad": "负/平",
     "aa": "负/负",
 }
+HAFU_TIER_LABELS = {"league": "联赛", "pool": "池", "all": "全部模型"}
 
 
 def _integer(value):

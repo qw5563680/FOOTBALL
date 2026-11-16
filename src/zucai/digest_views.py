@@ -13,7 +13,7 @@ from zucai.digest_context import (
 )
 from zucai.digest_display import BEIJING, _instant, _link, _match, _number, _probabilities, _text
 from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time, same_collection_attempt
-from zucai.predict.hafu_share import HAFU_LABELS
+from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, HAFU_TIER_LABELS
 from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.scoreboard.score import enrich_prior_disclosures
 
@@ -232,11 +232,12 @@ def forecast_sections(
             half_text = "—"
             if half and half.get("status") == "experimental":
                 probs = " ".join(
-                    f"{HAFU_LABELS[key]} {_number(value, 2, percent=True)}"
-                    for key, value in half["probabilities"].items()
+                    f"{HAFU_LABELS[key]} {_number(half['probabilities'][key], 2, percent=True)}"
+                    for key in HAFU_SELECTIONS
                 )
+                tier = HAFU_TIER_LABELS.get(half["share_tier"], half["share_tier"])
                 half_text = (
-                    f"{probs}；占比 {half['share']:.4f}（{half['share_tier']}，"
+                    f"{probs}；占比 {half['share']:.4f}（{tier}，"
                     f"{half['share_ht_matches']} 场）"
                 )
             lines.append(
