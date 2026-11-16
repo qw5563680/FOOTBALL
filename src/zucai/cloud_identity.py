@@ -35,6 +35,10 @@ FIELDS = (
     "country",
     "canonical",
     "status",
+    "appearances_2021",
+    "appearances_2022",
+    "appearances_2023",
+    "appearances_2024",
     "appearances_2025",
     "appearances_2026",
     "jc_references",
@@ -48,8 +52,9 @@ def identity_scopes(codes=None, seasons=None):
     seasons = "2025,2026" if seasons is None else seasons
     if seasons == "2025-2026":
         seasons = "2025,2026"
-    if not re.fullmatch(r"202[56](?:,202[56])*", seasons):
-        raise ValueError("identity 仅核验 2025、2026 两季")
+    # T68 第八节第 11 项：fd 历史覆盖到的 2021 至 2024 赛季也允许身份核验。
+    if not re.fullmatch(r"202[1-6](?:,202[1-6])*", seasons):
+        raise ValueError("identity 仅核验 2021 至 2026 赛季")
     years = [int(year) for year in seasons.split(",")]
     if len(years) != len(set(years)):
         raise ValueError("identity 年份不得重复")
@@ -91,7 +96,7 @@ def collect_identity(database, run_id, *, codes=None, seasons=None):
         for code, config in selected.items():
             league = config["league"]
             games, provenance, intervals = {}, {}, []
-            appearances = {year: Counter() for year in (2025, 2026)}
+            appearances = {year: Counter() for year in range(2021, 2027)}
             inconsistent = False
             for year in years:
                 record_scope(state / "audit/apif_identity_scopes.csv", code, league, year)
