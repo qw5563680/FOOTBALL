@@ -343,6 +343,7 @@ def test_cloud_canonical_apply_empty_approvals_changes_nothing(creation, tmp_pat
         "status",
         "run_id",
         "created",
+        "linked",
         "already_applied",
         "decisions",
     }

@@ -7,12 +7,16 @@ from zoneinfo import ZoneInfo
 from zucai.identity_binding import _clock, _utc
 
 
-def associate_official(rows, tables, categories, manifest, observed_utc):
+def associate_official(rows, tables, categories, manifest, observed_utc, redirects=None):
     """Associate exact JC match IDs with the same verified current table snapshot.
 
     Names are display values only. Archived clock snapshots cannot authorize a
     project team. Every contradictory current observation blocks both identities.
+    ``redirects`` maps a stored team id that an owner-approved same-club receipt
+    absorbed to the id that kept its matches; an archived snapshot naming the
+    absorbed id then agrees with the current row naming the kept one.
     """
+    redirects = redirects or {}
     matches = {r["match_id"]: r for r in tables["matches"]}
     results = {r["match_id"]: r for r in tables["results"]}
     projects = {str(r["id"]): r for r in tables["teams"]}
@@ -42,7 +46,12 @@ def associate_official(rows, tables, categories, manifest, observed_utc):
                 and all(
                     all(
                         proof["match_snapshot"].get(field) == match.get(field)
-                        for field in ("source", "league", "home_team_id", "away_team_id")
+                        for field in ("source", "league")
+                    )
+                    and all(
+                        redirects.get(old, old) == match.get(field)
+                        for field in ("home_team_id", "away_team_id")
+                        for old in [proof["match_snapshot"].get(field)]
                     )
                     for proof in row["provenance"]
                     if proof.get("match_snapshot")

@@ -10,17 +10,21 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 
 from zucai.db import get_engine, session_scope
 from zucai.identity_binding import _category_veto, _utc
-from zucai.models import Match, Team
+from zucai.identity_same_club import BASIS as SAME_CLUB_BASIS
+from zucai.identity_same_club import link_decision, official_witness, witness_summary
+from zucai.models import Base, Match, Team
 from zucai.sources.apif_aliases import validate_approvals
 from zucai.sources.base import _atomic_write
 from zucai.sources.teams import normalize_team
 
 RECEIPTS = "state/audit/jc_canonical_identities.csv"
 FIELDS = ("official_team_id", "project_team_id", "canonical", "created_utc", "decision_json")
+CREATE_ACTION = "create_canonical_identity"
+LINK_ACTION = "link_existing_identity"
 
 
 def _json(value):
@@ -158,6 +162,28 @@ def _formal_target(facts, provider_id):
     return None
 
 
+def _unique_formal_target(facts, provider_id):
+    """Like _formal_target, but refuses a provider id whose approved entries name more than
+    one stored team, or a canonical name that more than one stored team carries."""
+    canonicals = {
+        normalize_team(entry.get("canonical") or "")
+        for entries in facts["formal"].values()
+        for pid, entry in entries.items()
+        if str(pid) == str(provider_id) and entry.get("status") in {"approved", "auto_verified"}
+    }
+    canonicals.discard("")
+    owners = {
+        other["project_team_id"]
+        for other_key, other in facts["teams"].items()
+        if other_key.startswith("project-team:")
+        and other.get("name")
+        and normalize_team(other["name"]) in canonicals
+    }
+    if len(owners) != 1:
+        return None
+    return _formal_target(facts, provider_id)
+
+
 def _same_name_target(facts, team):
     for other_key, other in facts["teams"].items():
         if not other_key.startswith("project-team:") or other.get("identity_key") != other_key:
@@ -226,7 +252,9 @@ def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_cod
     return sorted(leagues)
 
 
-def _existing_team_verdict(facts, tables, team, key, *, configs, countries, index, code=None):
+def _existing_team_verdict(
+    facts, tables, team, key, *, configs, countries, index, code=None, witness=None
+):
     """三结论之一：「新建」「关联库内既有球队」「待核」（T68 第八节第 7 项，2026-11-16 更正版）。
 
     关联既有球队只能来自：绑定提案给出唯一、见证齐全的接口球队编号 X，且
@@ -243,6 +271,27 @@ def _existing_team_verdict(facts, tables, team, key, *, configs, countries, inde
         str(row.get("competition_id")) == str(code) for row in facts.get("apif", [])
     )
     if provider_id is None:
+        # T68 第八节第 13 项第二阶段：绑定提案因「同一接口编号已属于库内另一支球队」
+        # 给不出编号时，改看该官方球队全部官方比赛的见证。只有当见证编号在别名表里
+        # 已有获批条目指向库内球队时才下结论「关联」；否则仍是待核，不开新的「新建」通道。
+        observed = (witness or {}).get(str(official)) or {}
+        if observed.get("provider_team_id"):
+            target = _unique_formal_target(facts, observed["provider_team_id"])
+            if target is not None:
+                project_team_id, canonical = target
+                return dict(
+                    status="existing",
+                    basis=SAME_CLUB_BASIS,
+                    project_team_id=project_team_id,
+                    provider_team_id=observed["provider_team_id"],
+                    canonical=canonical,
+                    witness=witness_summary(observed),
+                    说明=(
+                        f"该官方球队的 {observed['matches']} 场官方比赛全部见证接口球队编号 "
+                        f"{observed['provider_team_id']}，该编号在别名表已有获批条目指向库内球队 "
+                        f"{canonical}：同一家俱乐部，不是新建。"
+                    ),
+                )
         return dict(
             status="pending_review",
             missing=(
@@ -307,7 +356,7 @@ def _verdict_context(facts, tables, registry):
     configs = _import_configs(registry)
     countries = _country_by_code(registry)
     index = _binding_index(facts)
-    return configs, countries, index
+    return configs, countries, index, official_witness(facts)
 
 
 def propose(archive, *, codes=None):
@@ -321,7 +370,7 @@ def propose(archive, *, codes=None):
         raise ValueError("Creation proposals require verified catalogue routes")
     facts = load_archive(archive, leagues=codes)
     tables, _ = _tables(archive)
-    configs, countries, index = _verdict_context(facts, tables, registry)
+    configs, countries, index, witness = _verdict_context(facts, tables, registry)
     rows = [
         (key, team)
         for key, team in sorted(facts["teams"].items())
@@ -329,25 +378,63 @@ def propose(archive, *, codes=None):
     ]
     verdicts = {
         team["official_team_id"]: _existing_team_verdict(
-            facts, tables, team, key, configs=configs, countries=countries, index=index
+            facts,
+            tables,
+            team,
+            key,
+            configs=configs,
+            countries=countries,
+            index=index,
+            witness=witness,
         )
         for key, team in rows
     }
+    # 「同一家俱乐部」提案：官方球队（库里可能已有一行只带竞彩比赛的中文名记录）的
+    # 见证编号指向库内另一支既有球队。只出提案，逐条待所有者批准。
+    links = []
+    for key, team in sorted(facts["teams"].items()):
+        if not key.startswith("jc-team:") or not team.get("official_team_id"):
+            continue
+        verdict = verdicts.get(team["official_team_id"])
+        if verdict is None:
+            verdict = _existing_team_verdict(
+                facts,
+                tables,
+                team,
+                key,
+                configs=configs,
+                countries=countries,
+                index=index,
+                witness=witness,
+            )
+        if verdict.get("basis") == SAME_CLUB_BASIS and str(verdict["project_team_id"]) != str(
+            team.get("project_team_id") or ""
+        ):
+            links.append(
+                link_decision(
+                    team,
+                    verdict,
+                    tables,
+                    evidence=_evidence(team),
+                    canonical=normalize_team(team["name"]),
+                    json_text=_json,
+                )
+            )
     return dict(
         version=1,
         archive_sha256=facts["summary"]["manifest"]["sha256"],
         decisions=[_entry(team) for _key, team in rows],
+        link_decisions=links,
         codes=codes,
         existing_team_verdicts=verdicts,
         production_writes=0,
     )
 
 
-def _approval(decision):
-    if (
-        decision.get("status") != "approved"
-        or decision.get("action") != "create_canonical_identity"
-    ):
+def _approval(decision, action=None):
+    """``action`` pins the list a decision sits in; a receipt may carry either action."""
+    allowed = {action} if action else {CREATE_ACTION, LINK_ACTION}
+    if decision.get("status") != "approved" or decision.get("action") not in allowed:
         raise ValueError("Creation requires explicit approved decision")
     validate_approvals({"creation": {"1": decision}}, require_metadata=True)
     if (
@@ -361,6 +448,19 @@ def _approval(decision):
         or not re.fullmatch(r"[1-9][0-9]*", str(decision.get("official_team_id", "")))
     ):
         raise ValueError("Creation requires actual owner approval and review")
+
+
+def _approved_subset(decision, expected, field):
+    """Approved evidence must be self-consistent and a subset of the current evidence:
+    matches added after approval must not invalidate it."""
+    approved = decision.get(field)
+    if not approved or sha256(_json(approved).encode()).hexdigest() != decision.get(
+        field + "_sha256"
+    ):
+        raise ValueError("Creation evidence digest invalid")
+    current = {_json(row) for row in expected[field]}
+    if any(_json(row) not in current for row in approved):
+        raise ValueError("Approved evidence is not a subset of current evidence")
 
 
 def _read_receipts(path):
@@ -415,6 +515,29 @@ def _verify_creation_originals(root, decision, manifest):
             raise ValueError("Creation original does not prove numeric match/team/side")
 
 
+def absorbed_team_redirects(root, tables):
+    """Absorbed stored team id -> kept id, from same-club receipts in the archive.
+
+    Only ids that no longer exist in the current team table are redirected; the
+    receipts themselves are authenticated in ``apply_created_identities``.
+    """
+    path = Path(root) / RECEIPTS
+    if not path.exists():
+        return {}
+    present = {int(row["id"]) for row in tables["teams"]}
+    redirects = {}
+    for receipt in _read_receipts(path):
+        decision = json.loads(receipt["decision_json"])
+        absorbed = decision.get("absorb_project_team_id")
+        if decision.get("action") != LINK_ACTION or not absorbed:
+            continue
+        absorbed, kept = int(absorbed), int(receipt["project_team_id"])
+        if absorbed in present or kept not in present or absorbed in redirects:
+            raise ValueError("Same-club receipt contradicts the current team inventory")
+        redirects[absorbed] = kept
+    return redirects
+
+
 def apply_created_identities(root, teams, tables, manifest):
     """Restore the numeric association only with its authenticated approval receipt."""
     path = Path(root) / RECEIPTS
@@ -450,6 +573,12 @@ def apply_created_identities(root, teams, tables, manifest):
         aliases = target["aliases"]
         if isinstance(aliases, str):
             aliases = json.loads(aliases)
+        if decision["action"] == LINK_ACTION and (
+            decision["project_team_id"] != tid
+            or decision["previous_name"] not in aliases
+            or str(decision.get("absorb_project_team_id") or "") in projects
+        ):
+            raise ValueError("Same-club receipt/snapshot inconsistent")
         if (
             decision["official_team_id"] != official
             or receipt["canonical"] != decision["canonical"]
@@ -483,7 +612,11 @@ def apply_created_identities(root, teams, tables, manifest):
         )
         team["project_identity_evidence"].append(
             dict(
-                kind="approved_numeric_creation",
+                kind=(
+                    "approved_same_club_link"
+                    if decision["action"] == LINK_ACTION
+                    else "approved_numeric_creation"
+                ),
                 manifest=manifest,
                 path=RECEIPTS,
                 sha256=digest,
@@ -507,7 +640,12 @@ def apply_approvals(database, archive, approvals):
     # daily archive rewrites, so every decision is re-verified against the
     # current archive below instead of binding the whole archive digest.
     decisions = document.get("decisions")
-    if not isinstance(decisions, list) or not decisions:
+    link_decisions = document.get("link_decisions", [])
+    if (
+        not isinstance(decisions, list)
+        or not isinstance(link_decisions, list)
+        or not (decisions or link_decisions)
+    ):
         raise ValueError("Explicit creation decisions required")
     from zucai.league_registry import load_registry
 
@@ -517,7 +655,9 @@ def apply_approvals(database, archive, approvals):
     if not isinstance(codes, list) or not codes or not set(codes) <= allowed:
         raise ValueError("Creation decision route scope invalid")
     facts = load_archive(archive, leagues=codes)
-    verdict_configs, verdict_countries, verdict_index = _verdict_context(facts, tables, registry)
+    verdict_configs, verdict_countries, verdict_index, verdict_witness = _verdict_context(
+        facts, tables, registry
+    )
     verdicts = {}
     for key, team in facts["teams"].items():
         if key.startswith("jc-team:") and team.get("official_team_id"):
@@ -529,26 +669,31 @@ def apply_approvals(database, archive, approvals):
                 configs=verdict_configs,
                 countries=verdict_countries,
                 index=verdict_index,
+                witness=verdict_witness,
             )
     audit = database.parent / RECEIPTS
     before = audit.read_bytes() if audit.exists() else None
     receipts = _read_receipts(audit)
     receipt_by_id = {r["official_team_id"]: r for r in receipts}
     seen = set()
-    pending = []
-    for decision in decisions:
-        _approval(decision)
-        official = decision["official_team_id"]
-        if official in seen:
-            raise ValueError("Duplicate creation decision")
-        seen.add(official)
-        existing = receipt_by_id.get(official)
-        if existing is not None:
-            if json.loads(existing["decision_json"]) != decision:
-                raise ValueError("Existing creation receipt differs from approved decision")
-            # Identical receipt: already applied, count and skip, no re-verification.
-            continue
-        pending.append(decision)
+    pending, pending_links = [], []
+    for group, action, queue in (
+        (decisions, CREATE_ACTION, pending),
+        (link_decisions, LINK_ACTION, pending_links),
+    ):
+        for decision in group:
+            _approval(decision, action)
+            official = decision["official_team_id"]
+            if official in seen:
+                raise ValueError("Duplicate creation decision")
+            seen.add(official)
+            existing = receipt_by_id.get(official)
+            if existing is not None:
+                if json.loads(existing["decision_json"]) != decision:
+                    raise ValueError("Existing creation receipt differs from approved decision")
+                # Identical receipt: already applied, count and skip, no re-verification.
+                continue
+            queue.append(decision)
     for decision in pending:
         team = facts["teams"].get("jc-team:" + decision["official_team_id"])
         if team is None:
@@ -565,6 +710,7 @@ def apply_approvals(database, archive, approvals):
                 configs=verdict_configs,
                 countries=verdict_countries,
                 index=verdict_index,
+                witness=verdict_witness,
             )
         if verdict["status"] != "new":
             raise ValueError(
@@ -577,22 +723,61 @@ def apply_approvals(database, archive, approvals):
             decision.get(k) != expected[k] for k in ("canonical", "category", "official_names")
         ):
             raise ValueError("Creation evidence/category/name invalid or identity already exists")
-        # The approved evidence must be self-consistent and a subset of the
-        # current evidence: matches added after approval must not invalidate it.
-        approved_evidence = decision.get("evidence")
-        if not approved_evidence or sha256(
-            _json(approved_evidence).encode()
-        ).hexdigest() != decision.get("evidence_sha256"):
-            raise ValueError("Creation evidence digest invalid")
-        current_evidence = {_json(row) for row in expected["evidence"]}
-        if any(_json(row) not in current_evidence for row in approved_evidence):
-            raise ValueError("Approved evidence is not a subset of current evidence")
+        _approved_subset(decision, expected, "evidence")
+    # 「同一家俱乐部」：运行时重新计算结论与提案，批准内容必须与当前事实逐项一致。
+    for decision in pending_links:
+        official = decision["official_team_id"]
+        team = facts["teams"].get("jc-team:" + official)
+        if team is None:
+            raise ValueError("Official numeric evidence missing")
+        verdict = verdicts.get(official) or {"status": "missing"}
+        if verdict["status"] != "existing" or verdict.get("basis") != SAME_CLUB_BASIS:
+            raise ValueError(
+                f"关联被拒绝：官方编号 {official} 结论为 "
+                f"{verdict['status']}（{verdict.get('basis')}）"
+            )
+        expected = link_decision(
+            team,
+            verdict,
+            tables,
+            evidence=_evidence(team),
+            canonical=normalize_team(team["name"]),
+            json_text=_json,
+        )
+        if expected["blockers"] or any(
+            decision.get(k) != expected[k]
+            for k in (
+                "canonical",
+                "category",
+                "official_names",
+                "project_team_id",
+                "previous_name",
+                "provider_team_id",
+                "absorb_project_team_id",
+            )
+        ):
+            raise ValueError(
+                f"关联被拒绝：官方编号 {official} 的批准内容与当前事实不一致"
+                f"（{'、'.join(expected['blockers']) or '字段不同'}）"
+            )
+        _approved_subset(decision, expected, "evidence")
+        approved_witness = decision.get("witness")
+        if (
+            not isinstance(approved_witness, dict)
+            or sha256(_json(approved_witness).encode()).hexdigest()
+            != decision.get("witness_sha256")
+            or not approved_witness.get("witnesses")
+        ):
+            raise ValueError("Link witness digest invalid")
+        current = {_json(row) for row in expected["witness"]["witnesses"]}
+        if any(_json(row) not in current for row in approved_witness["witnesses"]):
+            raise ValueError("Approved witness is not a subset of current witness")
     # The restored DB must carry the originals that its exported receipt will cite.
     # Merely pointing at an external archive would produce a non-portable approval.
     from zucai.cloud_feeds import STATE_FILE
 
     source_manifest = json.loads((archive / "feed_manifest.json").read_bytes())
-    for decision in pending:
+    for decision in pending + pending_links:
         for observation in decision["evidence"]:
             for reference in observation["originals"]:
                 for name in (reference["path"], reference["path"] + ".meta.json"):
@@ -615,7 +800,7 @@ def apply_approvals(database, archive, approvals):
                 fetched = meta.get("fetched_at_utc")
                 if not fetched or _utc(decision["approved_utc"]) < _utc(fetched):
                     raise ValueError("Approval cannot precede original capture")
-    created = []
+    created, linked, moved = [], [], {}
     engine = get_engine(database)
     try:
         with session_scope(engine) as session:
@@ -671,7 +856,59 @@ def apply_approvals(database, archive, approvals):
                 )
                 receipts.append(receipt)
                 created.append(receipt)
-            if created:
+            for decision in pending_links:
+                official = decision["official_team_id"]
+                marker = "jc:team:" + official
+                keep = session.get(Team, int(decision["project_team_id"]))
+                absorb_id = decision["absorb_project_team_id"]
+                absorb_id = int(absorb_id) if absorb_id else None
+                if keep is None or any(marker in t.aliases for t in known):
+                    raise ValueError("Link target missing or numeric ID already has an owner")
+                labels = {normalize_team(label).casefold() for label in decision["official_names"]}
+                labels.update((decision["canonical"].casefold(), marker))
+                if any(
+                    t.id not in (keep.id, absorb_id)
+                    and labels & {normalize_team(s).casefold() for s in (t.name, *t.aliases)}
+                    for t in known
+                ):
+                    raise ValueError(
+                        "Canonical name/alias/numeric ID already has an owner; "
+                        "review existing identity"
+                    )
+                previous, aliases = keep.name, list(keep.aliases)
+                keep_id = keep.id
+                if absorb_id is not None:
+                    # 只带竞彩比赛的那一行并入保留行：所有引用球队的列一并改指，
+                    # 任何唯一性或主客不同的约束被破坏都会让整个事务回滚。
+                    for model_table in Base.metadata.sorted_tables:
+                        for column in model_table.columns:
+                            if not any(k.column.table.name == "teams" for k in column.foreign_keys):
+                                continue
+                            count = session.execute(
+                                model_table.update()
+                                .where(column == absorb_id)
+                                .values({column.name: keep_id})
+                            ).rowcount
+                            if count:
+                                name = f"{model_table.name}.{column.name}"
+                                moved[name] = moved.get(name, 0) + count
+                    session.execute(delete(Team).where(Team.id == absorb_id))
+                    known = [t for t in known if t.id != absorb_id]
+                    session.expire_all()
+                    keep = session.get(Team, keep_id)
+                keep.name = decision["canonical"]
+                keep.aliases = list(dict.fromkeys([*aliases, previous, marker]))
+                session.flush()
+                receipt = dict(
+                    official_team_id=official,
+                    project_team_id=str(keep_id),
+                    canonical=keep.name,
+                    created_utc=datetime.now(UTC).isoformat(),
+                    decision_json=_json(decision),
+                )
+                receipts.append(receipt)
+                linked.append(receipt)
+            if created or linked:
                 stream = io.StringIO(newline="")
                 writer = csv.DictWriter(stream, FIELDS)
                 writer.writeheader()
@@ -688,9 +925,11 @@ def apply_approvals(database, archive, approvals):
         engine.dispose()
     return dict(
         created=len(created),
-        already_applied=len(decisions) - len(created),
-        records=created,
-        matches_changed=0,
+        linked=len(linked),
+        already_applied=len(decisions) + len(link_decisions) - len(created) - len(linked),
+        records=created + linked,
+        references_moved=moved,
+        matches_changed=sum(n for name, n in moved.items() if name.startswith("matches.")),
         formal_bindings_changed=0,
         daily_changed=False,
     )
