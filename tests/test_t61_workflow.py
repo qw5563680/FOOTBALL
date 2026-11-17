@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 from types import ModuleType
@@ -24,6 +25,19 @@ def enabled_jobs(kind, **overrides):
 def test_jc_catalogue_dispatch_runs_only_selfhosted_catalogue_job(ref):
     assert enabled_jobs("jc-catalogue", **{"github.ref_name": ref}) == {"jc-catalogue"}
     assert enabled_jobs("catalogue", **{"github.ref_name": ref}) == {"apis"}
+
+
+@pytest.mark.parametrize("ref", ["main", "football-ingest-run-t68", "football-ingest-verify-t68"])
+def test_apis_excludes_every_probe_kind_owned_by_jc_catalogue(ref):
+    workflow_jobs = jobs()
+    catalogue_condition = condition(workflow_jobs["jc-catalogue"])
+    owned_kinds = set(re.findall(re.escape(PROBE_KEY) + r"\s*==\s*'([^']+)'", catalogue_condition))
+    assert owned_kinds, "No JC probe kinds discovered from the workflow condition"
+    apis_condition = condition(workflow_jobs["apis"])
+    excluded_kinds = set(re.findall(re.escape(PROBE_KEY) + r"\s*!=\s*'([^']+)'", apis_condition))
+    assert owned_kinds <= excluded_kinds, f"apis missing exclusions: {owned_kinds - excluded_kinds}"
+    for kind in sorted(owned_kinds):
+        assert enabled_jobs(kind, **{"github.ref_name": ref}) == {"jc-catalogue"}, kind
 
 
 @pytest.mark.parametrize("event", ["schedule", "push"])
