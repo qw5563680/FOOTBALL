@@ -78,8 +78,16 @@ def export_sfc_state(db, archive: Path):
         key = f"state/sfc/{number}.json"
         path = archive / key
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         files.append(key)
+        # 内容没变就不重写：Windows 与 Linux 运行器写出的换行不同，重写会让未变化的期次
+        # 在两种换行之间来回翻转，使只读操作也改动数据分支。
+        if path.is_file():
+            try:
+                if json.loads(path.read_bytes()) == payload:
+                    continue
+            except ValueError:
+                pass
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return files
 
 

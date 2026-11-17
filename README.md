@@ -177,6 +177,7 @@ python -m zucai.cloud_feeds backfill --relink-jc --archive ../cloud-data --run-i
 python -m zucai.cloud_feeds reconcile --archive ../cloud-data --run-id identity-merge-1  # 审查者在 Actions 校正已核验的 APIF/FDORG 与显式批准的竞彩身份，不联网
 python -m zucai.cloud_feeds scoped-reconcile --archive ../cloud-data --run-id scoped-merge-1 --leagues 307,1  # 仅审查者在 Actions：按已核验 import 路线代码做范围身份合并，不联网；Actions 手动触发时 operation=reconcile 且 leagues 非空即此路径，为空走旧全量合并
 python -m zucai.cloud_feeds canonical-apply --archive ../cloud-data --run-id canonical-1  # 仅审查者在 Actions：读取 data/identity_reviews/t68-canonical-approvals.json 的已批准决定，恢复后执行规范身份创建、导出、发布，不联网；Actions 手动触发时 operation=reconcile 且 options={"canonical_approvals":true} 即此路径；决定清单为空时不做任何修改
+python -m zucai.cloud_feeds identity-evidence --archive ../cloud-data --run-id evidence-1 --leagues 307,98  # 仅审查者在 Actions：离线生成开启证据（当季/近 30 天重放、风险清单、导出后再恢复）并同次运行开启检查，不联网；Actions 手动触发时 operation=reconcile 且 options={"identity_evidence":true} 即此路径；请求的每个赛事都进入开启检查，证据未能生成的部分列为缺项并写明原因；大体积中间产物留在临时目录，数据分支只新增检查结论 register.json、各赛事 index.json 与不超过 64 KB 的小文档（单赛事单次 ≤ 1 MB，超出即报错）；可用 `--cutoff` 指定检查截止时刻
 zucai aliases proposals --provider apif --leagues 3,848,292,119,188,244,169 --archive ../cloud-data --out docs/aliases/2026-11-03-apif-proposed.md
 zucai aliases proposals --scope cups-history --archive ../cloud-data --out docs/aliases/2026-11-04-apif-cups-history.md  # 第二批历史清单，只读、不覆盖
 # T68 完成之前不运行 aliases propagate；下方仅保留既有命令说明

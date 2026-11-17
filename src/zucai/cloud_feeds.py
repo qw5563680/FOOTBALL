@@ -80,7 +80,10 @@ TABLES = {
 }
 MANIFEST = "feed_manifest.json"
 BACKFILL_COLLECTIONS = {source: f"{source}_backfill" for source in ("apif", "fdorg", "fd")}
-MANUAL_COLLECTIONS = {"apif_scoped", "canonical_apply"}
+MANUAL_COLLECTIONS = {"apif_scoped", "canonical_apply", "identity_evidence"}
+# T68 第八节第 10 项的体积限制：单个赛事单次运行进数据分支的内容不超过 1 MB。
+EVIDENCE_LEAGUE_LIMIT = 1_000_000
+EVIDENCE_DOCUMENT_LIMIT = 64_000
 CANONICAL_APPROVALS_PATH = (
     Path(__file__).resolve().parents[2] / "data/identity_reviews/t68-canonical-approvals.json"
 )
@@ -729,6 +732,7 @@ def main():
             "reconcile",
             "scoped-reconcile",
             "canonical-apply",
+            "identity-evidence",
         ),
     )
     parser.add_argument("--archive", required=True, type=Path)
@@ -737,6 +741,9 @@ def main():
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--slot", choices=("auto", "early", "late"), default="auto")
     parser.add_argument("--run-id", required=True)
+    parser.add_argument(
+        "--cutoff", help="仅 identity-evidence：检查截止时刻（ISO UTC，默认当前时刻）"
+    )
     parser.add_argument("--leagues", help="backfill 的来源赛事代码；probe 的 apif 联赛 ID")
     parser.add_argument(
         "--source", choices=("fd", "fdorg", "apif"), help="backfill 默认 fd；probe 仅 apif"
@@ -774,6 +781,8 @@ def main():
         help="仅 Actions 手动 backfill：只补独立 API 与后到竞彩的链接，不采集",
     )
     args = parser.parse_args()
+    if args.cutoff is not None and args.command != "identity-evidence":
+        parser.error("--cutoff 仅供 identity-evidence 使用")
     if args.catalogue and (args.command != "backfill" or args.relink_jc or args.relink_fdorg):
         parser.error("--catalogue 仅供非 relink 的 backfill 使用")
     if (args.max_requests is not None or args.resume is not None) and not (
@@ -806,9 +815,13 @@ def main():
             from zucai.sources.fd_counterpart import require_relink_actions
 
         require_relink_actions()
-    if args.command not in {"backfill", "probe", "identity", "scoped-reconcile"} and any(
-        v is not None for v in (args.leagues, args.source)
-    ):
+    if args.command not in {
+        "backfill",
+        "probe",
+        "identity",
+        "scoped-reconcile",
+        "identity-evidence",
+    } and any(v is not None for v in (args.leagues, args.source)):
         parser.error(
             "--source / --leagues 仅供 backfill / probe / identity / scoped-reconcile 使用"
         )
@@ -825,7 +838,7 @@ def main():
         parser.error("--probe-kind 仅供 probe 使用")
     if args.per_scope is not None and (args.command != "probe" or args.probe_kind != "stats"):
         parser.error("--per-scope 仅供 probe --probe-kind stats 使用")
-    if args.command in {"reconcile", "scoped-reconcile", "canonical-apply"}:
+    if args.command in {"reconcile", "scoped-reconcile", "canonical-apply", "identity-evidence"}:
         from zucai.cloud_probe import require_probe_actions
 
         require_probe_actions()
@@ -888,6 +901,7 @@ def main():
         "reconcile",
         "scoped-reconcile",
         "canonical-apply",
+        "identity-evidence",
     }:
         if target.exists():
             raise ValueError("工作目录内已有数据库，请在全新的隔离目录运行云端同步")
@@ -978,6 +992,196 @@ def main():
         }
         summary_collection = "canonical_apply"
         day = date.fromisoformat(meta["through_beijing"])
+    if args.command == "identity-evidence":
+        from zucai.identity_daily_gate import build_register
+        from zucai.identity_gate_evidence_gen import (
+            HELD_HEADER,
+            HELD_PATH,
+            _sanitize_archive,
+            digest,
+            generate,
+        )
+        from zucai.league_registry import load_registry
+
+        codes = sorted(set((args.leagues or "").split(","))) if args.leagues else []
+        if not codes:
+            parser.error("identity-evidence 需要 --leagues 提供已核准的接口赛事编号")
+        registry = load_registry()
+        import_codes = {
+            c
+            for c, e in registry["providers"]["apif"].items()
+            if e["status"] == "verified" and e.get("mode") == "import"
+        }
+        if not set(codes) <= import_codes:
+            raise ValueError("identity-evidence 仅接受已核准的导入赛事编号")
+        if args.cutoff is not None:
+            try:
+                instant = datetime.fromisoformat(args.cutoff.replace("Z", "+00:00"))
+                if instant.utcoffset() is None:
+                    raise ValueError("naive cutoff")
+            except (ValueError, AttributeError):
+                parser.error("--cutoff 必须是带时区的 ISO 时间（如 2026-11-16T05:59:00+00:00）")
+            cutoff = args.cutoff
+        else:
+            cutoff = datetime.now(UTC).isoformat()
+        run_dir = archive / f"state/identity_gate_evidence/{args.run_id}"
+        with TemporaryDirectory(
+            prefix="zucai-evidence-entry-", ignore_cleanup_errors=True
+        ) as temporary:
+            work_root = Path(temporary)
+            # One shared sanitized archive copy for every competition; the empty
+            # held audit (when the archive carries none) is materialized in this
+            # temporary copy only — the archive itself is never modified.
+            restorable, _ = _sanitize_archive(archive, work_root)
+            held_audit_source = (
+                "archive"
+                if (archive / HELD_PATH).is_file()
+                else "generated_empty_archive_has_no_held_audit"
+            )
+            if held_audit_source != "archive":
+                held_path = restorable / HELD_PATH
+                held_path.parent.mkdir(parents=True, exist_ok=True)
+                held_path.write_text(HELD_HEADER, encoding="utf-8")
+                restorable_manifest_path = restorable / "feed_manifest.json"
+                restorable_manifest = json.loads(restorable_manifest_path.read_bytes())
+                restorable_manifest["files"][HELD_PATH] = digest(held_path)
+                restorable_manifest_path.write_text(
+                    json.dumps(restorable_manifest, ensure_ascii=False, indent=2) + "\n"
+                )
+            evidence_root = work_root / "evidence"
+            evidence = {}
+            generation_errors = {}
+            for code in codes:
+                try:
+                    evidence[code] = generate(
+                        archive,
+                        code,
+                        cutoff=cutoff,
+                        run_id=args.run_id,
+                        out_root=evidence_root,
+                        restorable=restorable,
+                        held_audit_source=held_audit_source,
+                    )
+                except Exception as exc:  # noqa: BLE001 - 如实记录，不中断其余赛事
+                    generation_errors[code] = {"all": f"{type(exc).__name__}: {exc}"}
+                else:
+                    if evidence[code].get("generation_errors"):
+                        generation_errors[code] = dict(evidence[code]["generation_errors"])
+                for part, message in sorted(generation_errors.get(code, {}).items()):
+                    LOG.warning("%s 开启证据未能生成（%s）：%s", code, part, message)
+            # 每个请求的赛事都进入开启检查：没有证据的部分由检查程序如实列为缺项，
+            # 阻断项照常给出；生成失败的原因另列，不替代检查结论。
+            register = build_register(
+                archive,
+                cutoff,
+                codes=codes,
+                evidence=evidence,
+                evidence_root=evidence_root,
+            )
+            summaries = {}
+            for entry in register["leagues"]:
+                code = entry["provider_code"]
+                summaries[code] = dict(
+                    status=entry["status"],
+                    teams_bound=entry["teams"]["bound"],
+                    matches_linked=entry["matches"]["linked"],
+                    blockers=sorted(entry["blockers"]),
+                    missing=sorted(entry["missing_evidence"]),
+                    generation_errors=generation_errors.get(code, {}),
+                )
+            # Persist only the small artifacts; large state exports stay in the
+            # temporary working directory (task item 10 volume limit).
+            for code in codes:
+                code_dir = run_dir / str(code)
+                code_dir.mkdir(parents=True, exist_ok=True)
+                produced = evidence.get(code, {})
+                index = dict(
+                    provider_code=code,
+                    cutoff_utc=cutoff,
+                    archive_sha256=produced.get("archive_sha256"),
+                    sanitized_manifest_exclusions=produced.get("sanitized_manifest_exclusions", []),
+                    generation_errors=generation_errors.get(code, {}),
+                    documents={},
+                )
+                for name in sorted((evidence_root / str(code)).glob("*.json")):
+                    size = name.stat().st_size
+                    # 体积限制：小文档原样留存；大的状态快照只登记哈希与字节数。
+                    persisted = size <= EVIDENCE_DOCUMENT_LIMIT
+                    if persisted:
+                        (code_dir / name.name).write_bytes(name.read_bytes())
+                    index["documents"][name.name] = {
+                        "sha256": digest(name),
+                        "bytes": size,
+                        "persisted": persisted,
+                    }
+                current = produced.get("current_season_replay")
+                if current:
+                    index["current_season_replay"] = {
+                        "before_manifest_sha256": current["before_manifest"]["sha256"],
+                        "after_manifest_sha256": current["after_manifest"]["sha256"],
+                        "held_audit_source": current.get("held_audit_source"),
+                    }
+                persisted = produced.get("persistence")
+                if persisted:
+                    index["persistence"] = {
+                        key: persisted[f"{key}_manifest"]["sha256"]
+                        for key in ("before_repeat", "after_repeat", "restored")
+                    }
+                recent = produced.get("recent_replay")
+                if recent:
+                    index["recent_replay"] = {
+                        "mode": recent.get("mode"),
+                        "originals": recent.get("originals", []),
+                        "official_originals": recent.get("official_originals", []),
+                        "boundary_cases": recent.get("boundary_cases", {}),
+                        "boundary_missing": recent.get("boundary_missing", []),
+                        "before_manifest_sha256": recent["before_manifest"]["sha256"],
+                        "after_manifest_sha256": recent["after_manifest"]["sha256"],
+                    }
+                from zucai.cloud_predict import _json as cloud_json
+
+                cloud_json(code_dir / "index.json", index)
+            # 检查结论紧凑写出；每个赛事（自己的目录加自己那份结论）不得超过体积上限。
+            (run_dir / "register.json").write_text(
+                json.dumps(register, ensure_ascii=False, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            for entry in register["leagues"]:
+                code = entry["provider_code"]
+                size = sum(
+                    p.stat().st_size for p in (run_dir / str(code)).rglob("*") if p.is_file()
+                ) + len(json.dumps(entry, ensure_ascii=False, separators=(",", ":")).encode())
+                summaries[code]["persisted_bytes"] = size
+                if size > EVIDENCE_LEAGUE_LIMIT:
+                    raise ValueError(f"{code} 留存证据 {size} 字节，超过单赛事单次上限")
+        collection = {
+            "identity_evidence": {
+                "operation": "identity-evidence",
+                "status": "complete",
+                "run_id": args.run_id,
+                "codes": codes,
+                "leagues": summaries,
+            }
+        }
+        summary_collection = "identity_evidence"
+        through = meta.get("through_beijing")
+        day = date.fromisoformat(through) if through else date.today()
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+                summary.write("### 开启证据生成与开启检查\n\n")
+                for code, item in summaries.items():
+                    summary.write(
+                        f"- {code}：{item['status']}；绑定 {item['teams_bound']} 队；"
+                        f"关联 {item['matches_linked']} 场；阻断 {item['blockers']}；"
+                        f"缺项 {item['missing']}。\n"
+                    )
+                    for part, message in sorted(item["generation_errors"].items()):
+                        summary.write(f"  - 未能生成（{part}）：{message}\n")
+                    summary.write(f"  - 留存证据 {item['persisted_bytes']} 字节\n")
+                summary.write(
+                    f"\n证据索引与检查结论：state/identity_gate_evidence/{args.run_id}/"
+                    "（register.json 与各赛事 index.json，体积受限）。\n\n"
+                )
     if args.command in {"probe", "identity"}:
         if args.command == "identity":
             from zucai.cloud_identity import collect_identity as collector
@@ -1108,6 +1312,10 @@ def main():
         previous = separate_backfill_collection(meta.get("collection", {}))
         published_collection = {**previous, **collection}
         status_collection = daily_collection(previous)
+    elif args.command == "identity-evidence":
+        previous = separate_backfill_collection(meta.get("collection", {}))
+        published_collection = {**previous, **collection}
+        status_collection = daily_collection(previous)
     manifest = export_feeds(
         target,
         archive,
@@ -1135,7 +1343,14 @@ def main():
         verify_forecasts(archive)
         LOG.info("%s 历史回填归档恢复校验通过", provider)
         write_summary(collection[summary_collection])
-    if args.command in {"probe", "identity", "reconcile", "scoped-reconcile", "canonical-apply"}:
+    if args.command in {
+        "probe",
+        "identity",
+        "reconcile",
+        "scoped-reconcile",
+        "canonical-apply",
+        "identity-evidence",
+    }:
         from zucai.forecast_archive import verify_forecasts
 
         with TemporaryDirectory(prefix="apif-probe-verify-") as temporary:
@@ -1174,6 +1389,8 @@ def main():
                     for receipt in result.get("records", []):
                         summary.write(f"- {receipt['official_team_id']} {receipt['canonical']}\n")
                     summary.write("\n审计：state/audit/jc_canonical_identities.csv。\n\n")
+        elif args.command == "identity-evidence":
+            pass  # 逐赛事摘要已在生成步骤写入
         else:
             identity_summary(collection[summary_collection])
             if args.command == "reconcile":
