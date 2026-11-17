@@ -181,6 +181,11 @@ jobs:
       - name: Install project with checked-in source configurations
         if: ${{ env.FEED_MODE != 'sync' }}
         run: python -m pip install -e ./app
+      - name: Install model engine for opening evidence
+        # 开启检查的「存档恢复后训练取数一致」一项要调用模型的取数代码（zucai.predict），
+        # 基础安装不带模型引擎；真实运行 44167532858 因此失败。只在生成开启证据时加装。
+        if: ${{ env.FEED_MODE == 'reconcile' && fromJSON(inputs.options || '{}').identity_evidence == true }}
+        run: python -m pip install -e "./app[model]"
       - name: Restore and collect APIs or verify archive
         id: collect
         if: ${{ env.FEED_MODE != 'sync' && env.FEED_MODE != 'backfill' && env.FEED_MODE != 'probe' && env.FEED_MODE != 'identity' && env.FEED_MODE != 'reconcile' && env.FEED_MODE != 'relink-fdorg' && env.FEED_MODE != 'relink-jc' }}
