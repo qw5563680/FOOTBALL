@@ -77,10 +77,13 @@ INTERNATIONAL_COUNTRIES = {"World", "International", "Europe"}
 def _import_configs(registry):
     # Country/league mapping covers every registered import route, whatever
     # its status: an undetermined country is treated as same-country below.
+    # Index-only routes (欧冠) are registered competitions with a known country
+    # too; leaving them out made their stored teams count as "country unknown"
+    # and block every domestic creation, unlike 欧罗巴 / 欧协联.
     return {
         code: entry["config"]
         for code, entry in registry["providers"]["apif"].items()
-        if entry.get("mode") == "import"
+        if entry.get("mode") in {"import", "index_only"}
     }
 
 
@@ -194,10 +197,20 @@ def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_cod
             teams_sources[str(tid)].add(row.get("source"))
             if row.get("league"):
                 teams_leagues[str(tid)].add(row["league"])
+    # T68 第八节第 13 项：别名表里已有获批接口编号的 fd/fdorg 球队不再算「未核验」。
+    # 候选的见证编号若与它相同，前面的 _formal_target 已判「关联」；不同则是两支球队。
+    registered = {
+        normalize_team(entry["canonical"])
+        for entries in facts.get("formal", {}).values()
+        for entry in entries.values()
+        if entry.get("status") in {"approved", "auto_verified"} and entry.get("canonical")
+    }
     unbound = {
         other["project_team_id"]
         for other_key, other in facts["teams"].items()
-        if other_key.startswith("project-team:") and other.get("identity_key") == other_key
+        if other_key.startswith("project-team:")
+        and other.get("identity_key") == other_key
+        and normalize_team(other.get("name") or "") not in registered
     }
     leagues = set()
     for tid in unbound:

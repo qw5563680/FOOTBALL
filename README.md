@@ -111,6 +111,11 @@ T68 严格绑定离线回放：`python -m zucai.identity_binding --archive /path
 不修改归档或数据库；第二遍用 `--previous-candidates work/t68-binding-1/apif.json` 并另选输出目录。
 输出 `owner-review.md` 先按赛事汇总，再链接单队原件证据；`existing-identity-duplicates.md` 单列既有身份冲突，不能据此合并。
 旧候选原样保留，诊断结果与可提案结果分开；缺准确时刻、完整竞争窗口、身份类别或唯一规范目标时继续待核。
+T68 英文名球队的比赛见证（第八节第 13 项）：`python -m zucai.identity_fd_witness --archive /path/to/frozen-archive --out work/t68-fd-witness-1`。
+只读归档，对只由 fd/fdorg 建立、没有接口编号的球队，在它踢过的联赛里用已归档的接口逐场记录找出唯一对应的接口球队编号
+（不少于 20 场、覆盖不少于九成五、每场同一编号同一主客位置、主客都有见证、编号不被另一支 fd 球队占用）；
+名称不参与判断。输出 `fd-witness.json` 与 `owner-review.md`，全部是待审提案，不写库、不改别名表、不发请求。
+创建判断随之调整：别名表里已有获批接口编号的 fd/fdorg 球队不再算「未核验」；欧冠（仅建索引的路线）按登记的赛事国别参与判断。
 T68 跨日决定经所有者批准后，正常 `sync/apis` 在关联核对后自动应用；副本验收也可显式执行：`python -m zucai.cross_day_decisions apply --db work/review/feeds.db --registry data/identity_reviews/t68-cross-day.json`。
 命令只保存实际应用回执，不改比分、球队或同场关系；批准清单当前为空，默认仍隔离待核的新增来源行。
 登记移除或快照变化会停用该决定，原因写入 `state/audit/apif_cross_day_decisions.csv`；旧回执与真实应用时间保留。

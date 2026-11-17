@@ -257,3 +257,95 @@ def test_apply_rejects_every_verdict_but_new(creation):  # noqa: F811
     with pytest.raises(ValueError, match="创建被拒绝"):
         apply_approvals(db, archive, path)
     assert db.read_bytes() == before
+
+
+def _fd_only_facts(formal=None):
+    return {
+        "teams": {
+            "project-team:9": {
+                "name": "Old home",
+                "project_team_id": "9",
+                "identity_key": "project-team:9",
+                "provenance": [],
+            }
+        },
+        "official": [],
+        "formal": formal or {},
+        "apif": [{"competition_id": "48"}],
+    }
+
+
+def test_fd_team_with_registered_provider_id_no_longer_blocks_creation():
+    """T68 八.13: an approved alias entry on the fd team resolves the same-country doubt."""
+    tables = {
+        "matches": [{"source": "fd", "league": "候选联赛", "home_team_id": 9, "away_team_id": 8}],
+        "results": [],
+    }
+    configs = {"48": {"league": "英联赛杯"}, "999": {"league": "候选联赛"}}
+    countries = {"48": "England", "999": "England"}
+    index = {"508": [{"provider_team_id": "102", "evidence_status": "strict_verified"}]}
+    blocked = _unit(
+        facts=_fd_only_facts(), tables=tables, configs=configs, countries=countries, index=index
+    )
+    assert blocked["status"] == "pending_review"
+    for status in ("approved", "auto_verified"):
+        formal = {"候选联赛": {"777": {"name": "Old", "canonical": "Old home", "status": status}}}
+        verdict = _unit(
+            facts=_fd_only_facts(formal),
+            tables=tables,
+            configs=configs,
+            countries=countries,
+            index=index,
+        )
+        assert verdict["status"] == "new"
+    proposed = {"候选联赛": {"777": {"name": "Old", "canonical": "Old home", "status": "proposed"}}}
+    still = _unit(
+        facts=_fd_only_facts(proposed),
+        tables=tables,
+        configs=configs,
+        countries=countries,
+        index=index,
+    )
+    assert still["status"] == "pending_review"
+
+
+def test_registered_fd_team_with_the_candidates_own_provider_id_is_existing():
+    """Same provider id as the registered fd team means the same club, never 新建."""
+    tables = {
+        "matches": [{"source": "fd", "league": "候选联赛", "home_team_id": 9, "away_team_id": 8}],
+        "results": [],
+    }
+    formal = {"候选联赛": {"102": {"name": "Old", "canonical": "Old home", "status": "approved"}}}
+    verdict = _unit(
+        facts=_fd_only_facts(formal),
+        tables=tables,
+        configs={"48": {"league": "英联赛杯"}, "999": {"league": "候选联赛"}},
+        countries={"48": "England", "999": "England"},
+        index={"508": [{"provider_team_id": "102", "evidence_status": "strict_verified"}]},
+    )
+    assert verdict["status"] == "existing" and verdict["project_team_id"] == "9"
+
+
+def test_index_only_route_supplies_its_registered_country():
+    """欧冠 is index-only: its stored teams must not count as country-unknown."""
+    from zucai.identity_canonical import _country_by_code, _import_configs
+    from zucai.league_registry import load_registry
+
+    registry = load_registry()
+    configs = _import_configs(registry)
+    assert configs["2"]["league"] == "欧冠"
+    assert _country_by_code(registry)["2"] == _country_by_code(registry)["3"] == "World"
+    tables = {
+        "matches": [
+            {"source": "fdorg", "league": "欧冠", "home_team_id": 9, "away_team_id": 8},
+        ],
+        "results": [],
+    }
+    verdict = _unit(
+        facts=_fd_only_facts(),
+        tables=tables,
+        configs={"48": {"league": "英联赛杯"}, "2": {"league": "欧冠"}},
+        countries={"48": "England", "2": "World"},
+        index={"508": [{"provider_team_id": "102", "evidence_status": "strict_verified"}]},
+    )
+    assert verdict["status"] == "new"
