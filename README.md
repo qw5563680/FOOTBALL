@@ -104,6 +104,8 @@ T68 当月补充页面由审查者在同一自托管 Actions（沿用 jc-catalog
 旧归档含未结算行时也重取；全部结算后才替换，旧页与元数据留在 `state/catalogue/supplement/superseded/<运行编号>/jc/`，
 留底随归档保存恢复，不作为当前身份或开启证据。开启检查对所查赛事的未结算行明确报分母不完整。
 每次运行到请求上限即停并在摘要写明还差哪几天，重复执行自动补齐。
+T68 开启证据的近 30 天重放使用每份原件 sidecar 的 `fetched_at_utc` 作为观察时间，
+执行截点另作实际导入时间保存；equivalent 与 dates 两种模式均不以截点或其他原件的时间替代。
 T68 严格绑定离线回放：`python -m zucai.identity_binding --archive /path/to/frozen-archive --out work/t68-binding-1`；
 可用 `--fd-raw-dir /path/to/saved-fd-originals` 加入已保存且有 sidecar 的 FD 原件。只写新的提案目录，
 不修改归档或数据库；第二遍用 `--previous-candidates work/t68-binding-1/apif.json` 并另选输出目录。
