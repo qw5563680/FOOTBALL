@@ -106,7 +106,8 @@ CATALOGUE_FILE = (
     r"jc-db-(?:aliases\.json|(?:matches|teams)\.jsonl|manifests/[0-9a-f]{64}\.json)|"
     rf"jc/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?|"
     rf"backfill/(?:api-football|football-data-org|football-data-co-uk)/{CATALOGUE_DATE}/"
-    r"[A-Za-z0-9_][A-Za-z0-9_.-]*_[0-9]{12}Z_[0-9a-f]{32}\.(?:json|csv|txt)(?:\.meta\.json)?))"
+    r"[A-Za-z0-9_][A-Za-z0-9_.-]*_[0-9]{12}Z_[0-9a-f]{32}\.(?:json|csv|txt)(?:\.meta\.json)?)|"
+    rf"supplement/(?:summary\.json|jc/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?))"
 )
 STATE_FILE = (
     r"state/(?:(?:api_football_quota|nations_league|fd_collection|t68_cross_day_receipts)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
@@ -757,7 +758,15 @@ def main():
     parser.add_argument("--seasons", help="probe 的年份；identity 默认 2025,2026")
     parser.add_argument(
         "--probe-kind",
-        choices=("seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs"),
+        choices=(
+            "seasons",
+            "leagues",
+            "stats",
+            "catalogue",
+            "jc-catalogue",
+            "jc-kickoffs",
+            "jc-supplement",
+        ),
         help="仅 probe：赛季权限、桥接元数据或技术数据",
     )
     parser.add_argument("--per-scope", type=int, help="仅 stats probe：每联赛季最多抽样场数")
@@ -767,7 +776,9 @@ def main():
         "--catalogue", action="store_true", help="仅 backfill：按已核验目录赛季回填"
     )
     parser.add_argument(
-        "--max-requests", type=int, help="仅 catalogue backfill / jc-kickoffs probe：本批请求上限"
+        "--max-requests",
+        type=int,
+        help="仅 catalogue backfill / jc-kickoffs / jc-supplement probe：本批请求上限",
     )
     parser.add_argument(
         "--resume",
@@ -797,10 +808,15 @@ def main():
         parser.error("--catalogue 仅供非 relink 的 backfill 使用")
     if (args.max_requests is not None or args.resume is not None) and not (
         (args.command == "backfill" and args.catalogue)
-        or (args.command == "probe" and args.probe_kind == "jc-kickoffs" and args.resume is None)
+        or (
+            args.command == "probe"
+            and args.probe_kind in {"jc-kickoffs", "jc-supplement"}
+            and args.resume is None
+        )
     ):
         parser.error(
-            "--max-requests 仅供 --catalogue backfill / jc-kickoffs probe；--resume 仅供 backfill"
+            "--max-requests 仅供 --catalogue backfill / jc-kickoffs / jc-supplement probe；"
+            "--resume 仅供 backfill"
         )
     if args.max_requests is not None and not 1 <= args.max_requests <= 7000:
         parser.error("--max-requests 必须在 1–7000 之间")
@@ -852,10 +868,15 @@ def main():
         from zucai.cloud_probe import require_probe_actions
 
         require_probe_actions()
-    if args.command == "probe" and args.probe_kind in {"catalogue", "jc-catalogue", "jc-kickoffs"}:
+    if args.command == "probe" and args.probe_kind in {
+        "catalogue",
+        "jc-catalogue",
+        "jc-kickoffs",
+        "jc-supplement",
+    }:
         if any(value is not None for value in (args.leagues, args.seasons, args.per_scope)):
             parser.error("目录 probe 不接受 --leagues / --seasons / --per-scope")
-        if args.probe_kind in {"jc-catalogue", "jc-kickoffs"}:
+        if args.probe_kind in {"jc-catalogue", "jc-kickoffs", "jc-supplement"}:
             if args.source is not None:
                 parser.error("JC 目录 probe 不接受 --source")
             from zucai.cloud_jc_catalogue import require_jc_catalogue_actions
@@ -1232,6 +1253,9 @@ def main():
         elif args.probe_kind == "jc-kickoffs":
             from zucai.jc_catalogue_kickoffs import collect_kickoffs as collector
             from zucai.jc_catalogue_kickoffs import write_summary as identity_summary
+        elif args.probe_kind == "jc-supplement":
+            from zucai.cloud_jc_catalogue import collect_jc_supplements as collector
+            from zucai.cloud_jc_catalogue import write_supplement_summary as identity_summary
         elif args.probe_kind == "stats":
             from zucai.cloud_stats_probe import collect_stats_probe as collector
             from zucai.cloud_stats_probe import write_stats_probe_summary as identity_summary
@@ -1241,7 +1265,12 @@ def main():
         else:
             from zucai.cloud_probe import collect_probe as collector
             from zucai.cloud_probe import write_probe_summary as identity_summary
-        catalogue_probe = args.probe_kind in {"catalogue", "jc-catalogue", "jc-kickoffs"}
+        catalogue_probe = args.probe_kind in {
+            "catalogue",
+            "jc-catalogue",
+            "jc-kickoffs",
+            "jc-supplement",
+        }
         options = {} if catalogue_probe else dict(codes=args.leagues)
         if args.probe_kind == "stats":
             options["per_scope"] = args.per_scope
@@ -1250,6 +1279,8 @@ def main():
         if args.probe_kind == "jc-kickoffs":
             options["max_requests"] = args.max_requests if args.max_requests is not None else 5
             options["archive"] = archive
+        if args.probe_kind == "jc-supplement":
+            options["max_requests"] = args.max_requests if args.max_requests is not None else 5
         result = collector(target, args.run_id, **options)
         summary_collection = result.get("collection", "apif")
         if args.probe_kind == "jc-kickoffs":
@@ -1334,11 +1365,10 @@ def main():
         previous = separate_backfill_collection(meta.get("collection", {}))
         published_collection = {**previous, **collection}
         status_collection = {**daily_collection(previous), **collection}
-    elif args.command == "probe" and args.probe_kind == "jc-kickoffs":
+    elif args.command == "probe" and args.probe_kind in {"jc-kickoffs", "jc-supplement"}:
+        drop = "jc-kickoffs" if args.probe_kind == "jc-kickoffs" else "jc_supplement"
         previous = {
-            name: result
-            for name, result in meta.get("collection", {}).items()
-            if name != "jc-kickoffs"
+            name: result for name, result in meta.get("collection", {}).items() if name != drop
         }
         published_collection = {**previous, **collection}
     elif args.command == "scoped-reconcile":
