@@ -656,6 +656,14 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
             game = SportteryResults._row(original)
         except (ValueError, KeyError):
             game = None
+        if game is None:
+            issues.append(
+                dict(
+                    match_id=f"jc:{row['match_id']}",
+                    reasons=["official_result_unverified"],
+                    evidence=[proof],
+                )
+            )
         identity_rows.append(
             dict(
                 match_id=f"jc:{row['match_id']}",
@@ -674,7 +682,7 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
                 status=game.status if game else "unverified",
                 score=list(game.full) if game and game.full else None,
                 regular_time_basis="regular" if game and game.full else "missing",
-                complete=not conflict,
+                complete=not conflict and game is not None,
                 coverage=coverage,
                 provenance=[proof, *clocks],
             )

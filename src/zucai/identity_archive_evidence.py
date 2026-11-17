@@ -137,6 +137,8 @@ class FrozenEvidence:
                 continue
             if relative + ".meta.json" not in self.manifest["files"]:
                 continue
+            if relative.startswith("state/catalogue/supplement/superseded/"):
+                continue  # Retained history is not current identity evidence.
             # Inspect authenticated sidecar first: do not require unrelated, omitted
             # auxiliary originals in a deliberately selected evidence archive.
             metadata_path = self.root / (relative + ".meta.json")
@@ -191,6 +193,15 @@ class FrozenEvidence:
                 )
                 if kind == "result":
                     game = SportteryResults._row(item)
+                    if game is None:
+                        issues.append(
+                            dict(
+                                match_id=match["match_id"],
+                                reasons=["stored_official_result_unsettled"],
+                                path=relative,
+                            )
+                        )
+                        continue
                     if game.play_date.isoformat() != local_date:
                         issues.append(
                             dict(

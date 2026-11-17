@@ -669,6 +669,43 @@ def _day_end_utc(day: date) -> datetime:
     return datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=BEIJING)
 
 
+def _settled_supplement_day(day: date, raws: list[bytes]) -> None:
+    """Pagination completeness alone cannot certify the official result day."""
+    pending = [
+        f"jc:{row['matchId']}"
+        for raw in raws
+        for row in official_value(raw)["matchResult"]
+        if SportteryResults._row(row) is None
+    ]
+    if pending:
+        raise ValueError(f"该日官方页面仍有未结算比赛：{day} {', '.join(pending)}")
+
+
+def _replace_supplement_day(folder: Path, pages: list[_ArchivedPage], run_id: str) -> None:
+    """Retain every old page/sidecar before publishing a completely settled day."""
+    day = pages[0].day
+    active = folder / f"supplement/jc/{day:%Y-%m}"
+    previous = sorted(active.glob(f"{day}-p*.json")) if active.exists() else []
+    backups = []
+    for path in previous:
+        target = folder / "supplement/superseded" / run_id / path.relative_to(folder / "supplement")
+        raw = path.read_bytes()
+        if target.exists() and target.read_bytes() != raw:
+            raise ValueError("JC supplement 留底运行编号已被不同原件占用，请使用新运行编号")
+        backups.append((path, target, raw))
+    # Complete preflight before any write. All old bytes survive a write failure.
+    for _, target, raw in backups:
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(target, raw)
+    for page in pages:
+        _write_page(folder, page)
+    current = {folder / (p.relative_path + suffix) for p in pages for suffix in ("", ".meta.json")}
+    for path, _, _ in backups:
+        if path not in current:
+            path.unlink()
+
+
 def _existing_supplement_days(root: Path) -> set[date]:
     """Days already archived under supplement/jc with a complete, validated page set.
 
@@ -700,7 +737,9 @@ def _existing_supplement_days(root: Path) -> set[date]:
     complete = set()
     for day, pages in by_day.items():
         try:
-            parse_day_pages(day, [pages[number].raw for number in sorted(pages)])
+            raws = [pages[number].raw for number in sorted(pages)]
+            parse_day_pages(day, raws)
+            _settled_supplement_day(day, raws)
         except (ValueError, KeyError):
             continue
         complete.add(day)
@@ -789,9 +828,10 @@ def collect_jc_supplements(
                 if number >= _page(archived.raw, day, number)[0]["pages"]:
                     break
                 number += 1
-            parse_day_pages(day, [page.raw for page in buffered])
-            for page in buffered:
-                _write_page(folder, page)
+            raws = [page.raw for page in buffered]
+            parse_day_pages(day, raws)
+            _settled_supplement_day(day, raws)
+            _replace_supplement_day(folder, buffered, run_id)
             report["days"]["archived"].append(day.isoformat())
         except _SupplementCap:
             report["status"] = "partial"
@@ -827,7 +867,13 @@ def write_supplement_summary(report: dict) -> None:
         return
     days = report["days"]
     due = [*days["remaining"], *sorted(days["failed"])]
-    missing = "、".join(due) if due else "无"
+    missing = (
+        "、".join(
+            f"{day}（{days['failed'][day]}）" if day in days["failed"] else day for day in due
+        )
+        if due
+        else "无"
+    )
     failures = "；".join(f"{day}（{reason}）" for day, reason in days["failed"].items())
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
         stream.write(

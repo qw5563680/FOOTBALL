@@ -100,7 +100,9 @@ T68 当月补充页面由审查者在同一自托管 Actions（沿用 jc-catalog
 `operation=probe`、`options={"probe_kind":"jc-supplement","max_requests":5}` 触发：
 `python -m zucai.cloud_feeds probe --probe-kind jc-supplement --max-requests 5 --archive ../cloud-data --run-id <新批次>`。
 取回「普查结束次日」到「触发时北京日期前一天」每天的官方按日页面，只归档原始页面与元数据，
-不导入比赛、不改开启检查规则；已归档且校验通过的日子跳过，分页不全的日子整天不落盘下次重取，
+不导入比赛；已归档且分页完整、全部结算的日子跳过。分页不全或仍有未结算比赛的日子不发布新页面，摘要列明原因，下次重取。
+旧归档含未结算行时也重取；全部结算后才替换，旧页与元数据留在 `state/catalogue/supplement/superseded/<运行编号>/jc/`，
+留底随归档保存恢复，不作为当前身份或开启证据。开启检查对所查赛事的未结算行明确报分母不完整。
 每次运行到请求上限即停并在摘要写明还差哪几天，重复执行自动补齐。
 T68 严格绑定离线回放：`python -m zucai.identity_binding --archive /path/to/frozen-archive --out work/t68-binding-1`；
 可用 `--fd-raw-dir /path/to/saved-fd-originals` 加入已保存且有 sidecar 的 FD 原件。只写新的提案目录，
@@ -227,7 +229,7 @@ pytest -q
 
 - Actions `operation=probe options={"probe_kind":"catalogue"}`：hosted runner 各请求一次 APIF `/leagues` 与 FDORG `/competitions`，不请求 `/status`、不导入比赛；FD使用核实DIV静态清单。
 - `operation=probe options={"probe_kind":"jc-catalogue"}`：自托管运行器枚举过去12完整北京时间月的逐日分页，汇总真实 `leagueId` /名称/场数；与90行来源名称精确对照，缺失或歧义交所有者决定。只列赛事，不导入赛果，不请求比分头信息。
-- `operation=probe options={"probe_kind":"jc-supplement","max_requests":5}`：同一自托管运行器与所有者本机代理，取回并归档「普查结束次日」到「触发时北京日期前一天」每天的官方按日页面到 `state/catalogue/supplement/jc/`；只归档原始页面与元数据，不导入比赛、不改开启检查规则。已归档且校验通过的日子跳过；分页不全的日子整天不落盘；到请求上限即停并在摘要写明还差哪几天。
+- `operation=probe options={"probe_kind":"jc-supplement","max_requests":5}`：同一自托管运行器与所有者本机代理，取回并归档「普查结束次日」到「触发时北京日期前一天」每天的官方按日页面到 `state/catalogue/supplement/jc/`；只归档原始页面与元数据，不导入比赛、不改开启检查规则。仅跳过分页完整且全部结算的日子；分页不全或未结算的日子不发布新页面，下次重取；旧页在新一天全部结算后移入 `supplement/superseded/<运行编号>/` 留底；到请求上限即停并在摘要写明还差哪几天及原因。
 - `operation=backfill source=apif options={"catalogue":true}`：读取 `state/catalogue/latest.json` 与核准映射；可填 `leagues`、`from_season`、`to_season` 收窄范围。每批有效上限为输入 `max_requests` 与映射配置上限的较小值（配置默认500），APIF每日另保留500请求，沿既有6.1秒间隔和账号真实配额。
 - 同一入口支持 `source=fdorg|fd`。默认续跑只跳过成功导入且原件SHA仍可验证的范围；失败/拒绝范围保留。`resume=false` 或 CLI `--no-resume` 重新核对已经成功的范围，重复导入不新增同一比赛。仍在进行的赛季需这样刷新全季；普通每日增量独立持续运行。
 
