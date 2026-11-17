@@ -657,8 +657,15 @@ def generate(archive, code, *, cutoff, run_id, out_root, restorable=None, held_a
                     parser.session.close()
                 if rejected_rows:
                     raise ValueError(f"{code} equivalent 原件存在解析拒绝行，无法生成重放结论")
+                chosen_meta = json.loads(
+                    (Path(facts["archive_root"]) / (chosen_ref["path"] + ".meta.json")).read_bytes()
+                )
                 import_results = _run_importer(
-                    import_db, recent_games, imported, imported, retain_results=False
+                    import_db,
+                    recent_games,
+                    _clock(chosen_meta["fetched_at_utc"]),
+                    imported,
+                    retain_results=False,
                 )
                 for game in recent_games:
                     fixture_ids.add(f"apif:{game.provider_match_id}")
@@ -678,7 +685,18 @@ def generate(archive, code, *, cutoff, run_id, out_root, restorable=None, held_a
                     for original in originals:
                         raw = proof(Path(facts["archive_root"]), original)
                         recent_games = parser.parse(raw)
-                        _run_importer(recent_db, recent_games, seen, imported, retain_results=False)
+                        original_meta = json.loads(
+                            (
+                                Path(facts["archive_root"]) / (original["path"] + ".meta.json")
+                            ).read_bytes()
+                        )
+                        _run_importer(
+                            recent_db,
+                            recent_games,
+                            _clock(original_meta["fetched_at_utc"]),
+                            imported,
+                            retain_results=False,
+                        )
                         for game in recent_games:
                             fixture_ids.add(f"apif:{game.provider_match_id}")
                         raw_hashes.add(original["sha256"])

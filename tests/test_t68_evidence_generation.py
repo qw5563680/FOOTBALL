@@ -462,3 +462,84 @@ def test_freshness_is_judged_per_fixture_not_per_capture():
         dict(match_id="apif:3", complete=True, provenance=old),
     ]
     assert gate._fresh_fixtures(rows, end) == {"apif:1": True, "apif:2": False, "apif:3": False}
+
+
+def _entry_with_distinct_capture_clocks(bundle, tmp_path, monkeypatch, mode):  # noqa: F811
+    """Synthetic fixture extension: an unlinked APIF match must actually be saved."""
+    import shutil
+    from copy import deepcopy
+    from datetime import datetime
+
+    from zucai import cloud_feeds
+
+    clean, _ = _entry_archive(bundle, tmp_path, monkeypatch)
+    season_path = next(
+        path
+        for path in clean.glob("state/catalogue/backfill/**/fixtures_*.json")
+        if not path.name.endswith(".meta.json")
+    )
+    season = json.loads(season_path.read_bytes())
+    extra = deepcopy(season["response"][0])
+    extra["fixture"].update(id=11, date="2026-11-05T12:15:00Z")
+    extra["fixture"]["timestamp"] = int(
+        datetime.fromisoformat(extra["fixture"]["date"]).timestamp()
+    )
+    season["response"].append(extra)
+    season["results"] = len(season["response"])
+    season_path.write_text(json.dumps(season))
+
+    def capture(path, instant):
+        meta_path = Path(str(path) + ".meta.json")
+        meta = json.loads(meta_path.read_bytes())
+        meta.update(fetched_at_utc=instant, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        meta_path.write_text(json.dumps(meta))
+
+    capture(season_path, "2026-11-14T16:20:00Z")  # Later than window end, before cutoff.
+    daily = clean / "state/catalogue/daily"
+    if mode == "equivalent":
+        shutil.rmtree(daily)
+    else:
+        for number, path in enumerate(sorted(daily.glob("**/fixtures_one.json"))):
+            raw = json.loads(path.read_bytes())
+            if raw["parameters"]["date"] == "2026-11-05":
+                raw["response"].append(deepcopy(extra))
+                raw["results"] = len(raw["response"])
+                path.write_text(json.dumps(raw))
+            capture(path, f"2026-11-14T16:{5 + number % 10:02}:00Z")
+    manifest_path = clean / "feed_manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["created_utc"] = CUTOFF
+    # Existing daily originals are intentionally unlisted by the entry fixture.
+    # Authenticate changed listed files without adopting unrelated fixture artifacts.
+    manifest["files"] = {
+        key: hashlib.sha256((clean / key).read_bytes()).hexdigest()
+        for key in manifest["files"]
+        if (clean / key).is_file()
+    }
+    manifest_path.write_text(json.dumps(manifest))
+    cloud_feeds.main()
+    run = clean / "state/identity_gate_evidence/ev-1"
+    entry = json.loads((run / "register.json").read_bytes())["leagues"][0]
+    index = json.loads((run / "98/index.json").read_bytes())
+    assert index["recent_replay"]["mode"] == mode, index.get("generation_errors")
+    assert "recent_replay" not in entry["missing_evidence"], entry["evidence"]["recent_replay"]
+    replay = entry["evidence"]["recent_replay"]
+    assert replay["importer"]["counts"]["inserted"] == 1
+    assert replay["importer"]["imported_utc"] == CUTOFF.replace("Z", "+00:00")
+    return replay
+
+
+def test_cloud_equivalent_replay_uses_original_capture_before_cutoff(  # noqa: F811
+    bundle,  # noqa: F811
+    tmp_path,
+    monkeypatch,
+):
+    _entry_with_distinct_capture_clocks(bundle, tmp_path, monkeypatch, "equivalent")
+
+
+def test_cloud_dates_replay_uses_each_original_capture_before_cutoff(  # noqa: F811
+    bundle,  # noqa: F811
+    tmp_path,
+    monkeypatch,
+):
+    _entry_with_distinct_capture_clocks(bundle, tmp_path, monkeypatch, "dates")
