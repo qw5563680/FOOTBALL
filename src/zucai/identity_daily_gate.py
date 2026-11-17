@@ -660,6 +660,7 @@ def _held_reconciliation(facts, code, section, root):
 def _recent_official(facts, code, section, root, start, end):
     """Keep the fixed twelve-month census; verify additional daily JC originals separately."""
     from zucai.cloud_jc_catalogue import _archived_page, parse_day_pages, parse_official_leagues
+    from zucai.sources.results import SportteryResults
     from zucai.sources.sporttery import official_value
 
     base_start = date.fromisoformat(facts["catalogue_window"]["start_beijing"])
@@ -730,6 +731,11 @@ def _recent_official(facts, code, section, root, start, end):
                     ):
                         raise ValueError("JC supplement missing numeric team identity")
                     if row["leagueNameAbbr"] == league:
+                        if SportteryResults._row(row) is None:
+                            raise ValueError(
+                                "official 30-day denominator incomplete: "
+                                f"该日官方页面仍有未结算比赛：{day} jc:{row['matchId']}"
+                            )
                         target[f"jc:{row['matchId']}"] = dict(
                             home_source_id=str(row["homeTeamId"]),
                             away_source_id=str(row["awayTeamId"]),
@@ -759,6 +765,12 @@ def _recent_official(facts, code, section, root, start, end):
                 raise ValueError("JC supplement omitted known archived fixtures")
             selected.update(target)
         elif base_start <= day <= base_end:
+            pending = sorted(mid for mid, row in base.items() if row.get("status") == "unverified")
+            if pending:
+                raise ValueError(
+                    "official 30-day denominator incomplete: "
+                    f"该日官方页面仍有未结算或未核实比赛：{day} {', '.join(pending)}"
+                )
             selected.update(base)
         else:
             raise ValueError(

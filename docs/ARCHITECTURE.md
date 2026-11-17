@@ -1915,3 +1915,13 @@ missing_last_starters_n 原值作为双方阵容完整子集的附加分析列�
 `python -m zucai.predict.experiments.injury_command` 只读库，输出禁止覆盖，输入前后 SHA256 一致才归档；
 全量逐场证据/参数/指标/协议 ZIP 使用 stats_release.upload_verified/upload_checksums 上传 experiments-YYYYMM，
 不写数据分支；main reports 仅 README/SHA256SUMS≤200 KB。上传失败不得声称已发布，保持本地证据供审查者接续。
+
+## T68 未结算补充页与留底
+
+赛果页的未结算行不参与已核实身份见证；读取器保留未核实状态或问题说明，不解引用空赛果。
+开启检查的近 30 天官方分母按所查赛事识别未结算行，明确报告该日不完整，其他赛事的未结算行不误阻断。
+`jc-supplement` 整日分页完整且全部结算后才发布；旧日未结算时重新取回。
+替换前，旧页面及同名 sidecar 原样保存到 `state/catalogue/supplement/superseded/<run_id>/jc/<年月>/`。
+该路径列入 feeds 状态白名单，随导出、恢复保存；当前证据读取与补充扫描不使用留底。
+同一留底路径已有不同内容时拒绝覆盖，要求新运行编号；重取失败时保留原页。
+无数据库结构变化。

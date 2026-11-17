@@ -107,7 +107,7 @@ CATALOGUE_FILE = (
     rf"jc/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?|"
     rf"backfill/(?:api-football|football-data-org|football-data-co-uk)/{CATALOGUE_DATE}/"
     r"[A-Za-z0-9_][A-Za-z0-9_.-]*_[0-9]{12}Z_[0-9a-f]{32}\.(?:json|csv|txt)(?:\.meta\.json)?)|"
-    rf"supplement/(?:summary\.json|jc/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?))"
+    rf"supplement/(?:summary\.json|(?:jc|superseded/{CATALOGUE_RUN_ID}/jc)/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?))"
 )
 STATE_FILE = (
     r"state/(?:(?:api_football_quota|nations_league|fd_collection|t68_cross_day_receipts)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
