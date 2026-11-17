@@ -40,6 +40,36 @@ def test_apis_excludes_every_probe_kind_owned_by_jc_catalogue(ref):
         assert enabled_jobs(kind, **{"github.ref_name": ref}) == {"jc-catalogue"}, kind
 
 
+def test_opening_evidence_installs_model_engine_before_generating():
+    """The opening check reads training history through zucai.predict (penaltyblog).
+
+    Real run 44167532858 failed with ModuleNotFoundError because the apis job only
+    installs the base project. The model extra must be installed under exactly the
+    condition of the evidence step, and before it.
+    """
+    job = jobs()["apis"]
+    install_title = "Install model engine for opening evidence"
+    evidence_title = "Generate opening evidence and run the opening check without network"
+    install, evidence = step(install_title, job), step(evidence_title, job)
+    assert 'python -m pip install -e "./app[model]"' in install
+    assert condition(install) == condition(evidence)
+    assert job.index("Install project with checked-in") < job.index(install_title)
+    assert job.index(install_title) < job.index(evidence_title)
+    # Every other operation of this job keeps the base install only.
+    assert job.count("[model]") == 1
+
+
+def test_opening_check_history_selection_needs_the_model_package():
+    """Guard the reason for the step above: if this import chain ever stops needing the
+    model package the extra install can be dropped; until then it must stay."""
+    import inspect
+
+    from zucai import identity_gate_evidence
+
+    source = inspect.getsource(identity_gate_evidence)
+    assert "from zucai.predict.backtest import read_history" in source
+
+
 @pytest.mark.parametrize("event", ["schedule", "push"])
 def test_jc_catalogue_never_runs_for_schedule_or_push(event):
     assert "jc-catalogue" not in enabled_jobs("jc-catalogue", **{"github.event_name": event})
