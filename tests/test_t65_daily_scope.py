@@ -18,6 +18,8 @@ from zucai.sources.base import RawStore
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "data/fixtures/t14/apif.json"
 DAILY_CODES = "98 292 188 113 103 244 119 253 169 3 848".split()
+# T68 opens reviewed routes one by one: opening check ready_for_review plus owner approval.
+OPENED_CODES = ["307"]
 # The review listed 62 unique IDs despite its original heading saying 60.
 NEW_CODES = (
     "79 89 99 307 41 235 80 95 114 104 293 45 81 48 101 137 66 143 102 90 46 "
@@ -31,7 +33,7 @@ CAPTURED = datetime(2026, 11, 3, tzinfo=UTC)
 def _document(*, extra=False, rejected=False):
     doc = json.loads(FIXTURE.read_bytes())
     if extra:
-        for index, code in enumerate(NEW_CODES):
+        for index, code in enumerate(c for c in NEW_CODES if c not in OPENED_CODES):
             row = copy.deepcopy(doc["response"][0])
             row["fixture"]["id"] = 20000 + index
             row["fixture"]["status"]["short"] = "FT"
@@ -85,7 +87,7 @@ def _official(database):
 
 
 def test_reviewed_history_routes_do_not_enter_the_daily_request_plan():
-    assert daily_codes("apif") == DAILY_CODES
+    assert daily_codes("apif") == DAILY_CODES + OPENED_CODES
     assert set(provider_entries("apif", purpose="backfill")) == set(DAILY_CODES + NEW_CODES)
     for purpose in ("daily", "backfill"):
         assert not PENDING_CODES & provider_entries("apif", purpose=purpose).keys()

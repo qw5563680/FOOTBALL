@@ -17,6 +17,8 @@ APPROVED_IDS = frozenset(
     "10 1 6 4 7 9 22 960 1222 23 480 532 524 490 38 897 803 965 1245 1188".split()
 )
 UNREVIEWED_IDS = frozenset("40 62 71 850 916".split())
+# T68 opens reviewed routes one by one: opening check ready_for_review plus owner approval.
+OPENED_IDS = frozenset({"307"})
 
 
 def save(tmp_path, document):
@@ -63,15 +65,17 @@ def test_reviewed_ids_enter_only_backfill_without_inventing_access():
     registry = load_registry()
     legacy = json.loads((ROOT / "data/api_football/leagues.json").read_bytes())
     assert len(APPROVED_IDS) == 62
-    for purpose, added in (("daily", set()), ("backfill", APPROVED_IDS)):
+    for purpose, added in (("daily", OPENED_IDS), ("backfill", APPROVED_IDS)):
         routes = provider_entries("apif", purpose=purpose)
         assert routes.keys() - legacy.keys() == added
         assert not UNREVIEWED_IDS & routes.keys()
-    assert not APPROVED_IDS & set(daily_codes("apif"))
+    assert APPROVED_IDS & set(daily_codes("apif")) == OPENED_IDS
     for code in APPROVED_IDS:
         route = registry["providers"]["apif"][code]
         assert route["status"] == "verified"
-        assert route["daily"] is False and route["backfill"] is True
+        assert route["daily"] is (code in OPENED_IDS) and route["backfill"] is True
+        if code in OPENED_IDS:
+            assert any(e["kind"] == "daily_opening_check" for e in route["evidence"])
         assert route["access_status"] == "unverified"
         assert route["config"]["seasons_available"] == []
         assert route["config"]["catalogue_seasons"]
