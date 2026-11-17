@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -17,15 +17,19 @@ from zucai.cloud_feeds import archive_info, export_feeds, main
 from zucai.sources.sporttery import API
 
 FIXTURES = Path(__file__).parents[1] / "data" / "fixtures" / "t68-supplement"
+CENSUS_EMPTY = Path(__file__).parents[1] / "data" / "fixtures" / "t61" / "jc-empty.json"
 API_URL = API + "getUniformMatchResultV1.qry"
+CENSUS_RUN = "43539673769-1"
+CENSUS_WINDOW = ("2025-11-01", "2026-10-31")
+PROVIDER_RUN = "43562856462-1"
 PAGES = {
-    "2026-11-15": "day-a",
-    "2026-11-16": "day-b",
-    "2026-11-17": "day-c",
-    "2026-11-18": "day-d",
+    "2026-11-01": "day-a",
+    "2026-11-02": "day-b",
+    "2026-11-03": "day-c",
+    "2026-11-04": "day-d",
 }
-TEST_NOW = datetime(2026, 11, 19, 10, 0, tzinfo=UTC)  # Beijing 2026-11-19 → end 11-18
-TEST_FETCH = datetime(2026, 11, 19, 8, 0, tzinfo=UTC)  # after every day-end in window
+TEST_NOW = datetime(2026, 11, 5, 10, 0, tzinfo=UTC)  # Beijing 2026-11-05 → end 11-04
+TEST_FETCH = datetime(2026, 11, 5, 8, 0, tzinfo=UTC)  # after every day-end in window
 
 
 def fake_datetime(fixed):
@@ -37,7 +41,7 @@ def fake_datetime(fixed):
     return FakeDateTime
 
 
-def sidecar_bytes(day, page, raw):
+def sidecar_bytes(day, page, raw, fetched="2026-11-16T08:00:00Z"):
     url = (
         f"{API_URL}?matchBeginDate={day}&matchEndDate={day}&leagueId=&pageSize=30"
         f"&pageNo={page}&isFix=0&matchPage=1&pcOrWap=1"
@@ -45,40 +49,59 @@ def sidecar_bytes(day, page, raw):
     return json.dumps(
         {
             "url": url,
-            "fetched_at_utc": "2026-11-16T08:00:00Z",
+            "fetched_at_utc": fetched,
             "status_code": 200,
             "sha256": hashlib.sha256(raw).hexdigest(),
         }
     ).encode()
 
 
+def _write_census_pages(seed_data: Path) -> None:
+    empty = CENSUS_EMPTY.read_bytes()
+    day = date(2025, 11, 1)
+    last = date(2026, 10, 31)
+    while day <= last:
+        target = seed_data / "state" / "catalogue" / CENSUS_RUN / "jc" / f"{day:%Y-%m}"
+        target.mkdir(parents=True, exist_ok=True)
+        page_path = target / f"{day}-p1.json"
+        page_path.write_bytes(empty)
+        page_path.with_suffix(".json.meta.json").write_bytes(
+            sidecar_bytes(day.isoformat(), 1, empty, fetched="2026-10-31T16:00:00Z")
+        )
+        day += timedelta(days=1)
+
+
 def seed_archive(tmp_path, *, census=True, pre_archived=()):
     seed = tmp_path / "seed"
     source = database_at(seed / "data" / "zucai.db")
     if census:
+        catalogue_root = seed / "data" / "state" / "catalogue"
         jc_raw = json.dumps(
             {
                 "collection": "catalogue",
                 "provider": "jc",
-                "run_id": "census-1",
-                "window": {"start_beijing": "2025-11-01", "end_beijing": "2026-11-14"},
+                "run_id": CENSUS_RUN,
+                "status": "complete",
+                "window": {"start_beijing": CENSUS_WINDOW[0], "end_beijing": CENSUS_WINDOW[1]},
             }
         ).encode()
-        folder = seed / "data" / "state" / "catalogue" / "census-1"
-        folder.mkdir(parents=True)
-        (folder / "jc.json").write_bytes(jc_raw)
-        latest = {
-            "version": 1,
-            "providers": {
-                "jc": {
-                    "run_id": "census-1",
-                    "path": "state/catalogue/census-1/jc.json",
-                    "sha256": hashlib.sha256(jc_raw).hexdigest(),
-                }
-            },
-        }
-        (seed / "data" / "state" / "catalogue" / "latest.json").write_text(
-            json.dumps(latest), encoding="utf-8"
+        census_folder = catalogue_root / CENSUS_RUN
+        census_folder.mkdir(parents=True)
+        (census_folder / "jc.json").write_bytes(jc_raw)
+        _write_census_pages(seed / "data")
+        provider_folder = catalogue_root / PROVIDER_RUN
+        provider_folder.mkdir(parents=True)
+        latest_providers = {}
+        for provider in ("apif", "fd", "fdorg"):
+            provider_raw = b"{}"
+            (provider_folder / f"{provider}.json").write_bytes(provider_raw)
+            latest_providers[provider] = {
+                "run_id": PROVIDER_RUN,
+                "path": f"state/catalogue/{PROVIDER_RUN}/{provider}.json",
+                "sha256": hashlib.sha256(provider_raw).hexdigest(),
+            }
+        (catalogue_root / "latest.json").write_text(
+            json.dumps({"version": 1, "providers": latest_providers}), encoding="utf-8"
         )
     for day, stem, page in pre_archived:
         raw = (FIXTURES / f"{stem}-p{page}.json").read_bytes()
@@ -155,34 +178,34 @@ def test_supplement_archives_all_days_after_census(tmp_path, monkeypatch):
     register_pages(seen)
     work, summary = run_entry(tmp_path, monkeypatch, archive)
     meta = archive_info(archive)
-    for day in ("2026-11-15", "2026-11-16", "2026-11-17", "2026-11-18"):
+    for day in ("2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"):
         key = f"state/catalogue/supplement/jc/{day[:7]}/{day}-p1.json"
         assert key in meta["files"] and f"{key}.meta.json" in meta["files"]
-    assert "state/catalogue/supplement/jc/2026-11/2026-11-15-p2.json" in meta["files"]
+    assert "state/catalogue/supplement/jc/2026-11/2026-11-01-p2.json" in meta["files"]
     assert "state/catalogue/supplement/summary.json" in meta["files"]
     record = meta["collection"]["jc_supplement"]
     assert record["status"] == "complete"
     assert record["requests"] == 5
     assert record["window"] == {
-        "start_beijing": "2026-11-15",
-        "end_beijing": "2026-11-18",
+        "start_beijing": "2026-11-01",
+        "end_beijing": "2026-11-04",
         "basis": "days_after_previous_jc_catalogue_until_yesterday_beijing",
     }
     assert record["days"]["archived"] == [
-        "2026-11-15",
-        "2026-11-16",
-        "2026-11-17",
-        "2026-11-18",
+        "2026-11-01",
+        "2026-11-02",
+        "2026-11-03",
+        "2026-11-04",
     ]
     assert record["days"]["skipped"] == []
     assert record["days"]["remaining"] == []
     assert record["days"]["failed"] == {}
     assert seen == [
-        ("2026-11-15", 1),
-        ("2026-11-15", 2),
-        ("2026-11-16", 1),
-        ("2026-11-17", 1),
-        ("2026-11-18", 1),
+        ("2026-11-01", 1),
+        ("2026-11-01", 2),
+        ("2026-11-02", 1),
+        ("2026-11-03", 1),
+        ("2026-11-04", 1),
     ]
     text = summary.read_text(encoding="utf-8")
     assert "### JC supplement: complete" in text
@@ -194,7 +217,7 @@ def test_supplement_archives_all_days_after_census(tmp_path, monkeypatch):
 @responses.activate
 def test_supplement_skips_days_already_archived(tmp_path, monkeypatch):
     archive = seed_archive(
-        tmp_path, pre_archived=[("2026-11-15", "day-a", 1), ("2026-11-15", "day-a", 2)]
+        tmp_path, pre_archived=[("2026-11-01", "day-a", 1), ("2026-11-01", "day-a", 2)]
     )
     seen = []
     register_pages(seen)
@@ -202,9 +225,9 @@ def test_supplement_skips_days_already_archived(tmp_path, monkeypatch):
     record = archive_info(archive)["collection"]["jc_supplement"]
     assert record["status"] == "complete"
     assert record["requests"] == 3
-    assert record["days"]["skipped"] == ["2026-11-15"]
-    assert record["days"]["archived"] == ["2026-11-16", "2026-11-17", "2026-11-18"]
-    assert seen == [("2026-11-16", 1), ("2026-11-17", 1), ("2026-11-18", 1)]
+    assert record["days"]["skipped"] == ["2026-11-01"]
+    assert record["days"]["archived"] == ["2026-11-02", "2026-11-03", "2026-11-04"]
+    assert seen == [("2026-11-02", 1), ("2026-11-03", 1), ("2026-11-04", 1)]
     assert "跳过已归档 1 天" in summary.read_text(encoding="utf-8")
     assert matches_count(work) == 0
 
@@ -213,24 +236,26 @@ def test_supplement_skips_days_already_archived(tmp_path, monkeypatch):
 def test_supplement_never_writes_a_partially_fetched_day(tmp_path, monkeypatch):
     archive = seed_archive(tmp_path)
     seen = []
-    register_pages(seen, fail_pages={("2026-11-15", 2)})
-    work, _summary = run_entry(tmp_path, monkeypatch, archive)
+    register_pages(seen, fail_pages={("2026-11-01", 2)})
+    work, summary = run_entry(tmp_path, monkeypatch, archive)
     meta = archive_info(archive)
     record = meta["collection"]["jc_supplement"]
     assert record["status"] == "partial"
     assert record["requests"] == 5
-    assert "2026-11-15" in record["days"]["failed"]
-    assert record["days"]["archived"] == ["2026-11-16", "2026-11-17", "2026-11-18"]
+    assert "2026-11-01" in record["days"]["failed"]
+    assert record["days"]["archived"] == ["2026-11-02", "2026-11-03", "2026-11-04"]
     assert seen == [
-        ("2026-11-15", 1),
-        ("2026-11-15", 2),
-        ("2026-11-16", 1),
-        ("2026-11-17", 1),
-        ("2026-11-18", 1),
+        ("2026-11-01", 1),
+        ("2026-11-01", 2),
+        ("2026-11-02", 1),
+        ("2026-11-03", 1),
+        ("2026-11-04", 1),
     ]
     assert not any(
-        key.startswith("state/catalogue/supplement/jc/2026-11/2026-11-15-") for key in meta["files"]
+        key.startswith("state/catalogue/supplement/jc/2026-11/2026-11-01-") for key in meta["files"]
     )
+    text = summary.read_text(encoding="utf-8")
+    assert "还差：2026-11-01" in text  # failed days are listed in 还差 too
     assert matches_count(work) == 0
 
 
@@ -245,19 +270,19 @@ def test_supplement_stops_at_request_cap_and_lists_remaining_days(tmp_path, monk
     assert record["status"] == "partial"
     assert record["requests"] == 1
     assert record["days"]["remaining"] == [
-        "2026-11-15",
-        "2026-11-16",
-        "2026-11-17",
-        "2026-11-18",
+        "2026-11-01",
+        "2026-11-02",
+        "2026-11-03",
+        "2026-11-04",
     ]
     assert record["days"]["archived"] == [] and record["days"]["skipped"] == []
     assert record["errors"][0]["error"] == "request_cap"
-    assert seen == [("2026-11-15", 1)]
+    assert seen == [("2026-11-01", 1)]
     assert not any(key.startswith("state/catalogue/supplement/jc/") for key in meta["files"])
     assert "state/catalogue/supplement/summary.json" in meta["files"]
     text = summary.read_text(encoding="utf-8")
     assert "### JC supplement: partial" in text
-    assert "还差：2026-11-15、2026-11-16、2026-11-17、2026-11-18" in text
+    assert "还差：2026-11-01、2026-11-02、2026-11-03、2026-11-04" in text
     assert matches_count(work) == 0
 
 
@@ -267,17 +292,17 @@ def test_supplement_rejects_capture_earlier_than_day_end(tmp_path, monkeypatch):
     seen = []
     register_pages(seen)
     work, _summary = run_entry(
-        tmp_path, monkeypatch, archive, fetch=datetime(2026, 11, 15, 12, 0, tzinfo=UTC)
+        tmp_path, monkeypatch, archive, fetch=datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
     )
     meta = archive_info(archive)
     record = meta["collection"]["jc_supplement"]
     assert record["status"] == "partial"
     assert record["requests"] == 4
     assert set(record["days"]["failed"]) == {
-        "2026-11-15",
-        "2026-11-16",
-        "2026-11-17",
-        "2026-11-18",
+        "2026-11-01",
+        "2026-11-02",
+        "2026-11-03",
+        "2026-11-04",
     }
     assert all("抓取时间早于当天结束" in reason for reason in record["days"]["failed"].values())
     assert not any(key.startswith("state/catalogue/supplement/jc/") for key in meta["files"])
@@ -332,3 +357,54 @@ def test_supplement_rejects_invalid_run_id(tmp_path, monkeypatch):
     )
     with pytest.raises(ValueError, match="run_id 无效"):
         main()
+
+
+@responses.activate
+def test_supplement_pages_are_accepted_by_the_opening_gate(tmp_path, monkeypatch):
+    from zucai.identity_daily_gate import _recent_official
+
+    archive = seed_archive(tmp_path)
+    register_pages()
+    run_entry(tmp_path, monkeypatch, archive)
+    meta = archive_info(archive)
+    refs = []
+    for key in sorted(meta["files"]):
+        if (
+            key.startswith("state/catalogue/supplement/jc/")
+            and key.endswith(".json")
+            and not key.endswith(".meta.json")
+        ):
+            refs.append(
+                {
+                    "path": key,
+                    "sha256": meta["files"][key],
+                    "metadata_sha256": hashlib.sha256(
+                        (archive / f"{key}.meta.json").read_bytes()
+                    ).hexdigest(),
+                }
+            )
+    assert len(refs) == 5
+    facts = {
+        "catalogue_window": {"start_beijing": "2025-11-01", "end_beijing": "2026-10-31"},
+        "configs": {"62": {"league": "LaLiga"}},
+        "official": [],
+        "official_leagues": {},
+        "matches": [],
+        "gate_cutoff": None,
+    }
+    result = _recent_official(
+        facts,
+        "62",
+        {"official_originals": refs},
+        archive,
+        date(2026, 11, 1),
+        date(2026, 11, 4),
+    )
+    assert result["covered_beijing_dates"] == [
+        "2026-11-01",
+        "2026-11-02",
+        "2026-11-03",
+        "2026-11-04",
+    ]
+    ids = set(result["official_match_ids"])
+    assert {"jc:8100001", "jc:8100031", "jc:8100041", "jc:8100051"} <= ids

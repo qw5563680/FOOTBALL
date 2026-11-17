@@ -725,10 +725,19 @@ def collect_jc_supplements(
     if not re.fullmatch(CATALOGUE_RUN_ID, run_id):
         raise ValueError("JC supplement run_id 无效")
     _catalogue_files(database.parent)
-    pointer = _previous_pointers(database.parent).get("jc")
-    if pointer is None:
+    from zucai.jc_catalogue_kickoffs import CATALOGUE_SOURCE_RUN
+    from zucai.jc_catalogue_kickoffs import _catalogue as _fixed_catalogue
+
+    # Same locator as the opening-gate checker: the fixed twelve-month census
+    # under state/catalogue/<CATALOGUE_SOURCE_RUN>/jc.json. The mutable
+    # latest.json pointers are NOT consulted (they may have been rewritten by
+    # later catalogue probes). Re-validating the census here guarantees the
+    # supplement window starts exactly on the day after the census end.
+    census_path = database.parent / "state/catalogue" / CATALOGUE_SOURCE_RUN / "jc.json"
+    if not census_path.is_file():
         raise ValueError("JC supplement 缺少竞彩普查；请先运行 jc-catalogue 再取当月补充页面")
-    census = json.loads((database.parent / pointer["path"]).read_bytes())
+    _fixed_catalogue(database.parent)
+    census = json.loads(census_path.read_bytes())
     start = date.fromisoformat(census["window"]["end_beijing"]) + timedelta(days=1)
     instant = now if now is not None else datetime.now(UTC)
     end = instant.astimezone(BEIJING).date() - timedelta(days=1)
@@ -817,7 +826,8 @@ def write_supplement_summary(report: dict) -> None:
     if not os.environ.get("GITHUB_STEP_SUMMARY"):
         return
     days = report["days"]
-    remaining = "、".join(days["remaining"]) if days["remaining"] else "无"
+    due = [*days["remaining"], *sorted(days["failed"])]
+    missing = "、".join(due) if due else "无"
     failures = "；".join(f"{day}（{reason}）" for day, reason in days["failed"].items())
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
         stream.write(
@@ -826,7 +836,7 @@ def write_supplement_summary(report: dict) -> None:
             f"请求 {report['requests']} 页。\n\n"
             f"新归档 {len(days['archived'])} 天；跳过已归档 {len(days['skipped'])} 天；"
             f"失败 {len(days['failed'])} 天：{failures or '无'}。\n\n"
-            f"还差：{remaining}（同一命令重跑会自动补齐）。\n\n"
+            f"还差：{missing}（同一命令重跑会自动补齐）。\n\n"
             "只归档原始页面；页面与元数据随 state/catalogue/supplement 保存，"
             "不影响比赛库、登记、别名、预测、模型、记分板或每日报告。\n"
         )
