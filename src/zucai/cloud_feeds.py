@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import sqlite3
+import sys
 import time
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -919,7 +920,7 @@ def main():
             args.out.write_text(text, encoding="utf-8")
             LOG.info("市场参考出处页已写入 %s", args.out)
         else:
-            print(text)
+            sys.stdout.write(text)
         return
     logging.basicConfig(level=logging.INFO)
     target = args.db.resolve()

@@ -69,20 +69,27 @@ def _market_gap_line(rows):
     ]
 
 
-def market_status_section():
-    """Per-day status of every market-information item from the T71 现状 table."""
-    rows = [
-        ("竞彩胜平负赔率", "已真实接通"),
-        ("竞彩让球胜平负、比分等玩法赔率", "已真实接通"),
+def market_status_section(rows=None):
+    """Per-day status of every market-information item from the T71 现状 table.
+
+    ``rows`` is the prediction records of the day; the two 竞彩 rows are written
+    from whether any record really carries a collected 胜平负 quote (no quotes
+    collected that day → 当日未采集), the rest are static.
+    """
+    collected = any(row.get("market") or row.get("market_reference") for row in (rows or []))
+    jc_status = "已真实接通" if collected else "当日未采集"
+    table = [
+        ("竞彩胜平负赔率", jc_status),
+        ("竞彩让球胜平负、比分等玩法赔率", jc_status),
         ("多家公司收盘胜平负（Avg / Max / PS / B365）", "已真实接通（收盘价，仅赛后对照）"),
         ("初盘", "来源未提供"),
         ("开售到开赛之间的连续走势", "部分（每日数次采集快照）"),
         ("亚洲让球、大小球的公司赔率", "尚未实现"),
-        ("必发（成交价、成交量、盘口深度）", "权限不足"),
+        ("必发（成交价、成交量、盘口深度）", "权限未核实"),
         ("凯利指数", "可计算（本单不做）"),
     ]
     lines = ["## 市场信息状态", "", "| 信息 | 当日状态 |", "| --- | --- |"]
-    lines.extend(f"| {info} | {status} |" for info, status in rows)
+    lines.extend(f"| {info} | {status} |" for info, status in table)
     return [*lines, ""]
 
 

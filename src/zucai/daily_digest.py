@@ -531,7 +531,14 @@ def generate(
             catalog=catalog,
             sfc_issues=archived_sfc_issues(archive, feed, at),
         ),
-        *market_status_section(),
+        *market_status_section(
+            [
+                row
+                for day, _path, batch in batches
+                if day == today.isoformat()
+                for row in batch.get("predictions", [])
+            ]
+        ),
         *sfc_lines,
         *parlay_lines,
         *review_sections(

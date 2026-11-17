@@ -110,7 +110,7 @@ def _market(session, match, cutoff):
         if row.selection in "hda" and len(row.selection) == 1:
             snapshots[row.snapshot_utc][row.selection] = row.price
     if not snapshots:
-        return None, "未开售"
+        return None, "没有采集到胜平负报价（未开售或未采集）"
     first_capture = min(snapshots)
     complete = {
         stamp: prices
@@ -306,6 +306,8 @@ def predict_batch(
             continue
         if utc(match.kickoff_utc) <= cutoff:
             item["reason"] = "预测截点时已开赛"
+            item["market_reference"] = None
+            item["market_missing_reason"] = "预测截点时已开赛"
             continue
         if match.status == "cancelled" or (match.status != "scheduled" and not replay):
             item["reason"] = "当前场次状态不适用于赛前预测"

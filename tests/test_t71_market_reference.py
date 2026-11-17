@@ -101,7 +101,7 @@ def test_incomplete_snapshot_never_generates(market_db):
 
 def test_no_odds_at_all(market_db):
     market, reason = _one(market_db, "jc:none")
-    assert market is None and reason == "未开售"
+    assert market is None and reason == "没有采集到胜平负报价（未开售或未采集）"
 
 
 def test_complete_but_collected_after_cutoff(market_db):
@@ -119,7 +119,7 @@ def test_predict_batch_enriches_predicted_and_excluded_rows(setup_batch):
             model_files=[path],
             as_of=CUTOFF,
             generated=CUTOFF,
-            match_ids=["jc:1", "jc:2"],
+            match_ids=["jc:1", "jc:2", "jc:3"],
         )
     rows = {row["match_id"]: row for row in batch["predictions"]}
     predicted = rows["jc:1"]
@@ -133,8 +133,14 @@ def test_predict_batch_enriches_predicted_and_excluded_rows(setup_batch):
     excluded = rows["jc:2"]
     assert excluded["status"] == "excluded"
     assert excluded["market_reference"] is None
-    assert excluded["market_missing_reason"] == "未开售"
+    assert excluded["market_missing_reason"] == "没有采集到胜平负报价（未开售或未采集）"
     assert "market" not in excluded
+    kicked = rows["jc:3"]
+    assert kicked["status"] == "excluded"
+    assert kicked["reason"] == "预测截点时已开赛"
+    assert kicked["market_reference"] is None
+    assert kicked["market_missing_reason"] == "预测截点时已开赛"
+    assert "market" not in kicked
 
 
 def test_duplicate_collections_do_not_double_count(market_db):
@@ -193,7 +199,7 @@ def test_digest_three_columns_and_status_table():
             "home": "A",
             "away": "B",
             "market_reference": None,
-            "market_missing_reason": "未开售",
+            "market_missing_reason": "没有采集到胜平负报价（未开售或未采集）",
         },
     ]
     batch = {
@@ -216,55 +222,99 @@ def test_digest_three_columns_and_status_table():
     assert "50.00% / 25.00% / 25.00%" in text
     assert FUSION_UNAVAILABLE in text
     assert "球队模型未生成（缺少该联赛模型）" in text
-    assert "市场参考未生成（未开售）" in text
+    assert "市场参考未生成（没有采集到胜平负报价（未开售或未采集））" in text
     assert "差距最大" in text
-    status = market_status_section()
+    status = market_status_section(rows)
     status_text = "\n".join(status)
     assert "市场信息状态" in status_text
     assert "已真实接通" in status_text
-    assert "权限不足" in status_text
+    assert "权限未核实" in status_text
     assert "尚未实现" in status_text
+    empty_status = market_status_section([])
+    empty_text = "\n".join(empty_status)
+    assert "| 竞彩胜平负赔率 | 当日未采集 |" in empty_text
+    assert "| 竞彩让球胜平负、比分等玩法赔率 | 当日未采集 |" in empty_text
 
 
-def test_market_sample_page_end_to_end(market_db, tmp_path):
+def _production_forecast_archive(archive, rows_by_run):
+    """Real-shape forecast archive: root forecast_manifest.json,
+    batches at forecasts/<date>/<run>/forecast.json."""
+    (archive / "forecast_manifest.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "algorithm": "sha256",
+                "runs": {
+                    run_id: {
+                        "forecasts": {
+                            "2026-11-03": {
+                                "path": f"forecasts/2026-11-03/{run_id}",
+                                "batch_id": f"b-{run_id}",
+                                "generated_utc": generated,
+                            }
+                        }
+                    }
+                    for run_id, (generated, _rows) in rows_by_run.items()
+                },
+                "files": {},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    for run_id, (_generated, rows) in rows_by_run.items():
+        folder = archive / "forecasts" / "2026-11-03" / run_id
+        folder.mkdir(parents=True)
+        (folder / "forecast.json").write_text(
+            json.dumps({"predictions": rows}, ensure_ascii=False), encoding="utf-8"
+        )
+
+
+def test_market_sample_page_lists_every_batch_and_premerge_snapshot(market_db, tmp_path):
     from zucai.market_sample import page
 
     archive = tmp_path / "archive"
     archive.mkdir()
-    manifest = {
-        "runs": {
-            "r1": {
-                "forecasts": {
-                    "b1": {"path": "forecasts/b1"},
-                }
-            }
-        }
-    }
-    (archive / "forecasts" / "b1").mkdir(parents=True)
-    (archive / "forecasts" / "b1" / "forecast.json").write_text(
-        json.dumps(
-            {
-                "predictions": [
+    first_stamp = (CUTOFF - timedelta(minutes=10)).isoformat()
+    second_stamp = (CUTOFF - timedelta(minutes=5)).isoformat()
+    _production_forecast_archive(
+        archive,
+        {
+            "run-new": (
+                "2026-11-03T01:00:00+00:00",
+                [
                     {
                         "match_id": "jc:first",
                         "status": "predicted",
                         "model_probabilities": {"h": 0.48, "d": 0.28, "a": 0.24},
                         "market": {
                             "probabilities": {"h": 0.5, "d": 0.25, "a": 0.25},
-                            "snapshot_utc": (CUTOFF - timedelta(minutes=10)).isoformat(),
+                            "snapshot_utc": first_stamp,
                             "first_capture_utc": (CUTOFF - timedelta(minutes=30)).isoformat(),
-                            "snapshot_id": (CUTOFF - timedelta(minutes=10)).isoformat(),
+                            "snapshot_id": first_stamp,
                             "method_version": "market-reference-v1",
                             "return_rate": 0.9,
                         },
                     }
-                ]
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
+                ],
+            ),
+            "run-premerge": (
+                "2026-11-03T00:30:00+00:00",
+                [
+                    {
+                        "match_id": "jc:first",
+                        "status": "predicted",
+                        "model_probabilities": {"h": 0.5, "d": 0.27, "a": 0.23},
+                        "market": {
+                            "probabilities": {"h": 0.5, "d": 0.25, "a": 0.25},
+                            "snapshot_utc": second_stamp,
+                            "first_capture_utc": (CUTOFF - timedelta(minutes=30)).isoformat(),
+                        },
+                    }
+                ],
+            ),
+        },
     )
-    (archive / "feed_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with session_scope(market_db) as session:
         text = page(session, archive, "jc:first")
     assert "市场参考出处页：jc:first" in text
@@ -278,4 +328,98 @@ def test_market_sample_page_end_to_end(market_db, tmp_path):
     assert "来源未提供初盘" in text
     assert "必发" in text
     assert "成交价" in text and "成交量" in text and "盘口深度" in text
-    assert "权限不足" in text
+    assert "权限未核实" in text
+    assert "冻结批次 run-new" in text and "冻结批次 run-premerge" in text
+    # pre-merge batch adopts its snapshot_utc (no snapshot_id)
+    assert f"该批采用的胜平负快照：{second_stamp}" in text
+    assert f"该批采用的胜平负快照：{first_stamp}" in text
+
+
+def test_market_sample_command_reads_production_forecast_manifest(tmp_path, monkeypatch):
+    """The command entry works on the real archive shape (no feed_manifest.json runs)."""
+    from datetime import date
+
+    from zucai.cloud_feeds import export_feeds, main
+    from zucai.db import get_engine, init_db, session_scope
+
+    db = tmp_path / "source" / "zucai.db"
+    engine = get_engine(db)
+    init_db(engine)
+    with session_scope(engine) as session:
+        teams = {name: Team(name=name) for name in ("A", "B")}
+        session.add_all(teams.values())
+        session.flush()
+        session.add(
+            Match(
+                match_id="jc:2042784",
+                source="jc",
+                league="L",
+                home_team_id=teams["A"].id,
+                away_team_id=teams["B"].id,
+                kickoff_utc="2026-11-16T10:00:00+00:00",
+                status="scheduled",
+                jc_num="周日001",
+            )
+        )
+        session.flush()
+        for option, price in {"h": 1.24, "d": 4.85, "a": 7.90}.items():
+            session.add(
+                Odds(
+                    match_id="jc:2042784",
+                    pool="had",
+                    line=0,
+                    selection=option,
+                    price=price,
+                    snapshot_utc="2026-11-15T15:01:11+00:00",
+                )
+            )
+    engine.dispose()
+    archive = tmp_path / "archive"
+    export_feeds(db, archive, date(2026, 11, 16), "seed")
+    _production_forecast_archive(
+        archive,
+        {
+            "run-1": (
+                "2026-11-16T00:00:00+00:00",
+                [
+                    {
+                        "match_id": "jc:2042784",
+                        "status": "predicted",
+                        "model_probabilities": {"h": 0.3861, "d": 0.3367, "a": 0.2772},
+                        "market": {
+                            "probabilities": {"h": 0.7079, "d": 0.181, "a": 0.1111},
+                            "snapshot_utc": "2026-11-15T15:01:11+00:00",
+                            "first_capture_utc": "2026-11-15T15:01:11+00:00",
+                            "snapshot_id": "2026-11-15T15:01:11+00:00",
+                            "method_version": "market-reference-v1",
+                            "return_rate": 0.8778,
+                        },
+                    }
+                ],
+            )
+        },
+    )
+    work = tmp_path / "work"
+    work.mkdir()
+    out = tmp_path / "out.md"
+    monkeypatch.chdir(work)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "zucai.cloud_feeds",
+            "market-sample",
+            "--archive",
+            str(archive),
+            "--match",
+            "jc:2042784",
+            "--out",
+            str(out),
+        ],
+    )
+    main()
+    text = out.read_text(encoding="utf-8")
+    assert "市场参考出处页：jc:2042784" in text
+    assert "冻结批次 run-1" in text
+    assert "该批采用的胜平负快照：2026-11-15T15:01:11+00:00" in text
+    assert "预测采用" in text
+    assert "权限未核实" in text
