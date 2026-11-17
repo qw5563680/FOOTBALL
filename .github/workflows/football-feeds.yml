@@ -25,7 +25,7 @@ on:
         type: string
         default: ''
       options:
-        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue/jc-kickoffs；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、max_requests（jc-kickoffs 默认5，先导后可扩量）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）、canonical_approvals（reconcile 且 leagues 为空时应用批准创建）、identity_evidence（reconcile 且 leagues 为赛事编号时离线生成开启证据并跑开启检查）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
+        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue/jc-kickoffs/jc-supplement；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、max_requests（jc-kickoffs 默认5，先导后可扩量）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）、canonical_approvals（reconcile 且 leagues 为空时应用批准创建）、identity_evidence（reconcile 且 leagues 为赛事编号时离线生成开启证据并跑开启检查）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
         type: string
         default: '{}'
       endpoints:
@@ -104,7 +104,7 @@ jobs:
 
   apis:
     needs: [schedule-gate]
-    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (inputs.operation != 'probe' || fromJSON(inputs.options || '{}').probe_kind != 'jc-catalogue' && fromJSON(inputs.options || '{}').probe_kind != 'jc-kickoffs') && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (inputs.operation != 'probe' || fromJSON(inputs.options || '{}').probe_kind != 'jc-catalogue' && fromJSON(inputs.options || '{}').probe_kind != 'jc-kickoffs' && fromJSON(inputs.options || '{}').probe_kind != 'jc-supplement') && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
