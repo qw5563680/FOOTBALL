@@ -1129,7 +1129,7 @@
           "bet_allowed": false,
           "require_two_nonempty_complete_seasons": true,
           "require_no_skips_or_unavailable_labels": true,
-          "artifact_corpus": "matching_sources_and_cumulative_nonreplayed_policy",
+          "artifact_corpus": "same_database_sha256_and_cumulative_nonreplayed_policy",
           "evidence_recency": "latest_two_complete_seasons_at_prediction",
           "min_market_paired": 300,
           "max_market_log_loss_gap": 0.05,
@@ -1333,6 +1333,87 @@
         "uniform_log_loss_gain": 0.003447992623264673,
         "closing_log_loss_gap": null,
         "as_of_utc": "2026-11-14T00:00:00+00:00",
+        "bet_allowed": false
+      }
+    },
+    "沙职": {
+      "half_life_days": 270.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.011151609211353997
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 540.0,
+          "draw_calibration": true,
+          "selection_draw_bias": 0.04547528342382326
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 270.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.0078113487559894335
+        }
+      ],
+      "generated_utc": "2026-11-17T21:25:37.273197+00:00",
+      "database_sha256": "1dd8b10efce1fc56fb85ddc988fae7e7def8c908d37df16e0dae9ff62417994f",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "closing_paired_n_below_500_or_mismatch",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 612,
+            "log_loss": 0.9253741829640701
+          },
+          "uniform": {
+            "n": 612,
+            "log_loss": 1.0986122886681096
+          },
+          "closing": {
+            "n": 0,
+            "log_loss": null
+          },
+          "closing_paired_model": {
+            "n": 0,
+            "log_loss": null
+          }
+        },
+        "uniform_log_loss_gain": 0.1732381057040394,
+        "closing_log_loss_gap": null,
+        "as_of_utc": "2026-11-17T21:00:00+00:00",
         "bet_allowed": false
       }
     }

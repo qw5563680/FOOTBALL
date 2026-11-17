@@ -1001,6 +1001,15 @@ S+1 weekly 验证：韩职选 90 天、澳超选 365 天，均为实际选参结
 训练规模、选参窗口、字节回归和离线每日流程回放见
 [`T60 验收`](reports/t60-apif-history-domestic-training/README.md)。
 
+### 沙职接入每日采集与训练（T68 开启、T62 第一项）
+
+沙职（API-Football 307）在开启检查通过、所有者批准后接入：`data/league_map.json` 把该路线改为
+`daily=true` 并登记开启依据；`data/model/apif_history_training.json` 与 `params.json` 各增一条，
+来源 `apif,jc`，按 UTC 7 月跨年分类，沿用同一选参规程，选得 270 天，**标「P2 实验」**，不进虚拟账户。
+每日采集用的按日接口本来就返回全部赛事，接入沙职不增加请求次数。
+回测数字只作描述，有效性看上线后的前瞻样本；BET 保持禁用。
+验收见 [`沙职开启验收`](reports/t68-saudi-opening/README.md)。
+
 ### 既有 15 联赛的付费赛果（T63）
 
 英超、英冠、西甲、意甲、德甲、法甲、法乙、荷甲、葡超、日职、瑞超、挪超、芬超、巴甲、美职
