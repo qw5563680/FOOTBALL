@@ -152,10 +152,11 @@ class _ArchivedPage:
     raw: bytes
     sidecar_raw: bytes
     metadata: dict
+    relative_root: str = "jc"
 
     @property
     def relative_path(self) -> str:
-        return f"jc/{self.day:%Y-%m}/{self.day}-p{self.number}.json"
+        return f"{self.relative_root}/{self.day:%Y-%m}/{self.day}-p{self.number}.json"
 
 
 def _utc(value, name: str) -> datetime:
@@ -639,4 +640,193 @@ def write_summary(report: dict) -> None:
             f"请求 {report['requests']} 页；总表核对 {len(report['master_crosscheck'])} 行。\n\n"
             f"待所有者决定 {len(report['owner_decisions'])} 项；窗口内未见不代表接口无数据。\n\n"
             "只统计赛事身份与场数；完整原件、捕获 UTC 时间与 SHA256 随 state/catalogue 归档。\n"
+        )
+
+
+SUPPLEMENT_BASIS = "days_after_previous_jc_catalogue_until_yesterday_beijing"
+
+
+class _SupplementCap(Exception):
+    """Request budget exhausted mid-run; the current day is left for the next run."""
+
+
+def _supplement_archived_page(
+    raw: bytes, sidecar_raw: bytes, day: date, page: int, *, require_success: bool = True
+) -> _ArchivedPage:
+    archived = _archived_page(raw, sidecar_raw, day, page, require_success=require_success)
+    return _ArchivedPage(
+        archived.day,
+        archived.number,
+        archived.raw,
+        archived.sidecar_raw,
+        archived.metadata,
+        relative_root="supplement/jc",
+    )
+
+
+def _day_end_utc(day: date) -> datetime:
+    """Beijing midnight that closes ``day`` (day+1 00:00+08:00)."""
+    return datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=BEIJING)
+
+
+def _existing_supplement_days(root: Path) -> set[date]:
+    """Days already archived under supplement/jc with a complete, validated page set.
+
+    Invalid leftovers are ignored: they never block a fresh capture.
+    """
+    folder = root / "state/catalogue/supplement/jc"
+    if not folder.exists():
+        return set()
+    by_day: dict[date, dict[int, _ArchivedPage]] = {}
+    for path in sorted(folder.rglob("*.json")):
+        if path.name.endswith(".meta.json"):
+            continue
+        match = re.fullmatch(
+            r"[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])-p([1-9][0-9]*)\.json",
+            path.name,
+        )
+        if not match:
+            continue
+        day = date.fromisoformat(path.name[: len("YYYY-MM-DD")])
+        number = int(match.group(1))
+        meta = path.with_suffix(".json.meta.json")
+        if not meta.is_file():
+            continue
+        try:
+            archived = _supplement_archived_page(path.read_bytes(), meta.read_bytes(), day, number)
+        except (ValueError, OSError):
+            continue
+        by_day.setdefault(day, {})[number] = archived
+    complete = set()
+    for day, pages in by_day.items():
+        try:
+            parse_day_pages(day, [pages[number].raw for number in sorted(pages)])
+        except (ValueError, KeyError):
+            continue
+        complete.add(day)
+    return complete
+
+
+def collect_jc_supplements(
+    database: Path, run_id: str, *, max_requests: int = 5, now: datetime | None = None
+) -> dict:
+    """Archive raw official daily pages for the days after the previous census.
+
+    Reuses the census transport, one-second spacing and page validation
+    (``SportteryResults.fetch_raw``, ``_page``, ``_archived_page``,
+    ``parse_day_pages``). The database is never opened or changed; a day's
+    pages are only written once every page passed validation and the capture
+    is later than that day's Beijing midnight, so a failed or incomplete day
+    leaves nothing on disk.
+    """
+    require_jc_catalogue_actions()
+    from zucai.cloud_feeds import CATALOGUE_RUN_ID, _catalogue_files
+
+    if not re.fullmatch(CATALOGUE_RUN_ID, run_id):
+        raise ValueError("JC supplement run_id 无效")
+    _catalogue_files(database.parent)
+    pointer = _previous_pointers(database.parent).get("jc")
+    if pointer is None:
+        raise ValueError("JC supplement 缺少竞彩普查；请先运行 jc-catalogue 再取当月补充页面")
+    census = json.loads((database.parent / pointer["path"]).read_bytes())
+    start = date.fromisoformat(census["window"]["end_beijing"]) + timedelta(days=1)
+    instant = now if now is not None else datetime.now(UTC)
+    end = instant.astimezone(BEIJING).date() - timedelta(days=1)
+    report = dict(
+        collection="jc_supplement",
+        provider="jc",
+        status="complete",
+        run_id=run_id,
+        started_utc=datetime.now(UTC).isoformat(),
+        requests=0,
+        window=dict(
+            start_beijing=start.isoformat(),
+            end_beijing=end.isoformat(),
+            basis=SUPPLEMENT_BASIS,
+        ),
+        days=dict(archived=[], skipped=[], remaining=[], failed={}),
+        errors=[],
+    )
+    source = SportteryResults(store=RawStore(database.parent / "raw/jc-supplement" / run_id))
+    folder = database.parent / "state/catalogue"
+    skipped = _existing_supplement_days(database.parent)
+    day = start
+    while day <= end:
+        if day in skipped:
+            report["days"]["skipped"].append(day.isoformat())
+            day += timedelta(days=1)
+            continue
+        buffered, number = [], 1
+        try:
+            while True:
+                if report["requests"] >= max_requests:
+                    raise _SupplementCap
+                report["requests"] += 1
+                path = source.fetch_raw(day=day, page=number)
+                archived = _supplement_archived_page(
+                    source.store.load(path),
+                    path.with_suffix(path.suffix + ".meta.json").read_bytes(),
+                    day,
+                    number,
+                )
+                if _utc(archived.metadata["fetched_at_utc"], "fetched_at_utc") <= _day_end_utc(day):
+                    raise ValueError("JC supplement 抓取时间早于当天结束，拒收")
+                buffered.append(archived)
+                if (
+                    number > 1
+                    and _page(buffered[0].raw, day, 1)[0] != _page(archived.raw, day, number)[0]
+                ):
+                    raise ValueError("JC supplement 采集期间分页总数变动")
+                if number >= _page(archived.raw, day, number)[0]["pages"]:
+                    break
+                number += 1
+            parse_day_pages(day, [page.raw for page in buffered])
+            for page in buffered:
+                _write_page(folder, page)
+            report["days"]["archived"].append(day.isoformat())
+        except _SupplementCap:
+            report["status"] = "partial"
+            report["days"]["remaining"] = [day.isoformat()]
+            cursor = day + timedelta(days=1)
+            while cursor <= end:
+                report["days"]["remaining"].append(cursor.isoformat())
+                cursor += timedelta(days=1)
+            report["errors"].append(
+                dict(day=day.isoformat(), page=number, error="request_cap", reason="达到请求数上限")
+            )
+            break
+        except (RequestException, ValueError, KeyError, TypeError) as exc:
+            report["status"] = "partial"
+            report["days"]["failed"][day.isoformat()] = f"{type(exc).__name__}: {exc}"
+            report["errors"].append(
+                dict(day=day.isoformat(), page=number, error=type(exc).__name__, reason=str(exc))
+            )
+            LOG.warning("JC supplement %s page %s failed (%s)", day, number, type(exc).__name__)
+        day += timedelta(days=1)
+    report["captured_utc"] = datetime.now(UTC).isoformat()
+    summary_folder = folder / "supplement"
+    summary_folder.mkdir(parents=True, exist_ok=True)
+    _atomic_write(
+        summary_folder / "summary.json",
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode(),
+    )
+    return report
+
+
+def write_supplement_summary(report: dict) -> None:
+    if not os.environ.get("GITHUB_STEP_SUMMARY"):
+        return
+    days = report["days"]
+    remaining = "、".join(days["remaining"]) if days["remaining"] else "无"
+    failures = "；".join(f"{day}（{reason}）" for day, reason in days["failed"].items())
+    with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
+        stream.write(
+            f"### JC supplement: {report['status']}\n\n"
+            f"补充窗口：{report['window']['start_beijing']} 至 {report['window']['end_beijing']}；"
+            f"请求 {report['requests']} 页。\n\n"
+            f"新归档 {len(days['archived'])} 天；跳过已归档 {len(days['skipped'])} 天；"
+            f"失败 {len(days['failed'])} 天：{failures or '无'}。\n\n"
+            f"还差：{remaining}（同一命令重跑会自动补齐）。\n\n"
+            "只归档原始页面；页面与元数据随 state/catalogue/supplement 保存，"
+            "不影响比赛库、登记、别名、预测、模型、记分板或每日报告。\n"
         )
