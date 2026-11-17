@@ -5,6 +5,12 @@ from zucai.digest_display import BEIJING, _instant, _text
 HISTORICAL_WARNING = "本次未取得新的有效赔率，以下使用历史快照，不代表当前可购买价格。"
 
 
+def _row_market(row):
+    if row.get("status") == "predicted":
+        return row.get("market")
+    return row.get("market_reference")
+
+
 def _timestamp(value):
     try:
         return _instant(value) if value else None
@@ -87,7 +93,7 @@ def _record_lines(jc, now, *, label):
 
 
 def odds_time(row, *, checked_at=None):
-    market = row.get("market")
+    market = row.get("market") or row.get("market_reference")
     if not isinstance(market, dict) or not market:
         return "未冻结赔率"
     stamp = _timestamp(market.get("snapshot_utc"))
@@ -114,4 +120,16 @@ def batch_odds_lines(batch, source_run):
     checked_at = (source_run.get("feed_snapshot") or {}).get("schedule_updated_utc")
     if any("历史快照" in odds_time(row, checked_at=checked_at) for row in quoted):
         lines.append("本批有场次沿用接口检查前的历史赔率；采集成功不表示这些场次的赔率已更新。")
+    reasons = {}
+    for row in batch["predictions"]:
+        if _row_market(row):
+            continue
+        reason = row.get("market_missing_reason") or "未提供原因"
+        reasons[reason] = reasons.get(reason, 0) + 1
+    if reasons:
+        lines.append(
+            f"市场参考栏缺失 {sum(reasons.values())} 场："
+            + "、".join(f"{reason} {count}" for reason, count in sorted(reasons.items()))
+            + "。"
+        )
     return lines + [""]

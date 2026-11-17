@@ -34,6 +34,7 @@ from zucai.digest_views import (
 )
 from zucai.digest_views import (
     header_lines,
+    market_status_section,
     pending_sections,
     review_sections,
 )
@@ -530,6 +531,7 @@ def generate(
             catalog=catalog,
             sfc_issues=archived_sfc_issues(archive, feed, at),
         ),
+        *market_status_section(),
         *sfc_lines,
         *parlay_lines,
         *review_sections(

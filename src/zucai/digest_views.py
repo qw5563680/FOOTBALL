@@ -25,6 +25,66 @@ SKIP_REASONS = {
     "no_valid_fixed_quotes": "没有有效的固定奖金报价",
 }
 
+FUSION_UNAVAILABLE = "未生成（融合实验尚未上线）"
+
+
+def _market_of(row):
+    """T71 market reference of a prediction row (predicted rows carry it in ``market``,
+    excluded rows in ``market_reference`` so the digest can still show the market)."""
+    if row.get("status") == "predicted":
+        return row.get("market")
+    return row.get("market_reference")
+
+
+def _market_triple(market):
+    values = (market or {}).get("probabilities") or {}
+    return " / ".join(_number(values.get(key), 2, percent=True) for key in "hda")
+
+
+def _market_cell(row):
+    market = _market_of(row)
+    if market:
+        return _market_triple(market)
+    reason = row.get("market_missing_reason")
+    return f"市场参考未生成（{_text(reason)}）" if reason else "市场参考未生成"
+
+
+def _market_gap_line(rows):
+    """One sentence stating the direction and size of the largest model-vs-market gap."""
+    gaps = []
+    for row in rows:
+        model = row.get("model_probabilities") or {}
+        market = (_market_of(row) or {}).get("probabilities") or {}
+        if not model or not market:
+            continue
+        for key, label in (("h", "主胜"), ("d", "平局"), ("a", "客胜")):
+            gaps.append((abs(model[key] - market[key]), label, model[key] - market[key]))
+    if not gaps:
+        return []
+    difference, label, signed = max(gaps)
+    side = "球队模型" if signed > 0 else "市场参考"
+    return [
+        f"球队模型与市场参考差距最大的方向：{label}，{side}高 {difference * 100:.1f} 个百分点。",
+        "",
+    ]
+
+
+def market_status_section():
+    """Per-day status of every market-information item from the T71 现状 table."""
+    rows = [
+        ("竞彩胜平负赔率", "已真实接通"),
+        ("竞彩让球胜平负、比分等玩法赔率", "已真实接通"),
+        ("多家公司收盘胜平负（Avg / Max / PS / B365）", "已真实接通（收盘价，仅赛后对照）"),
+        ("初盘", "来源未提供"),
+        ("开售到开赛之间的连续走势", "部分（每日数次采集快照）"),
+        ("亚洲让球、大小球的公司赔率", "尚未实现"),
+        ("必发（成交价、成交量、盘口深度）", "权限不足"),
+        ("凯利指数", "可计算（本单不做）"),
+    ]
+    lines = ["## 市场信息状态", "", "| 信息 | 当日状态 |", "| --- | --- |"]
+    lines.extend(f"| {info} | {status} |" for info, status in rows)
+    return [*lines, ""]
+
 
 def _order(row):
     # The weekday is a display sort hint only, never evidence of catalog completeness.
@@ -193,9 +253,10 @@ def forecast_sections(
         has_half = any(row.get("half_full_time") for row in rows)
         lines.extend(
             [
-                "| 竞彩编号 | 北京开球 | 联赛 / 对阵 | 胜 / 平 / 负 | 模型版本 | P2 | 比分前五 | "
+                "| 竞彩编号 | 北京开球 | 联赛 / 对阵 | 球队模型（胜 / 平 / 负） | "
+                "市场参考（胜 / 平 / 负） | 球队＋市场（实验） | 模型版本 | P2 | 比分前五 | "
                 "冻结赔率采集时间（北京时间） |" + (" 半全场（实验） |" if has_half else ""),
-                "| --- | --- | --- | --- | --- | --- | --- | --- |"
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
                 + (" --- |" if has_half else ""),
             ]
         )
@@ -209,8 +270,9 @@ def forecast_sections(
                 displayed_ids.add(row["match_id"])
             if row["status"] != "predicted":
                 lines.append(
-                    f"{head} | 未预测：{_text(row.get('reason'))} | — | — | — | 未冻结赔率 |"
-                    + (" — |" if has_half else "")
+                    f"{head} | 球队模型未生成（{_text(row.get('reason'))}） | "
+                    f"{_market_cell(row)} | {FUSION_UNAVAILABLE} | — | — | — | "
+                    f"{odds_time(row, checked_at=checked_at)} |" + (" — |" if has_half else "")
                 )
                 continue
             scores = (
@@ -240,12 +302,14 @@ def forecast_sections(
                     f"{probs}；占比 {half['share']:.4f}（{tier}，{half['share_ht_matches']} 场）"
                 )
             lines.append(
-                f"{head} | {_probabilities(row)} | {_text(row['model_name'])} / {reference} | "
+                f"{head} | {_probabilities(row)} | {_market_cell(row)} | {FUSION_UNAVAILABLE} | "
+                f"{_text(row['model_name'])} / {reference} | "
                 f"{status} | {scores} | "
                 f"{odds_time(row, checked_at=checked_at)} |"
                 + (f" {half_text} |" if has_half else "")
             )
         lines.append("")
+        lines.extend(_market_gap_line(rows))
         if note := prior_footnote(rows):
             lines.extend([_text(note), ""])
         lines.extend(

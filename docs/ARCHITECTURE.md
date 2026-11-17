@@ -1549,6 +1549,12 @@ through_beijing/归档生成时间替代。赛程阶段失败提示「赛程更�
 今明每批及复盘逐场读取 `forecast.json` 的 `market.snapshot_utc`，不取数据库当前最大报价时间，
 不借 run/归档时间补全；比该批 feed_snapshot 接口检查早的时间标历史快照。部分更新不代表其他场次更新。
 没有 market 为“未冻结赔率”，有报价但时间缺失/非法为“未知”；来源和概率不变。
+T71 起预测记录的市场对象扩为市场参考并加版本字段：`market`（预测行）与 `market_reference`（未预测行）同构，
+键含 `prices/snapshot_utc/probabilities/type/source/execution_verified`（原有）与
+`method_version/operator/supplier/source_quote_time/collected_utc/snapshot_id/return_rate/first_capture_utc/opening_odds`（新增）；
+未生成时记录 `market_missing_reason`（未开售/报价不完整/采集晚于截点）。日报三栏显示
+「球队模型」「市场参考」「球队＋市场（实验）」，融合栏在 T72 上线前恒为「未生成（融合实验尚未上线）」；
+市场信息不进入球队模型的任何输入、先验、校准或选参。
 仅日报调用 `verify_forecasts/load_batch(allow_unknown_odds_time=True)` 兼容旧冻件未知时间，保留原值且仍校验
 全部文件哈希、概率与批次/模型一致性；默认读取、写入冻结报告、记分板等继续严格要求有效报价时间。
 日报重放不改变预测、原清单、纸面账本或结算，不补报价、不重新计账。

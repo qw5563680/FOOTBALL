@@ -82,10 +82,46 @@ def _models(paths, as_of, params_file=None, *, allow_empty=False):
     return registry
 
 
+MARKET_REFERENCE_VERSION = "market-reference-v1"
+MARKET_OPERATOR = "竞彩官方"
+MARKET_SUPPLIER = "中国体育彩票（竞彩官网）"
+MARKET_SOURCE_QUOTE_TIME_MISSING = "来源未提供"
+MARKET_OPENING_MISSING = "来源未提供初盘"
+
+
 def _market(session, match, cutoff):
-    snapshots = defaultdict(dict)
-    rows = session.scalars(
+    """Versioned market reference (T71): one operator, one snapshot, three decimal odds.
+
+    Returns ``(market, missing_reason)``; exactly one of the two is not None.
+    The adopted snapshot is the LAST complete had snapshot whose project
+    collection time is not later than the batch prediction cutoff. Duplicate
+    collections collapse onto the same snapshot id and are never double-counted.
+    """
+    all_rows = session.scalars(
         select(Odds).where(
+            Odds.match_id == match.match_id,
+            Odds.pool == "had",
+            Odds.line == 0,
+            Odds.snapshot_utc < match.kickoff_utc,
+        )
+    )
+    snapshots = defaultdict(dict)
+    for row in all_rows:
+        if row.selection in "hda" and len(row.selection) == 1:
+            snapshots[row.snapshot_utc][row.selection] = row.price
+    if not snapshots:
+        return None, "未开售"
+    first_capture = min(snapshots)
+    complete = {
+        stamp: prices
+        for stamp, prices in snapshots.items()
+        if set(prices) == {"h", "d", "a"}
+        and all(math.isfinite(p) and p > 1 for p in prices.values())
+    }
+    if not complete:
+        return None, "报价不完整"
+    eligible = session.scalars(
+        select(Odds.snapshot_utc).where(
             Odds.match_id == match.match_id,
             Odds.pool == "had",
             Odds.line == 0,
@@ -93,25 +129,30 @@ def _market(session, match, cutoff):
             Odds.snapshot_utc <= cutoff,
         )
     )
-    for row in rows:
-        if row.selection in "hda" and len(row.selection) == 1:
-            snapshots[row.snapshot_utc][row.selection] = row.price
-    for stamp, prices in sorted(snapshots.items(), reverse=True):
-        if set(prices) != {"h", "d", "a"}:
-            continue
-        if not all(math.isfinite(p) and p > 1 for p in prices.values()):
-            continue
-        inverse = {key: 1 / prices[key] for key in "hda"}
-        total = sum(inverse.values())
-        return {
-            "prices": prices,
-            "snapshot_utc": stamp,
-            "probabilities": {key: inverse[key] / total for key in "hda"},
-            "type": "P3",
-            "source": "stored_had_snapshot",
-            "execution_verified": False,
-        }
-    return None
+    adopted = [stamp for stamp in eligible if stamp in complete]
+    if not adopted:
+        return None, "采集晚于截点"
+    stamp = max(adopted)
+    prices = complete[stamp]
+    inverse = {key: 1 / prices[key] for key in "hda"}
+    total = sum(inverse.values())
+    return {
+        "prices": prices,
+        "snapshot_utc": stamp,
+        "probabilities": {key: inverse[key] / total for key in "hda"},
+        "type": "P3",
+        "source": "stored_had_snapshot",
+        "execution_verified": False,
+        "method_version": MARKET_REFERENCE_VERSION,
+        "operator": MARKET_OPERATOR,
+        "supplier": MARKET_SUPPLIER,
+        "source_quote_time": MARKET_SOURCE_QUOTE_TIME_MISSING,
+        "collected_utc": stamp,
+        "snapshot_id": stamp,
+        "return_rate": 1 / total,
+        "first_capture_utc": first_capture,
+        "opening_odds": MARKET_OPENING_MISSING,
+    }, None
 
 
 def _save(session, match_id, name, version, probs, grid, batch):
@@ -215,6 +256,9 @@ def predict_batch(
                 "kickoff_beijing": utc(match.kickoff_utc).tz_convert(BEIJING).isoformat(),
             }
         )
+        market, market_missing_reason = _market(session, match, cutoff)
+        item["market_reference"] = market
+        item["market_missing_reason"] = market_missing_reason
         scope = registry.get((match.source, match.league))
         compatible = {
             id(candidate[0]): candidate
@@ -279,7 +323,8 @@ def predict_batch(
         except (InsufficientHistory, ValueError) as exc:
             item["reason"] = str(exc)
             continue
-        market = _market(session, match, cutoff)
+        market = item["market_reference"]
+        market_missing_reason = item["market_missing_reason"]
         if market_weight and market is None:
             raise ValueError(f"{key} 缺少完整赛前SP，不能执行显式市场混合实验")
         item.update(
@@ -301,6 +346,7 @@ def predict_batch(
                     )[:5]
                 ],
                 "market": market,
+                "market_missing_reason": market_missing_reason,
                 "ev": {key: probs[key] * market["prices"][key] - 1 for key in "hda"}
                 if market
                 else None,
