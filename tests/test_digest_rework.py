@@ -227,7 +227,7 @@ def test_visible_future_missing_model_is_not_reported_as_missing_number():
             displayed_ids=displayed,
         )
     )
-    assert "周二012" in text and "未预测：缺少该联赛模型" in text
+    assert "周二012" in text and "球队模型未生成（缺少该联赛模型）" in text
     catalog = [{**SAMPLE["catalog"][-1], **row, "business_date": "2026-11-03"}]
     review = "\n".join(
         review_sections(

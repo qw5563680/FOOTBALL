@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import sqlite3
+import sys
 import time
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -733,6 +734,7 @@ def main():
             "scoped-reconcile",
             "canonical-apply",
             "identity-evidence",
+            "market-sample",
         ),
     )
     parser.add_argument("--archive", required=True, type=Path)
@@ -740,7 +742,11 @@ def main():
     parser.add_argument("--through", type=date.fromisoformat)
     parser.add_argument("--days", type=int, default=3)
     parser.add_argument("--slot", choices=("auto", "early", "late"), default="auto")
-    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--run-id", help="云端操作的运行编号（market-sample 不需要）")
+    parser.add_argument("--match", dest="match_id", help="仅 market-sample：输出出处页的比赛编号")
+    parser.add_argument(
+        "--out", type=Path, help="仅 market-sample：出处页输出文件（默认打印到标准输出）"
+    )
     parser.add_argument(
         "--cutoff", help="仅 identity-evidence：检查截止时刻（ISO UTC，默认当前时刻）"
     )
@@ -781,6 +787,10 @@ def main():
         help="仅 Actions 手动 backfill：只补独立 API 与后到竞彩的链接，不采集",
     )
     args = parser.parse_args()
+    if args.run_id is None and args.command != "market-sample":
+        parser.error("--run-id 必填（market-sample 除外）")
+    if (args.match_id is not None or args.out is not None) and args.command != "market-sample":
+        parser.error("--match / --out 仅供 market-sample 使用")
     if args.cutoff is not None and args.command != "identity-evidence":
         parser.error("--cutoff 仅供 identity-evidence 使用")
     if args.catalogue and (args.command != "backfill" or args.relink_jc or args.relink_fdorg):
@@ -885,6 +895,33 @@ def main():
             probe_scopes(args.leagues, args.seasons, datetime.now(UTC))
     if not 0 <= args.days <= 366:
         parser.error("--days 必须在 0–366 之间")
+    if args.command == "market-sample":
+        if not args.match_id:
+            parser.error("market-sample 需要 --match 指定比赛编号")
+        from sqlalchemy.orm import Session
+
+        from zucai.market_sample import page
+
+        archive = Path(args.archive).resolve()
+        with TemporaryDirectory(
+            prefix="zucai-market-sample-", ignore_cleanup_errors=True
+        ) as temporary:
+            database = Path(temporary) / "data" / "feeds.db"
+            database.parent.mkdir(parents=True)
+            restore_feeds(archive, database)
+            engine = get_engine(database)
+            try:
+                with Session(engine) as session:
+                    text = page(session, archive, args.match_id)
+            finally:
+                engine.dispose()
+        if args.out:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(text, encoding="utf-8")
+            LOG.info("市场参考出处页已写入 %s", args.out)
+        else:
+            sys.stdout.write(text)
+        return
     logging.basicConfig(level=logging.INFO)
     target = args.db.resolve()
     archive = args.archive.resolve()

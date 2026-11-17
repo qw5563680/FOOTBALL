@@ -302,5 +302,5 @@ def test_started_fixture_is_excluded_not_labelled_missing_model():
     text = "\n".join(
         _forecast_sections([("2026-11-03", "forecast.json", batch)], date(2026, 11, 3), None)
     )
-    assert "未预测：预测截点时已开赛" in text
+    assert "球队模型未生成（预测截点时已开赛）" in text
     assert "无模型：预测截点时已开赛" not in text

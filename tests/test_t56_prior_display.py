@@ -66,7 +66,8 @@ def test_model_hash_and_p2_display_are_consistent_across_days_and_prior_use(prio
     text = "\n".join(forecast_sections(batches, date(2026, 11, 6), None, now=now))
     lines = [line for line in text.splitlines() if line.startswith("| 周四")]
     assert len(lines) == 6
-    assert [line.split(" | ")[5].split("；")[0] for line in lines] == [
+    # T71 三栏表头：P2 列从第 5 列移到第 7 列（前插球队模型/市场参考/球队＋市场三栏）。
+    assert [line.split(" | ")[7].split("；")[0] for line in lines] == [
         "可用",
         "实验",
         "实验",
