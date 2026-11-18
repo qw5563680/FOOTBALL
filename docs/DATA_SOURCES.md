@@ -807,7 +807,7 @@ Actions 按赛事×季×端点汇总抽样数、有效响应数、有效率、�
 | 配额响应头 | `x-ratelimit-limit: 300`（每分钟）、`x-ratelimit-requests-limit: 7500`（每日，Pro） |
 | `/leagues?id=` coverage | 12 个采集联赛与欧冠：events / lineups / statistics_fixtures 全 true；statistics_players 芬超 2022/2024 false；injuries 日职、韩职、中超、欧协联 false，澳超 2022 false |
 | `fixtures/statistics` | 固定 16 类（Shots on/off Goal、Total/Blocked Shots、Shots inside/outsidebox、Fouls、Corner Kicks、Offsides、Ball Possession `"60%"`、Yellow/Red Cards、Goalkeeper Saves、Total passes、Passes accurate、Passes % `"85%"`），偶见 `Free Kicks`；`expected_goals` / `goals_prevented` 为字符串（`"0.96"`）。**xG 自 2024 季起出现，2022 季 19 个联赛全部没有**；2024 季丹超、澳超、2026 季韩职样本为 null |
-| `fixtures/statistics?half=true` | 两次实测：资格赛样本 results 0；联赛阶段样本返回与全场逐项相同数值。参数被忽略，**半场统计不可得** |
+| `fixtures/statistics?half=true` | 两次实测：资格赛样本 results 0；联赛阶段样本（fixture 1636207）除 `statistics` 外另返回 `statistics_1h`、`statistics_2h` 两组，上下半场相加等于全场（AC 米兰角球 4＋6＝10）。**半场统计在该样本上可得**；其他联赛与历史赛季未实测。2026-11-18 更正：原结论「参数被忽略，半场统计不可得」只比较了 `statistics` 一组，是审查者的错误，见 `docs/reviews/2026-11-18-t47-t49-review.md` |
 | `fixtures/events` | 54/54 联赛季 + 欧战联赛阶段有数据：`time.elapsed/extra`、`type`（Goal / Card / subst / Var）、`detail`、team、player、assist |
 | `fixtures/lineups` | 全部有数据：formation、coach、startXI / substitutes（player.id/name/number/pos/grid）；赛后抓取不证明赛前已知 |
 | `fixtures/players` | 国内 15 联赛有（games.minutes/rating/position、shots、passes、tackles、duels、dribbles、fouls、cards、penalty）；欧罗巴 / 欧协联**联赛阶段有、资格赛没有**；芬超 2022/2024、韩职 2024 为空 |
