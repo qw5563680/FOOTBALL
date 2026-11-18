@@ -15,6 +15,8 @@ from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
 from zucai.sources.c500 import URL, C500FixtureBridge, C500Sfc
 from zucai.sources.sfc import collect_current_sfc, ingest_issue
 
+pytestmark = pytest.mark.usefixtures("sfc_fixture_clock")
+
 RAW = (Path(__file__).parents[1] / "data/fixtures/t07/26156.html").read_bytes()
 BRIDGE_RAW = (Path(__file__).parents[1] / "data/fixtures/t26/full-bridge.html").read_bytes()
 

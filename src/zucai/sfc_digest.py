@@ -9,6 +9,7 @@ from zucai.report.sfc import OPTIONS, disclosed_rows, pick_nine_lines, unconfirm
 from zucai.scoreboard.sfc import prior_group_text, read_settled
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
 from zucai.sfc_reports import read_reports
+from zucai.sfc_sequence import sequence
 
 
 def section(archive, feed, summary, now, link, *, pending_history=None):
@@ -30,29 +31,25 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
         ]
     if not states:
         return lines + ["尚无已归档期次。", ""]
-    open_states = [
-        (name, issue)
-        for name, issue in states
-        if issue.get("sale_end_utc") and _timestamp(issue["sale_end_utc"]) > now
-    ]
-    visible = open_states or [max(states, key=lambda item: item[1]["issue_no"])]
-    # Strictly one period at a time (owner's rule, 2026-11-19): of the periods on sale only
-    # the one that closes first is shown. A later period appears once this one has closed;
-    # until then it is only named, so its fixtures are never read as the current ones.
-    ordered = sorted(
-        visible, key=lambda item: (item[1].get("sale_end_utc") or "", item[1]["issue_no"])
-    )
-    name, issue = ordered[0]
-    if len(ordered) > 1:
-        later = "、".join(
-            f"{other['issue_no']}（{_beijing(other['sale_end_utc'])} 截止）"
-            for _, other in ordered[1:]
-        )
+    # One period at a time, in order (owner's rule, 2026-11-19; see zucai.sfc_sequence).
+    # A period the source published several numbers ahead is only named; it is shown
+    # when its turn comes, never in place of the one that is due.
+    by_number = {issue["issue_no"]: (name, issue) for name, issue in states}
+    state = sequence([issue for _, issue in states], now)
+    chosen = state["current"] or state["last_closed"] or max(by_number, key=int)
+    name, issue = by_number[chosen]
+    if state["current"] is None and state["expected"]:
         lines += [
-            f"本期：{issue['issue_no']}（{_beijing(issue['sale_end_utc'])} 截止）。"
-            f"后面还有已开售的 {later}，等本期截止后再展示。",
+            f"上一期 {chosen} 已截止。按顺序下一期是 {state['expected'][0]}，还没有抓到"
+            "（来源尚未公布，或本班采集未成功）；抓到后在这里展示。",
             "",
         ]
+    later = [n for n in state["in_line"] if n != chosen] + state["ahead"]
+    if later:
+        listed = "、".join(
+            f"{n}（{_beijing(by_number[n][1]['sale_end_utc'])} 截止）" for n in later
+        )
+        lines += [f"另有已公布的 {listed}，按顺序轮到时再展示。", ""]
     lines.extend(_issue_lines(name, issue, reports, settled, now, link))
     return lines
 

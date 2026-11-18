@@ -13,6 +13,7 @@ from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.nations import UnknownSfcTeam, sfc_team
+from zucai.sfc_sequence import sequence
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
 from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
@@ -598,6 +599,11 @@ def fetch_sfc(issue=None, *, db=None, matches_out=None):
         engine.dispose()
 
 
+def _sequence_time(meta):
+    """The moment the period sequence is judged at: when the root page was captured."""
+    return datetime.fromisoformat(meta["fetched_at_utc"])
+
+
 def collect_current_sfc(db):
     """Read current SFC and JC root pages without changing match identities."""
     import json
@@ -621,10 +627,48 @@ def collect_current_sfc(db):
     try:
         source = C500Sfc()
         engine = get_engine(db)
+        init_db(engine)
         result["requests"] += 1
         path = source.fetch_raw(current_only=True)
         raw, meta = source.store.load(path), source.store.load_metadata(path)
-        issue = source.parse(raw)[0]
+        root = source.parse(raw)[0]
+        observed = _sequence_time(meta)
+        # Periods are followed in order, one at a time (zucai.sfc_sequence). The root page
+        # is taken unless it shows a period that is not in line yet; when it is not the
+        # period that is due, that one is asked for by number with one more GET.
+        with session_scope(engine) as session:
+            known = [
+                dict(issue_no=row.issue_no, sale_end_utc=row.sale_end_utc)
+                for row in session.scalars(select(SfcIssue))
+                if row.issue_no != root.issue_no
+            ]
+        known.append(dict(issue_no=root.issue_no, sale_end_utc=root.sale_end_utc))
+        state = sequence(known, observed)
+        captures = []
+        result["root_issue_no"] = root.issue_no
+        if root.issue_no in state["ahead"]:
+            result["skipped_ahead_issue_no"] = root.issue_no
+        else:
+            captures.append((root, raw, meta))
+        wanted = [state["current"]] if state["current"] else list(state["expected"][:1])
+        if wanted and wanted[0] != root.issue_no and root.issue_no not in state["expected"]:
+            import requests
+
+            result["due_issue_no"] = wanted[0]
+            result["requests"] += 1
+            try:
+                due_path = source.fetch_raw(issue=wanted[0], single_attempt=True)
+                due_raw = source.store.load(due_path)
+                due = source.parse(due_raw)[0]
+                if due.issue_no != wanted[0]:
+                    raise ValueError(f"来源返回期号 {due.issue_no}")
+                captures.append((due, due_raw, source.store.load_metadata(due_path)))
+                result["due_status"] = "collected"
+            except (ValueError, requests.RequestException) as exc:
+                # Not published yet (or unreadable this time): nothing is invented and no
+                # other period stands in for it.
+                result["due_status"] = "unavailable"
+                result["due_detail"] = (f"{type(exc).__name__}: {exc}")[:200]
         # Share the no-retry session and limiter: one GET per root, spaced >=1s.
         bridge_source = C500FixtureBridge(store=source.store, session=source.session)
         bridge_source.limiter = source.limiter
@@ -639,41 +683,46 @@ def collect_current_sfc(db):
                 observed_utc=bridge_meta["fetched_at_utc"],
                 raw_sha256=hashlib.sha256(bridge_raw).hexdigest(),
             )
-        init_db(engine)
         with session_scope(engine) as session:
-            record = ingest_issue(
-                session,
-                issue,
-                observed=datetime.fromisoformat(meta["fetched_at_utc"]),
-                url=meta["url"],
-                raw_sha256=hashlib.sha256(raw).hexdigest(),
-                bridges=bridges,
-                mapped_only=True,
-            )
-            rows = [
-                dict(
-                    issue_no=issue.issue_no,
-                    seq=r["seq"],
-                    fixture_id=r["fixture_id"],
-                    reason=r["reason"],
-                    candidates=json.dumps(r["candidate_ids"], sort_keys=True),
-                    provider_home_id=r["provider_home_id"],
-                    provider_away_id=r["provider_away_id"],
-                    conflicting_identities=json.dumps(
-                        r["mapping_evidence"], ensure_ascii=False, sort_keys=True
-                    ),
-                    raw_sha256=record.raw_sha256,
+            rows, primary = [], None
+            for issue, issue_raw, issue_meta in captures:
+                record = ingest_issue(
+                    session,
+                    issue,
+                    observed=datetime.fromisoformat(issue_meta["fetched_at_utc"]),
+                    url=issue_meta["url"],
+                    raw_sha256=hashlib.sha256(issue_raw).hexdigest(),
+                    bridges=bridges,
+                    mapped_only=True,
                 )
-                for r in record.snapshot
-                if not r["match_id"]
-            ]
-            result.update(
-                issue_no=issue.issue_no,
-                mapped=14 - len(rows),
-                unmatched=len(rows),
-                linked_existing=14 - len(rows),
-                rejected_rows=len(rows),
-            )
+                unmatched = [
+                    dict(
+                        issue_no=issue.issue_no,
+                        seq=r["seq"],
+                        fixture_id=r["fixture_id"],
+                        reason=r["reason"],
+                        candidates=json.dumps(r["candidate_ids"], sort_keys=True),
+                        provider_home_id=r["provider_home_id"],
+                        provider_away_id=r["provider_away_id"],
+                        conflicting_identities=json.dumps(
+                            r["mapping_evidence"], ensure_ascii=False, sort_keys=True
+                        ),
+                        raw_sha256=record.raw_sha256,
+                    )
+                    for r in record.snapshot
+                    if not r["match_id"]
+                ]
+                rows.extend(unmatched)
+                # The last capture is the due period when one was fetched by number.
+                primary = (issue.issue_no, len(unmatched))
+            if primary:
+                result.update(
+                    issue_no=primary[0],
+                    mapped=14 - primary[1],
+                    unmatched=primary[1],
+                    linked_existing=14 - primary[1],
+                    rejected_rows=primary[1],
+                )
             audit.parent.mkdir(parents=True, exist_ok=True)
             fields = [
                 "issue_no",
