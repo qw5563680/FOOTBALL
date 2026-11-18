@@ -170,8 +170,11 @@ def load_apif(root, configs):
                             )
                         )
                     game = games.get(mid)
+                    nominal = None
                     if f.get("status", {}).get("short") in {"TBD", "PST"}:
-                        when = None
+                        # The provider keeps a placeholder date on a postponed fixture. It is
+                        # no kick-off evidence, only the day the page lists the fixture under.
+                        nominal, when = when, None
                     rows.append(
                         dict(
                             match_id=f"apif:{mid}",
@@ -197,6 +200,11 @@ def load_apif(root, configs):
                             raw_status=f.get("status", {}).get("short"),
                         )
                     )
+                    if when is None and f.get("status", {}).get("short") in {"TBD", "PST"}:
+                        # Not played when this page was captured: it can only kick off later.
+                        rows[-1]["unplayed_at_capture_utc"] = meta["fetched_at_utc"]
+                        if nominal is not None:
+                            rows[-1]["listed_utc"] = nominal.isoformat()
                 groups[code, season, path.relative_to(root).parts[2]].append(
                     (doc["paging"], rows, proof)
                 )
@@ -241,6 +249,27 @@ def load_apif(root, configs):
         for row in rows:
             row.update(complete=complete, coverage=coverage)
         output.extend(rows)
+    # A postponed or unscheduled fixture has no clock, but it cannot have been played before
+    # a capture that still lists it so: its possible window starts at the earliest such
+    # capture instead of covering the whole season. Repeated captures of the same fixture get
+    # the same window, so they stay identical evidence. A season that already ended keeps the
+    # whole-season window.
+    earliest = {}
+    for row in output:
+        captured = row.pop("unplayed_at_capture_utc", None)
+        if captured:
+            known = earliest.get(row["match_id"])
+            earliest[row["match_id"]] = min(known, captured, key=_utc) if known else captured
+    for row in output:
+        captured = earliest.get(row["match_id"])
+        coverage = row.get("coverage")
+        if (
+            captured
+            and row.get("kickoff_utc") is None
+            and coverage
+            and _utc(coverage["end_utc"]) >= _utc(captured)
+        ):
+            row.update(possible_start_utc=captured, possible_end_utc=coverage["end_utc"])
     return (
         output,
         issues,

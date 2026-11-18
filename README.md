@@ -124,6 +124,10 @@ T68 同一家俱乐部的关联（第八节第 13 项第二阶段）：`identity
 `canonical-apply` 入口执行：保留有历史比赛的那一行，改用竞彩官方中文名，原名与 `jc:team:<官方编号>` 记为别名；
 库里若另有一行只带竞彩比赛的同名记录，把它的比赛改指到保留行后删除。比赛总数不变，回执写进同一份审计表。
 顺序要求：先执行关联，再在别名表里把这些球队的规范名改成中文、并登记英文数据源的名称对照；两步之间不要隔着新的联赛比赛日。
+T68 竞彩从未开售的球队（第九节）：有的联赛当前赛季名单里有预备队（如荷乙的 Jong 球队），竞彩不卖它们的比赛，也就没有官方编号。
+`identity_canonical plan` 的输出多一栏 `provider_only_candidates`，逐队列出接口编号、接口队名、比赛数和阻塞原因。
+所有者逐队批准并定中文名后，写进同一份批准清单的 `provider_only_decisions`，由同一个 `canonical-apply` 入口新建球队行；
+它不移动比赛、不写绑定，回执写进 `state/audit/apif_provider_only_identities.csv`。接口编号的绑定仍走别名表的审批条目。
 T68 跨日决定经所有者批准后，正常 `sync/apis` 在关联核对后自动应用；副本验收也可显式执行：`python -m zucai.cross_day_decisions apply --db work/review/feeds.db --registry data/identity_reviews/t68-cross-day.json`。
 命令只保存实际应用回执，不改比分、球队或同场关系；批准清单当前为空，默认仍隔离待核的新增来源行。
 登记移除或快照变化会停用该决定，原因写入 `state/audit/apif_cross_day_decisions.csv`；旧回执与真实应用时间保留。

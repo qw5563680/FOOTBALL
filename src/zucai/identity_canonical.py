@@ -14,6 +14,7 @@ from sqlalchemy import delete, select, text
 
 from zucai.db import get_engine, session_scope
 from zucai.identity_binding import _category_veto, _utc
+from zucai.identity_provider_only import candidates as provider_only_candidates
 from zucai.identity_same_club import BASIS as SAME_CLUB_BASIS
 from zucai.identity_same_club import link_decision, official_witness, witness_summary
 from zucai.models import Base, Match, Team
@@ -205,6 +206,21 @@ def _competition_of(facts, team):
     return None
 
 
+def _registered_fdorg_placeholders():
+    from zucai.sources.fdorg_verify import DEFAULT_ALIASES
+    from zucai.sources.football_data import read_json
+
+    return {
+        (league, f"fdorg:team:{provider_id}")
+        for league, entries in read_json(DEFAULT_ALIASES).items()
+        if isinstance(entries, dict)
+        for provider_id, entry in entries.items()
+        if isinstance(entry, dict)
+        and entry.get("status") in {"approved", "auto_verified"}
+        and entry.get("canonical")
+    }
+
+
 def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_code):
     """Leagues whose stored, unbound, fd/fdorg-only teams share the candidate's country."""
     candidate_country = countries.get(str(candidate_code))
@@ -238,12 +254,22 @@ def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_cod
         and other.get("identity_key") == other_key
         and normalize_team(other.get("name") or "") not in registered
     }
+    # An fdorg placeholder row ("fdorg:team:<id>") whose id has an approved or verified entry
+    # in the fdorg alias table for that league is a known club that only awaits its merge.
+    placeholders = _registered_fdorg_placeholders()
+    names = {
+        other["project_team_id"]: other.get("name") or ""
+        for other_key, other in facts["teams"].items()
+        if other_key.startswith("project-team:")
+    }
     leagues = set()
     for tid in unbound:
         sources = teams_sources.get(tid, set())
         if not sources or not sources <= {"fd", "fdorg"}:
             continue
         for league in teams_leagues.get(tid, set()):
+            if (league, names.get(tid)) in placeholders:
+                continue
             # An undetermined league country counts as same-country: when in
             # doubt the verdict must stay 待核, never fall through to 新建.
             country = countries.get(str(league_codes.get(league) or ""))
@@ -427,6 +453,13 @@ def propose(archive, *, codes=None):
         link_decisions=links,
         codes=codes,
         existing_team_verdicts=verdicts,
+        # 竞彩从未开售的来源独有球队（预备队）：只列事实与阻塞原因，逐队待所有者批准。
+        provider_only_candidates=[
+            row
+            for code in codes
+            if registry["providers"]["apif"][code]["config"].get("current_season")
+            for row in provider_only_candidates(facts, code)
+        ],
         production_writes=0,
     )
 

@@ -346,7 +346,10 @@ def test_cloud_canonical_apply_empty_approvals_changes_nothing(creation, tmp_pat
         "linked",
         "already_applied",
         "decisions",
+        "provider_only_created",
+        "provider_only_decisions",
     }
+    assert record["provider_only_created"] == record["provider_only_decisions"] == 0
     assert meta["collection"]["apif"] == {"status": "complete", "run_id": "seed"}
     from zucai.cloud_feeds import daily_collection
 

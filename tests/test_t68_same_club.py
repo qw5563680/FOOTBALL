@@ -244,3 +244,110 @@ def test_link_decision_reports_what_blocks_absorbing_the_official_name_row(chang
         ],
     }
     assert blocker in _decision(tables, _team(project="450"))["blockers"]
+
+
+def test_cancelled_official_fixture_is_neither_a_witness_nor_a_gap():
+    """Postponed rounds are listed as cancelled official fixtures with no provider record."""
+    facts = _facts()
+    facts["official"].append(
+        dict(
+            facts["official"][0],
+            match_id="jc:cancelled",
+            kickoff_utc=(START + timedelta(days=200)).isoformat(),
+            status="cancelled",
+            score=None,
+        )
+    )
+    entry = official_witness(facts)["144"]
+    assert entry["provider_team_id"] == "159" and entry["matches"] == 6
+    facts["official"][-1]["status"] = "finished"
+    entry = official_witness(facts)["144"]
+    assert entry["provider_team_id"] is None
+    assert "official_match_without_provider_record" in entry["reasons"]
+
+
+def _with_one_match_team(facts, *, score=(2, 0), provider_score=(2, 0), opponent="144"):
+    """Official team 256 has a single official match, away at an already witnessed opponent."""
+    kickoff = (START + timedelta(days=100)).isoformat()
+    facts["official"].append(
+        dict(
+            match_id="jc:one",
+            competition_id=CODE,
+            kickoff_utc=kickoff,
+            clock_conflict=False,
+            status="finished",
+            score=list(score),
+            home_source_id=opponent,
+            away_source_id="256",
+        )
+    )
+    facts["apif"].append(
+        dict(
+            match_id="apif:one",
+            competition_id=CODE,
+            kickoff_utc=kickoff,
+            complete=True,
+            home="159",
+            away="200",
+            score=list(provider_score),
+            regular_time_basis="regular",
+        )
+    )
+    return facts
+
+
+def test_single_match_team_is_pinned_by_its_witnessed_opponent():
+    witness = official_witness(_with_one_match_team(_facts(games=7)))
+    entry = witness["256"]
+    assert entry["provider_team_id"] == "200" and entry["reasons"] == []
+    assert entry["layer"] == 2 and entry["depends_on"] == ["144"]
+    assert entry["first_layer_reasons"] == [
+        "fewer_than_min_official_matches",
+        "missing_home_or_away_witness",
+    ]
+    assert entry["witnesses"] == [
+        dict(
+            match_id="jc:one",
+            provider_match_id="apif:one",
+            kickoff_utc=(START + timedelta(days=100)).isoformat(),
+            side="away",
+            opponent_official_team_id="144",
+            opponent_provider_team_id="159",
+            score=[2, 0],
+        )
+    ]
+    # The opponent's own first-layer witness is unaffected.
+    assert witness["144"]["provider_team_id"] == "159" and "layer" not in witness["144"]
+
+
+@pytest.mark.parametrize(
+    "problem", ["score", "opponent_unwitnessed", "two_fixtures", "id_taken", "no_score"]
+)
+def test_single_match_team_is_not_pinned_without_a_fully_identified_match(problem):
+    facts = _with_one_match_team(
+        _facts(games=7),
+        provider_score=(1, 0) if problem == "score" else (2, 0),
+        opponent="999" if problem == "opponent_unwitnessed" else "144",
+    )
+    if problem == "two_fixtures":
+        facts["apif"].append(dict(facts["apif"][-1], match_id="apif:twin", away="201"))
+    if problem == "id_taken":
+        facts["apif"][-1]["away"] = "159"
+        facts["apif"][-1]["home"] = "159x"
+    if problem == "no_score":
+        facts["official"][-1]["score"] = None
+    entry = official_witness(facts)["256"]
+    assert entry["provider_team_id"] is None and "layer" not in entry
+    assert "fewer_than_min_official_matches" in entry["reasons"]
+
+
+def test_two_single_match_teams_pinned_to_one_id_are_both_rejected():
+    facts = _with_one_match_team(_facts(games=7))
+    kickoff = (START + timedelta(days=130)).isoformat()
+    facts["official"].append(
+        dict(facts["official"][-1], match_id="jc:two", kickoff_utc=kickoff, away_source_id="257")
+    )
+    facts["apif"].append(dict(facts["apif"][-1], match_id="apif:two", kickoff_utc=kickoff))
+    witness = official_witness(facts)
+    assert witness["256"]["provider_team_id"] is None
+    assert witness["257"]["provider_team_id"] is None

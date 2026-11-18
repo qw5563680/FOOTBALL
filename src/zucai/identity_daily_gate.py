@@ -69,6 +69,58 @@ def _bound(facts, league, provider_id, when):
     return canonical if len(owners) == 1 else None
 
 
+UNPLAYED_AT_CAPTURE = {"NS", "TBD", "PST"}
+
+
+def listed_utc(row):
+    """The time a provider page lists a fixture under: its kick-off, or for a postponed or
+    unscheduled fixture the provider's placeholder date. Only used to decide which fixtures
+    a window of pages contains; a placeholder date is never kick-off evidence."""
+    return row.get("kickoff_utc") or row.get("listed_utc")
+
+
+def _settled_candidates(candidates):
+    """Captures of one provider fixture, without the unplayed ones a result superseded.
+
+    A page fetched before kickoff lists the fixture without a score; that is the same
+    fixture at an earlier moment, not a contradiction of the finished capture. Only a
+    scoreless, not-started capture taken before its own kickoff and before every finished
+    capture, naming the same two teams, is set aside. Anything else stays a candidate
+    and must still agree in full.
+    """
+    finished = [c for c in candidates if c.get("status") == "finished" and c.get("score")]
+    if not finished:
+        return candidates, []
+    try:
+        first_result = min(_clock(p["fetched_at_utc"]) for c in finished for p in c["provenance"])
+        kept, superseded = [], []
+        for c in candidates:
+            if (
+                c.get("raw_status") in UNPLAYED_AT_CAPTURE
+                and c.get("score") is None
+                and c["provenance"]
+                and all(
+                    (f["competition_id"], f["home"], f["away"])
+                    == (c["competition_id"], c["home"], c["away"])
+                    for f in finished
+                )
+                and all(
+                    _clock(p["fetched_at_utc"]) < first_result
+                    and (
+                        c.get("kickoff_utc") is None
+                        or _clock(p["fetched_at_utc"]) <= _clock(c["kickoff_utc"])
+                    )
+                    for p in c["provenance"]
+                )
+            ):
+                superseded.append(c)
+            else:
+                kept.append(c)
+    except (KeyError, ValueError, TypeError):
+        return candidates, []
+    return kept, superseded
+
+
 def _project(facts, key):
     return facts["teams"].get(key, {}).get("project_team_id")
 
@@ -353,7 +405,7 @@ def _facts_coverage(facts, code):
                 reason = "non_unique_relation"
                 blockers.append(reason)
             elif counterpart:
-                candidates = originals.get(counterpart, [])
+                candidates, superseded = _settled_candidates(originals.get(counterpart, []))
                 source = counterpart.split(":", 1)[0]
                 valid = candidates and all(
                     candidate["competition_id"] == code
@@ -432,6 +484,9 @@ def _facts_coverage(facts, code):
                                 }
                             ),
                             stored_evidence=evidence,
+                            superseded_unplayed_captures=[
+                                p for c in superseded for p in c["provenance"]
+                            ],
                         )
                     )
                     continue
@@ -476,9 +531,9 @@ def _facts_coverage(facts, code):
     resolved_extra = []
     for row in pending_extra:
         mid = row["fixture_id"]
-        source_rows = [
-            r for r in facts["apif"] if r["match_id"] == mid and r["competition_id"] == code
-        ]
+        source_rows, _ = _settled_candidates(
+            [r for r in facts["apif"] if r["match_id"] == mid and r["competition_id"] == code]
+        )
         match = stored_by_id.get(mid)
         result = next((r for r in facts.get("results", []) if r["match_id"] == mid), None)
         if (
@@ -548,11 +603,23 @@ def _materialized_original(facts, code, state, original):
         raise ValueError("original fixture has no materialized state")
     match, result = stored
     league = facts["configs"][code]["league"]
+    # A capture that lists the fixture as postponed or unscheduled carries no clock to
+    # compare; its teams must still be the stored ones. Every other capture needs its time.
+    clockless = original.get("kickoff_utc") is None and original.get("raw_status") in {
+        "TBD",
+        "PST",
+    }
     if (
         match["league"] != league
-        or not original.get("kickoff_utc")
         or not match.get("kickoff_utc")
-        or abs(_clock(match["kickoff_utc"]) - _clock(original["kickoff_utc"])) > timedelta(hours=3)
+        or (
+            not clockless
+            and (
+                not original.get("kickoff_utc")
+                or abs(_clock(match["kickoff_utc"]) - _clock(original["kickoff_utc"]))
+                > timedelta(hours=3)
+            )
+        )
         or any(
             _provider_project(facts, league, original[side], original["kickoff_utc"])
             != str(match[f"{side}_team_id"])
@@ -833,8 +900,8 @@ def _recent_replay(facts, code, section, root, start, end):
             r
             for r in facts["apif"]
             if r["competition_id"] == code
-            and r.get("kickoff_utc")
-            and first_utc <= _clock(r["kickoff_utc"]) < end_utc
+            and listed_utc(r)
+            and first_utc <= _clock(listed_utc(r)) < end_utc
         ]
         if not expected or not all(_fresh_fixtures(expected, end_utc).values()):
             raise ValueError("equivalent replay has no fresh complete real denominator")
@@ -910,8 +977,8 @@ def _recent_replay(facts, code, section, root, start, end):
         r["match_id"]
         for r in facts["apif"]
         if r["competition_id"] == code
-        and r.get("kickoff_utc")
-        and first_utc <= _clock(r["kickoff_utc"]) < end_utc
+        and listed_utc(r)
+        and first_utc <= _clock(listed_utc(r)) < end_utc
     }
     known.update(
         r["match_id"]

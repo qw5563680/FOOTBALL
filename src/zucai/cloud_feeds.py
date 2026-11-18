@@ -1030,7 +1030,10 @@ def main():
         link_decisions = document.get("link_decisions", [])
         if not isinstance(link_decisions, list):
             raise ValueError("创建决定文件 link_decisions 结构无效")
-        if not document["decisions"] and not link_decisions:
+        from zucai.identity_provider_only import apply_provider_only, read_decisions
+
+        provider_only = read_decisions(approvals)
+        if not document["decisions"] and not link_decisions and not provider_only:
             canonical_result = dict(
                 operation="canonical-apply",
                 status="skipped",
@@ -1040,7 +1043,15 @@ def main():
                 reason="approved decisions list is empty",
             )
         else:
-            canonical_result = dict(apply_approvals(target, archive, approvals), status="complete")
+            canonical_result = dict(
+                apply_approvals(target, archive, approvals)
+                if document["decisions"] or link_decisions
+                else dict(created=0, linked=0, already_applied=0, records=[]),
+                status="complete",
+            )
+            if provider_only:
+                # 竞彩从未开售的来源独有球队：只建规范球队行，不移动比赛、不写绑定。
+                canonical_result["provider_only"] = apply_provider_only(target, archive, approvals)
         collection = {
             "canonical_apply": {
                 "operation": "canonical-apply",
@@ -1050,6 +1061,10 @@ def main():
                 "linked": canonical_result.get("linked", 0),
                 "already_applied": canonical_result.get("already_applied", 0),
                 "decisions": len(document["decisions"]) + len(link_decisions),
+                "provider_only_created": canonical_result.get("provider_only", {}).get(
+                    "created", 0
+                ),
+                "provider_only_decisions": len(provider_only),
             }
         }
         summary_collection = "canonical_apply"
@@ -1461,6 +1476,18 @@ def main():
                     for receipt in result.get("records", []):
                         summary.write(f"- {receipt['official_team_id']} {receipt['canonical']}\n")
                     summary.write("\n审计：state/audit/jc_canonical_identities.csv。\n\n")
+                    extra = result.get("provider_only")
+                    if extra:
+                        summary.write(
+                            f"来源独有球队（竞彩未开售）：创建 {extra['created']} 队；"
+                            f"已存在 {extra['already_applied']} 队。\n\n"
+                        )
+                        for receipt in extra["records"]:
+                            summary.write(
+                                f"- {receipt['competition_id']}/{receipt['provider_team_id']} "
+                                f"{receipt['canonical']}\n"
+                            )
+                        summary.write("\n审计：state/audit/apif_provider_only_identities.csv。\n\n")
         elif args.command == "identity-evidence":
             pass  # 逐赛事摘要已在生成步骤写入
         else:
