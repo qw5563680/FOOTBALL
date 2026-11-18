@@ -22,8 +22,22 @@ from zucai.fd_stats_links import (
     fd_link_authorizes,
     resolve_fd_match,
 )
-from zucai.models import ApifFixtureIndex, FdStatsLink, Match, MatchEvent, MatchLineup, MatchStat
-from zucai.sources.apif_stats import envelope, fixture_identity, instant, parse_endpoint
+from zucai.models import (
+    ApifFixtureIndex,
+    FdStatsLink,
+    Match,
+    MatchEvent,
+    MatchHalfStat,
+    MatchLineup,
+    MatchStat,
+)
+from zucai.sources.apif_stats import (
+    envelope,
+    fixture_identity,
+    instant,
+    parse_endpoint,
+    parse_half_statistics,
+)
 from zucai.sources.base import _atomic_write
 from zucai.sources.fd_ingest import fd_match_id
 from zucai.sources.football_data import (
@@ -54,6 +68,7 @@ AUDIT_KEY = ("provider_fixture_id", "endpoint", "record_key", "raw_sha256", "out
 MODELS = {
     "csv": MatchStat,
     "statistics": MatchStat,
+    "statistics_half": MatchHalfStat,
     "events": MatchEvent,
     "lineups": MatchLineup,
     "players": MatchLineup,
@@ -273,7 +288,7 @@ def store_rows(session, rows, metadata, *, clocks=None, daily=False):
                 # Retained historical values are not observations in this response.
                 fields.update(availability_basis="backfilled", available_utc=None)
             fields["value"] = value
-            if model is not MatchStat:
+            if model not in (MatchStat, MatchHalfStat):
                 for key in (
                     "formation",
                     "minutes",
@@ -339,8 +354,9 @@ def _record_duplicate(audit, provider_fixture_id, endpoint, metadata, *, records
 
 
 def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location=None, daily=False):
-    if endpoint not in {"statistics", "events", "lineups", "players"}:
+    if endpoint not in {"statistics", "statistics_half", "events", "lineups", "players"}:
         raise ValueError("不支持的技术端点")
+    half = endpoint == "statistics_half"
     # Read the sidecar's requested ID, then independently verify URL, envelope and index.
     sidecar = json.loads(
         Path(raw_file).with_suffix(Path(raw_file).suffix + ".meta.json").read_bytes()
@@ -352,8 +368,8 @@ def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location
     fixture_id = values[0]
     raw, meta = load_raw(
         raw_file,
-        endpoint=f"fixtures/{endpoint}",
-        parameters={"fixture": fixture_id},
+        endpoint="fixtures/statistics" if half else f"fixtures/{endpoint}",
+        parameters={"fixture": fixture_id, "half": "true"} if half else {"fixture": fixture_id},
         location=raw_location,
     )
     if fixture_file is None:
@@ -420,13 +436,19 @@ def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location
         audit_row["league"] = index.league
         rejected = []
         try:
-            rows = parse_endpoint(
-                raw,
-                endpoint=endpoint,
-                fixture=found[0],
-                captured_utc=meta["captured_utc"],
-                rejected=rejected,
-            )
+            if half:
+                # All or nothing: one inconsistent side refuses both halves of the match.
+                rows = parse_half_statistics(
+                    raw, fixture=found[0], captured_utc=meta["captured_utc"]
+                )
+            else:
+                rows = parse_endpoint(
+                    raw,
+                    endpoint=endpoint,
+                    fixture=found[0],
+                    captured_utc=meta["captured_utc"],
+                    rejected=rejected,
+                )
         except ValueError as exc:
             write_audit(
                 audit, [dict(audit_row, outcome="rejected", reason="响应无效", detail=str(exc))]
@@ -449,7 +471,7 @@ def ingest_apif(database, raw_file, *, fixture_file=None, endpoint, raw_location
             dict(
                 audit_row,
                 outcome="ingested",
-                reason="",
+                reason="无半场数据" if half and not rows else "",
                 detail=_receipt_detail(rows, inserted, len(rejected)),
             )
         )

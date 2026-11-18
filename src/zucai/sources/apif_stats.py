@@ -8,6 +8,9 @@ from collections import Counter
 from datetime import UTC, datetime
 
 PARSER_VERSION = "t31.1"
+HALF_PARSER_VERSION = "t75.1"
+HALVES = (("1h", "statistics_1h"), ("2h", "statistics_2h"))
+XG_HALF_TOLERANCE = 0.02
 STAT_TYPES = {
     "Shots on Goal": ("shots_on_target", "count"),
     "Shots off Goal": ("shots_off_target", "count"),
@@ -136,14 +139,14 @@ def _side(row, identity):
     raise ValueError("端点球队 ID 不属于 fixture 主客")
 
 
-def _statistics(rows, identity):
+def _statistics(rows, identity, field="statistics"):
     teams = {}
     for row in rows:
         side = _side(row, identity)
-        if side in teams or not isinstance(row.get("statistics"), list):
+        if side in teams or not isinstance(row.get(field), list):
             raise ValueError("statistics 球队重复或字段结构无效")
         values = {}
-        for stat in row["statistics"]:
+        for stat in row[field]:
             if (
                 not isinstance(stat, dict)
                 or not isinstance(stat.get("type"), str)
@@ -179,6 +182,56 @@ def _statistics(rows, identity):
                 )
             )
             result[-1]["missing_reason"] = missing
+    return result
+
+
+def parse_half_statistics(raw, *, fixture, captured_utc):
+    """First/second-half rows of a `half=true` response; [] when the provider has none.
+
+    The full-time group in the same response is only the check: integer counts and xG
+    must add up to it, otherwise the whole response is refused. Nulls stay null.
+    """
+    identity = fixture_identity(fixture)
+    instant(captured_utc)
+    rows = envelope(
+        raw, "fixtures/statistics", {"fixture": identity["provider_fixture_id"], "half": "true"}
+    )
+    present = [isinstance(row.get(field), list) for row in rows for _, field in HALVES]
+    if not any(present):
+        return []
+    if len(rows) != 2 or not all(present):
+        raise ValueError("半场统计只覆盖部分球队或部分时段")
+    if identity["status"] != "FT":
+        raise ValueError("非 90 分钟完赛的半场口径未核实，不入库")
+    full = {(row["side"], row["stat_key"]): row for row in _statistics(rows, identity)}
+    halves = {
+        half: {(row["side"], row["stat_key"]): row for row in _statistics(rows, identity, field)}
+        for half, field in HALVES
+    }
+    for key, whole in full.items():
+        first, second = halves["1h"].get(key), halves["2h"].get(key)
+        if first is None or second is None:
+            continue
+        values = (first["value"], second["value"], whole["value"])
+        if any(value is None for value in values):
+            continue
+        difference = abs(values[0] + values[1] - values[2])
+        if (whole["unit"] == "count" and difference != 0) or (
+            key[1] == "expected_goals" and difference > XG_HALF_TOLERANCE + 1e-9
+        ):
+            raise ValueError(f"{key[0]}:{key[1]} 上下半场相加不等于全场")
+    result = []
+    for half, _ in HALVES:
+        for row in halves[half].values():
+            row.update(
+                endpoint="statistics_half",
+                record_key=f"{half}:{row['record_key']}",
+                period_basis=half,
+                extra_time_included=False,
+                eligible_90=False,
+                parser_version=HALF_PARSER_VERSION,
+            )
+            result.append(row)
     return result
 
 

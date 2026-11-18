@@ -198,6 +198,12 @@ def check_injuries(db):
 def export_stats(db, archive, source=None):
     present = check_stats(db, rows=False)
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if (
+        "match_half_stats" in tables
+        and db.execute("SELECT 1 FROM match_half_stats LIMIT 1").fetchone()
+    ):
+        # T75 step A stores half-time rows locally only; refuse to drop them silently.
+        raise ValueError("半场统计行尚未纳入归档（T75 步骤 B），不能导出含半场行的数据库")
     block = read_rows_manifest(source) if source is not None else None
     counts = {
         table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
