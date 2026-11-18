@@ -18,7 +18,7 @@ APPROVED_IDS = frozenset(
 )
 UNREVIEWED_IDS = frozenset("40 62 71 850 916".split())
 # T68 opens reviewed routes one by one: opening check ready_for_review plus owner approval.
-OPENED_IDS = frozenset({"307"})
+OPENED_IDS = frozenset({"79", "307"})
 
 
 def save(tmp_path, document):
