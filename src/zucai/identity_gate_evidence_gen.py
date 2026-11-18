@@ -326,18 +326,20 @@ def _season_archive_originals(archive, code):
 
 def _equivalent_original(facts, archive, code, start, end, cutoff):
     """Pick the season original that can stand in for the missing date captures."""
+    from zucai.identity_daily_gate import _fresh_fixtures, listed_utc
+
     first_utc, end_utc = _window_bounds(start, end)
     expected = [
         r
         for r in facts["apif"]
         if r["competition_id"] == code
-        # A postponed or unscheduled fixture has no clock; the checker skips it the same way.
-        and r.get("kickoff_utc")
-        and first_utc <= _clock(r["kickoff_utc"]) < end_utc
+        # A postponed or unscheduled fixture has no clock; like the checker, place it by the
+        # date the provider page lists it under.
+        and listed_utc(r)
+        and first_utc <= _clock(listed_utc(r)) < end_utc
     ]
     if not expected:
         raise ValueError(f"{code} 30 天窗口内没有接口场次，无法生成 equivalent 重放证据")
-    from zucai.identity_daily_gate import _fresh_fixtures
 
     stale = sorted(mid for mid, ok in _fresh_fixtures(expected, end_utc).items() if not ok)
     if stale:

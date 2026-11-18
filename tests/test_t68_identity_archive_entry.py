@@ -258,6 +258,13 @@ def test_apif_placeholder_clock_is_not_precise(archive, status):
     seal(archive)
     row = load(archive)["apif"][0]
     assert row["kickoff_utc"] is None
+    # The provider's placeholder date only says which page lists the fixture; it is kept
+    # apart from the kick-off so that a window of pages can still be compared in full.
+    assert _utc(row["listed_utc"]) == _utc(doc["response"][0]["fixture"]["date"])
+    from zucai.identity_daily_gate import listed_utc
+
+    assert listed_utc(row) == row["listed_utc"]
+    assert listed_utc(dict(row, kickoff_utc="2026-01-01T00:00:00+00:00")) != row["listed_utc"]
     # The only fixture of a season that ended before the capture keeps the whole-season window.
     assert "possible_start_utc" not in row and "unplayed_at_capture_utc" not in row
     # With the season still running at capture time, the unplayed fixture can only kick off

@@ -170,8 +170,11 @@ def load_apif(root, configs):
                             )
                         )
                     game = games.get(mid)
+                    nominal = None
                     if f.get("status", {}).get("short") in {"TBD", "PST"}:
-                        when = None
+                        # The provider keeps a placeholder date on a postponed fixture. It is
+                        # no kick-off evidence, only the day the page lists the fixture under.
+                        nominal, when = when, None
                     rows.append(
                         dict(
                             match_id=f"apif:{mid}",
@@ -200,6 +203,8 @@ def load_apif(root, configs):
                     if when is None and f.get("status", {}).get("short") in {"TBD", "PST"}:
                         # Not played when this page was captured: it can only kick off later.
                         rows[-1]["unplayed_at_capture_utc"] = meta["fetched_at_utc"]
+                        if nominal is not None:
+                            rows[-1]["listed_utc"] = nominal.isoformat()
                 groups[code, season, path.relative_to(root).parts[2]].append(
                     (doc["paging"], rows, proof)
                 )

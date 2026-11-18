@@ -14,6 +14,7 @@ from sqlalchemy import delete, select, text
 
 from zucai.db import get_engine, session_scope
 from zucai.identity_binding import _category_veto, _utc
+from zucai.identity_provider_only import candidates as provider_only_candidates
 from zucai.identity_same_club import BASIS as SAME_CLUB_BASIS
 from zucai.identity_same_club import link_decision, official_witness, witness_summary
 from zucai.models import Base, Match, Team
@@ -452,6 +453,13 @@ def propose(archive, *, codes=None):
         link_decisions=links,
         codes=codes,
         existing_team_verdicts=verdicts,
+        # 竞彩从未开售的来源独有球队（预备队）：只列事实与阻塞原因，逐队待所有者批准。
+        provider_only_candidates=[
+            row
+            for code in codes
+            if registry["providers"]["apif"][code]["config"].get("current_season")
+            for row in provider_only_candidates(facts, code)
+        ],
         production_writes=0,
     )
 
