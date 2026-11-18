@@ -254,7 +254,7 @@ def forecast_sections(
         if not rows:
             lines.extend(
                 _known_unstarted_lines(day, now, repository, catalog, sfc_issues)
-                or ["该批次无未开球比赛；已开球场次见复盘。", ""]
+                or ["本批次未列出未开球比赛；今日预测与复盘见下方各表。", ""]
             )
             continue
         has_half = any(row.get("half_full_time") for row in rows)
@@ -349,6 +349,7 @@ def review_sections(
     *,
     displayed_ids=None,
     window=None,
+    exclusions=None,
 ):
     start = week_start(now)
     active = set((summary or {}).get("audit", {}).get("active_keys", []))
@@ -444,7 +445,15 @@ def review_sections(
     lines.extend(["", "### 竞彩完整清单逐号核对", ""])
     displayed = set(latest) if displayed_ids is None else displayed_ids | (set(rows) & set(latest))
     window = window or prediction_window([], now)
-    gaps = catalog_gaps(catalog, skipped, displayed, observations, window=window, known_ids=matches)
+    gaps = catalog_gaps(
+        catalog,
+        skipped,
+        displayed,
+        observations,
+        window=window,
+        known_ids=matches,
+        exclusions=exclusions,
+    )
     lines.append(
         "计划覆盖北京开球日："
         + "、".join(window["planned_dates"])
@@ -472,16 +481,33 @@ def review_sections(
     if gaps is not None:
         counts = {
             kind: sum(r["category"] == kind for r in gaps)
-            for kind in ("missing", "unexplained", "outside_window", "unknown_window")
+            for kind in (
+                "missing",
+                "unexplained",
+                "out_of_scope",
+                "outside_window",
+                "unknown_window",
+            )
         }
         lines.append(
             f"确定漏了（原因已知）{counts['missing']} 场；原因未查明 {counts['unexplained']} 场；"
+            f"模型范围外未预测 {counts['out_of_scope']} 场（不计入漏预测）；"
             f"尚未进入预测窗口 {counts['outside_window']} 场；"
             f"开球时间缺失，无法判断窗口 {counts['unknown_window']} 场。"
-            f"漏预测合计 {counts['missing'] + counts['unexplained']} 场，后两类不计入漏预测。"
+            f"漏预测合计 {counts['missing'] + counts['unexplained']} 场，只含前两类。"
         )
         for row in gaps:
             label = f"{_text(row['jc_num'])}（{_text(row['business_date'])}，{_match(row)}）"
+            frozen = row["frozen_exclusion"]
+            stated = (
+                f"冻结批次写明：{_text(frozen['reason'])}"
+                f"（批次 {_text(frozen['batch_id'])}，截点 {_local(frozen['as_of_utc'])}）"
+                if frozen
+                else ""
+            )
+            if row["category"] == "out_of_scope":
+                lines.append(f"- {label}：模型范围外未预测；{stated}；不计入漏预测。")
+                continue
             if row["category"] == "outside_window":
                 lines.append(
                     f"- {label}：尚未进入预测窗口（北京时间 {_local(row['kickoff_utc'])} 开球）；"
@@ -505,8 +531,12 @@ def review_sections(
                 detail = "入库但无赛前预测（晚班或后续同步已入库，但无可查的赛前预测）"
             else:
                 detail = "原因未查明（无可核验的同期跳过记录；旧早班原始页面未归档时不能推断原因）"
-            if not row["reason_known"] and "原因未查明" not in detail:
-                detail += "；原因未查明（无可追踪的同期原因证据）"
+            if stated:
+                detail = f"{detail}；{stated}" if evidence else stated
+            if not row["reason_known"]:
+                if "原因未查明" not in detail:
+                    detail += "；原因未查明"
+                detail += "（已查同步跳过记录与截点不晚于开球的冻结批次，均无该场记录）"
             lines.append(
                 f"- 缺 {_text(row['jc_num'])}（{_text(row['business_date'])}，{_match(row)}）："
                 f"确定漏了；{detail}。"

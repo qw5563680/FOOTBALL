@@ -34,7 +34,10 @@ def test_november_eighth_is_outside_november_sixth_report_but_real_gaps_survive(
     assert all(r["confirmed"] is False for r in gaps[:7])
     matches = {rows[-3]["match_id"]: rows[-3]}
     text = "\n".join(review_sections({}, {}, matches, [], None, rows, [], now, window=window))
-    assert "确定漏了（原因已知）0 场；原因未查明 2 场；尚未进入预测窗口 7 场" in text
+    assert (
+        "确定漏了（原因已知）0 场；原因未查明 2 场；模型范围外未预测 0 场（不计入漏预测）；"
+        "尚未进入预测窗口 7 场" in text
+    )
     assert "漏预测合计 2 场" in text
     assert "开球时间缺失，无法判断窗口 1 场" in text
     assert "下一班预测" not in text

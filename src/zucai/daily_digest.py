@@ -15,6 +15,7 @@ from zucai.digest_context import (
     archived_matches,
     archived_sfc_issues,
     audit_rows,
+    frozen_exclusions,
     frozen_rows,
     jc_digest_batch,
     pending_tickets,
@@ -552,6 +553,7 @@ def generate(
             at,
             displayed_ids=displayed_ids,
             window=window,
+            exclusions=frozen_exclusions(batches, at),
         ),
         *_settlement_sections(
             scored,

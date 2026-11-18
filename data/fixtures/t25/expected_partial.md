@@ -33,7 +33,7 @@
 
 来源：[forecasts/2026-11-04/digest-late/forecast.json](../forecasts/2026-11-04/digest-late/forecast.json)；批次 digest-late-2026-11-04；生成 UTC：2026-11-03T09:45:00+00:00。
 
-该批次无未开球比赛；已开球场次见复盘。
+本批次未列出未开球比赛；今日预测与复盘见下方各表。
 
 ## 市场信息状态
 
