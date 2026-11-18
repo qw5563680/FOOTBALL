@@ -104,9 +104,9 @@ def test_legacy_provider_values_and_modes_remain_exact():
 
 def test_purpose_preserves_legacy_order_and_special_nations_route():
     assert daily_codes("fdorg") == "PL ELC PD SA BL1 FL1 DED PPL BSA CL".split()
-    # 307 (沙职) and 79 (德乙) were opened by T68 after their opening checks passed and the
-    # owner approved.
-    assert daily_codes("apif") == "98 292 188 113 103 244 119 253 169 3 848 79 307".split()
+    # 307 (沙职), 79 (德乙) and 89 (荷乙) were opened by T68 after their opening checks passed
+    # and the owner approved.
+    assert daily_codes("apif") == "98 292 188 113 103 244 119 253 169 3 848 79 89 307".split()
     assert set(provider_entries("apif", purpose="backfill")) == {
         str(code) for code in provider_ids("apif") - {39, 140, 135, 78, 61, 88, 94}
     }

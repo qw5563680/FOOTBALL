@@ -104,7 +104,7 @@ def test_reconcile_across_leagues_keeps_match_evidence_and_is_idempotent(seed):
 def test_reconcile_skips_league_missing_from_formal_table(seed):
     """T68 guard: unlisted leagues are skipped, counted, and never modified.
 
-    荷乙 stands for any reviewed route whose daily collection is not opened yet.
+    日乙 stands for any reviewed route whose daily collection is not opened yet.
     """
     from zucai.sources.apif_reconcile import reconcile
 
@@ -113,7 +113,7 @@ def test_reconcile_skips_league_missing_from_formal_table(seed):
         con.execute(
             "INSERT INTO matches(match_id,source,league,home_team_id,away_team_id,"
             "kickoff_utc,status) "
-            "VALUES('apif:90005','apif','荷乙',10,2,'2024-08-24T18:00:00Z','scheduled')"
+            "VALUES('apif:90005','apif','日乙',10,2,'2024-08-24T18:00:00Z','scheduled')"
         )
     report = reconcile(db, "unlisted")
     assert report["skipped_unlisted_leagues"] == 1
@@ -129,7 +129,7 @@ def test_reconcile_skips_league_missing_from_formal_table(seed):
             "SELECT home_team_id,away_team_id FROM matches WHERE match_id='apif:90005'"
         ).fetchone() == (10, 2)
     audit = db.parent / "state/audit/apif_identity_merges.csv"
-    assert all(row["league"] != "荷乙" for row in csv.DictReader(audit.open()))
+    assert all(row["league"] != "日乙" for row in csv.DictReader(audit.open()))
 
 
 def test_reconcile_existing_formal_keys_unchanged(seed):
