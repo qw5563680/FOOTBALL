@@ -164,7 +164,50 @@ def skip_is_evidence(skipped, catalog):
         return False
 
 
-def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, known_ids=()):
+MODEL_SCOPE_REASON = "缺少同来源同联赛的模型"
+
+
+def frozen_exclusions(batches, now):
+    """Latest stated non-prediction reason per match from batches frozen by its kickoff.
+
+    Only a prematch batch whose cutoff is not later than the kickoff is contemporaneous
+    evidence; a batch produced after kickoff can never supply the reason.
+    """
+    found = {}
+    for _, path, batch in batches:
+        if batch.get("mode") != "prematch" or instant(batch["generated_utc"]) > instant(now):
+            continue
+        cutoff = instant(batch["as_of_utc"])
+        for row in batch["predictions"]:
+            reason = row.get("reason")
+            if row.get("status") == "predicted" or not isinstance(reason, str) or not reason:
+                continue
+            if not row.get("kickoff_utc") or cutoff > instant(row["kickoff_utc"]):
+                continue
+            key = (cutoff, instant(batch["generated_utc"]), batch["batch_id"])
+            if row["match_id"] not in found or key > found[row["match_id"]][0]:
+                found[row["match_id"]] = (
+                    key,
+                    {
+                        "reason": reason,
+                        "batch_id": batch["batch_id"],
+                        "as_of_utc": batch["as_of_utc"],
+                        "forecast_path": path,
+                    },
+                )
+    return {match_id: value for match_id, (_, value) in found.items()}
+
+
+def catalog_gaps(
+    catalog,
+    skipped,
+    predicted_ids,
+    observations,
+    *,
+    window=None,
+    known_ids=(),
+    exclusions=None,
+):
     """Only a preserved catalog proves absence, never a hole in a numeric sequence."""
     if catalog is None:
         return None
@@ -180,7 +223,8 @@ def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, 
             continue
         skipped_row = explanations.get((*key, row["match_id"]))
         skipped_row = skipped_row if skip_is_evidence(skipped_row, row) else None
-        reason_known = skipped_row is not None
+        exclusion = (exclusions or {}).get(row["match_id"])
+        reason_known = skipped_row is not None or exclusion is not None
         observed = observations.get(row["match_id"])
         reason = (
             skipped_row["reason"]
@@ -190,7 +234,11 @@ def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, 
             else "unknown"
         )
         day = kickoff_day(row)
-        category = "missing" if reason_known else "unexplained"
+        # A sync skip record decides the class; a frozen reason is listed beside it.
+        if skipped_row is None and exclusion and exclusion["reason"] == MODEL_SCOPE_REASON:
+            category = "out_of_scope"
+        else:
+            category = "missing" if reason_known else "unexplained"
         expected = None
         missing_batch = False
         if window is not None:
@@ -208,6 +256,7 @@ def catalog_gaps(catalog, skipped, predicted_ids, observations, *, window=None, 
                 "reason": reason,
                 "reason_known": reason_known,
                 "skip_evidence": skipped_row,
+                "frozen_exclusion": exclusion,
                 "category": category,
                 "kickoff_date_beijing": day.isoformat() if day else None,
                 "expected_window_date": expected,

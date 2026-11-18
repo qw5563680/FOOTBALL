@@ -57,7 +57,7 @@ def test_empty_jc_day_discloses_known_sfc_fixtures_without_rewriting_frozen_inpu
     assert "胜负彩 26163 期有 1 场未开球比赛未在本表展示" in tomorrow
     assert "已映射" not in tomorrow and "未映射" not in tomorrow
     assert "胜负彩专用冻结预测见下方" in tomorrow
-    assert "该批次无未开球比赛" not in tomorrow
+    assert "该批次无未开球比赛" not in tomorrow and "本批次未列出未开球比赛" not in tomorrow
     assert snapshot(digest_archive) == before
 
 
@@ -77,7 +77,8 @@ def test_unknown_or_later_sfc_facts_do_not_claim_upcoming_presence(
     text = generate(digest_archive, tmp_path / "daily", now=NOW).read_text()
     tomorrow = text.split("### 明日 2026-11-04", 1)[1].split("## 14 场胜负彩", 1)[0]
     assert "未在本表展示" not in tomorrow
-    assert "该批次无未开球比赛" in tomorrow
+    assert "该批次无未开球比赛" not in tomorrow
+    assert "本批次未列出未开球比赛；今日预测与复盘见下方各表。" in tomorrow
 
 
 @pytest.mark.parametrize("has_batch", [False, True])
@@ -105,7 +106,7 @@ def test_known_jc_catalog_distinguishes_missing_prediction_from_no_matches(has_b
     )
     tomorrow = text.split("### 明日 2026-11-04", 1)[1]
     assert "竞彩目录有 1 场未开球比赛，但本批未提供对应竞彩预测" in tomorrow
-    assert "该批次无未开球比赛" not in tomorrow
+    assert "该批次无未开球比赛" not in tomorrow and "本批次未列出未开球比赛" not in tomorrow
     assert catalog == original
 
 
