@@ -104,6 +104,7 @@ def database(tmp_path):
 def test_exact_45_owner_approved_aliases_and_narrow_fd_alias():
     expected = read(FIX / "identity_approved.json")
     followup = read(FIX / "followup_approvals.json")
+    renames = read(FIX / "t68_same_club_renames.json")
     aliases = read(ALIASES_PATH)
     assert sum(map(len, expected["approved"].values())) == 45
     for league, records in expected["approved"].items():
@@ -120,6 +121,11 @@ def test_exact_45_owner_approved_aliases_and_narrow_fd_alias():
                 original.update(
                     canonical=correction, approval_pr=[APPROVAL, followup["approval_pr"]]
                 )
+            renamed = renames["changed_apif"].get(league, {}).get(pid)
+            if renamed:
+                links = original["approval_pr"]
+                links = [links] if isinstance(links, str) else links
+                original.update(canonical=renamed, approval_pr=[*links, renames["approval_pr"]])
             assert aliases[league][pid] == original
     for pid in expected["unapproved_missing_from_formal"]:
         if not any(pid in records for records in followup["new_apif"].values()):
@@ -141,9 +147,17 @@ def test_fourth_batch_formal_aliases_match_only_the_owner_approved_table():
     for league, records in expected["fd_merges"].items():
         for name, canonical in records.items():
             assert fd[league][name] == dict(canonical=canonical, **expected["metadata"])
+    renames = read(FIX / "t68_same_club_renames.json")
     for league, records in expected["new_apif"].items():
         for pid, entry in records.items():
-            assert apif[league][pid] == dict(entry, **expected["metadata"])
+            original = dict(entry, **expected["metadata"])
+            renamed = renames["changed_apif"].get(league, {}).get(pid)
+            if renamed:
+                original.update(
+                    canonical=renamed,
+                    approval_pr=[original["approval_pr"], renames["approval_pr"]],
+                )
+            assert apif[league][pid] == original
     for league, ids in expected["unapproved"].items():
         assert not set(ids) & apif[league].keys()
     validate_approvals(fd, require_metadata=True)
