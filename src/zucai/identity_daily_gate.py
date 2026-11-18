@@ -531,9 +531,9 @@ def _facts_coverage(facts, code):
     resolved_extra = []
     for row in pending_extra:
         mid = row["fixture_id"]
-        source_rows = [
-            r for r in facts["apif"] if r["match_id"] == mid and r["competition_id"] == code
-        ]
+        source_rows, _ = _settled_candidates(
+            [r for r in facts["apif"] if r["match_id"] == mid and r["competition_id"] == code]
+        )
         match = stored_by_id.get(mid)
         result = next((r for r in facts.get("results", []) if r["match_id"] == mid), None)
         if (
@@ -603,11 +603,23 @@ def _materialized_original(facts, code, state, original):
         raise ValueError("original fixture has no materialized state")
     match, result = stored
     league = facts["configs"][code]["league"]
+    # A capture that lists the fixture as postponed or unscheduled carries no clock to
+    # compare; its teams must still be the stored ones. Every other capture needs its time.
+    clockless = original.get("kickoff_utc") is None and original.get("raw_status") in {
+        "TBD",
+        "PST",
+    }
     if (
         match["league"] != league
-        or not original.get("kickoff_utc")
         or not match.get("kickoff_utc")
-        or abs(_clock(match["kickoff_utc"]) - _clock(original["kickoff_utc"])) > timedelta(hours=3)
+        or (
+            not clockless
+            and (
+                not original.get("kickoff_utc")
+                or abs(_clock(match["kickoff_utc"]) - _clock(original["kickoff_utc"]))
+                > timedelta(hours=3)
+            )
+        )
         or any(
             _provider_project(facts, league, original[side], original["kickoff_utc"])
             != str(match[f"{side}_team_id"])
