@@ -78,7 +78,7 @@ def _official(database):
     engine.dispose()
     with sqlite3.connect(database) as db:
         db.execute("INSERT INTO teams VALUES (1,'Home','[]'),(2,'Away','[]')")
-        for index, league in enumerate(("日职", "德乙"), 1):
+        for index, league in enumerate(("日职", "荷乙"), 1):
             db.execute(
                 "INSERT INTO matches (match_id,source,league,home_team_id,away_team_id,"
                 "kickoff_utc,status) VALUES (?,'jc',?,1,2,?,'scheduled')",
@@ -162,11 +162,11 @@ def test_new_routes_cannot_add_candidates_or_hide_old_daily_candidates(tmp_path,
 def test_new_approved_route_still_imports_an_explicit_historical_season(tmp_path):
     doc = _document(extra=True)
     doc["response"] = [doc["response"][1]]
-    doc.update(parameters={"league": "79", "season": "2026"}, results=1)
+    doc.update(parameters={"league": "89", "season": "2026"}, results=1)
     path = _archive(tmp_path / "raw", doc)
     database = tmp_path / "data/zucai.db"
     result = fetch_apif(
-        league_id=79,
+        league_id=89,
         seasons=[2026],
         assume=timedelta(hours=3),
         raw_file=path,
@@ -178,7 +178,7 @@ def test_new_approved_route_still_imports_an_explicit_historical_season(tmp_path
     assert result["rejected_rows"] == result["requests"] == 0
     with sqlite3.connect(database) as db:
         assert db.execute("SELECT match_id,league FROM matches").fetchall() == [
-            ("apif:20000", "德乙")
+            ("apif:20000", "荷乙")
         ]
 
 
