@@ -4,7 +4,7 @@ import json
 import shutil
 import sqlite3
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from hashlib import sha256
 
 import pytest
@@ -1288,3 +1288,80 @@ def recent_importer_bundle(bundle, *, retain_results=False):
             after_manifest_sha256=recent["after_manifest"]["sha256"],
         ),
     )
+
+
+def _later_fixture_archive(bundle, *, conflicting_page=False):
+    """A stored current-season JC fixture later than the catalogue, read from the archive."""
+    archive, _, _ = bundle
+    stored = fixture_rows(archive, "matches")[0]
+    later = dict(
+        stored,
+        match_id="jc:9900187",
+        kickoff_utc="2026-11-06T12:15:00+00:00",
+        counterpart_id="apif:11",
+    )
+    table(archive, "matches", [stored, later])
+    result = fixture_rows(archive, "results")[0]
+    table(archive, "results", [result, dict(result, match_id="jc:9900187")])
+    apath = archive / "state/catalogue/backfill/backfill/api-football/day/fixtures_one.json"
+    apif = json.loads(apath.read_bytes())
+    second = deepcopy(apif["response"][0])
+    clock = "2026-11-06T12:15:00+00:00"
+    second["fixture"].update(
+        id=11, date=clock, timestamp=int(datetime.fromisoformat(clock).timestamp())
+    )
+    apif["response"].append(second)
+    apif["results"] = 2
+    raw(
+        archive,
+        apath.relative_to(archive),
+        apif,
+        "https://v3.football.api-sports.io/fixtures?league=98&season=2027",
+    )
+    (archive / "state/audit/apif_held_unbound.csv").write_text(
+        "raw_sha256,competition_code,league,provider_match_id\n"
+        + sha256(apath.read_bytes()).hexdigest()
+        + ",98,日职,10\n"
+    )
+    page = json.loads(
+        (archive / "state/catalogue/catalogue/jc/2026-10/2026-10-31-p1.json").read_bytes()
+    )
+    for day in ["2026-11-06"] + (["2026-11-07"] if conflicting_page else []):
+        document = deepcopy(page)
+        document["value"]["matchResult"][0].update(matchId=9900187, matchDate=day)
+        raw(
+            archive,
+            f"state/catalogue/supplement/jc/2026-11/{day}-p1.json",
+            document,
+            kickoffs.API + f"getUniformMatchResultV1.qry?matchBeginDate={day}&matchEndDate={day}"
+            "&leagueId=&pageSize=30&pageNo=1&isFix=0&matchPage=1&pcOrWap=1",
+        )
+    reseal_fixture(archive)
+    loaded = reader.load_archive(archive, leagues=["98"])
+    register = gate.build_register(archive, CUTOFF, codes=["98"])["leagues"][0]
+    return loaded, register["matches"], register["blockers"]
+
+
+def test_later_official_page_read_from_the_archive_links_the_stored_fixture(bundle):
+    loaded, matches, blockers = _later_fixture_archive(bundle)
+    assert [r["match_id"] for r in loaded["later_official"]] == ["jc:9900187"]
+    assert "jc:9900187" not in loaded["later_official_conflicts"]
+    assert (matches["total"], matches["linked"], matches["unresolved"]) == (2, 2, [])
+    assert "current_season_fixtures_unresolved" not in blockers
+
+
+def test_contradicting_page_of_the_same_fixture_keeps_it_unresolved(bundle):
+    """Reviewer finding on PR 187: a second page dated differently must not be dropped silently."""
+    loaded, matches, blockers = _later_fixture_archive(bundle, conflicting_page=True)
+    assert loaded["later_official"] == []
+    assert loaded["later_official_conflicts"]["jc:9900187"] == ["stored_official_date_conflict"]
+    assert matches["linked"] == 1
+    assert matches["unresolved"] == [
+        dict(
+            jc_id="jc:9900187",
+            provider_match_id=None,
+            reason="stored_current_jc_original_conflict",
+            conflicts=["stored_official_date_conflict"],
+        )
+    ]
+    assert "current_season_fixtures_unresolved" in blockers
