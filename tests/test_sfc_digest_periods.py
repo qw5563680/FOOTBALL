@@ -61,3 +61,26 @@ def test_single_open_period_keeps_the_plain_layout(monkeypatch):
     assert digest.PICK_NINE_HEADING in lines
     assert not any(line.startswith("### 第") or "期在售" in line for line in lines)
     assert "期号：26166" in lines and "期号：26165" not in lines
+
+
+def _row(kickoff, probabilities=None):
+    return dict(seq=1, kickoff_utc=kickoff, probabilities=probabilities)
+
+
+def test_period_before_its_forecast_day_says_when_forecasts_arrive():
+    end = "2026-11-20T14:00:00+00:00"
+    rows = [_row("2026-11-20T19:30:00+00:00"), _row("2026-11-20T17:30:00+00:00")]
+    note = digest.not_yet_note(rows, end, NOW)  # Beijing 11-19 01:00, fixtures on 11-21
+    assert "最早一场在北京时间 11-21 01:30 开球" in note and "最早在 11-20 的日报里给出" in note
+
+
+def test_no_note_once_due_closed_or_forecast_present():
+    end = "2026-11-20T14:00:00+00:00"
+    rows = [_row("2026-11-20T19:30:00+00:00")]
+    due = datetime(2026, 11, 19, 16, 30, tzinfo=UTC)  # Beijing 11-20
+    assert digest.not_yet_note(rows, end, due) is None
+    assert digest.not_yet_note(rows, "2026-11-18T14:00:00+00:00", NOW) is None
+    assert digest.not_yet_note(rows, None, NOW) is None
+    assert digest.not_yet_note([], end, NOW) is None
+    predicted = [_row("2026-11-20T19:30:00+00:00", dict(h=0.5, d=0.3, a=0.2))]
+    assert digest.not_yet_note(predicted, end, NOW) is None

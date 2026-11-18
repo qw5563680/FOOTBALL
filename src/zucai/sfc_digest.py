@@ -1,8 +1,10 @@
 """Read-only SFC section for the daily digest."""
 
+from datetime import timedelta
+
 from zucai.digest_context import archived_sfc_issues
 from zucai.prediction_disclosure import prior_footnote, prior_label
-from zucai.report.render import _beijing, _md, _percent, _timestamp
+from zucai.report.render import BEIJING, _beijing, _md, _percent, _timestamp
 from zucai.report.sfc import OPTIONS, disclosed_rows, pick_nine_lines, unconfirmed_mapping_status
 from zucai.scoreboard.sfc import prior_group_text, read_settled
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
@@ -63,6 +65,26 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
             block = [f"### 第 {number} 期", "", *block]
         lines.extend(block)
     return lines
+
+
+def not_yet_note(rows, end, now):
+    """Say plainly when a period on sale simply has not reached its forecast day.
+
+    Forecasts are frozen for fixtures of the current and the next Beijing day only, so a
+    period whose fixtures are further away shows no probability yet. That is a matter of
+    timing, not a fault; without this line the empty table reads like one.
+    """
+    if not end or _timestamp(end) <= now or not rows or any(r.get("probabilities") for r in rows):
+        return None
+    first = min(_timestamp(r["kickoff_utc"]) for r in rows).astimezone(BEIJING)
+    earliest = first.date() - timedelta(days=1)
+    if now.astimezone(BEIJING).date() >= earliest:
+        return None
+    return (
+        f"本期还没到出预测的时候：最早一场在北京时间 {first:%m-%d %H:%M} 开球，"
+        f"预测只对当天和次日的比赛生成，最早在 {earliest:%m-%d} 的日报里给出。"
+        "表中「未映射」「无模型」是在等竞彩开售这些比赛，开售后自动对上。"
+    )
 
 
 def _fixture_list(rows):
@@ -172,6 +194,8 @@ def _issue_lines(name, issue, reports, settled, now, link):
         lines.append("| " + " | ".join(_md(value) for value in values) + " |")
     combo = report["combo"] if eligible else None
     lines += [""]
+    if note := not_yet_note(rows, end, now):
+        lines += [note, ""]
     if eligible and (note := prior_footnote(rows)):
         lines.extend([_md(note), ""])
     if combo:
