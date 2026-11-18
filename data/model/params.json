@@ -1498,6 +1498,87 @@
         "as_of_utc": "2026-11-18T07:55:00+00:00",
         "bet_allowed": false
       }
+    },
+    "荷乙": {
+      "half_life_days": 730.0,
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_season": "2526",
+      "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+      "evaluation_windows": [
+        {
+          "selection_season": "2324",
+          "validation_season": "2425",
+          "selection_as_of_utc": "2024-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": -0.023699826728476592
+        },
+        {
+          "selection_season": "2425",
+          "validation_season": "2526",
+          "selection_as_of_utc": "2025-07-01T00:00:00+00:00",
+          "half_life_days": 180.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.00870640811913731
+        },
+        {
+          "selection_season": "2526",
+          "validation_season": "2627",
+          "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+          "half_life_days": 730.0,
+          "draw_calibration": false,
+          "selection_draw_bias": 0.009587394497018897
+        }
+      ],
+      "generated_utc": "2026-11-18T20:17:06.084964+00:00",
+      "database_sha256": "e1da97a554d7ef2ba40fe611a7c1c5eb962b8efba2117709bbdb6e9e96385710",
+      "training_policy": {
+        "history_scope": "cumulative",
+        "strict_availability": false,
+        "replay_known_after": null
+      },
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "unknown_team_prior": "weakest_quartile_half_shrinkage",
+      "draw_calibration": false,
+      "p2_ready": false,
+      "p2_evidence": {
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "closing_paired_n_below_500_or_mismatch",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "metrics": {
+          "model": {
+            "n": 772,
+            "log_loss": 1.0362056884586097
+          },
+          "uniform": {
+            "n": 772,
+            "log_loss": 1.0986122886681093
+          },
+          "closing": {
+            "n": 0,
+            "log_loss": null
+          },
+          "closing_paired_model": {
+            "n": 0,
+            "log_loss": null
+          }
+        },
+        "uniform_log_loss_gain": 0.06240660020949962,
+        "closing_log_loss_gap": null,
+        "as_of_utc": "2026-11-18T20:15:03.926952+00:00",
+        "bet_allowed": false
+      }
     }
   }
 }

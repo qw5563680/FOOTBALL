@@ -93,11 +93,12 @@ def test_committed_source_policy_is_explicit_and_independent_of_collector_regist
         "韩职": {"apif", "jc"},
         "澳超": {"apif", "jc"},
     }
-    # T63 independently adds the original 15 leagues; T62 adds 沙职 and 德乙 after their T68
-    # opening checks.
-    assert len(apif_history_sources()) == 19
+    # T63 independently adds the original 15 leagues; T62 adds 沙职, 德乙 and 荷乙 after their
+    # T68 opening checks.
+    assert len(apif_history_sources()) == 20
     assert apif_history_sources()["沙职"] == {"apif", "jc"}
     assert apif_history_sources()["德乙"] == {"apif", "jc"}
+    assert apif_history_sources()["荷乙"] == {"apif", "jc"}
     assert "中超" not in apif_history_sources() and "丹超" not in apif_history_sources()
 
 
@@ -337,7 +338,7 @@ def test_daily_restored_real_identities_predict_both_domestic_leagues(
         assert len(list(session.scalars(select(Result)))) == 120
 
 
-@pytest.mark.parametrize("league", ["沙职", "德乙"])
+@pytest.mark.parametrize("league", ["沙职", "德乙", "荷乙"])
 def test_opened_league_is_trained_from_apif_history_as_p2_experiment(league):
     """T62: joined after its T68 opening check; config only, no code path."""
     from zucai.predict.seasons import season_for
@@ -349,6 +350,6 @@ def test_opened_league_is_trained_from_apif_history_as_p2_experiment(league):
     assert params["half_life_days"] in {90.0, 180.0, 270.0, 365.0, 540.0, 730.0}
     assert params["unknown_team_prior"] == "weakest_quartile_half_shrinkage"
     assert league not in actual_result_leagues()
-    # Both seasons run August to May: the default July cross-year split applies.
+    # All these seasons run August to May: the default July cross-year split applies.
     assert season_for("2026-09-01T18:00:00+00:00", league) == "2627"
     assert season_for("2026-05-20T18:00:00+00:00", league) == "2526"
