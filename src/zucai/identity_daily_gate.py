@@ -1492,12 +1492,28 @@ def assess_league(facts, code, cutoff, *, evidence=None, evidence_root=None):
         blockers.append("newer_season_originals_require_review")
     if not current:
         missing.append("current_season_originals")
-    elif any(
-        not _bound(facts, league, r[side], r.get("kickoff_utc"))
-        for r in current
-        for side in ("home", "away")
-    ):
-        blockers.append("current_roster_unbound")
+    else:
+        # T68: a reserve side JC never sells may stay unbound after the owner approved it
+        # team by team; everything about that approval is re-verified here.
+        from zucai.identity_unsold_teams import unsold_roster
+
+        unbound_roster = {
+            str(r[side])
+            for r in current
+            for side in ("home", "away")
+            if not _bound(facts, league, r[side], r.get("kickoff_utc"))
+        }
+        unsold, refused = (
+            unsold_roster(facts, code, unbound_roster, cutoff.isoformat())
+            if unbound_roster
+            else ({}, {})
+        )
+        details["current_roster_unsold"] = dict(
+            accepted=[unsold[key] for key in sorted(unsold, key=int)],
+            refused=[refused[key] for key in sorted(refused, key=int)],
+        )
+        if refused:
+            blockers.append("current_roster_unbound")
     evidence = evidence or {}
     root = Path(evidence_root) if evidence_root is not None else None
     validators = {

@@ -330,7 +330,10 @@ def _equivalent_original(facts, archive, code, start, end, cutoff):
     expected = [
         r
         for r in facts["apif"]
-        if r["competition_id"] == code and first_utc <= _clock(r["kickoff_utc"]) < end_utc
+        if r["competition_id"] == code
+        # A postponed or unscheduled fixture has no clock; the checker skips it the same way.
+        and r.get("kickoff_utc")
+        and first_utc <= _clock(r["kickoff_utc"]) < end_utc
     ]
     if not expected:
         raise ValueError(f"{code} 30 天窗口内没有接口场次，无法生成 equivalent 重放证据")
