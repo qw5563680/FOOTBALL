@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 import responses
 
+pytestmark = pytest.mark.usefixtures("sfc_fixture_clock")
+
 FIXTURES = Path(__file__).parents[1] / "data/fixtures"
 API = "https://webapi.sporttery.cn/gateway/uniform/football/"
 

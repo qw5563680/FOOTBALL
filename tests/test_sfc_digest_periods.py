@@ -1,5 +1,5 @@
-"""Strictly one lottery period at a time: of the periods on sale only the one closing
-first is shown; the next one takes over after it closes."""
+"""One lottery period at a time, in order: a period published several numbers ahead never
+stands in for the one that is due."""
 
 from datetime import UTC, datetime
 
@@ -30,32 +30,47 @@ def _render(monkeypatch, states):
     return digest.section(None, {}, None, NOW, lambda path: path)
 
 
-def test_only_the_period_closing_first_is_shown(monkeypatch):
+def test_period_in_line_is_shown_and_one_published_ahead_is_only_named(monkeypatch):
     lines = _render(
         monkeypatch,
         [
             _issue("26171", "2026-11-26T14:00:00+00:00"),
             _issue("26166", "2026-11-20T14:00:00+00:00"),
+            _issue("26165", "2026-11-15T14:00:00+00:00"),
         ],
     )
     text = "\n".join(lines)
-    assert "本期：26166（2026-11-20 22:00:00 截止）" in text
-    assert "后面还有已开售的 26171（2026-11-26 22:00:00 截止），等本期截止后再展示" in text
-    # The later period's table and pick-nine block are not rendered at all.
     assert "期号：26166" in lines and "期号：26171" not in lines
-    assert lines.count(PICK_NINE) == 1
+    assert "另有已公布的 26171（2026-11-26 22:00:00 截止），按顺序轮到时再展示" in text
+    assert lines.count(PICK_NINE) == 1 and "还没有抓到" not in text
 
 
-def test_next_period_takes_over_after_the_first_closes(monkeypatch):
+def test_after_it_closes_the_next_number_is_awaited_not_a_later_one(monkeypatch):
+    # 26166 closed, 26167 not collected yet, 26171 published early: 26171 must not take over.
     lines = _render(
         monkeypatch,
         [
             _issue("26171", "2026-11-26T14:00:00+00:00"),
-            _issue("26166", "2026-11-18T14:00:00+00:00"),  # closed before NOW
+            _issue("26166", "2026-11-18T14:00:00+00:00"),
         ],
     )
-    assert "期号：26171" in lines and "期号：26166" not in lines
-    assert not any("后面还有" in line for line in lines)
+    text = "\n".join(lines)
+    assert "上一期 26166 已截止。按顺序下一期是 26167，还没有抓到" in text
+    assert "期号：26171" not in lines and "期号：26166" in lines
+    assert "另有已公布的 26171" in text
+
+
+def test_next_number_takes_over_once_collected(monkeypatch):
+    lines = _render(
+        monkeypatch,
+        [
+            _issue("26171", "2026-11-26T14:00:00+00:00"),
+            _issue("26167", "2026-11-21T14:00:00+00:00"),
+            _issue("26166", "2026-11-18T14:00:00+00:00"),
+        ],
+    )
+    assert "期号：26167" in lines and "期号：26171" not in lines
+    assert not any("还没有抓到" in line for line in lines)
 
 
 def test_single_open_period_keeps_the_plain_layout(monkeypatch):
@@ -66,8 +81,21 @@ def test_single_open_period_keeps_the_plain_layout(monkeypatch):
             _issue("26165", "2026-11-15T14:00:00+00:00"),
         ],
     )
-    assert not any("后面还有" in line for line in lines)
+    assert not any("另有已公布" in line or "还没有抓到" in line for line in lines)
     assert "期号：26166" in lines and "期号：26165" not in lines
+
+
+def test_lower_number_closing_later_does_not_hide_the_one_closing_first(monkeypatch):
+    # Seen in an international week: 26163 and 26164 close after 26165.
+    now_states = [
+        _issue("26163", "2026-11-20T14:00:00+00:00"),
+        _issue("26164", "2026-11-21T14:00:00+00:00"),
+        _issue("26165", "2026-11-19T14:00:00+00:00"),
+        _issue("26162", "2026-11-10T14:00:00+00:00"),
+    ]
+    lines = _render(monkeypatch, now_states)
+    assert "期号：26165" in lines
+    assert "另有已公布的 26163（2026-11-20 22:00:00 截止）、26164" in "\n".join(lines)
 
 
 def test_latest_closed_period_is_shown_when_none_is_on_sale(monkeypatch):
@@ -79,6 +107,7 @@ def test_latest_closed_period_is_shown_when_none_is_on_sale(monkeypatch):
         ],
     )
     assert "期号：26165" in lines and "期号：26164" not in lines
+    assert "按顺序下一期是 26166，还没有抓到" in "\n".join(lines)
 
 
 def _row(kickoff, probabilities=None):
