@@ -296,6 +296,20 @@ def _facts_coverage(facts, code):
         blockers.append("current_season_scope_unverified")
     if scope["newer_current"]:
         blockers.append("newer_season_originals_require_review")
+    # A stored current-season fixture later than the fixed twelve-month catalogue has its
+    # official original in a later archived result page. One page row per fixture, or
+    # several that agree; anything else stays unresolved.
+    later = defaultdict(list)
+    for row in facts.get("later_official", []):
+        if row["competition_id"] == code and row["match_id"] in scope["match_ids"]:
+            later[row["match_id"]].append(row)
+    known = {r["match_id"] for r in official}
+    for mid, rows in sorted(later.items()):
+        fields = ("home_source_id", "away_source_id", "kickoff_utc", "score", "status")
+        if mid not in known and all(all(row[f] == rows[0][f] for f in fields) for row in rows):
+            official.append(
+                dict(rows[0], provenance=[p for row in rows for p in row["provenance"]])
+            )
     linked, unresolved = [], []
     for mid in sorted(set(scope["match_ids"]) - {r["match_id"] for r in official}):
         unresolved.append(

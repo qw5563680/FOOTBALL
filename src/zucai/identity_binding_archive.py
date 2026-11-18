@@ -769,9 +769,21 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
         for row in tables["matches"]
         if row["source"] == "jc" and row["league"] in new_leagues and row["status"] == "finished"
     ]
+    # Official result pages archived after the fixed twelve-month catalogue (the daily
+    # supplement): they never extend the proposal census, but the opening check may read
+    # them as the official original of a stored current-season fixture.
+    later_official = [
+        dict(row, competition_id=league_codes.get(row["league"]))
+        for row in stored_identities
+        if not row["identity_only"]
+        and row.get("current_snapshot_verified")
+        and row["match_id"] not in catalogue_ids
+        and row["league"] in league_codes
+    ]
     return dict(
         apif=apif,
         official=official,
+        later_official=later_official,
         teams=teams,
         formal=formal,
         occupied=occupied,

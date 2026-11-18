@@ -124,6 +124,9 @@ def associate_official(rows, tables, categories, manifest, observed_utc, redirec
                     result_checked_utc=checked.isoformat(),
                 )
             )
+        # Marks a row whose numeric ids, clock, status and score all agree with the
+        # current stored match; the opening check reads it for later result pages.
+        row["current_snapshot_verified"] = True
         for side in ("home", "away"):
             links[row[side]].add(str(match[f"{side}_team_id"]))
             proof_links[row[side]].append(proof)

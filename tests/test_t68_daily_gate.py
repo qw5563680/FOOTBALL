@@ -741,3 +741,65 @@ def current_replay(facts, code, section, root, *, held_only=False):
 
         return _held_reconciliation(facts, code, section, root)
     return _current_replay(facts, code, section, root)
+
+
+def _later_fixture(facts, *, score=(2, 0)):
+    """A stored current-season JC fixture played after the fixed twelve-month catalogue."""
+    official = dict(
+        facts["official"][0],
+        match_id="jc:21",
+        kickoff_utc="2026-11-06T12:00:00Z",
+        match_date="2026-11-06",
+        score=list(score),
+        status="finished",
+        provenance=[dict(path="state/catalogue/supplement/jc/2026-11/2026-11-06-p1.json")],
+    )
+    facts["matches"].append(
+        dict(
+            facts["matches"][0],
+            match_id="jc:21",
+            counterpart_id="apif:11",
+            kickoff_utc="2026-11-06T12:00:00Z",
+        )
+    )
+    facts["apif"].append(
+        dict(facts["apif"][0], match_id="apif:11", kickoff_utc="2026-11-06T12:00:00Z", score=[2, 0])
+    )
+    return official
+
+
+def test_stored_fixture_after_the_catalogue_needs_a_later_official_page(facts):
+    _later_fixture(facts)
+    result = gate(facts)
+    assert (result["matches"]["total"], result["matches"]["linked"]) == (2, 1)
+    assert result["matches"]["unresolved"] == [
+        dict(jc_id="jc:21", provider_match_id=None, reason="stored_current_jc_original_missing")
+    ]
+    assert "current_season_fixtures_unresolved" in result["blockers"]
+
+
+def test_later_official_page_is_the_original_of_a_stored_current_fixture(facts):
+    facts["later_official"] = [_later_fixture(facts)]
+    result = gate(facts)
+    assert result["matches"]["total"] == result["matches"]["linked"] == 2
+    assert result["matches"]["unresolved"] == []
+    assert "current_season_fixtures_unresolved" not in result["blockers"]
+    # It is not a second census: the twelve-month team denominator is unchanged.
+    assert result["teams"]["total"] == 2
+
+
+@pytest.mark.parametrize("problem", ["score", "disagree", "other_competition", "not_stored"])
+def test_later_official_page_cannot_link_what_it_does_not_prove(facts, problem):
+    row = _later_fixture(facts, score=(9, 9) if problem == "score" else (2, 0))
+    rows = [row]
+    if problem == "disagree":
+        rows.append(dict(row, home_source_id=row["away_source_id"]))
+    if problem == "other_competition":
+        row["competition_id"] = "999"
+    if problem == "not_stored":
+        row["match_id"] = "jc:22"
+    facts["later_official"] = rows
+    result = gate(facts)
+    assert result["matches"]["linked"] == 1
+    assert [r["jc_id"] for r in result["matches"]["unresolved"]] == ["jc:21"]
+    assert "current_season_fixtures_unresolved" in result["blockers"]
