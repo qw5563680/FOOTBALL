@@ -12,7 +12,7 @@ from zucai import identity_binding_archive as reader
 from zucai import identity_categories
 from zucai import jc_catalogue_kickoffs as kickoffs
 from zucai.cloud_feeds import TABLES
-from zucai.identity_binding import replay
+from zucai.identity_binding import _utc, replay
 
 FIXTURES = Path(__file__).parents[1] / "data/fixtures"
 CAPTURED = "2026-11-14T01:00:00Z"
@@ -253,14 +253,31 @@ def test_apif_placeholder_clock_is_not_precise(archive, status):
     path = archive / "state/catalogue/backfill/backfill/api-football/day/fixtures_one.json"
     doc = json.loads(path.read_bytes())
     doc["response"][0]["fixture"]["status"]["short"] = status
-    raw(
-        archive,
-        path.relative_to(archive),
-        doc,
-        "https://v3.football.api-sports.io/fixtures?league=48&season=2026",
-    )
+    url = "https://v3.football.api-sports.io/fixtures?league=48&season=2026"
+    raw(archive, path.relative_to(archive), doc, url)
     seal(archive)
-    assert load(archive)["apif"][0]["kickoff_utc"] is None
+    row = load(archive)["apif"][0]
+    assert row["kickoff_utc"] is None
+    # The only fixture of a season that ended before the capture keeps the whole-season window.
+    assert "possible_start_utc" not in row and "unplayed_at_capture_utc" not in row
+    # With the season still running at capture time, the unplayed fixture can only kick off
+    # after that capture, so it no longer blocks fixtures that finished before it.
+    later = json.loads(json.dumps(doc["response"][0]))
+    later["fixture"].update(id=later["fixture"]["id"] + 1, date="2026-12-01T12:00:00+00:00")
+    later["fixture"]["timestamp"] = int(
+        datetime.fromisoformat(later["fixture"]["date"]).timestamp()
+    )
+    later["fixture"]["status"]["short"] = "NS"
+    later["teams"]["home"]["id"], later["teams"]["away"]["id"] = 9001, 9002
+    doc["response"].append(later)
+    doc["results"] = 2
+    raw(archive, path.relative_to(archive), doc, url)
+    seal(archive)
+    row = next(r for r in load(archive)["apif"] if r["raw_status"] == status)
+    assert row["kickoff_utc"] is None
+    assert row["possible_start_utc"] == CAPTURED
+    assert row["possible_end_utc"] == row["coverage"]["end_utc"]
+    assert _utc(row["possible_end_utc"]) > _utc(CAPTURED)
 
 
 def test_real_reader_replays_are_byte_identical_and_register_every_item(archive):

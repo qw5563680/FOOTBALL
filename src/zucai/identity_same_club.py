@@ -36,7 +36,13 @@ def official_witness(facts):
     stamps = {code: [row[0] for row in rows] for code, rows in ordered.items()}
     games = defaultdict(list)
     for row in facts.get("official", []):
-        if not row.get("kickoff_utc") or row.get("clock_conflict"):
+        # A cancelled official fixture was never played: the provider has no record of it,
+        # so it is neither a witness nor a gap (postponed winter rounds are listed this way).
+        if (
+            not row.get("kickoff_utc")
+            or row.get("clock_conflict")
+            or row.get("status") == "cancelled"
+        ):
             continue
         for side in ("home", "away"):
             official = row.get(f"{side}_source_id")
@@ -118,18 +124,103 @@ def official_witness(facts):
         if claimed and not entry["reasons"]:
             entry["provider_team_id"] = claimed
         entry["reasons"] = sorted(set(entry["reasons"]))
+    _opponent_witness(result, facts, ordered, stamps)
     return result
+
+
+OPPONENT_BASIS_REASONS = {"fewer_than_min_official_matches", "missing_home_or_away_witness"}
+
+
+def _opponent_witness(result, facts, ordered, stamps):
+    """Second layer for a team with too few official matches of its own.
+
+    Every one of its official matches must be pinned by the opponent: exactly one
+    provider fixture in the window has the opponent's own first-layer provider id on
+    the opposite side, with the same regular-time score. The team's id is then the
+    other side of those fixtures, the same one every time. It depends on the listed
+    opponents and never on a name.
+    """
+    first = {o: e["provider_team_id"] for o, e in result.items() if e["provider_team_id"]}
+    taken = set(first.values())
+    scores = {
+        row["match_id"]: row.get("score")
+        for row in facts.get("apif", [])
+        if row.get("regular_time_basis", "regular") == "regular"
+    }
+    official = defaultdict(list)
+    for row in facts.get("official", []):
+        if row.get("kickoff_utc") and not row.get("clock_conflict"):
+            if row.get("status") != "cancelled":
+                for side in ("home", "away"):
+                    official[str(row.get(f"{side}_source_id"))].append((row, side))
+    found = {}
+    for team, entry in result.items():
+        if entry["provider_team_id"] or not entry["reasons"]:
+            continue
+        if not set(entry["reasons"]) <= OPPONENT_BASIS_REASONS:
+            continue
+        ids, witnesses, depends = set(), [], set()
+        for row, side in sorted(official[team], key=lambda item: item[0]["kickoff_utc"]):
+            other = "away" if side == "home" else "home"
+            opponent = first.get(str(row.get(f"{other}_source_id")))
+            code, kickoff = str(row["competition_id"]), _instant(row["kickoff_utc"])
+            window = ordered.get(code, [])[
+                bisect_left(stamps.get(code, []), kickoff - WINDOW) : bisect_right(
+                    stamps.get(code, []), kickoff + WINDOW
+                )
+            ]
+            mine, theirs = (1, 2) if side == "home" else (2, 1)
+            pinned = {c[3]: c for c in window if opponent and c[theirs] == opponent}
+            if (
+                len(pinned) != 1
+                or row.get("score") is None
+                or list(scores.get(next(iter(pinned))) or []) != list(row["score"])
+            ):
+                ids = set()
+                break
+            fixture = next(iter(pinned.values()))
+            ids.add(fixture[mine])
+            depends.add(str(row.get(f"{other}_source_id")))
+            witnesses.append(
+                dict(
+                    match_id=row["match_id"],
+                    provider_match_id=fixture[3],
+                    kickoff_utc=kickoff.isoformat(),
+                    side=side,
+                    opponent_official_team_id=str(row.get(f"{other}_source_id")),
+                    opponent_provider_team_id=opponent,
+                    score=list(row["score"]),
+                )
+            )
+        if len(ids) == 1 and not ids & taken:
+            found[team] = (next(iter(ids)), witnesses, sorted(depends))
+    claimed = defaultdict(list)
+    for team, (provider, _, _) in found.items():
+        claimed[provider].append(team)
+    for team, (provider, witnesses, depends) in found.items():
+        if len(claimed[provider]) == 1:
+            result[team].update(
+                provider_team_id=provider,
+                witnesses=witnesses,
+                layer=2,
+                depends_on=depends,
+                first_layer_reasons=result[team]["reasons"],
+                reasons=[],
+            )
 
 
 def witness_summary(entry):
     """The part of a witness that is shown in a verdict and frozen in a decision."""
-    return dict(
+    summary = dict(
         matches=entry["matches"],
         covered=entry["covered"],
         home_witnesses=entry["home_witnesses"],
         away_witnesses=entry["away_witnesses"],
         witnesses=entry["witnesses"],
     )
+    if entry.get("layer") == 2:
+        summary.update(layer=2, depends_on=entry["depends_on"])
+    return summary
 
 
 def link_decision(team, verdict, tables, *, evidence, canonical, json_text):

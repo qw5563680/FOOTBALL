@@ -349,3 +349,40 @@ def test_index_only_route_supplies_its_registered_country():
         index={"508": [{"provider_team_id": "102", "evidence_status": "strict_verified"}]},
     )
     assert verdict["status"] == "new"
+
+
+def test_registered_fdorg_placeholder_no_longer_blocks_creation(tmp_path, monkeypatch):
+    """A placeholder row whose fdorg id has a verified alias entry is a known club."""
+    import json
+
+    from zucai.sources import fdorg_verify
+
+    facts = _fd_only_facts()
+    facts["teams"]["project-team:9"]["name"] = "fdorg:team:680"
+    tables = {
+        "matches": [
+            {"source": "fdorg", "league": "候选联赛", "home_team_id": 9, "away_team_id": 8}
+        ],
+        "results": [],
+    }
+    configs = {"48": {"league": "英联赛杯"}, "999": {"league": "候选联赛"}}
+    countries = {"48": "England", "999": "England"}
+    index = {"508": [{"provider_team_id": "102", "evidence_status": "strict_verified"}]}
+    path = tmp_path / "fdorg-aliases.json"
+    monkeypatch.setattr(fdorg_verify, "DEFAULT_ALIASES", path)
+
+    def verdict(aliases):
+        path.write_text(json.dumps(aliases, ensure_ascii=False))
+        return _unit(facts=facts, tables=tables, configs=configs, countries=countries, index=index)[
+            "status"
+        ]
+
+    assert verdict({}) == "pending_review"
+    for status in ("approved", "auto_verified"):
+        entry = {"canonical": "已知球队", "status": status}
+        assert verdict({"候选联赛": {"680": entry}}) == "new"
+        # Another id, another league or an unapproved entry does not vouch for this row.
+        assert verdict({"候选联赛": {"681": entry}}) == "pending_review"
+        assert verdict({"别的联赛": {"680": entry}}) == "pending_review"
+    proposed = {"canonical": "已知球队", "status": "proposed"}
+    assert verdict({"候选联赛": {"680": proposed}}) == "pending_review"
