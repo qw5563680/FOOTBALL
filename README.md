@@ -25,7 +25,7 @@ SHA256、带时区的 fetched_at_utc）。原件缺失、请求范围不一致�
 - `stats ingest-fd`：九个主联赛季文件，每次一份 CSV，保存到已有 fd 比赛或经精确核验的竞彩比赛；不新建身份、不解析国别文件或赔率。T48 的额外统计关联保留原有 fdorg counterpart。
 - `stats replay-fd`：按显式清单定向重放已归档 CSV；先校验全部原件、sidecar 哈希和真实捕获时间，再逐文件事务处理。绕过历史调度的 ok 游标，不请求网络，也不修改游标。
 - `stats link`：以正式球队 ID 别名和同联赛季、主客、开球 ±3 小时的一对一证据建立索引；冲突写 `state/audit/stats_link_audit.csv`。
-- `stats ingest-apif`：按 `--endpoint statistics|events|lineups|players` 分别回放；先用已归档 fixtures 页建立索引，导入时仍用该页核对所属比赛及 FT/AET 状态。
+- `stats ingest-apif`：按 `--endpoint statistics|statistics_half|events|lineups|players` 分别回放；`statistics_half` 读取带 `half=true` 的原件，只写半场表 `match_half_stats`（T75 步骤 A，仅离线、尚未进入归档与采集）；先用已归档 fixtures 页建立索引，导入时仍用该页核对所属比赛及 FT/AET 状态。
 - `stats ingest-injuries`：离线回放伤停季页；默认全部标历史回填。只有原本的日常原件才加 `--daily`，且只有抓取早于开球的条目可记赛前捕获。未关联的记录保留空身份并写审计，不创建球队。
 - `--raw-location`：离线回放时可标注长期原件归档地址；上传由 T32 云端批次统一处理。
 

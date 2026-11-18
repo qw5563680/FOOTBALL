@@ -24,6 +24,7 @@ def test_cli_initializes_all_tables_without_losing_existing_rows(tmp_path, monke
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert tables == {
             "match_stats",
+            "match_half_stats",
             "match_events",
             "match_lineups",
             "match_injuries",

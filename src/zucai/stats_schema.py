@@ -7,6 +7,7 @@ from zucai.models import (
     Base,
     FdStatsLink,
     MatchEvent,
+    MatchHalfStat,
     MatchInjury,
     MatchLineup,
     MatchStat,
@@ -33,5 +34,6 @@ def migrate_stats(engine):
                 )
         connection.exec_driver_sql("BEGIN IMMEDIATE")
         Base.metadata.create_all(
-            connection, tables=[model.__table__ for model in (*STATS_MODELS, FdStatsLink)]
+            connection,
+            tables=[model.__table__ for model in (*STATS_MODELS, FdStatsLink, MatchHalfStat)],
         )

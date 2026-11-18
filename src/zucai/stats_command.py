@@ -57,7 +57,7 @@ def add_stats_parser(sub):
             else:
                 item.add_argument(
                     "--endpoint",
-                    choices=("statistics", "events", "lineups", "players"),
+                    choices=("statistics", "statistics_half", "events", "lineups", "players"),
                     required=True,
                 )
                 item.add_argument(

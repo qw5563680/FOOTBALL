@@ -218,6 +218,28 @@ class MatchStat(TechnicalProvenance, Base):
     unit: Mapped[str]
 
 
+class MatchHalfStat(TechnicalProvenance, Base):
+    """First/second-half statistics, kept apart from the full-time `match_stats` versions."""
+
+    __tablename__ = "match_half_stats"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_fixture_id", "endpoint", "record_key", "version"),
+        UniqueConstraint("provider", "provider_fixture_id", "endpoint", "record_key", "raw_sha256"),
+        CheckConstraint("provider = 'apif' AND endpoint = 'statistics_half'"),
+        CheckConstraint("side IN ('home', 'away')"),
+        CheckConstraint("version > 0 AND length(raw_sha256) = 64"),
+        CheckConstraint("period_basis IN ('1h', '2h')"),
+        CheckConstraint("extra_time_included = 0 AND eligible_90 = 0"),
+        CheckConstraint("availability_basis IN ('backfilled', 'captured')"),
+        CheckConstraint("availability_basis <> 'backfilled' OR available_utc IS NULL"),
+    )
+
+    stat_key: Mapped[str]
+    raw_value: Mapped[object | None] = mapped_column(JSON)
+    value: Mapped[float | None]
+    unit: Mapped[str]
+
+
 class MatchEvent(TechnicalProvenance, Base):
     __tablename__ = "match_events"
     __table_args__ = _technical_constraints()

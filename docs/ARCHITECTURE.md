@@ -454,6 +454,14 @@ T59 不加数据库表。新增可选的归档目录
 
 ### T31 技术数据附属表
 
+T75 步骤 A 新增 `match_half_stats`（半场统计）。它不并入 `match_stats`：`features/stats.py` 按「比赛、球队、统计项」取
+`match_stats` 的最新版本，半场行混入会被当成全场值的新版本。来源是带 `half=true` 的 `fixtures/statistics` 响应里的
+`statistics_1h` / `statistics_2h` 两组，同一响应的全场一组只用于校验：整数计数项上下半场相加必须等于全场，xG 相加与全场之差
+不超过 0.02，否则整场拒收并写审计；空值照存为空，不补值。响应没有半场两组时不生成行，审计记「无半场数据」。
+只接受 90 分钟完赛（FT）的比赛。只追加、按原件哈希去重的版本规则与 `match_stats` 相同。
+**当前只有离线入库命令会写这张表；它尚未进入 feeds 归档与行分片，导出遇到非空的 `match_half_stats` 会拒绝执行**
+（步骤 B 纳入归档，步骤 C 接入采集）。`stats migrate` 与 `init_db` 都会创建它。
+
 T48 新增 `fd_stats_links`：`provider_fixture_id` 主键、`match_id` 唯一外键，保存
 div/season/league、原件开球、原始主客名称与规范球队 ID、真实 captured_utc、原件 SHA256/位置、
 正式别名快照哈希和逐次原件观察证据。只建立统计附着，不修改 `matches.counterpart_id`，不创建球队或比赛。
@@ -476,6 +484,7 @@ captured_utc 和长期 raw_location。先检查全部清单，再逐原件事务
 | 表 | 内容与逻辑身份 |
 | --- | --- |
 | `match_stats` | fd / apif 每场每侧每指标；`stat_key`、原始 JSON 标量 `raw_value`、数值 `value`、`unit` |
+| `match_half_stats` | T75 步骤 A：apif 每场每侧每个半场每指标，列与 `match_stats` 相同；`endpoint` 固定 `statistics_half`，`period_basis` 只取 `1h` / `2h`，`eligible_90` 与 `extra_time_included` 恒为假，`record_key` 为 `<1h或2h>:<home或away>:<stat_key>` |
 | `match_events` | apif 事件；type/detail、elapsed/extra、player/assist ID；完整原事件与规范 `value`（含 total_minute） |
 | `match_lineups` | apif 阵容团队记录、首发、替补、逐场球员统计；用 endpoint 区分 lineups/players，role 区分 team/start/bench/player_stats；formation、minutes/rating/position、`captured_before_kickoff`，完整 raw/value JSON 保留教练和其余字段 |
 | `apif_fixture_index` | 数字 fixture ID → 一个既有 match_id；联赛/赛季、开球、两侧供应商 ID 与规范 team_id、正式别名来源及其规范化内容哈希；fixture ID 和 match_id 两侧唯一 |
