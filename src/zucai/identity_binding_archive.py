@@ -772,18 +772,33 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
     # Official result pages archived after the fixed twelve-month catalogue (the daily
     # supplement): they never extend the proposal census, but the opening check may read
     # them as the official original of a stored current-season fixture.
+    # One contradicting observation of a fixture disqualifies every page of that fixture:
+    # a rejected stored original (wrong date, unsettled, missing ids, unverified head) or a
+    # result-page row that does not agree with the current stored match.
+    later_conflicts = defaultdict(set)
+    for issue in stored_issues:
+        later_conflicts[issue["match_id"]].update(issue.get("reasons") or [issue.get("reason")])
+    for row in stored_identities:
+        if not row["identity_only"] and not row.get("current_snapshot_verified"):
+            later_conflicts[row["match_id"]].add("later_official_page_differs_from_stored_match")
     later_official = [
         dict(row, competition_id=league_codes.get(row["league"]))
         for row in stored_identities
         if not row["identity_only"]
         and row.get("current_snapshot_verified")
         and row["match_id"] not in catalogue_ids
+        and row["match_id"] not in later_conflicts
         and row["league"] in league_codes
     ]
     return dict(
         apif=apif,
         official=official,
         later_official=later_official,
+        later_official_conflicts={
+            mid: sorted(str(reason) for reason in reasons)
+            for mid, reasons in sorted(later_conflicts.items())
+            if mid not in catalogue_ids
+        },
         teams=teams,
         formal=formal,
         occupied=occupied,

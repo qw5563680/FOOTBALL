@@ -788,6 +788,22 @@ def test_later_official_page_is_the_original_of_a_stored_current_fixture(facts):
     assert result["teams"]["total"] == 2
 
 
+def test_contradicted_later_page_keeps_the_fixture_unresolved_with_its_reason(facts):
+    facts["later_official"] = [_later_fixture(facts)]
+    facts["later_official_conflicts"] = {"jc:21": ["stored_official_date_conflict"]}
+    result = gate(facts)
+    assert result["matches"]["linked"] == 1
+    assert result["matches"]["unresolved"] == [
+        dict(
+            jc_id="jc:21",
+            provider_match_id=None,
+            reason="stored_current_jc_original_conflict",
+            conflicts=["stored_official_date_conflict"],
+        )
+    ]
+    assert "current_season_fixtures_unresolved" in result["blockers"]
+
+
 @pytest.mark.parametrize("problem", ["score", "disagree", "other_competition", "not_stored"])
 def test_later_official_page_cannot_link_what_it_does_not_prove(facts, problem):
     row = _later_fixture(facts, score=(9, 9) if problem == "score" else (2, 0))

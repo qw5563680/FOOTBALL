@@ -300,8 +300,13 @@ def _facts_coverage(facts, code):
     # official original in a later archived result page. One page row per fixture, or
     # several that agree; anything else stays unresolved.
     later = defaultdict(list)
+    contradicted = facts.get("later_official_conflicts", {})
     for row in facts.get("later_official", []):
-        if row["competition_id"] == code and row["match_id"] in scope["match_ids"]:
+        if (
+            row["competition_id"] == code
+            and row["match_id"] in scope["match_ids"]
+            and row["match_id"] not in contradicted
+        ):
             later[row["match_id"]].append(row)
     known = {r["match_id"] for r in official}
     for mid, rows in sorted(later.items()):
@@ -312,9 +317,10 @@ def _facts_coverage(facts, code):
             )
     linked, unresolved = [], []
     for mid in sorted(set(scope["match_ids"]) - {r["match_id"] for r in official}):
-        unresolved.append(
-            dict(jc_id=mid, provider_match_id=None, reason="stored_current_jc_original_missing")
-        )
+        entry = dict(jc_id=mid, provider_match_id=None, reason="stored_current_jc_original_missing")
+        if mid in contradicted:
+            entry.update(reason="stored_current_jc_original_conflict", conflicts=contradicted[mid])
+        unresolved.append(entry)
     for row in official:
         stored = matches.get(row["match_id"], {})
         counterpart = stored.get("counterpart_id")
