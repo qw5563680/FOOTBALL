@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "data/fixtures/t14/apif.json"
 DAILY_CODES = "98 292 188 113 103 244 119 253 169 3 848".split()
 # T68 opens reviewed routes one by one: opening check ready_for_review plus owner approval.
-OPENED_CODES = ["307"]
+OPENED_CODES = ["79", "307"]
 # The review listed 62 unique IDs despite its original heading saying 60.
 NEW_CODES = (
     "79 89 99 307 41 235 80 95 114 104 293 45 81 48 101 137 66 143 102 90 46 "
