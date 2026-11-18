@@ -408,3 +408,22 @@ Actions 运行 44234217021，主干 `5ca2469`，03:59–04:02 UTC，成功，0 �
 
 合并后须经所有者同意再触发 `operation=reconcile`、`options={"canonical_approvals": true}`（`leagues` 留空，0 次请求）。
 实现者在数据分支 `a62e920` 的副本上按正式入口演练：创建 2 队、关联 7 队、已存在 22 队、来源独有球队创建 4 队；球队数 6,913 → 6,912。
+
+### 荷乙第一步执行结果与第二批数据（2026-11-18）
+
+所有者 15:54 UTC 同意后触发 Actions 运行 44341057810（`operation=reconcile`、`canonical_approvals`，0 次请求，约 3 分钟，成功）：
+创建 2 队（芬洛 7069、埃因 7070）、关联 7 队、已存在 22 队、来源独有球队创建 4 队（7071–7074）；数据分支 `a62e920` → `db5bcf2`；
+球队数 6,913 → 6,912；`state/teams.jsonl` 与 `state/matches.jsonl` 和事前演练逐字节相同。
+
+第二批（本节对应的数据 PR）含两项，不触发任何运行：
+
+- 队名对照：`data/team_aliases/football_data_co_uk.json` 荷甲登记 7 个英文名对应的中文名；`data/team_aliases/api_football.json`
+  荷甲 7 条既有条目的规范名改为中文（417 瓦尔韦克、419 阿尔梅勒、208 埃门、203 布雷达、416 福伦丹、200 维迪斯、206 赫拉克勒），
+  `approval_pr` 追加本 PR。库里这 7 支球队已在第一步改用中文名，这里只是让别名表跟上。
+- `data/team_aliases/api_football.json` 新增「荷乙」一栏 23 条绑定，范围只限荷乙：
+  19 条来自主干程序 `identity_binding --leagues 89` 在 `db5bcf2` 上的严格通过提案（见证共 166 场）；
+  4 条预备队（411、418、425、428，类别 reserve）引用第一步写下的回执 `state/audit/apif_provider_only_identities.csv`。
+  本赛季荷乙 20 支球队都在这 23 支之内；另 3 支（威廉二世、海牙、坎布尔）上赛季在荷乙。
+
+实现者在 `db5bcf2` 的副本上演练范围合并（`feeds scoped-reconcile --leagues 89`，请求被整体拦截）：重定向比赛 4,052 场、审计决定 23 条、
+竞彩关联 0、待人工 0；比赛总数 148,257 不变。合并后须经所有者同意再触发 `operation=reconcile`、`leagues=89`（0 次请求）。

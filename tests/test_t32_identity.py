@@ -104,7 +104,10 @@ def database(tmp_path):
 def test_exact_45_owner_approved_aliases_and_narrow_fd_alias():
     expected = read(FIX / "identity_approved.json")
     followup = read(FIX / "followup_approvals.json")
-    renames = read(FIX / "t68_same_club_renames.json")
+    rename_batches = [
+        read(FIX / "t68_same_club_renames.json"),
+        read(FIX / "t68_same_club_renames_heyi.json"),
+    ]
     aliases = read(ALIASES_PATH)
     assert sum(map(len, expected["approved"].values())) == 45
     for league, records in expected["approved"].items():
@@ -121,15 +124,21 @@ def test_exact_45_owner_approved_aliases_and_narrow_fd_alias():
                 original.update(
                     canonical=correction, approval_pr=[APPROVAL, followup["approval_pr"]]
                 )
-            renamed = renames["changed_apif"].get(league, {}).get(pid)
-            if renamed:
-                links = original["approval_pr"]
-                links = [links] if isinstance(links, str) else links
-                original.update(canonical=renamed, approval_pr=[*links, renames["approval_pr"]])
+            for renames in rename_batches:
+                renamed = renames["changed_apif"].get(league, {}).get(pid)
+                if renamed:
+                    links = original["approval_pr"]
+                    links = [links] if isinstance(links, str) else links
+                    original.update(canonical=renamed, approval_pr=[*links, renames["approval_pr"]])
             assert aliases[league][pid] == original
     for pid in expected["unapproved_missing_from_formal"]:
         if not any(pid in records for records in followup["new_apif"].values()):
-            assert all(pid not in records for records in aliases.values())
+            # A later T68 binding of the same provider id is a separate, league-scoped
+            # approval with its own evidence; this batch still approved none of them.
+            assert all(
+                pid not in records or "binding_scope" in records[pid]
+                for records in aliases.values()
+            )
     assert read(ROOT / "data/team_aliases/football_data_co_uk.json")["荷甲"]["Den Haag"] == dict(
         canonical="海牙",
         status="approved",
