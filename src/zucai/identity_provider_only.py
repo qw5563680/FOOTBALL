@@ -182,6 +182,7 @@ def _approval(decision):
         or not category.endswith("/reserve")
         or not isinstance(decision.get("provider_labels"), list)
         or not decision["provider_labels"]
+        or not isinstance(decision.get("approved_utc"), str)
     ):
         raise ValueError("来源独有球队的批准记录不完整或格式无效")
     if _utc(decision["approved_utc"]) > datetime.now(UTC):
