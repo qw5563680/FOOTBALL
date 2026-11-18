@@ -10,8 +10,6 @@ from zucai.scoreboard.sfc import prior_group_text, read_settled
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
 from zucai.sfc_reports import read_reports
 
-PICK_NINE_HEADING = "### 任九 · 模型单选"
-
 
 def section(archive, feed, summary, now, link, *, pending_history=None):
     reports = resolve_publications(
@@ -38,32 +36,24 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
         if issue.get("sale_end_utc") and _timestamp(issue["sale_end_utc"]) > now
     ]
     visible = open_states or [max(states, key=lambda item: item[1]["issue_no"])]
-    # The period that closes first comes first. With several periods on sale each one gets
-    # its own heading, and its pick-nine block names the period, so that a pick-nine block
-    # is never read together with the next period's fixture table.
+    # Strictly one period at a time (owner's rule, 2026-11-19): of the periods on sale only
+    # the one that closes first is shown. A later period appears once this one has closed;
+    # until then it is only named, so its fixtures are never read as the current ones.
     ordered = sorted(
         visible, key=lambda item: (item[1].get("sale_end_utc") or "", item[1]["issue_no"])
     )
-    several = len(ordered) > 1
-    if several:
-        listed = "、".join(
-            f"{issue['issue_no']}（{_beijing(issue['sale_end_utc'])} 截止）" for _, issue in ordered
+    name, issue = ordered[0]
+    if len(ordered) > 1:
+        later = "、".join(
+            f"{other['issue_no']}（{_beijing(other['sale_end_utc'])} 截止）"
+            for _, other in ordered[1:]
         )
         lines += [
-            f"当前有 {len(ordered)} 期在售：{listed}。"
-            "下面按截止先后逐期列出，每期各有自己的 14 场表和任九表，对阵互不相同。",
+            f"本期：{issue['issue_no']}（{_beijing(issue['sale_end_utc'])} 截止）。"
+            f"后面还有已开售的 {later}，等本期截止后再展示。",
             "",
         ]
-    for name, issue in ordered:
-        block = _issue_lines(name, issue, reports, settled, now, link)
-        if several:
-            number = issue["issue_no"]
-            block = [
-                f"#### 任九 · 模型单选（第 {number} 期）" if line == PICK_NINE_HEADING else line
-                for line in block
-            ]
-            block = [f"### 第 {number} 期", "", *block]
-        lines.extend(block)
+    lines.extend(_issue_lines(name, issue, reports, settled, now, link))
     return lines
 
 
