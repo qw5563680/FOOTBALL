@@ -692,8 +692,15 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
     stored_identities, stored_issues = frozen.stored_identities(tables)
     identity_rows.extend(stored_identities)
     issues.extend(stored_issues)
+    from zucai.identity_canonical import absorbed_team_redirects
+
     teams, identity_issues = associate_official(
-        identity_rows, tables, categories, manifest, frozen.observed_utc
+        identity_rows,
+        tables,
+        categories,
+        manifest,
+        frozen.observed_utc,
+        redirects=absorbed_team_redirects(root, tables),
     )
     issues.extend(identity_issues)
     from zucai.identity_categories import apply_team_exceptions
@@ -701,6 +708,8 @@ def load_archive(root, *, leagues=None, fd_raw_dir=None):
     apply_team_exceptions(apif, teams, registry)
     from zucai.identity_canonical import apply_created_identities
 
+    # Every receipt the redirects came from is fully re-verified here; any
+    # inconsistency raises, so a redirect never outlives a failed verification.
     apply_created_identities(root, teams, tables, manifest)
     by_project = defaultdict(set)
     for key, team in teams.items():

@@ -1027,7 +1027,10 @@ def main():
         document = json.loads(approvals.read_bytes())
         if document.get("version") != 1 or not isinstance(document.get("decisions"), list):
             raise ValueError("创建决定文件版本或 decisions 结构无效")
-        if not document["decisions"]:
+        link_decisions = document.get("link_decisions", [])
+        if not isinstance(link_decisions, list):
+            raise ValueError("创建决定文件 link_decisions 结构无效")
+        if not document["decisions"] and not link_decisions:
             canonical_result = dict(
                 operation="canonical-apply",
                 status="skipped",
@@ -1044,8 +1047,9 @@ def main():
                 "status": canonical_result["status"],
                 "run_id": args.run_id,
                 "created": canonical_result.get("created", 0),
+                "linked": canonical_result.get("linked", 0),
                 "already_applied": canonical_result.get("already_applied", 0),
-                "decisions": len(document["decisions"]),
+                "decisions": len(document["decisions"]) + len(link_decisions),
             }
         }
         summary_collection = "canonical_apply"
@@ -1449,8 +1453,9 @@ def main():
                 with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
                     summary.write(
                         f"### 规范身份创建：{result['status']}\n\n"
-                        f"决定 {len(document['decisions'])} 条；"
+                        f"决定 {len(document['decisions']) + len(link_decisions)} 条；"
                         f"创建 {result.get('created', 0)} 队；"
+                        f"关联既有球队 {result.get('linked', 0)} 队；"
                         f"已存在 {result.get('already_applied', 0)} 队。\n\n"
                     )
                     for receipt in result.get("records", []):
