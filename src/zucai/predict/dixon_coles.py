@@ -272,6 +272,59 @@ class DixonColes(Model):
         self.calibration_training_rows = len(probabilities)
         self.calibration_skipped_training_rows = len(eligible) - len(probabilities)
 
+    def team_strengths(self, home, away):
+        """Both sides' fitted attack and defence against the model's average team.
+
+        Index 100 is the average of the fitted teams; a higher number is the stronger side
+        of that skill (more goals scored / fewer conceded). Expected goals are the fixture's
+        own scoring rates from the same parameters as the forecast. A side the fit has not
+        seen carries the default-strength prior and is marked.
+        """
+        params = self.engine.get_params()
+        prior = getattr(self, "prior_parameters", {})
+        fitted = sorted(self.teams)
+        mean_attack = float(np.mean([params[f"attack_{team}"] for team in fitted]))
+        mean_defence = float(np.mean([params[f"defence_{team}"] for team in fitted]))
+
+        def side(team):
+            known = f"attack_{team}" in params
+            attack = float(params[f"attack_{team}"] if known else prior["attack"])
+            defence = float(params[f"defence_{team}"] if known else prior["defence"])
+            return attack, defence, known
+
+        home_attack, home_defence, home_known = side(home)
+        away_attack, away_defence, away_known = side(away)
+        grid = np.empty(15 * 15, dtype=np.float64)
+        home_rate, away_rate = np.empty(1), np.empty(1)
+        compute_dixon_coles_probabilities(
+            home_attack,
+            away_attack,
+            home_defence,
+            away_defence,
+            float(params["home_advantage"]),
+            0.0,
+            15,
+            grid,
+            home_rate,
+            away_rate,
+        )
+        values = dict(
+            method="dixon_coles_relative_to_fitted_average",
+            home_attack_index=100 * float(np.exp(home_attack - mean_attack)),
+            # penaltyblog's defence parameter grows with goals conceded: invert it.
+            home_defence_index=100 * float(np.exp(mean_defence - home_defence)),
+            away_attack_index=100 * float(np.exp(away_attack - mean_attack)),
+            away_defence_index=100 * float(np.exp(mean_defence - away_defence)),
+            home_expected_goals=float(home_rate[0]),
+            away_expected_goals=float(away_rate[0]),
+            home_default_strength=not home_known,
+            away_default_strength=not away_known,
+            fitted_teams=len(fitted),
+        )
+        if not all(isfinite(v) for v in values.values() if type(v) is float):
+            raise ValueError("拟合参数未产生有效的进攻/防守强度")
+        return values
+
     def _guarded_grid(self, home, away):
         """Constrain only this prediction's rho; never mutate fitted parameters.
 

@@ -325,6 +325,11 @@ def predict_batch(
         except (InsufficientHistory, ValueError) as exc:
             item["reason"] = str(exc)
             continue
+        try:
+            # Display only: a failure here must not cost the forecast itself.
+            strengths = model.team_strengths(item["home"], item["away"])
+        except (AttributeError, KeyError, ValueError):
+            strengths = None
         market = item["market_reference"]
         market_missing_reason = item["market_missing_reason"]
         if market_weight and market is None:
@@ -341,6 +346,7 @@ def predict_batch(
                 "model_probabilities": probs,
                 "score_matrix": grid.tolist(),
                 "metadata": metadata,
+                "team_strengths": strengths,
                 "top_scores": [
                     {"score": f"{h}:{a}", "probability": float(grid[h, a])}
                     for h, a in sorted(
