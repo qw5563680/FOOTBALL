@@ -40,7 +40,28 @@ def approved_fd_merges():
     return approved
 
 
-def _plan(session, old, target, league, source, canonical):
+def _plan_rename(session, old, leagues, source, canonical):
+    """No identity owns the canonical name yet: the fd identity itself takes that name.
+
+    Nothing is re-keyed: the row keeps its id, every match, every binding and every
+    technical row. The name may only change when each fd league the row serves has its
+    own owner-approved entry to the same canonical name.
+    """
+    lookup = _Teams(session, {})
+    if lookup.one(canonical) is not None:
+        raise ValueError("规范球队缺失或存在全局名称别名冲突")
+    if normalize_team(canonical) != canonical:
+        raise ValueError("规范名称未按队名规则归一")
+    if lookup.owners.get(normalize_team(source).casefold(), {}) != {old.id: old}:
+        raise ValueError("fd 原名称存在批准合并对以外的全局名称别名冲突")
+    served = {game.league for game in _references(session, old.id) if game.source == "fd"}
+    if served - leagues:
+        raise ValueError(
+            "原身份在未批准的联赛里还有 fd 比赛：" + "、".join(sorted(served - leagues))
+        )
+
+
+def _plan(session, old, target, leagues, source, canonical):
     lookup = _Teams(session, {})
     if target is None or lookup.one(canonical) is not target:
         raise ValueError("规范球队缺失或存在全局名称别名冲突")
@@ -55,13 +76,15 @@ def _plan(session, old, target, league, source, canonical):
     if old.aliases:
         raise ValueError("fd 原身份 aliases 非空")
     games = _references(session, old.id)
-    if any(game.source != "fd" or game.league != league for game in games):
+    # A club's fd history may sit in two tiers; each tier needs its own approved entry.
+    if any(game.source != "fd" or game.league not in leagues for game in games):
         raise ValueError("原身份被非 fd 或批准联赛以外的比赛引用")
     if any(target.id in (game.home_team_id, game.away_team_id) for game in games):
         raise ValueError("合并会导致主客身份相同")
-    existing = _references(session, target.id, league)
+    existing = [game for game in _references(session, target.id) if game.league in leagues]
     if any(
-        abs(_utc(game.kickoff_utc) - _utc(other.kickoff_utc)) <= WINDOW
+        game.league == other.league
+        and abs(_utc(game.kickoff_utc) - _utc(other.kickoff_utc)) <= WINDOW
         for game in games
         for other in existing
     ):
@@ -110,6 +133,7 @@ def reconcile_fd_aliases(database, run_id):
         merged_teams=0,
         rekeyed_matches=0,
         deleted_teams=0,
+        renamed_teams=0,
         rekeyed_stats=0,
         rekeyed_indices=0,
         skipped_conflicts=0,
@@ -143,13 +167,34 @@ def reconcile_fd_aliases(database, run_id):
                 ),
                 reason="",
             )
+            leagues = {
+                other
+                for (other, name), approval in approved.items()
+                if name == source and approval["canonical"] == canonical
+            }
+            rename = target is None and _Teams(session, {}).one(canonical) is None
             try:
-                games, technical, indices = _plan(session, old, target, league, source, canonical)
+                if rename:
+                    _plan_rename(session, old, leagues, source, canonical)
+                else:
+                    games, technical, indices = _plan(
+                        session, old, target, leagues, source, canonical
+                    )
             except ValueError as exc:
                 row["reason"] = str(exc)
                 report["status"] = "partial"
                 report["skipped_conflicts"] += 1
             else:
+                if rename:
+                    # Same row, same id: matches, bindings and technical rows are untouched.
+                    old.name = canonical
+                    if source not in old.aliases:
+                        old.aliases = [*old.aliases, source]
+                    session.flush()
+                    row.update(reason="renamed")
+                    report["renamed_teams"] += 1
+                    write_audit(audit, [row])
+                    continue
                 # All prechecks precede mutation. Match IDs, payloads and versions stay intact.
                 for game in games:
                     if game.home_team_id == old.id:
