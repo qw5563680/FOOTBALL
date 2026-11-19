@@ -23,7 +23,7 @@ from zucai.identity_pending import (
     load as load_pending_identities,
 )
 from zucai.models import Match, SfcIssue, Team
-from zucai.predict.base import model_sources
+from zucai.predict.base import fixture_sources
 from zucai.predict.model_definitions import (
     EXPERIMENTAL_LEAGUES,
     FROZEN_DEFINITION_FIELDS,
@@ -146,6 +146,21 @@ def _unmapped_reason(row, mapping_reason):
     return "尚无已核验的比赛对应关系"
 
 
+def own_fixture_note(rows):
+    """One line naming the rows whose fixture is the lottery list's own (T78)."""
+    seqs = [
+        str(row["seq"])
+        for row in rows
+        if (row.get("mapping_evidence") or {}).get("basis") == "sfc_own_fixture"
+    ]
+    if not seqs:
+        return ""
+    return (
+        f"第 {'、'.join(seqs)} 场：对阵与开球时间取自期次来源本身（第三方）。"
+        "竞彩未售，其他来源也没有这场赛程；两队按库内已有的球队身份对上，概率来自该联赛的球队模型。"
+    )
+
+
 def _budget(max_lines):
     if type(max_lines) is not int or not 1 <= max_lines <= 3**14:
         raise ValueError("注数上限须为1至4782969的整数")
@@ -211,7 +226,7 @@ def build_sfc_report(
     models = {
         (m["model_version"], source, league): m
         for m in batch["models"]
-        for source in model_sources(m)
+        for source in fixture_sources(m)
         for league in model_targets(m)
         if not m.get("pooled") or source == "jc"
     }
@@ -567,6 +582,8 @@ def _markdown(report):
         ]
         lines.append("|" + "|".join(_md(c) for c in columns) + "|")
     if note := prior_footnote(rows):
+        lines.extend(["", _md(note)])
+    if note := own_fixture_note(rows):
         lines.extend(["", _md(note)])
     eligible_sequences = {
         r["seq"] for r in rows if not uses_unknown_team_prior(r) and not identity_pending(r)

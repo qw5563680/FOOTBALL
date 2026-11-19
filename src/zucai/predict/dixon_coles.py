@@ -17,6 +17,7 @@ from penaltyblog.models.probabilities import compute_dixon_coles_probabilities
 from zucai.predict.base import (
     Model,
     availability_sources,
+    fixture_sources,
     model_sources,
     reject_cross_source_overlaps,
     utc,
@@ -186,7 +187,7 @@ class DixonColes(Model):
             raise ValueError("模型截点必须早于开球")
         if (
             not getattr(self, "pooled", False) and row.get("league", self.league) != self.league
-        ) or ("source" in row and row["source"] not in model_sources(self)):
+        ) or ("source" in row and row["source"] not in fixture_sources(self)):
             raise ValueError("联赛或数据来源与模型不一致")
         home, away = row["home"], row["away"]
         unknown = home not in self.teams or away not in self.teams

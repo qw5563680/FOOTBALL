@@ -10,6 +10,7 @@ from zucai.report.sfc import (
     OPTIONS,
     disclosed_rows,
     hit_line,
+    own_fixture_note,
     pick_nine_lines,
     unconfirmed_mapping_status,
 )
@@ -194,6 +195,8 @@ def _issue_lines(name, issue, reports, settled, now, link):
     if note := not_yet_note(rows, end, now):
         lines += [note, ""]
     if eligible and (note := prior_footnote(rows)):
+        lines.extend([_md(note), ""])
+    if eligible and (note := own_fixture_note(rows)):
         lines.extend([_md(note), ""])
     if combo:
         lines += [
