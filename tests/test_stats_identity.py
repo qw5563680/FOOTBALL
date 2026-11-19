@@ -170,7 +170,6 @@ def test_narrow_merge_preserves_evidence_counts_and_updates_all_team_refs(databa
 @pytest.mark.parametrize(
     "case",
     [
-        "missing_target",
         "old_alias",
         "global_source_alias",
         "global_target_alias",
@@ -185,9 +184,7 @@ def test_narrow_merge_preserves_evidence_counts_and_updates_all_team_refs(databa
 )
 def test_prechecks_reject_conflicts_before_any_identity_mutation(database, case):
     with sqlite3.connect(database) as connection:
-        if case == "missing_target":
-            connection.execute("UPDATE teams SET name='Other existing team' WHERE id=1")
-        elif case == "old_alias":
+        if case == "old_alias":
             connection.execute("UPDATE teams SET aliases='[\"unexpected\"]' WHERE id=10")
         elif case.startswith("global_"):
             alias = "Den Haag" if case == "global_source_alias" else "海牙"
@@ -402,3 +399,131 @@ def test_failure_rolls_back_database_and_restores_audit(
             event.remove(Session, "before_commit", fail_commit)
     assert database.read_bytes() == before
     assert (audit.read_bytes() if audit.exists() else None) == previous
+
+
+def _identity_rows(database):
+    with sqlite3.connect(database) as connection:
+        return dict(
+            teams=connection.execute("SELECT id, name, aliases FROM teams ORDER BY id").fetchall(),
+            matches=connection.execute(
+                "SELECT match_id, league, home_team_id, away_team_id FROM matches ORDER BY match_id"
+            ).fetchall(),
+            stats=connection.execute("SELECT match_id, team_id FROM match_stats").fetchall(),
+            index=connection.execute(
+                "SELECT match_id, home_team_id, away_team_id FROM apif_fixture_index ORDER BY 1"
+            ).fetchall(),
+        )
+
+
+def _audit(database):
+    with (database.parent / "state/audit" / AUDIT_NAME).open(encoding="utf-8") as stream:
+        return list(csv.DictReader(stream))
+
+
+def test_unowned_canonical_name_renames_the_fd_identity_in_place(database):
+    """No row owns the approved Chinese name: the fd row takes it, nothing is re-keyed."""
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE teams SET name='Other existing team' WHERE id=1")
+        # A cup binding and a non-fd cup match stay on the same row.
+        connection.execute("UPDATE teams SET aliases='[\"apif:cup:team:51\"]' WHERE id=10")
+        connection.execute(
+            "INSERT INTO matches(match_id,source,league,home_team_id,away_team_id,"
+            "kickoff_utc,status) "
+            "VALUES('apif:cup','apif','欧协联',10,2,'2024-09-01T12:00:00Z','finished')"
+        )
+    before = _identity_rows(database)
+    report = reconcile_fd_aliases(database, "rename")
+    assert (report["status"], report["renamed_teams"], report["merged_teams"]) == ("complete", 1, 0)
+    assert report["rekeyed_matches"] == report["deleted_teams"] == report["skipped_conflicts"] == 0
+    assert report["identity_redirects"] == []
+    after = _identity_rows(database)
+    assert {key: after[key] for key in ("matches", "stats", "index")} == {
+        key: before[key] for key in ("matches", "stats", "index")
+    }
+    teams = {row[0]: row for row in after["teams"]}
+    assert teams[10][1] == "海牙"
+    assert json.loads(teams[10][2]) == ["apif:cup:team:51", "Den Haag"]
+    assert {i: row for i, row in teams.items() if i != 10} == {
+        row[0]: row for row in before["teams"] if row[0] != 10
+    }
+    [row] = _audit(database)
+    assert (row["team_id"], row["canonical"], row["matches_rekeyed"], row["reason"]) == (
+        "Den Haag",
+        "海牙",
+        "0",
+        "renamed",
+    )
+    saved = database.read_bytes()
+    again = reconcile_fd_aliases(database, "retry")
+    assert again["renamed_teams"] == 0 and database.read_bytes() == saved
+    assert len(_audit(database)) == 1
+
+
+def test_rename_needs_an_approval_for_every_fd_league_the_identity_serves(database):
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE teams SET name='Other existing team' WHERE id=1")
+        connection.execute("UPDATE matches SET league='荷乙' WHERE match_id='fd:den-away'")
+    before = database.read_bytes()
+    report = reconcile_fd_aliases(database, "one-league-only")
+    assert (report["status"], report["renamed_teams"], report["skipped_conflicts"]) == (
+        "partial",
+        0,
+        1,
+    )
+    assert database.read_bytes() == before
+    assert "未批准的联赛里还有 fd 比赛：荷乙" in _audit(database)[0]["reason"]
+
+
+def _two_tier_aliases(tmp_path, monkeypatch):
+    from zucai import stats_identity
+
+    entry = json.loads((ROOT / "data/team_aliases/football_data_co_uk.json").read_text())["荷甲"][
+        "Den Haag"
+    ]
+    path = tmp_path / "two-tier.json"
+    path.write_text(
+        json.dumps({"荷甲": {"Den Haag": entry}, "荷乙": {"Den Haag": entry}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(stats_identity, "ALIASES_PATH", path)
+
+
+def test_history_in_two_approved_tiers_is_renamed_or_merged_together(
+    database, tmp_path, monkeypatch
+):
+    _two_tier_aliases(tmp_path, monkeypatch)
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE matches SET league='荷乙' WHERE match_id='fd:den-away'")
+        connection.execute(
+            "UPDATE apif_fixture_index SET league='荷乙' WHERE match_id='fd:den-away'"
+        )
+    report = reconcile_fd_aliases(database, "two-tier")
+    assert (report["status"], report["merged_teams"], report["rekeyed_matches"]) == (
+        "complete",
+        1,
+        2,
+    )
+    after = _identity_rows(database)
+    assert all(row[0] != 10 for row in after["teams"])
+    assert all(10 not in row[2:] for row in after["matches"])
+    # One audit row for the pair; the second approved league finds nothing left to do.
+    assert [row["reason"] for row in _audit(database)] == ["merged"]
+
+
+def test_same_time_fixture_in_the_other_tier_does_not_block_the_merge(
+    database, tmp_path, monkeypatch
+):
+    _two_tier_aliases(tmp_path, monkeypatch)
+    with sqlite3.connect(database) as connection:
+        kickoff = connection.execute(
+            "SELECT kickoff_utc FROM matches WHERE match_id='jc:den-existing'"
+        ).fetchone()[0]
+        connection.execute(
+            "UPDATE matches SET league='荷乙', kickoff_utc=? WHERE match_id='fd:den-away'",
+            (kickoff,),
+        )
+        connection.execute(
+            "UPDATE apif_fixture_index SET league='荷乙', kickoff_utc=? "
+            "WHERE match_id='fd:den-away'",
+            (kickoff,),
+        )
+    assert reconcile_fd_aliases(database, "other-tier")["merged_teams"] == 1
