@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 from datetime import date
@@ -33,6 +34,8 @@ from zucai.stats_schedule import (
     unsupported,
 )
 from zucai.stats_storage import ingest_apif, ingest_fd, link_archive
+
+LOG = logging.getLogger(__name__)
 
 
 def save_json(path, value):
@@ -437,6 +440,9 @@ def collect_batch(
             return report
         except Exception as exc:
             source.session.close()
+            # Name the kind of failure in the run log. Only the class name: the text of a
+            # request error can carry a signed download address.
+            LOG.warning("技术归档失败，错误类型：%s", type(exc).__name__)
             _copy_evidence(raw_root, database.parent / "raw")
             _copy_evidence(assets, database.parent / "stats_assets")
             report.update(
