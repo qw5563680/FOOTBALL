@@ -28,6 +28,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "data/fixtures/t66"
 SEED = json.loads((FIXTURES / "fd-apif-replay-seed.json").read_text())
 FD_ALIASES = json.loads((ROOT / "data/team_aliases/football_data_co_uk.json").read_text())
+# The replay seed froze 瑞超 on 2026-11-14, when football-data.co.uk's "Halmstad" had no
+# approved Chinese name. These scenarios are about exactly that state (an fd side whose
+# identity is still open), so they keep it as seeded; the name itself was approved later.
+FD_ALIASES["瑞超"].pop("Halmstad", None)
 APIF_ALIASES = json.loads((ROOT / "data/team_aliases/api_football.json").read_text())
 LEAGUES = provider_config("fd")
 SEEN = datetime(2026, 11, 14, 3, tzinfo=UTC)
