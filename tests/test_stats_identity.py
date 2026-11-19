@@ -540,3 +540,93 @@ def test_canonical_name_owned_by_several_identities_is_recorded_not_raised(datab
     assert report["skipped_conflicts"] == 1
     assert database.read_bytes() == before
     assert _audit(database)[0]["reason"] not in ("merged", "renamed")
+
+
+def _twin(
+    database, *, away=2, score=(2, 1), counterpart=None, opponent_binding=True, source="apif"
+):
+    """Store fd:den-home a second time under the Chinese identity, as another provider has it."""
+    with sqlite3.connect(database) as connection:
+        if opponent_binding:
+            connection.execute("UPDATE teams SET aliases='[\"apif:荷甲:team:999\"]' WHERE id=2")
+        connection.execute(
+            "INSERT INTO matches(match_id,source,league,home_team_id,away_team_id,kickoff_utc,"
+            "status,result_provider,counterpart_id) VALUES(?,?,'荷甲',1,?,"
+            "'2024-08-01T18:00:00.000000Z','finished',?,?)",
+            (f"{source}:777", source, away, source, counterpart),
+        )
+        if score is not None:
+            connection.execute(
+                "INSERT INTO results(match_id,home_goals,away_goals) VALUES(?,?,?)",
+                (f"{source}:777", *score),
+            )
+
+
+def test_a_game_both_providers_hold_is_linked_and_the_identities_merge(database):
+    """The club was split, so one game sits under each name: link the copies, keep both."""
+    _twin(database)
+    before = snapshot(database)
+    report = reconcile_fd_aliases(database, "twin")
+    assert (report["status"], report["merged_teams"], report["skipped_conflicts"]) == (
+        "complete",
+        1,
+        0,
+    )
+    assert report["linked_fixtures"] == 1
+    with sqlite3.connect(database) as connection:
+        rows = dict(
+            connection.execute(
+                "SELECT match_id, counterpart_id FROM matches WHERE match_id IN "
+                "('apif:777','fd:den-home')"
+            )
+        )
+        # The pointer the fd importer writes for one game in two providers; nothing else.
+        assert rows == {"apif:777": "fd:den-home", "fd:den-home": None}
+        assert connection.execute("SELECT COUNT(*) FROM teams WHERE id=10").fetchone()[0] == 0
+        from zucai.sources.fd_apif_counterpart import validate_apif_fd_links
+
+        validate_apif_fd_links(connection)
+    after = snapshot(database)
+    # No row, result or technical version is removed or rewritten: only the pointer differs.
+    assert {table: len(rows) for table, rows in after.items()} == {
+        table: len(rows) for table, rows in before.items()
+    }
+    assert after["results"] == before["results"]
+    assert [row["reason"] for row in _audit(database)] == ["merged"]
+
+
+def test_a_copy_whose_opponent_is_still_a_provider_placeholder_is_linked_too(database):
+    with sqlite3.connect(database) as connection:
+        connection.execute("INSERT INTO teams(id,name,aliases) VALUES(4,'apif:team:999','[]')")
+    _twin(database, away=4, opponent_binding=False)
+    report = reconcile_fd_aliases(database, "opaque")
+    assert (report["merged_teams"], report["linked_fixtures"]) == (1, 1)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT counterpart_id FROM matches WHERE match_id='apif:777'"
+        ).fetchone() == ("fd:den-home",)
+
+
+@pytest.mark.parametrize(
+    "twin",
+    [
+        dict(score=(3, 1)),  # the two providers disagree on the result
+        dict(score=None),  # the other copy has no result to compare
+        dict(away=3),  # the same hour against another opponent is a different game
+        dict(counterpart="fd:den-away"),  # the copy already points at another fixture
+        dict(opponent_binding=False),  # the importer's own rule would not link this pair
+        dict(source="fdorg"),  # only the API-Football copy is covered
+    ],
+)
+def test_anything_short_of_the_same_game_still_blocks_the_merge(database, twin):
+    _twin(database, **twin)
+    before = database.read_bytes()
+    report = reconcile_fd_aliases(database, "not-a-twin")
+    assert (report["status"], report["merged_teams"], report["linked_fixtures"]) == (
+        "partial",
+        0,
+        0,
+    )
+    assert report["skipped_conflicts"] == 1
+    assert database.read_bytes() == before
+    assert _audit(database)[0]["reason"] not in ("merged", "renamed")

@@ -6,10 +6,20 @@ from pathlib import Path
 
 from sqlalchemy import or_, select
 
-from zucai.models import ApifFixtureIndex, MatchEvent, MatchInjury, MatchLineup, MatchStat, Team
+from zucai.models import (
+    ApifFixtureIndex,
+    Match,
+    MatchEvent,
+    MatchInjury,
+    MatchLineup,
+    MatchStat,
+    Result,
+    Team,
+)
 from zucai.sources.apif_aliases import validate_approvals
 from zucai.sources.apif_ingest import _Teams
 from zucai.sources.apif_reconcile import _references, write_audit
+from zucai.sources.fd_apif_counterpart import FixtureIdentity, find_apif_candidate
 from zucai.sources.fd_ingest import WINDOW, normalize_team
 from zucai.sources.fd_verify import _utc
 from zucai.sources.football_data import ALIASES_PATH, read_json
@@ -61,6 +71,62 @@ def _plan_rename(session, old, leagues, source, canonical):
         )
 
 
+def _score(session, match_id):
+    result = session.get(Result, match_id)
+    return None if result is None else (result.home_goals, result.away_goals)
+
+
+def _same_game(session, old, target, source, game, other):
+    """Whether a stored fixture of the target is this fd game kept a second time.
+
+    The club was split in two, so the importer could not see that an API-Football row
+    and a football-data.co.uk row are one game. Once the identities are one, the pair
+    must pass the importer's own link rule (`find_apif_candidate`, checked here on the
+    identities as they will be), carry the same final score, and not be linked yet.
+    Anything else stays a conflict.
+    """
+    if other.source != "apif" or other.counterpart_id is not None or game.counterpart_id:
+        return False
+    scores = _score(session, game.match_id), _score(session, other.match_id)
+    if scores[0] is None or scores[0] != scores[1]:
+        return False
+
+    def after(team_id):
+        return target.id if team_id == old.id else team_id
+
+    when = _utc(game.kickoff_utc)
+    rows = [
+        FixtureIdentity(
+            row.match_id,
+            row.source,
+            row.league,
+            after(row.home_team_id),
+            after(row.away_team_id),
+            row.kickoff_utc,
+            row.counterpart_id,
+            row.result_provider,
+        )
+        for row in session.scalars(
+            select(Match).where(
+                or_(
+                    (Match.league == game.league)
+                    & Match.kickoff_utc.between(when - 2 * WINDOW, when + 2 * WINDOW),
+                    Match.counterpart_id == game.match_id,
+                )
+            )
+        )
+    ]
+    teams = [team for team in session.scalars(select(Team)) if team.id != old.id]
+    names = {team.id: team.name for team in teams}
+    aliases = {
+        team.id: [*team.aliases, source] if team.id == target.id else list(team.aliases)
+        for team in teams
+    }
+    fd = next(row for row in rows if row.match_id == game.match_id)
+    candidate = find_apif_candidate(fd, rows, names, aliases=aliases)
+    return candidate is not None and candidate.match_id == other.match_id
+
+
 def _plan(session, old, target, leagues, source, canonical):
     lookup = _Teams(session, {})
     if target is None or lookup.one(canonical) is not target:
@@ -82,12 +148,22 @@ def _plan(session, old, target, leagues, source, canonical):
     if any(target.id in (game.home_team_id, game.away_team_id) for game in games):
         raise ValueError("合并会导致主客身份相同")
     existing = [game for game in _references(session, target.id) if game.league in leagues]
-    if any(
-        game.league == other.league
-        and abs(_utc(game.kickoff_utc) - _utc(other.kickoff_utc)) <= WINDOW
-        for game in games
-        for other in existing
-    ):
+    twins = []
+    for game in games:
+        for other in existing:
+            if (
+                game.league != other.league
+                or abs(_utc(game.kickoff_utc) - _utc(other.kickoff_utc)) > WINDOW
+            ):
+                continue
+            # The same game stored once per provider is linked, not refused; every other
+            # fixture of the target that close in time remains a conflict.
+            if not _same_game(session, old, target, source, game, other):
+                raise ValueError("同联赛三小时内规范身份已有比赛")
+            twins.append((game, other))
+    if len({game.match_id for game, _ in twins}) != len(twins) or len(
+        {other.match_id for _, other in twins}
+    ) != len(twins):
         raise ValueError("同联赛三小时内规范身份已有比赛")
     by_id = {game.match_id: game for game in games}
     technical = []
@@ -119,7 +195,7 @@ def _plan(session, old, target, leagues, source, canonical):
             game.away_team_id,
         ):
             raise ValueError("技术数据索引与 fd 比赛身份不一致")
-    return games, technical, indices
+    return games, technical, indices, twins
 
 
 def reconcile_fd_aliases(database, run_id):
@@ -137,6 +213,7 @@ def reconcile_fd_aliases(database, run_id):
         rekeyed_stats=0,
         rekeyed_indices=0,
         skipped_conflicts=0,
+        linked_fixtures=0,
         identity_redirects=[],
     )
     with transaction(database, AUDIT_NAME) as (session, audit):
@@ -182,7 +259,7 @@ def reconcile_fd_aliases(database, run_id):
                 if rename:
                     _plan_rename(session, old, leagues, source, canonical)
                 else:
-                    games, technical, indices = _plan(
+                    games, technical, indices, twins = _plan(
                         session, old, target, leagues, source, canonical
                     )
             except ValueError as exc:
@@ -213,6 +290,10 @@ def reconcile_fd_aliases(database, run_id):
                         index.home_team_id = target.id
                     if index.away_team_id == old.id:
                         index.away_team_id = target.id
+                # The same pointer the fd importer writes when it recognises one game in
+                # both providers; neither row, result nor version is changed or removed.
+                for game, other in twins:
+                    other.counterpart_id = game.match_id
                 session.flush()
                 if _references(session, old.id):
                     raise ValueError("fd 合并后仍有比赛引用")
@@ -238,6 +319,7 @@ def reconcile_fd_aliases(database, run_id):
                     deleted_teams=1,
                     rekeyed_stats=len(technical),
                     rekeyed_indices=len(indices),
+                    linked_fixtures=len(twins),
                 ).items():
                     report[key] += count
             write_audit(audit, [row])
