@@ -33,6 +33,7 @@ from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
 from zucai.report.render import write_report
 from zucai.scoreboard.evidence import read_evidence
+from zucai.sfc_sequence import sequence
 from zucai.sources.sfc import refresh_snapshot
 from zucai.sources.sporttery import BEIJING
 
@@ -107,23 +108,35 @@ def _summary(archive, run):
 
 
 def open_national_fixtures(session, now):
-    """Include only unstarted, mapped Nations League fixtures from issues still open."""
+    """Unstarted, mapped lottery fixtures, whether or not JC sells them.
+
+    The 14-match forecast does not depend on the JC list (owner's rule, 2026-11-19): every
+    mapped fixture of the period whose turn it is becomes a forecast target on its own
+    Beijing kick-off day, in every run until the period closes. Nations League rows keep
+    their earlier scope (every issue still open). A period listed ahead of its turn adds
+    nothing.
+    """
     by_day = {}
+    known = [
+        dict(issue_no=issue.issue_no, sale_end_utc=issue.sale_end_utc)
+        for issue in session.scalars(select(SfcIssue))
+        if issue.sale_end_utc
+    ]
+    in_line = set(sequence(known, now)["in_line"])
     for issue in session.scalars(select(SfcIssue).where(SfcIssue.sale_end_utc > now)):
-        if not issue.snapshot or not any(
-            row.get("league") == NATIONS_LEAGUE for row in issue.snapshot
-        ):
+        if not issue.snapshot:
             continue
         if not issue.observed_utc or datetime.fromisoformat(issue.observed_utc) > now:
             continue
         for row in refresh_snapshot(session, issue):
             if (
-                row["league"] != NATIONS_LEAGUE
-                or row.get("source_ended")
+                row.get("source_ended")
                 or row.get("mapping") != "matched"
                 or not row.get("match_id")
                 or row.get("kickoff_basis") == "placeholder"
             ):
+                continue
+            if row["league"] != NATIONS_LEAGUE and issue.issue_no not in in_line:
                 continue
             kickoff = datetime.fromisoformat(row["kickoff_utc"])
             if kickoff > now:
