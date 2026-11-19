@@ -1751,6 +1751,12 @@ sync 另写 collection.jc（赛程处理数、赔率快照数、结果窗口数�
 换批保留旧历史，写失败恢复当前视图。每份清单验证JSON/MD/CSV原字节，
 引用的 T06 原件也核验；`sfc/** -text whitespace=cr-at-eol` 保留发布与恢复字节。
 
+**身份待核标记。** `data/identity_reviews/pending-identities.json` 列出「同一家俱乐部在库内还有另一个队名、尚未合并」的队名对
+（`canonical` 是竞彩中文名，`other` 是另一个库内队名）。生成 14 场报告时（`zucai.identity_pending`），如果某场比赛的一方在清单里，
+且另一个队名下还挂着**同一联赛**的比赛，该行写入 `identity_pending`（`{"home"|"away": {"name", "other"}}`），
+状态栏注明「身份待核」，并且不进入最高项置信度排序和任九模型单选。标记只读当前库，不改冻结预测、不改比赛和球队；
+两个身份合并后另一个队名不复存在，标记自动消失。它与「默认实力」互相独立：一方只有一两场历史时不会被标「默认实力」，但会被标「身份待核」。
+
 T39 新候选报告和manifest均记录 publication_schema=1、generated_utc（真正算完时刻）、sale_end_utc、
 published_utc=null、sale_state=deadline_unconfirmed、publication_commit/evidence=null。
 首次push后 `sfc_reports --confirm-publication` 从远程 data/football-feeds 可达的完整历史读取首次新增

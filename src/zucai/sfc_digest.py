@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 from zucai.digest_context import archived_sfc_issues
+from zucai.identity_pending import pending_label
 from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.report.render import BEIJING, _beijing, _md, _percent, _timestamp
 from zucai.report.sfc import OPTIONS, disclosed_rows, pick_nine_lines, unconfirmed_mapping_status
@@ -153,6 +154,8 @@ def _issue_lines(name, issue, reports, settled, now, link):
         reason = row.get("reason") or ("模型诊断" if p else "尚无冻结概率")
         note = prior_label(row)
         if note:
+            reason += f"；{note}"
+        if note := pending_label(row):
             reason += f"；{note}"
         if not p:
             if row.get("match_id") is None:
