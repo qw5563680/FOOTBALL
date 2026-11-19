@@ -158,7 +158,6 @@ zucai fetch fd --country JPN --from-season 2021 --to-season 2026 --assume-known-
 zucai stats migrate --db data/zucai.db  # 创建技术数据附属表与独立 fd 统计关联索引
 zucai stats restore-rows --db data/zucai.db --archive ../cloud-data --release stats-raw-202611  # 从清单恢复该月行表；省略 --release 恢复全部
 python -m zucai.predict.experiments.command --db data/zucai.db --out work/t33-run --source-commit <数据分支SHA>  # T33：恢复行表后离线实验，只读库，不接入每日预测
-python -m zucai.predict.experiments.prior_replay replay --db data/zucai.db --params data/model/params.json --out work/t76-rows.csv  # T76：小样本先验逐周回放（四个版本同场同截点），只读库、不联网；随后 `... prior_replay score --rows work/t76-rows.csv --out work/t76-score.json` 按 0 / 1–5 / 6–12 / 13+ 分段记分
 zucai stats ingest-fd --db data/zucai.db --div E0 --season 2425 --raw-file work/E0.csv
 zucai stats replay-fd --db work/isolated/feeds.db --plan work/fd-replay.json  # 仅重放已保存原件，不采集
 zucai stats ingest-injuries --db data/zucai.db --league 39 --season 2024 --raw-file work/injuries.json  # 离线历史季页，须有 sidecar
