@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from zucai.models import Match, Odds, Prediction, Team
-from zucai.predict.base import model_sources, utc
+from zucai.predict.base import fixture_sources, model_sources, utc
 from zucai.predict.derive import had, hafu
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 from zucai.predict.model_definitions import (
@@ -38,7 +38,7 @@ def _models(paths, as_of, params_file=None, *, allow_empty=False):
         sources = model_sources(model)
         keys = [
             (source, league)
-            for source in sources
+            for source in fixture_sources(model)
             for league in model_targets(model)
             if not getattr(model, "pooled", False) or source == "jc"
         ]

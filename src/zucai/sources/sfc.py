@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
@@ -114,7 +114,42 @@ def _preferred_candidate(candidates):
     return ordered[0]
 
 
-def _map_fixture(session, fixture, bridges, *, mapped_only=False):
+def _plays_in(session, team, league):
+    """The stored identity already has a fixture of this league from a regular source."""
+    return (
+        session.scalar(
+            select(Match.match_id)
+            .where(
+                Match.league == league,
+                Match.source != "c500",
+                or_(Match.home_team_id == team.id, Match.away_team_id == team.id),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _own_fixture_allowed(session, fixture, bridge, home, away, candidates):
+    """Whether the lottery row itself may stand as the fixture (T78).
+
+    Only when no regular source has the fixture: JC does not sell it (no ID bridge), no
+    stored fixture matches, and both printed teams are stored identities that already play
+    in this league. No team is ever created and no name is guessed here.
+    """
+    return (
+        not bridge
+        and not candidates
+        and fixture.league != NATIONS_LEAGUE
+        and home is not None
+        and away is not None
+        and home.id != away.id
+        and _plays_in(session, home, fixture.league)
+        and _plays_in(session, away, fixture.league)
+    )
+
+
+def _map_fixture(session, fixture, bridges, *, mapped_only=False, own_fixtures=False):
     own_id = "c500:" + fixture.fixture_id
     own = session.get(Match, own_id)
     bridge = bridges.get(fixture.fixture_id)
@@ -213,6 +248,21 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
     # adding an ID link must not rename/merge teams or invent a JC match.
     own_home = (_find_team(session, fixture.home) or home) if own else home
     own_away = (_find_team(session, fixture.away) or away) if own else away
+    if (
+        own
+        and own_fixtures
+        and own.source == "c500"
+        and own.status == "scheduled"
+        and own.league == fixture.league
+        and own_home is not None
+        and own_away is not None
+        and (own.home_team_id, own.away_team_id) == (own_home.id, own_away.id)
+        and datetime.fromisoformat(own.kickoff_utc) != fixture.kickoff_utc
+    ):
+        # The list moved the kick-off of its own fixture: follow the source at collection.
+        own.kickoff_utc = fixture.kickoff_utc
+        session.flush()
+        session.refresh(own)
     if own and (
         own.league != fixture.league
         or datetime.fromisoformat(own.kickoff_utc) != fixture.kickoff_utc
@@ -241,6 +291,32 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
     if preferred is not None:
         return preferred, "matched", [m.match_id for m in candidates], evidence
     if mapped_only:
+        allowed = _own_fixture_allowed(session, fixture, bridge, home, away, candidates)
+        if own is None and own_fixtures and allowed:
+            own = Match(
+                match_id=own_id,
+                source="c500",
+                status="scheduled",
+                league=fixture.league,
+                home_team_id=home.id,
+                away_team_id=away.id,
+                kickoff_utc=fixture.kickoff_utc,
+            )
+            session.add(own)
+            session.flush()
+            session.refresh(own)
+        if own is not None and own.source == "c500" and allowed:
+            names = (
+                evidence.get("names") if evidence["basis"] == "approved_club_short_names" else None
+            )
+            evidence = {
+                "basis": "sfc_own_fixture",
+                "home_id": fixture.home_id,
+                "away_id": fixture.away_id,
+            }
+            if names:
+                evidence["names"] = names
+            return own, "matched", [], evidence
         return (
             None,
             "ambiguous" if candidates else "unmatched",
@@ -310,14 +386,32 @@ def _conflict_evidence(session, fixture, bridge, error):
     )
 
 
-def _snapshot_rows(session, issue, bridge_map, *, mapped_only, bridge_conflicts=()):
+def _placeholder(issue, fixture):
+    """A midnight kick-off on a day of its own: the source has not printed the time yet."""
+    local = fixture.kickoff_utc.astimezone(BEIJING)
+    return local.time().isoformat() == "00:00:00" and any(
+        f.kickoff_utc.astimezone(BEIJING).date() != local.date()
+        for f in issue.fixtures
+        if f.seq != fixture.seq
+    )
+
+
+def _snapshot_rows(
+    session, issue, bridge_map, *, mapped_only, bridge_conflicts=(), own_fixtures=False
+):
     snapshot = []
     for fixture in issue.fixtures:
+        placeholder = _placeholder(issue, fixture)
         try:
             if fixture.fixture_id in bridge_conflicts:
                 raise ValueError(f"{fixture.fixture_id} 新旧比赛ID对照冲突，须人工核对")
             match, mapping, candidates, evidence = _map_fixture(
-                session, fixture, bridge_map, mapped_only=mapped_only
+                session,
+                fixture,
+                bridge_map,
+                mapped_only=mapped_only,
+                # Never from a placeholder time: the fixture would carry a made-up kick-off.
+                own_fixtures=own_fixtures and not placeholder,
             )
         except UnknownSfcTeam as exc:
             # An unreviewed identity leaves one row unresolved, including manual imports.
@@ -339,12 +433,10 @@ def _snapshot_rows(session, issue, bridge_map, *, mapped_only, bridge_conflicts=
                 evidence["previous_bridge"] = bridge_conflicts[fixture.fixture_id]
             candidates = [c["match_id"] for c in evidence["candidate_identities"]]
         source_time = fixture.kickoff_utc.isoformat()
-        local = fixture.kickoff_utc.astimezone(BEIJING)
-        placeholder = local.time().isoformat() == "00:00:00" and any(
-            f.kickoff_utc.astimezone(BEIJING).date() != local.date()
-            for f in issue.fixtures
-            if f.seq != fixture.seq
-        )
+        if mapped_only and match is not None and match.source == "c500" and placeholder:
+            # An own fixture stored earlier does not stand while its time is a placeholder.
+            # (The manual local import keeps its earlier behaviour: it archives every row.)
+            match, mapping = None, "unmatched"
         if fixture.league == NATIONS_LEAGUE and placeholder:
             match, mapping = None, "unmatched"
         kickoff = _iso(match.kickoff_utc) if match else source_time
@@ -481,6 +573,7 @@ def ingest_issue(
     raw_sha256: str,
     bridges=(),
     mapped_only=False,
+    own_fixtures=False,
 ):
     if observed.utcoffset() is None:
         raise ValueError("采集时间必须有时区")
@@ -523,7 +616,12 @@ def ingest_issue(
         if current is None:
             bridge_map[fid] = dict(saved, reused_from_issue_snapshot=True)
     snapshot = _snapshot_rows(
-        session, issue, bridge_map, mapped_only=mapped_only, bridge_conflicts=bridge_conflicts
+        session,
+        issue,
+        bridge_map,
+        mapped_only=mapped_only,
+        bridge_conflicts=bridge_conflicts,
+        own_fixtures=own_fixtures,
     )
     if (
         len(snapshot) != 14
@@ -715,6 +813,8 @@ def collect_current_sfc(db):
                     raw_sha256=hashlib.sha256(issue_raw).hexdigest(),
                     bridges=bridges,
                     mapped_only=True,
+                    # T78: a row no regular source carries stands as its own fixture.
+                    own_fixtures=True,
                 )
                 unmatched = [
                     dict(

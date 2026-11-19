@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import time
 import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,6 +15,9 @@ import requests
 from zucai.sources.base import _atomic_write
 
 TAG = r"(?:stats-raw|experiments)-[0-9]{4}(?:0[1-9]|1[0-2])"
+# Waits (seconds) before repeating a call that failed at connection level (reset, timeout).
+# An HTTP answer, whatever its status, is never repeated.
+RETRY_WAITS = (2, 5, 10)
 NAME = r"[A-Za-z0-9][A-Za-z0-9_.-]*"
 
 
@@ -70,6 +74,10 @@ class ReleaseHttpError(requests.HTTPError):
         super().__init__(self.summary)
 
 
+class _UploadInterrupted(Exception):
+    """The connection failed while an upload body was being sent (cause: the request error)."""
+
+
 class ReleaseStore:
     """Only github.com repositories and GitHub's API/upload hosts receive credentials."""
 
@@ -93,7 +101,7 @@ class ReleaseStore:
         self.session = session or requests.Session()
         self.base = f"https://api.github.com/repos/{repository}"
 
-    def _request(self, method, url, **kwargs):
+    def _request(self, method, url, *, retry=True, **kwargs):
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.username or parsed.password:
             raise ValueError("Release URL 无效")
@@ -104,10 +112,24 @@ class ReleaseStore:
             headers.pop("Authorization", None)
         # Request-level auth/header overrides also suppress a caller-supplied session token.
         headers.setdefault("Authorization", None)
-        response = self.session.request(
-            method, url, headers=headers, auth=(), allow_redirects=False, timeout=120, **kwargs
-        )
-        return response
+        # Only a read is repeated here: it changes nothing, so asking again is safe. An
+        # upload body is a consumed stream; upload() repeats its whole checked procedure.
+        waits = RETRY_WAITS if method == "GET" and retry else ()
+        for wait in (*waits, None):
+            try:
+                return self.session.request(
+                    method,
+                    url,
+                    headers=headers,
+                    auth=(),
+                    allow_redirects=False,
+                    timeout=120,
+                    **kwargs,
+                )
+            except requests.RequestException:
+                if wait is None:
+                    raise
+                time.sleep(wait)
 
     def _raise_for_status(self, response):
         if 400 <= response.status_code < 600:
@@ -141,10 +163,28 @@ class ReleaseStore:
             page += 1
 
     def _download_asset(self, asset, dest):
+        # A transfer cut off half-way starts again from the asset's own address; the caller
+        # still verifies the hash of whatever arrives.
+        for wait in (*RETRY_WAITS, None):
+            try:
+                return self._download_once(asset, dest)
+            except ReleaseHttpError:
+                raise
+            except requests.RequestException:
+                if wait is None:
+                    raise
+                time.sleep(wait)
+        raise AssertionError("unreachable")
+
+    def _download_once(self, asset, dest):
         url = f"{self.base}/releases/assets/{int(asset['id'])}"
         for _ in range(6):
             response = self._request(
-                "GET", url, headers={"Accept": "application/octet-stream"}, stream=True
+                "GET",
+                url,
+                retry=False,
+                headers={"Accept": "application/octet-stream"},
+                stream=True,
             )
             if response.status_code in {301, 302, 303, 307, 308}:
                 url = response.headers["Location"]
@@ -161,6 +201,22 @@ class ReleaseStore:
         raise ValueError("Release 下载重定向过多")
 
     def upload(self, tag: str, path: Path) -> dict:
+        """Upload one immutable asset; a connection-level failure repeats the whole procedure.
+
+        Each attempt lists the Release again first, so an upload that did arrive before the
+        connection dropped is recognised by name, size and hash and is not sent twice. A
+        same-name asset with another hash stays a refusal: nothing is overwritten or deleted.
+        """
+        for wait in (*RETRY_WAITS, None):
+            try:
+                return self._upload_once(tag, path)
+            except _UploadInterrupted as interrupted:
+                if wait is None:
+                    raise interrupted.__cause__ from None
+                time.sleep(wait)
+        raise AssertionError("unreachable")
+
+    def _upload_once(self, tag: str, path: Path) -> dict:
         path = Path(path)
         if path.is_symlink() or not path.is_file():
             raise ValueError("Release 上传需要普通文件")
@@ -181,13 +237,16 @@ class ReleaseStore:
         if urlparse(url).netloc != "uploads.github.com" or not url.startswith("https://"):
             raise ValueError("Release 上传地址无效")
         with path.open("rb") as stream:
-            response = self._request(
-                "POST",
-                url,
-                params={"name": path.name},
-                data=stream,
-                headers={"Content-Type": "application/octet-stream"},
-            )
+            try:
+                response = self._request(
+                    "POST",
+                    url,
+                    params={"name": path.name},
+                    data=stream,
+                    headers={"Content-Type": "application/octet-stream"},
+                )
+            except requests.RequestException as exc:
+                raise _UploadInterrupted from exc
         self._raise_for_status(response)
         asset = response.json()
         if asset.get("name") != want["name"] or asset.get("size") != want["size"]:

@@ -37,6 +37,24 @@ def model_sources(model) -> list[str]:
     return sorted(sources)
 
 
+# A fixture taken from the 14-match lottery list itself (T78): it names two stored teams,
+# a league and a kick-off, and carries no results, statistics or prices of its own.
+SFC_FIXTURE_SOURCE = "c500"
+
+
+def fixture_sources(model) -> list[str]:
+    """Sources whose fixtures a model may forecast.
+
+    Its training sources, and for a single-league model also the lottery list's own
+    fixtures. Training is untouched: such a fixture never enters any training frame.
+    """
+    sources = model_sources(model)
+    pooled = model.get("pooled") if isinstance(model, Mapping) else getattr(model, "pooled", False)
+    if pooled or SFC_FIXTURE_SOURCE in sources:
+        return sources
+    return [*sources, SFC_FIXTURE_SOURCE]
+
+
 def reject_cross_source_overlaps(frame: pd.DataFrame) -> None:
     """Reject known canonical fixtures duplicated across any training feeds."""
     selected = frame.loc[frame.source.isin(("jc", "fd", "fdorg"))]

@@ -255,7 +255,9 @@ def test_resume_and_repeat_zero_requests_keep_rows_and_base_facts(batch):
 
 
 @pytest.mark.parametrize("failure", ["stats-raw-", "stats-rows-", "SHA256SUMS-one"])
-def test_archive_failure_rolls_back_database_audits_cursor_but_preserves_quota(batch, failure):
+def test_archive_failure_rolls_back_database_audits_cursor_but_preserves_quota(
+    batch, failure, caplog
+):
     database, archive, release, _ = batch
     release.fail = failure
     before = database.read_bytes()
@@ -273,6 +275,10 @@ def test_archive_failure_rolls_back_database_audits_cursor_but_preserves_quota(b
     assert json.loads((database.parent / "state/api_football_quota.json").read_bytes())["used"] == 2
     assert archive_info(archive)["collection"]["stats"]["archive_failed"]
     assert list((database.parent / "raw").rglob("*.meta.json"))
+    # The run log names the kind of failure and nothing else from the error.
+    logged = [r.getMessage() for r in caplog.records if r.name == "zucai.stats_batch"]
+    assert len(logged) == 1 and logged[0].startswith("技术归档失败，错误类型：")
+    assert logged[0].removeprefix("技术归档失败，错误类型：").isidentifier()
 
 
 def test_release_http_failure_is_persisted_with_status_and_safe_response(batch):

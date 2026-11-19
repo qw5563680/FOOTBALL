@@ -199,3 +199,136 @@ def test_create_and_upload_are_verified_with_api_digest(tmp_path):
     )
     result = ReleaseStore("owner/repo", "secret").upload("stats-raw-202611", path)
     assert result == dict(tag="stats-raw-202611", name="rows.zst", sha256=sha, size=5)
+
+
+def _quiet(monkeypatch):
+    waits = []
+    monkeypatch.setattr("zucai.stats_release.time.sleep", waits.append)
+    return waits
+
+
+@responses.activate
+def test_a_dropped_read_is_asked_again_and_an_http_answer_is_not(tmp_path, monkeypatch):
+    from zucai.stats_release import RETRY_WAITS, ReleaseHttpError, ReleaseStore
+
+    waits = _quiet(monkeypatch)
+    tag = "https://api.github.com/repos/owner/repo/releases/tags/stats-raw-202611"
+    responses.get(tag, body=requests.ConnectionError("reset"))
+    responses.get(tag, body=requests.ReadTimeout("slow"))
+    responses.get(tag, json={"id": 1})
+    responses.get("https://api.github.com/repos/owner/repo/releases/1/assets", json=[])
+    store = ReleaseStore("owner/repo", "private-token")
+    with pytest.raises(ValueError, match="缺失"):
+        store.download("stats-raw-202611", "rows.zst", tmp_path / "rows")
+    assert waits == list(RETRY_WAITS[:2])
+    # A status answer is final: one call, no wait.
+    waits.clear()
+    responses.replace(responses.GET, tag, status=503, body="busy")
+    before = len(responses.calls)
+    with pytest.raises(ReleaseHttpError):
+        store.download("stats-raw-202611", "rows.zst", tmp_path / "rows")
+    assert len(responses.calls) == before + 1 and waits == []
+
+
+@responses.activate
+def test_a_read_that_keeps_failing_gives_up_with_the_network_error(tmp_path, monkeypatch):
+    from zucai.cloud_apis import failure_reason
+    from zucai.stats_release import RETRY_WAITS, ReleaseStore
+
+    waits = _quiet(monkeypatch)
+    tag = "https://api.github.com/repos/owner/repo/releases/tags/stats-raw-202611"
+    responses.get(tag, body=requests.ConnectionError("reset"))
+    with pytest.raises(requests.ConnectionError) as caught:
+        ReleaseStore("owner/repo", "t").download("stats-raw-202611", "rows.zst", tmp_path / "r")
+    assert waits == list(RETRY_WAITS) and len(responses.calls) == len(RETRY_WAITS) + 1
+    assert failure_reason(caught.value) == "网络请求失败"
+
+
+def _release_with(assets):
+    root = "https://api.github.com/repos/owner/repo/releases"
+    upload = "https://uploads.github.com/repos/owner/repo/releases/1/assets"
+    responses.get(root + "/tags/stats-raw-202611", json={"id": 1, "upload_url": upload})
+    for listing in assets:
+        responses.get(root + "/1/assets", json=listing)
+    return upload
+
+
+@responses.activate
+def test_an_interrupted_upload_is_sent_again_from_the_start(tmp_path, monkeypatch):
+    from zucai.stats_release import RETRY_WAITS, ReleaseStore
+
+    waits = _quiet(monkeypatch)
+    path = tmp_path / "rows.zst"
+    path.write_bytes(b"payload")
+    sha = hashlib.sha256(b"payload").hexdigest()
+    upload = _release_with([[], []])
+    responses.post(upload, body=requests.ConnectionError("reset"))
+    responses.post(upload, json={"name": "rows.zst", "size": 7, "digest": "sha256:" + sha})
+    got = ReleaseStore("owner/repo", "t").upload("stats-raw-202611", path)
+    assert got == dict(tag="stats-raw-202611", name="rows.zst", sha256=sha, size=7)
+    posts = [c for c in responses.calls if c.request.method == "POST"]
+    # The second attempt sends the whole file again, not the tail of a consumed stream.
+    assert len(posts) == 2 and waits == [RETRY_WAITS[0]]
+    body = posts[1].request.body
+    assert (body if isinstance(body, bytes) else body.read()) == b"payload"
+
+
+@responses.activate
+def test_an_upload_that_arrived_before_the_drop_is_recognised_not_resent(tmp_path, monkeypatch):
+    from zucai.stats_release import ReleaseStore
+
+    _quiet(monkeypatch)
+    path = tmp_path / "rows.zst"
+    path.write_bytes(b"payload")
+    sha = hashlib.sha256(b"payload").hexdigest()
+    arrived = [{"id": 2, "name": "rows.zst", "size": 7, "digest": "sha256:" + sha}]
+    upload = _release_with([[], arrived])
+    responses.post(upload, body=requests.ReadTimeout("no receipt"))
+    assert ReleaseStore("owner/repo", "t").upload("stats-raw-202611", path)["sha256"] == sha
+    assert sum(c.request.method == "POST" for c in responses.calls) == 1
+
+
+@responses.activate
+def test_a_half_arrived_upload_stays_a_refusal_and_nothing_is_deleted(tmp_path, monkeypatch):
+    from zucai.stats_release import ReleaseStore
+
+    _quiet(monkeypatch)
+    path = tmp_path / "rows.zst"
+    path.write_bytes(b"payload")
+    broken = [{"id": 2, "name": "rows.zst", "size": 3, "digest": "sha256:" + "0" * 64}]
+    upload = _release_with([[], broken])
+    responses.post(upload, body=requests.ConnectionError("reset"))
+    with pytest.raises(ValueError, match="collision"):
+        ReleaseStore("owner/repo", "t").upload("stats-raw-202611", path)
+    assert {c.request.method for c in responses.calls} == {"GET", "POST"}
+
+
+@responses.activate
+def test_an_upload_that_keeps_failing_gives_up_with_the_network_error(tmp_path, monkeypatch):
+    from zucai.cloud_apis import failure_reason
+    from zucai.stats_release import RETRY_WAITS, ReleaseStore
+
+    waits = _quiet(monkeypatch)
+    path = tmp_path / "rows.zst"
+    path.write_bytes(b"payload")
+    upload = _release_with([[]])
+    responses.post(upload, body=requests.ConnectionError("reset"))
+    with pytest.raises(requests.ConnectionError) as caught:
+        ReleaseStore("owner/repo", "t").upload("stats-raw-202611", path)
+    assert waits == list(RETRY_WAITS) and failure_reason(caught.value) == "网络请求失败"
+    assert sum(c.request.method == "POST" for c in responses.calls) == len(RETRY_WAITS) + 1
+
+
+@responses.activate
+def test_a_download_cut_off_half_way_starts_again(tmp_path, monkeypatch):
+    from zucai.stats_release import RETRY_WAITS, ReleaseStore
+
+    waits = _quiet(monkeypatch)
+    root = "https://api.github.com/repos/owner/repo/releases"
+    responses.get(root + "/tags/stats-raw-202611", json={"id": 1})
+    responses.get(root + "/1/assets", json=[{"id": 2, "name": "rows.zst"}])
+    responses.get(root + "/assets/2", body=requests.exceptions.ChunkedEncodingError("cut"))
+    responses.get(root + "/assets/2", body=b"payload")
+    store = ReleaseStore("owner/repo", "t")
+    assert store.download("stats-raw-202611", "rows.zst", tmp_path / "r").read_bytes() == b"payload"
+    assert waits == [RETRY_WAITS[0]]

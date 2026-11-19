@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from zucai.predict.base import model_sources
+from zucai.predict.base import fixture_sources, model_sources
 from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, HAFU_TIER_LABELS
 from zucai.predict.model_definitions import (
     FROZEN_DEFINITION_FIELDS,
@@ -96,7 +96,7 @@ def _validate_prediction_definition(prediction, models, *, definition_schema=Non
         and prediction.get("league") in model_targets(model)
         and (
             prediction.get("status") == "excluded"
-            or prediction.get("source") in model_sources(model)
+            or prediction.get("source") in fixture_sources(model)
         )
     ]
     compatible = [model for model in models if prediction.get("league") in model_targets(model)]
@@ -244,7 +244,7 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
                 for m in batch["models"]
                 if m["model_version"] == prediction["model_version"]
                 and prediction["league"] in model_targets(m)
-                and prediction["source"] in model_sources(m)
+                and prediction["source"] in fixture_sources(m)
                 and (not m.get("pooled") or prediction["source"] == "jc")
             ]
             if (
