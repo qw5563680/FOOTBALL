@@ -172,7 +172,12 @@ def reconcile_fd_aliases(database, run_id):
                 for (other, name), approval in approved.items()
                 if name == source and approval["canonical"] == canonical
             }
-            rename = target is None and _Teams(session, {}).one(canonical) is None
+            try:
+                # A canonical name owned by several identities is a conflict to record,
+                # not a rename: the ordinary plan below reports it for this pair only.
+                rename = target is None and _Teams(session, {}).one(canonical) is None
+            except ValueError:
+                rename = False
             try:
                 if rename:
                     _plan_rename(session, old, leagues, source, canonical)

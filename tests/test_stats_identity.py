@@ -527,3 +527,16 @@ def test_same_time_fixture_in_the_other_tier_does_not_block_the_merge(
             (kickoff,),
         )
     assert reconcile_fd_aliases(database, "other-tier")["merged_teams"] == 1
+
+
+def test_canonical_name_owned_by_several_identities_is_recorded_not_raised(database):
+    """Two other rows both carry the Chinese name as an alias: skip this pair, keep the batch."""
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE teams SET name='Other existing team' WHERE id=1")
+        connection.execute("UPDATE teams SET aliases='[\"海牙\"]' WHERE id IN (1, 2)")
+    before = database.read_bytes()
+    report = reconcile_fd_aliases(database, "ambiguous")
+    assert (report["status"], report["renamed_teams"], report["merged_teams"]) == ("partial", 0, 0)
+    assert report["skipped_conflicts"] == 1
+    assert database.read_bytes() == before
+    assert _audit(database)[0]["reason"] not in ("merged", "renamed")

@@ -13,6 +13,15 @@ from pathlib import Path
 from sqlalchemy import select
 
 from zucai.db import get_engine, init_db, session_scope
+from zucai.identity_pending import (
+    identity_pending,
+    pending_footnote,
+    pending_label,
+    pending_sides,
+)
+from zucai.identity_pending import (
+    load as load_pending_identities,
+)
 from zucai.models import Match, SfcIssue, Team
 from zucai.predict.base import model_sources
 from zucai.predict.model_definitions import (
@@ -205,9 +214,11 @@ def build_sfc_report(
         for league in model_targets(m)
         if not m.get("pooled") or source == "jc"
     }
+    pending_pairs = load_pending_identities()
     for row in rows:
         mapping_reason = row.get("reason") or row.get("mapping", "unmatched")
         row.update(probabilities=None, reason=None, top_outcome=None, selection=None)
+        row.pop("identity_pending", None)
         predicted = predictions.get(row["match_id"])
         if predicted:
             row.update(
@@ -231,6 +242,12 @@ def build_sfc_report(
             league=match.league,
             kickoff_utc=match.kickoff_utc,
         )
+        # Marked from the current identities, whatever the forecast state: the
+        # frozen forecast itself is never changed.
+        if pending := pending_sides(
+            session, pending_pairs, match.league, current["home"], current["away"]
+        ):
+            row["identity_pending"] = pending
         if any(current[k] != identity[k] for k in ("home", "away", "source", "league")) or (
             _timestamp(current["kickoff_utc"]) != _timestamp(identity["kickoff_utc"])
         ):
@@ -358,7 +375,13 @@ def build_sfc_report(
         confidence_order=[
             r["seq"]
             for r in sorted(
-                (r for r in rows if r["probabilities"] and not uses_unknown_team_prior(r)),
+                (
+                    r
+                    for r in rows
+                    if r["probabilities"]
+                    and not uses_unknown_team_prior(r)
+                    and not identity_pending(r)
+                ),
                 key=lambda r: -max(r["probabilities"].values()),
             )
         ],
@@ -411,7 +434,7 @@ def _prior_diagnostics(rows, *, explain=True):
 def _row_reason(row, default, *, export=False):
     reason = row.get("reason") or default
     note = prior_export_label(row) if export else prior_label(row)
-    return "；".join(part for part in (reason, note) if part)
+    return "；".join(part for part in (reason, note, pending_label(row)) if part)
 
 
 def unconfirmed_mapping_status(row):
@@ -425,6 +448,10 @@ def pick_nine_lines(report, *, prior_explained=False):
     lines = ["### 任九 · 模型单选", ""]
     rows = disclosed_rows(report) if report else []
     lines += _prior_diagnostics(rows, explain=not prior_explained)
+    if waiting := [row for row in rows if identity_pending(row)]:
+        lines += ["### 身份待核", ""]
+        lines += [f"- 第 {row['seq']} 场：{_md(pending_label(row))}。" for row in waiting]
+        lines += ["", _md(pending_footnote(waiting)), ""]
     if not report or report.get("sale_state") != "published_before_deadline":
         return lines + ["未确认报告在截止前发布，本期不展示任九方案。", ""]
     if report.get("mode") != "prematch":
@@ -434,6 +461,7 @@ def pick_nine_lines(report, *, prior_explained=False):
         for row in rows
         if row.get("probabilities")
         and not uses_unknown_team_prior(row)
+        and not identity_pending(row)
         and row.get("kickoff_basis") != "placeholder"
         and _timestamp(report["published_utc"]) < _timestamp(row["kickoff_utc"])
     ]
@@ -516,7 +544,9 @@ def _markdown(report):
         lines.append("|" + "|".join(_md(c) for c in columns) + "|")
     if note := prior_footnote(rows):
         lines.extend(["", _md(note)])
-    eligible_sequences = {r["seq"] for r in rows if not uses_unknown_team_prior(r)}
+    eligible_sequences = {
+        r["seq"] for r in rows if not uses_unknown_team_prior(r) and not identity_pending(r)
+    }
     confidence_order = [seq for seq in report["confidence_order"] if seq in eligible_sequences]
     lines += [
         "",
