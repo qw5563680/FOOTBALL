@@ -162,7 +162,7 @@ def test_existing_jc_counterpart_cannot_bypass_national_fixture_clock_or_orienta
     engine.dispose()
 
 
-def test_digest_shows_concurrent_open_issues_before_higher_closed_issue(tmp_path):
+def test_digest_shows_the_open_issue_in_turn_not_a_higher_closed_or_later_one(tmp_path):
     import json
 
     from zucai.sfc_digest import section
@@ -183,7 +183,9 @@ def test_digest_shows_concurrent_open_issues_before_higher_closed_issue(tmp_path
     text = "\n".join(
         section(tmp_path, {"files": files}, {}, datetime(2026, 11, 9, tzinfo=UTC), str)
     )
-    assert "26163" in text and "26164" in text and "26165" not in text
+    # One period at a time (owner, 2026-11-19): the open one whose turn it is. The other
+    # open period waits for its turn and is not mentioned; the closed higher number is not shown.
+    assert "期号：26163" in text and "26164" not in text and "26165" not in text
 
 
 def test_advance_sfc_freeze_does_not_cover_jc_day_or_hide_missing_jc_run():

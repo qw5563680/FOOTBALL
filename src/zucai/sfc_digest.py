@@ -33,8 +33,8 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
     if not states:
         return lines + ["尚无已归档期次。", ""]
     # One period at a time, in order (owner's rule, 2026-11-19; see zucai.sfc_sequence).
-    # A period the source published several numbers ahead is only named; it is shown
-    # when its turn comes, never in place of the one that is due.
+    # Later numbers the third-party source lists ahead are not mentioned at all: they are
+    # not officially verified, so the digest stays silent until their turn comes.
     by_number = {issue["issue_no"]: (name, issue) for name, issue in states}
     state = sequence([issue for _, issue in states], now)
     chosen = state["current"] or state["last_closed"] or max(by_number, key=int)
@@ -45,12 +45,6 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
             "（来源尚未公布，或本班采集未成功）；抓到后在这里展示。",
             "",
         ]
-    later = [n for n in state["in_line"] if n != chosen] + state["ahead"]
-    if later:
-        listed = "、".join(
-            f"{n}（{_beijing(by_number[n][1]['sale_end_utc'])} 截止）" for n in later
-        )
-        lines += [f"另有已公布的 {listed}，按顺序轮到时再展示。", ""]
     lines.extend(_issue_lines(name, issue, reports, settled, now, link))
     return lines
 
