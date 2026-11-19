@@ -656,6 +656,12 @@ Actions 保留 raw/state/stats_assets 90 天，整个工作流共用 `write-foot
 英文名记入 aliases；身份 ID、全部比赛（含欧战等非 fd 比赛）、来源绑定与技术行都不动，所以不产生 identity_redirects。
 前提是该身份有 fd 比赛的每个联赛都已有指向同一规范名的 approved 条目，且英文名没有被别的身份占用。
 审计行 `reason=renamed`、`matches_rekeyed=0`；批次报告新增计数 `renamed_teams`。两条规则都只读正式批准清单，不推断队名。
+(3) *同一场比赛两家来源各存一份时，连起来再合并*（所有者 2026-11-19「先修复第一条」）：一家俱乐部在库里是两个身份时，
+导入程序认不出 API-Football 的一行和 football-data.co.uk 的一行是同一场比赛，两份都留着；合并时「同联赛三小时内规范身份已有比赛」的检查因此拒绝。
+现在这一对比赛如果同时满足：另一份来自 apif 且还没有链接；两份都有赛果且比分相同；按合并后的身份套用导入程序自己的对场规则
+（`fd_apif_counterpart.find_apif_candidate`：主客完全一致，或 apif 一侧是占位身份而另一侧完全一致，候选唯一、来源绑定唯一）能通过，
+就照常合并，并写上导入程序平时写的那个指针（apif 行的 `counterpart_id` 指向 fd 行）。两行比赛、两份赛果、技术数据版本都不删不改；
+训练沿用既有的链接规则，同一场只取一份。其余同时段的比赛仍然拒绝。批次报告新增计数 `linked_fixtures`。
 第三批 apif 规范名更正保留 approved_by / approved_utc 等原字段，approval_pr 由单链接扩展为按先后顺序的链接列表，
 每个链接仍必须是本仓库 PR / 审批评论，原审批链接不丢失；Metz 112 原正式文件无条目，按第四批新增一次。
 
