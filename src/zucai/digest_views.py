@@ -119,6 +119,42 @@ def _local(value):
     )
 
 
+def strength_lines(rows):
+    """Attack/defence indices and expected goals frozen with each forecast, if present."""
+    shown = [
+        row
+        for row in rows
+        if row.get("status") == "predicted" and isinstance(row.get("team_strengths"), dict)
+    ]
+    if not shown:
+        return []
+    lines = [
+        "#### 进攻 / 防守强度（球队模型）",
+        "",
+        "| 联赛 / 对阵 | 主队 进攻 / 防守 | 客队 进攻 / 防守 | 预期进球（主 : 客） |",
+        "| --- | --- | --- | --- |",
+    ]
+    for row in sorted(shown, key=_order):
+        values = row["team_strengths"]
+        cells = []
+        for side in ("home", "away"):
+            cell = f"{values[f'{side}_attack_index']:.0f} / {values[f'{side}_defence_index']:.0f}"
+            if values.get(f"{side}_default_strength"):
+                cell += "（默认实力）"
+            cells.append(cell)
+        lines.append(
+            f"| {_text(row.get('league'))} / {_match(row)} | {cells[0]} | {cells[1]} | "
+            f"{values['home_expected_goals']:.2f} : {values['away_expected_goals']:.2f} |"
+        )
+    return [
+        *lines,
+        "",
+        "读法：100 是该模型里所有球队的平均水平；进攻越高越能进球，防守越高越不容易丢球。"
+        "预期进球是这场比赛两队各自的平均进球数。这些数就是上表胜平负概率背后的参数，不是另一个模型。",
+        "",
+    ]
+
+
 def prediction_source_lines(run):
     snapshot = run.get("feed_snapshot")
     lines = []
@@ -316,6 +352,7 @@ def forecast_sections(
                 + (f" {half_text} |" if has_half else "")
             )
         lines.append("")
+        lines.extend(strength_lines(rows))
         lines.extend(_market_gap_line(rows))
         if note := prior_footnote(rows):
             lines.extend([_text(note), ""])

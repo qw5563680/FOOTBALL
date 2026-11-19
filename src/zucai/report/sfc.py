@@ -51,6 +51,7 @@ from zucai.report.render import (
     load_batch,
 )
 from zucai.sfc_publication import PUBLICATION_FIELDS, deadline_message
+from zucai.simulate import hit_summary
 from zucai.sources.sfc import refresh_snapshot
 
 LOG = logging.getLogger(__name__)
@@ -485,7 +486,30 @@ def pick_nine_lines(report, *, prior_explained=False):
         f"按各场相互独立估算，九场全中概率 {_percent(combined)}。"
         "这是模型估算，实际命中率待赛后检验。",
         "",
+        hit_line(chosen, report, "任九", "九场全中"),
+        "",
     ]
+
+
+def hit_line(rows, report, label, all_label):
+    """One line: how many of these single picks come in, over 10,000 simulated rounds."""
+    summary = hit_summary(
+        [row["probabilities"] for row in rows],
+        report.get("issue_no"),
+        report.get("forecast_sha256"),
+        label,
+    )
+    shares = summary["simulated"]
+    count = summary["matches"]
+    parts = [f"{all_label} {_percent(shares[count])}"]
+    parts += [
+        f"错 {missed} 场 {_percent(shares[count - missed])}" for missed in (1, 2) if count >= missed
+    ]
+    if count >= 3:
+        parts.append(f"错 3 场及以上 {_percent(sum(shares[: count - 2]))}")
+    return (
+        f"模拟 {summary['runs']:,} 次（各场相互独立，按模型概率抽样）：" + "，".join(parts) + "。"
+    )
 
 
 def _model_notice(report):

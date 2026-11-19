@@ -6,7 +6,13 @@ from zucai.digest_context import archived_sfc_issues
 from zucai.identity_pending import pending_label
 from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.report.render import BEIJING, _beijing, _md, _percent, _timestamp
-from zucai.report.sfc import OPTIONS, disclosed_rows, pick_nine_lines, unconfirmed_mapping_status
+from zucai.report.sfc import (
+    OPTIONS,
+    disclosed_rows,
+    hit_line,
+    pick_nine_lines,
+    unconfirmed_mapping_status,
+)
 from zucai.scoreboard.sfc import prior_group_text, read_settled
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
 from zucai.sfc_reports import read_reports
@@ -178,6 +184,13 @@ def _issue_lines(name, issue, reports, settled, now, link):
         lines.append("| " + " | ".join(_md(value) for value in values) + " |")
     combo = report["combo"] if eligible else None
     lines += [""]
+    forecast = [row for row in rows if row.get("probabilities")] if eligible else []
+    if forecast:
+        scope = "14 场" if len(forecast) == 14 else f"有预测的 {len(forecast)} 场"
+        lines += [
+            f"{scope}各取模型最高项：" + hit_line(forecast, report, "14场单选", "全中"),
+            "",
+        ]
     if note := not_yet_note(rows, end, now):
         lines += [note, ""]
     if eligible and (note := prior_footnote(rows)):
