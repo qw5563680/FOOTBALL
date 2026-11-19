@@ -13,6 +13,7 @@ from zucai.db import get_engine, init_db, session_scope
 from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.nations import UnknownSfcTeam, sfc_team
+from zucai.sfc_club_names import club_name
 from zucai.sfc_sequence import sequence
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
 from zucai.sources.sporttery import BEIJING
@@ -187,6 +188,26 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False):
                 bridge=copy.deepcopy(bridge), bridge_fallback_reason="target_match_missing"
             )
     home, away = _find_team(session, home_name), _find_team(session, away_name)
+    if not bridge and fixture.league != NATIONS_LEAGUE and (home is None or away is None):
+        # No ID bridge (JC does not sell the fixture): an owner-approved club short name,
+        # keyed by the source's team ID and its printed label, may stand in for the name.
+        approved = {}
+        for side, team, provider_id, label in (
+            ("home", home, fixture.home_id, fixture.home),
+            ("away", away, fixture.away_id, fixture.away),
+        ):
+            canonical = None if team is not None else club_name(fixture.league, provider_id, label)
+            if canonical is not None:
+                approved[side] = dict(
+                    provider_id=str(provider_id), label=label, canonical=canonical
+                )
+        if approved:
+            if "home" in approved:
+                home = _find_team(session, approved["home"]["canonical"])
+            if "away" in approved:
+                away = _find_team(session, approved["away"]["canonical"])
+            if home is not None and away is not None:
+                evidence = {"basis": "approved_club_short_names", "names": approved}
     # An earlier SFC-only record may retain the source's abbreviated names.
     # Check that original identity before considering the bridge's longer names;
     # adding an ID link must not rename/merge teams or invent a JC match.
