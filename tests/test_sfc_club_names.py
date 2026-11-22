@@ -222,3 +222,30 @@ def test_period_listed_ahead_of_its_turn_adds_nothing(session):
     )
     session.flush()
     assert open_national_fixtures(session, NOW) == {}
+
+
+def test_forecast_scope_uses_authoritative_sale_window_known_at_cutoff(session):
+    from zucai.cloud_predict import open_national_fixtures
+
+    rows = [_row(3, "1429930", "达姆施", "海登", ids=("1926", "5315"))]
+    # Provider cutoff passed, but the official version extends the deadline.
+    issue = _issue("26166", "2026-11-19T09:59:00Z", rows)
+    session.add(issue)
+    session.flush()
+    schedule = {
+        "26166": {
+            "observed_utc": "2026-11-19T09:00:00Z",
+            "sale_start_utc": "2026-11-19T10:00:00Z",
+            "sale_end_utc": "2026-11-19T11:00:00Z",
+        }
+    }
+    assert open_national_fixtures(session, NOW, schedule) == {date(2026, 11, 21): {"apif:1576235"}}
+    assert (
+        open_national_fixtures(session, datetime.fromisoformat("2026-11-19T09:30:00Z"), schedule)
+        == {}
+    )
+    assert (
+        open_national_fixtures(session, datetime.fromisoformat("2026-11-19T11:00:00Z"), schedule)
+        == {}
+    )
+    assert open_national_fixtures(session, NOW, {}) == {}

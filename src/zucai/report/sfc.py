@@ -51,6 +51,7 @@ from zucai.report.render import (
     load_batch,
 )
 from zucai.sfc_publication import PUBLICATION_FIELDS, deadline_message
+from zucai.sfc_sequence import known_official, verification_at
 from zucai.simulate import hit_summary
 from zucai.sources.sfc import refresh_snapshot
 
@@ -352,7 +353,10 @@ def build_sfc_report(
                 selections=[r["selection"] for r in rows],
                 missing_forced_three=missing,
             )
-    end = _timestamp(issue.sale_end_utc) if issue.sale_end_utc else None
+    check = verification_at(getattr(issue, "official_verification", None), generated)
+    official = known_official(check)
+    deadline = official.get("sale_end_utc") or issue.sale_end_utc
+    end = _timestamp(deadline) if deadline else None
     sale_state = (
         "deadline_unknown"
         if end is None
@@ -375,8 +379,21 @@ def build_sfc_report(
             observed_utc=issue.observed_utc,
             raw_sha256=issue.raw_sha256,
             date_basis=issue.date_basis,
-            sale_end_utc=issue.sale_end_utc,
+            sale_end_utc=deadline,
             level="third_party",
+            **(
+                dict(
+                    official_verification=copy.deepcopy(check),
+                    provider_sale_end_utc=issue.sale_end_utc,
+                    deadline_source=(
+                        "last_known_official" if check.get("last_known_official") else "official"
+                    )
+                    if official.get("sale_end_utc")
+                    else "third_party",
+                )
+                if check
+                else {}
+            ),
         ),
         forecast_sha256=forecast_sha256,
         forecast_batch=copy.deepcopy(batch),
@@ -539,6 +556,11 @@ def _markdown(report):
     source, batch = report["source"], report["forecast_batch"]
     rows = disclosed_rows(report)
     title = "诊断" if report.get("diagnostic") else "实验参考"
+    deadline_label = {
+        "official": "冻结时官方公告停售",
+        "last_known_official": "上次官方公告停售",
+    }.get(source.get("deadline_source"), "来源所报截止")
+    deadline = _beijing(source["sale_end_utc"]) if source["sale_end_utc"] else "未知"
     lines = [
         f"# 第{report['issue_no']}期 · 14场胜负彩{title}",
         "",
@@ -558,7 +580,7 @@ def _markdown(report):
         f"模式：{_md(report['mode'])}；historical_replay 为事后重建，不能当作未见验证。",
         "",
         f"期次来源：{_md(source['url'])}（第三方）；读取：{_beijing(source['observed_utc'])}。",
-        f"来源所报截止：{_beijing(source['sale_end_utc']) if source['sale_end_utc'] else '未知'}；"
+        f"{deadline_label}：{deadline}；"
         f"状态：{_md(report['sale_state'])}。官方资格、网点出票窗口均未核实。",
         f"日期依据：{_md(source['date_basis'])}；issue_year_assumed 表示使用期号年份解释短日期。",
         "",

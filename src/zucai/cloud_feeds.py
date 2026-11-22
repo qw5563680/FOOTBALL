@@ -1349,7 +1349,12 @@ def main():
         jc, windows_complete = collect_jc(target, meta, day, args.days)
         collection = {
             "jc": jc,
-            "sfc": collect_current_sfc(target),
+            "sfc": collect_current_sfc(
+                target,
+                previous_schedule=meta.get("collection", {})
+                .get("sfc", {})
+                .get("official_schedule"),
+            ),
         }
         if not windows_complete:
             day = date.fromisoformat(meta["through_beijing"])

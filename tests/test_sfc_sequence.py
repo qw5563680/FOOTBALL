@@ -115,6 +115,7 @@ def _database(tmp_path, issues):
 def _clock(monkeypatch, moment):
     import zucai.sources.sfc as sfc
 
+    monkeypatch.setattr(sfc, "fetch_official_notices", lambda: [])
     monkeypatch.setattr(sfc, "_sequence_time", lambda meta: moment)
 
 

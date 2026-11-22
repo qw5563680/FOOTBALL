@@ -13,6 +13,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
+# Actions executes this file directly before installing the package.
+if __package__:
+    from zucai.sfc_sequence import period_windows
+else:
+    from sfc_sequence import period_windows
+
 LOG = logging.getLogger(__name__)
 BEIJING = timezone(timedelta(hours=8))
 
@@ -24,7 +30,7 @@ class ScheduleDecision:
     reason: str
 
 
-def _deadline(path: Path) -> datetime:
+def _deadline(path: Path, now: datetime) -> datetime:
     if not re.fullmatch(r"[0-9]{5}\.json", path.name) or path.is_symlink():
         raise ValueError("invalid issue filename")
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -36,7 +42,11 @@ def _deadline(path: Path) -> datetime:
         or payload["issue"].get("issue_no") != path.stem
     ):
         raise ValueError("invalid issue schedule header")
-    value = payload["issue"].get("sale_end_utc")
+    try:
+        issue = period_windows([payload["issue"]], {}, now)[path.stem]
+    except (AttributeError, TypeError) as exc:
+        raise ValueError("invalid official schedule header") from exc
+    value = issue.get("sale_end_utc")
     if not isinstance(value, str):
         raise ValueError("missing deadline")
     deadline = datetime.fromisoformat(value)
@@ -65,7 +75,7 @@ def decide_early_run(
     matched, unknown = [], []
     for path in paths:
         try:
-            deadline_day = _deadline(path).astimezone(BEIJING).date()
+            deadline_day = _deadline(path, now).astimezone(BEIJING).date()
         except (OSError, UnicodeError, ValueError, OverflowError):
             unknown.append(path.name)
             continue

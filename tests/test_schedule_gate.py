@@ -81,3 +81,25 @@ def test_standalone_cli_emits_actions_outputs_without_project_dependencies(tmp_p
         "scope": case["scope"],
     }
     assert "北京时间" in summary.read_text()
+
+
+def test_gate_uses_known_official_deadline_even_for_announced_future_sale(tmp_path):
+    # The extra run is triggered by the deadline day, including sales that open later.
+    issue = {
+        "issue_no": "26160",
+        "sale_end_utc": "2026-11-10T14:00:00Z",
+        "official_verification": {
+            "checked_at": "2026-11-05T05:00:00Z",
+            "official": {
+                "sale_start_utc": "2026-11-06T01:00:00Z",
+                "sale_end_utc": "2026-11-06T14:00:00Z",
+            },
+        },
+    }
+    archive = archive_case(
+        tmp_path, {"states": {"26160.json": {"schema_version": 1, "issue": issue}}}
+    )
+    now = datetime.fromisoformat("2026-11-05T07:40:00Z")
+    assert decide_early_run(archive, now=now).scope == "present"
+    before_check = datetime.fromisoformat("2026-11-05T04:59:59Z")
+    assert decide_early_run(archive, now=before_check).scope == "absent"

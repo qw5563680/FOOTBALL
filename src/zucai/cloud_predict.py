@@ -33,7 +33,7 @@ from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
 from zucai.report.render import write_report
 from zucai.scoreboard.evidence import read_evidence
-from zucai.sfc_sequence import sequence
+from zucai.sfc_sequence import period_windows, sequence
 from zucai.sources.sfc import refresh_snapshot
 from zucai.sources.sporttery import BEIJING
 
@@ -107,7 +107,7 @@ def _summary(archive, run):
             output.write("\n".join(lines) + "\n")
 
 
-def open_national_fixtures(session, now):
+def open_national_fixtures(session, now, schedule=None):
     """Unstarted, mapped lottery fixtures, whether or not JC sells them.
 
     The 14-match forecast does not depend on the JC list (owner's rule, 2026-11-19): every
@@ -117,16 +117,21 @@ def open_national_fixtures(session, now):
     nothing.
     """
     by_day = {}
+    issues = list(session.scalars(select(SfcIssue).where(SfcIssue.observed_utc <= now)))
     known = [
-        dict(issue_no=issue.issue_no, sale_end_utc=issue.sale_end_utc)
-        for issue in session.scalars(select(SfcIssue))
-        if issue.sale_end_utc
+        dict(
+            issue_no=issue.issue_no,
+            sale_end_utc=issue.sale_end_utc,
+            official_verification=issue.official_verification,
+        )
+        for issue in issues
     ]
-    in_line = set(sequence(known, now)["in_line"])
-    for issue in session.scalars(select(SfcIssue).where(SfcIssue.sale_end_utc > now)):
-        if not issue.snapshot:
-            continue
-        if not issue.observed_utc or datetime.fromisoformat(issue.observed_utc) > now:
+    windows = period_windows(known, schedule or {}, now)
+    state = sequence(windows.values(), now)
+    in_line = set(state["in_line"])
+    on_sale = in_line.union(state["ahead"])
+    for issue in issues:
+        if not issue.snapshot or issue.issue_no not in on_sale:
             continue
         for row in refresh_snapshot(session, issue):
             if (
@@ -300,7 +305,8 @@ def run(
                         if hints is None:
                             LOG.warning("%s 半场进球占比不可估计", league)
                     standard_days = {day, day + timedelta(days=1)}
-                    national = open_national_fixtures(session, prediction_time)
+                    schedule = feed.get("collection", {}).get("sfc", {}).get("official_schedule")
+                    national = open_national_fixtures(session, prediction_time, schedule)
                     result["sfc_extra_dates"] = sorted(
                         d.isoformat() for d in national.keys() - standard_days
                     )

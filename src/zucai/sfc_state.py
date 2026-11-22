@@ -5,6 +5,8 @@ import logging
 import re
 from pathlib import Path
 
+from zucai.sfc_sequence import _instant
+
 LOG = logging.getLogger(__name__)
 
 ISSUE_COLUMNS = (
@@ -22,8 +24,19 @@ def validate_state(payload, number, db):
     if not re.fullmatch(r"[0-9]{5}", number) or payload.get("schema_version") != 1:
         raise ValueError("Invalid SFC state version or filename")
     issue, links = payload["issue"], payload["matches"]
-    if set(issue) != set(ISSUE_COLUMNS) or issue["issue_no"] != number:
+    if set(issue) - {"official_verification"} != set(ISSUE_COLUMNS) or issue["issue_no"] != number:
         raise ValueError("Invalid SFC issue identity")
+    check = issue.get("official_verification")
+    if check is not None and (
+        not isinstance(check, dict)
+        or check.get("issue_no") != number
+        or check.get("status") not in {"verified", "pending", "conflict"}
+        or not check.get("checked_at")
+        or check.get("provider_raw_sha256") != issue["raw_sha256"]
+    ):
+        raise ValueError("Invalid SFC official verification")
+    if check:
+        _instant(check["checked_at"])
     rows = issue["snapshot"]
     if (
         not all(isinstance(r.get("fixture_id"), str) and r["fixture_id"].isdigit() for r in rows)
@@ -57,10 +70,15 @@ def validate_state(payload, number, db):
 
 def export_sfc_state(db, archive: Path):
     files = []
-    for values in db.execute(
-        "SELECT " + ",".join(ISSUE_COLUMNS) + " FROM sfc_issues ORDER BY issue_no"
-    ):
-        issue = dict(zip(ISSUE_COLUMNS, values, strict=True))
+    # Direct exports can read a legacy database before init_db has migrated it.
+    has_check = any(
+        col[1] == "official_verification" for col in db.execute("PRAGMA table_info(sfc_issues)")
+    )
+    columns = (*ISSUE_COLUMNS, "official_verification" if has_check else "NULL")
+    for values in db.execute("SELECT " + ",".join(columns) + " FROM sfc_issues ORDER BY issue_no"):
+        issue = dict(zip(ISSUE_COLUMNS, values[:-1], strict=True))
+        if values[-1] is not None:
+            issue["official_verification"] = json.loads(values[-1])
         issue["snapshot"] = json.loads(issue["snapshot"]) if issue["snapshot"] is not None else None
         number = issue["issue_no"]
         if issue["snapshot"] is None:
@@ -105,8 +123,14 @@ def restore_sfc_state(db, archive: Path, files):
             for k in ISSUE_COLUMNS
         ]
         db.execute(
-            "INSERT INTO sfc_issues (" + ",".join(ISSUE_COLUMNS) + ") VALUES (?,?,?,?,?,?,?)",
-            values,
+            "INSERT INTO sfc_issues (" + ",".join(ISSUE_COLUMNS) + ",official_verification)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            [
+                *values,
+                json.dumps(issue["official_verification"], ensure_ascii=False)
+                if issue.get("official_verification") is not None
+                else None,
+            ],
         )
         db.executemany(
             "INSERT INTO sfc_issue_matches (issue_no,seq,match_id) VALUES (?,?,?)",

@@ -4,9 +4,10 @@ import copy
 import csv
 import hashlib
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
+import requests
 from sqlalchemy import delete, or_, select
 
 from zucai.db import get_engine, init_db, session_scope
@@ -14,8 +15,10 @@ from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.nations import UnknownSfcTeam, sfc_team
 from zucai.sfc_club_names import club_name
-from zucai.sfc_sequence import sequence
+from zucai.sfc_sequence import known_official, period_windows, sequence
+from zucai.sfc_verification import notice_for_issue, verify_issue
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
+from zucai.sources.sfc_official import fetch_official_notices
 from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
 
@@ -635,6 +638,8 @@ def ingest_issue(
         session.add(record)
     record.sale_end_utc = issue.sale_end_utc.isoformat() if issue.sale_end_utc else None
     record.observed_utc = observed.isoformat()
+    if record.raw_sha256 != raw_sha256 or record.snapshot != snapshot:
+        record.official_verification = None
     record.source_url, record.raw_sha256 = url, raw_sha256
     record.date_basis, record.snapshot = issue.date_basis, snapshot
     session.flush()
@@ -723,7 +728,60 @@ def _sequence_time(meta):
     return datetime.fromisoformat(meta["fetched_at_utc"])
 
 
-def collect_current_sfc(db):
+def _schedule(notices, checked_at):
+    schedule = {}
+    for number in sorted({notice["issue_no"] for notice in notices}):
+        notice = notice_for_issue(number, notices, checked_at)
+        if notice:
+            schedule[number] = {
+                key: notice.get(key)
+                for key in (
+                    "source_url",
+                    "title",
+                    "kind",
+                    "notice_date",
+                    "published_at",
+                    "raw_sha256",
+                    "sale_start_utc",
+                    "sale_end_utc",
+                    "reason",
+                    "versions",
+                )
+                if notice.get(key) is not None
+            }
+            schedule[number]["observed_utc"] = notice.get("observed_utc") or checked_at.isoformat()
+    return schedule
+
+
+def _check_archived_issues(session, notices, checked_at, numbers, source_error, prior_checks):
+    """An amendment may affect an already archived period other than the root or due page."""
+    for record in session.scalars(select(SfcIssue)):
+        previous = prior_checks.get(record.issue_no) or {}
+        previous_end = known_official(previous).get("sale_end_utc") or record.sale_end_utc
+        if not record.snapshot:
+            continue
+        if record.issue_no not in numbers and (
+            not previous_end or datetime.fromisoformat(previous_end) <= checked_at
+        ):
+            continue
+        check = verify_issue(
+            record.issue_no,
+            record.sale_end_utc,
+            record.snapshot,
+            notices,
+            checked_at,
+            source_error=source_error,
+        )
+        if source_error and known_official(previous):
+            check["last_known_official"] = known_official(previous)
+            check["last_official_check_at"] = (
+                previous.get("last_official_check_at") or previous["checked_at"]
+            )
+        check["provider_raw_sha256"] = record.raw_sha256
+        record.official_verification = check
+
+
+def collect_current_sfc(db, *, previous_schedule=None):
     """Read current SFC and JC root pages without changing match identities."""
     import json
 
@@ -747,6 +805,25 @@ def collect_current_sfc(db):
         source = C500Sfc()
         engine = get_engine(db)
         init_db(engine)
+        source_error = None
+        unavailable = False
+        try:
+            notices = fetch_official_notices()
+        except (OSError, ValueError, requests.RequestException) as exc:
+            notices = []
+            source_error = f"{type(exc).__name__}: {exc}"[:200]
+            unavailable = isinstance(exc, (OSError, requests.RequestException)) and not isinstance(
+                exc, ValueError
+            )
+        if not notices:
+            result["official_error"] = source_error or "本次没有取得官方期次公告"
+        checked = datetime.now(UTC)
+        result["official_checked_at"] = checked.isoformat()
+        result["official_schedule"] = (
+            (previous_schedule or {}) if unavailable else _schedule(notices, checked)
+        )
+        result["official_unavailable"] = unavailable
+        result["requests_scope"] = "500.com"
         result["requests"] += 1
         path = source.fetch_raw(current_only=True)
         raw, meta = source.store.load(path), source.store.load_metadata(path)
@@ -757,12 +834,30 @@ def collect_current_sfc(db):
         # period that is due, that one is asked for by number with one more GET.
         with session_scope(engine) as session:
             known = [
-                dict(issue_no=row.issue_no, sale_end_utc=row.sale_end_utc)
+                dict(
+                    issue_no=row.issue_no,
+                    sale_end_utc=row.sale_end_utc,
+                    official_verification=row.official_verification,
+                )
                 for row in session.scalars(select(SfcIssue))
-                if row.issue_no != root.issue_no
+                if not row.observed_utc or datetime.fromisoformat(row.observed_utc) <= observed
             ]
-        known.append(dict(issue_no=root.issue_no, sale_end_utc=root.sale_end_utc))
-        state = sequence(known, observed)
+        prior_checks = {row["issue_no"]: row.get("official_verification") for row in known}
+        known = [row for row in known if row["issue_no"] != root.issue_no]
+        known.append(
+            dict(
+                issue_no=root.issue_no,
+                sale_end_utc=root.sale_end_utc,
+                official_verification=prior_checks.get(root.issue_no),
+            )
+        )
+        if not unavailable:
+            # An unreadable adjustment (or an omitted issue) cannot ratify a cached window.
+            known = [{**row, "official_verification": None} for row in known]
+        schedule = (previous_schedule or {}) if unavailable else _schedule(notices, observed)
+        result["official_checked_at"] = observed.isoformat()
+        result["official_schedule"] = schedule
+        state = sequence(period_windows(known, schedule, observed).values(), observed)
         captures = []
         result["root_issue_no"] = root.issue_no
         if root.issue_no in state["ahead"]:
@@ -771,8 +866,6 @@ def collect_current_sfc(db):
             captures.append((root, raw, meta))
         wanted = [state["current"]] if state["current"] else list(state["expected"][:1])
         if wanted and wanted[0] != root.issue_no and root.issue_no not in state["expected"]:
-            import requests
-
             result["due_issue_no"] = wanted[0]
             result["requests"] += 1
             try:
@@ -836,6 +929,20 @@ def collect_current_sfc(db):
                 rows.extend(unmatched)
                 # The last capture is the due period when one was fetched by number.
                 primary = (issue.issue_no, len(unmatched))
+            # Fixture/team ID bridges can establish a name match only after their own capture.
+            checked_at = max(
+                observed,
+                _sequence_time(bridge_meta),
+                *(_sequence_time(info) for _, _, info in captures),
+            )
+            _check_archived_issues(
+                session,
+                notices,
+                checked_at,
+                set(schedule) | {p.issue_no for p, _, _ in captures},
+                result.get("official_error"),
+                prior_checks if unavailable else {},
+            )
             if primary:
                 result.update(
                     issue_no=primary[0],

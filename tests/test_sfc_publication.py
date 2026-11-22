@@ -469,3 +469,29 @@ def test_t57_confirmed_sfc_receipt_covers_its_original_without_git(publication_a
     generate(archive, archive / "daily", now=NOW, run_id="t57-receipt")
     assert all(archive_files(archive)[k] == v for k, v in before.items())
     assert not (archive / "state/publication/sfc_history.json").exists()
+
+
+def test_freeze_keeps_its_evidence_after_an_official_deadline_adjustment(publication_archive):
+    archive = publication_archive
+    publish_reports(archive, now=GENERATED)
+    commit_report(archive, "2026-11-02T09:29:30+00:00")
+    assert "已确认赶上停售" in digest(archive)
+    frozen = files(archive / "sfc")
+    path = archive / "state/sfc/26156.json"
+    payload = json.loads(path.read_bytes())
+    payload["issue"]["official_verification"] = {
+        "issue_no": "26156",
+        "status": "conflict",
+        "checked_at": "2026-11-02T09:31:00+00:00",
+        "official": {
+            "sale_start_utc": "2026-10-31T12:00:00+00:00",
+            "sale_end_utc": "2026-11-02T09:29:29+00:00",
+        },
+        "differences": [{"field": "sale_end_utc", "status": "conflict"}],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    current = digest(archive)
+    assert "官方核对：冲突" in current and "报告冻结时的官方核对：待核" in current
+    assert "本期错过停售" in current and "已确认赶上停售" not in current
+    assert r"50\.00%" not in current and "本期不展示任九方案" in current
+    assert files(archive / "sfc") == frozen

@@ -28,6 +28,7 @@ from zucai.sfc_publication import (
     publication_evidence,
     with_publication,
 )
+from zucai.sfc_sequence import known_official, verification_at
 from zucai.sources.base import _atomic_write
 from zucai.sources.c500 import issue_number
 from zucai.sources.sporttery import BEIJING
@@ -181,7 +182,11 @@ def publish_reports(archive, *, now=None):
                 connection.exec_driver_sql("BEGIN")
                 with Session(bind=connection) as session:
                     for issue in session.scalars(select(SfcIssue).order_by(SfcIssue.issue_no)):
-                        if not issue.sale_end_utc or _timestamp(issue.sale_end_utc) <= at:
+                        check = verification_at(issue.official_verification, at)
+                        official = known_official(check)
+                        end = official.get("sale_end_utc") or issue.sale_end_utc
+                        start = official.get("sale_start_utc")
+                        if not end or _timestamp(end) <= at or (start and _timestamp(start) > at):
                             continue
                         directory = f"sfc/{issue.issue_no}"
                         history = f"{directory}/history/{run['run_id']}"
@@ -231,7 +236,7 @@ def publish_reports(archive, *, now=None):
                             history += "-mapping-" + fingerprint
                         write_sfc_report(report, stage / issue.issue_no)
                         cutoff = min(
-                            [_timestamp(issue.sale_end_utc)]
+                            [_timestamp(end)]
                             + [
                                 _timestamp(r["kickoff_utc"])
                                 for r in report["rows"]
