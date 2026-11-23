@@ -69,6 +69,9 @@ def install_case(archive, case):
             target.read_bytes()
         ).hexdigest()
     index_path.write_text(json.dumps(index))
+    from forecast_publication_support import confirm_fixture
+
+    confirm_fixture(archive)
 
 
 @pytest.mark.parametrize("case", list(CASES))

@@ -423,7 +423,7 @@ def generate(
                     for value in summary["probability"]["leagues"].values()
                 ),
             )
-    window = prediction_window(batches, at)
+    window = prediction_window(batches, at, catalog)
     from zucai.publication_history import publication_updates
 
     sfc_lines = sfc_section(
@@ -524,7 +524,7 @@ def generate(
         f"记分板截点 UTC：{_text((summary or {}).get('as_of_utc'))}。",
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
-        *jc_sales_day_section(sales_catalog, skipped, batches, exclusions, today, at),
+        *jc_sales_day_section(sales_catalog, skipped, latest, exclusions, today, window=window),
         *_forecast_sections(
             batches,
             today,
@@ -532,6 +532,7 @@ def generate(
             now=at,
             matches=matches,
             displayed_ids=displayed_ids,
+            latest=latest,
             runs=(manifest or {}).get("runs", {}),
             catalog=catalog,
             sfc_issues=archived_sfc_issues(archive, feed, at),

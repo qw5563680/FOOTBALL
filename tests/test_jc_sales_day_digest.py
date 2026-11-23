@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from test_cloud_predict import scheduled_archive as scheduled_archive
 from test_daily_digest import snapshot
 from test_digest_review_regressions import install
 from zucai.cloud_feeds import export_feeds
@@ -101,6 +102,9 @@ def test_cross_midnight_sales_day_at_top(tmp_path, case):
     yesterday = dict(catalog[-1], business_date="2026-11-22", jc_num="周日008")
     install(archive, [*catalog, future, yesterday])
     install_forecast(archive, tmp_path / "stage", batch)
+    from forecast_publication_support import confirm_fixture
+
+    confirm_fixture(archive)
     before = snapshot(archive)
 
     text = generate(archive, tmp_path / "daily", now=sample["now"], run_id="offline").read_text(
@@ -128,3 +132,95 @@ def test_cross_midnight_sales_day_at_top(tmp_path, case):
     if missing:
         assert "缺失编号：周一008" in head
     assert snapshot(archive) == before
+
+
+def test_midnight_forecast_then_digest(scheduled_archive, monkeypatch, tmp_path):
+    from forecast_publication_support import confirm_fixture
+    from test_cloud_predict import ROOT
+    from zucai import cloud_predict
+    from zucai.report.render import load_batch
+    from zucai.scoreboard.score import instant
+
+    historical = json.loads(
+        (ROOT / "data/fixtures/jc-sales-day/midnight-2026-11-23.json").read_bytes()
+    )
+    archive, params = scheduled_archive
+    catalog = historical["catalog"]
+    ids = {r["match_id"] for r in historical["matches"]}
+    assert "2026-11-24" not in historical["forecasts"]
+    assert {r["match_id"] for r in catalog} == ids
+    # Match source and selling checks have already run. A directory-only ID and
+    # a stored fixture outside the spillover must never be promoted.
+    unrelated = dict(
+        catalog[0], match_id="jc:unrelated", jc_num="周二099", business_date="2026-11-24"
+    )
+    unsold = dict(catalog[0], match_id="jc:never-stored", jc_num="周一009")
+    from zucai.db import session_scope
+    from zucai.models import Match
+
+    db = tmp_path / "seed.db"
+    engine = get_engine(db)
+    with session_scope(engine) as session:
+        for row in [*catalog, unrelated]:
+            session.add(
+                Match(
+                    match_id=row["match_id"],
+                    league=row["league"],
+                    source="jc",
+                    home_team_id=1,
+                    away_team_id=2,
+                    kickoff_utc=row["kickoff_utc"],
+                    status="scheduled",
+                    jc_num=row["jc_num"],
+                )
+            )
+    engine.dispose()
+    archive = tmp_path / "midnight"
+    export_feeds(db, archive, date(2026, 11, 22), "seed-midnight")
+    install(archive, [*catalog, unrelated, unsold], historical["skipped"])
+    before = instant(historical["forecasts"]["2026-11-23"]["generated_utc"])
+    monkeypatch.setattr(cloud_predict, "_now", lambda: before)
+    result = cloud_predict.run(archive, params, "midnight-replay")
+    batch = load_batch(archive / result["forecasts"]["2026-11-24"]["path"] / "forecast.json")
+    assert {r["match_id"] for r in batch["predictions"]} == ids
+    confirm_fixture(archive, historical["forecasts"]["2026-11-23"]["published_utc"])
+    text = generate(archive, tmp_path / "daily", now=historical["report_generated_utc"]).read_text()
+    # Test training has an English model only. Trust exactly its real output.
+    good = [r for r in batch["predictions"] if r["status"] == "predicted"]
+    assert [r["league"] for r in good] == ["英超"]
+    assert "应有 9 场、已预测 1 场、缺 8 场" in text
+    assert "midnight-replay-2026-11-24" in text
+
+
+@pytest.mark.parametrize("kind", ["empty", "after-kickoff", "unpublished"])
+def test_sales_day_preserves_exact_published_prediction(kind):
+    from zucai.digest_context import frozen_exclusions, frozen_rows
+    from zucai.digest_views import jc_sales_day_section
+    from zucai.scoreboard.score import instant
+
+    sample = json.loads(FIXTURE.read_bytes())
+    batch = sample["batch"]
+    target = batch["predictions"][0]
+    now = instant(target["kickoff_utc"])
+    newer = dict(
+        batch,
+        batch_id="later",
+        generated_utc=now.isoformat(),
+        predictions=[] if kind == "empty" else [dict(target, status="excluded", reason="已开球")],
+    )
+    batches = [(DAY, "first", batch), (DAY, "later", newer)]
+    pub = {} if kind == "unpublished" else {"first": {"published_utc": batch["generated_utc"]}}
+    latest, _ = frozen_rows(batches, {}, now, publications=pub)
+    reasons = frozen_exclusions(batches, now)
+    text = "\n".join(
+        jc_sales_day_section(
+            sample["catalog"],
+            [],
+            latest,
+            reasons,
+            date.fromisoformat(DAY),
+            window={"missing_batch_dates": []},
+        )
+    )
+    assert "已开球" not in text
+    assert ("已预测 0 场" if kind == "unpublished" else "已预测 8 场") in text

@@ -211,7 +211,19 @@ def test_legacy_only_and_mixed_archives_keep_catalog_gap_meaning(tmp_path):
         set(),
         {},
     )
-    assert [(r["jc_num"], r["reason"], r["confirmed"]) for r in actual] == [
+    # A later re-observation after kickoff cannot establish the prematch cause.
+    assert all(
+        r["skip_evidence"] is None
+        for r in actual
+        if r["kickoff_utc"] and datetime.fromisoformat(r["kickoff_utc"]) <= now
+    )
+    mixed_at_old_cutoff = catalog_gaps(
+        audit_rows(tmp_path, metadata, "jc_catalog", now - timedelta(seconds=1)),
+        audit_rows(tmp_path, metadata, "jc_skipped", now - timedelta(seconds=1)),
+        set(),
+        {},
+    )
+    assert [(r["jc_num"], r["reason"], r["confirmed"]) for r in mixed_at_old_cutoff] == [
         (r["jc_num"], r["reason"], r["confirmed"]) for r in expected
     ]
     future = now + timedelta(hours=1)

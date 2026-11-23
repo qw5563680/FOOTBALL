@@ -177,8 +177,8 @@ def test_full_digest_repeat_does_not_change_inputs_or_counts(digest_archive, tmp
     kwargs = dict(now="2026-11-06T03:47:00Z", run_id="offline-t46")
     path = generate(archive, out, **kwargs)
     first = snapshot(out)
-    assert "尚未进入预测窗口 7 场" in path.read_text()
-    assert "计划日期尚无成功批次：2026-11-06、2026-11-07" in path.read_text()
+    assert "尚未进入预测窗口 0 场" in path.read_text()
+    assert "计划日期尚无成功批次：2026-11-06、2026-11-07、2026-11-08" in path.read_text()
     generate(archive, out, **kwargs)
     assert snapshot(out) == first
     assert snapshot(archive) == before

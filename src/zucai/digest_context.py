@@ -101,10 +101,28 @@ def jc_digest_batch(batch):
     return {**batch, "predictions": [p for p in batch["predictions"] if not p.get("sfc_only")]}
 
 
-def prediction_window(batches, now):
-    """Plan is today's + tomorrow's Beijing dates, independently of batch success."""
+def jc_coverage(now, catalog):
+    """Whole Beijing kickoff days plus exact cross-midnight IDs of the covered sales days."""
     today = instant(now).astimezone(BEIJING).date()
-    planned = [today.isoformat(), (today + timedelta(days=1)).isoformat()]
+    tomorrow = today + timedelta(days=1)
+    days = {today: None, tomorrow: None}
+    sales = [
+        r
+        for r in catalog or []
+        if r.get("business_date") == tomorrow.isoformat()
+        and r.get("jc_num")
+        and instant(r["captured_utc"]) <= instant(now)
+    ]
+    for row in latest_catalog_rows(sales):
+        kickoff = kickoff_day(row)
+        if kickoff == tomorrow + timedelta(days=1):
+            days.setdefault(kickoff, set()).add(row["match_id"])
+    return days
+
+
+def prediction_window(batches, now, catalog=None):
+    coverage = jc_coverage(now, catalog)
+    planned = sorted(d.isoformat() for d in coverage)
     successful = set()
     for _, _, batch in batches:
         if batch.get("mode") != "prematch" or instant(batch["generated_utc"]) > instant(now):
@@ -115,6 +133,7 @@ def prediction_window(batches, now):
     return dict(
         planned_dates=planned,
         successful_dates=sorted(successful),
+        spillover={day.isoformat(): ids for day, ids in coverage.items() if ids is not None},
         missing_batch_dates=sorted(set(planned) - successful),
     )
 
@@ -163,7 +182,10 @@ def skip_is_evidence(skipped, catalog):
     }:
         return False
     try:
-        return instant(skipped["captured_utc"]) == instant(catalog["captured_utc"])
+        capture = instant(skipped["captured_utc"])
+        return capture == instant(catalog["captured_utc"]) and (
+            kickoff_day(catalog) is None or capture < instant(catalog["kickoff_utc"])
+        )
     except (TypeError, ValueError, KeyError):
         return False
 
@@ -186,7 +208,9 @@ def frozen_exclusions(batches, now):
             reason = row.get("reason")
             if row.get("status") == "predicted" or not isinstance(reason, str) or not reason:
                 continue
-            if not row.get("kickoff_utc") or cutoff > instant(row["kickoff_utc"]):
+            if not row.get("kickoff_utc") or not cutoff <= instant(
+                batch["generated_utc"]
+            ) < instant(row["kickoff_utc"]):
                 continue
             key = (cutoff, instant(batch["generated_utc"]), batch["batch_id"])
             if row["match_id"] not in found or key > found[row["match_id"]][0]:
@@ -228,7 +252,10 @@ def catalog_gaps(
         skipped_row = explanations.get((*key, row["match_id"]))
         skipped_row = skipped_row if skip_is_evidence(skipped_row, row) else None
         exclusion = (exclusions or {}).get(row["match_id"])
-        reason_known = skipped_row is not None or exclusion is not None
+        # A later sync rejection does not explain an already stored fixture.
+        reason_known = exclusion is not None or (
+            skipped_row is not None and row["match_id"] not in known_ids
+        )
         observed = observations.get(row["match_id"])
         reason = (
             skipped_row["reason"]
@@ -248,7 +275,10 @@ def catalog_gaps(
         if window is not None:
             if day is None:
                 category = "unknown_window"
-            elif day > date.fromisoformat(max(window["planned_dates"])):
+            elif day > date.fromisoformat(max(window["planned_dates"])) or (
+                day.isoformat() in window.get("spillover", {})
+                and row["match_id"] not in window["spillover"][day.isoformat()]
+            ):
                 category = "outside_window"
                 expected = (day - timedelta(days=1)).isoformat()
             else:
