@@ -2,7 +2,9 @@
 
 from copy import deepcopy
 
-from zucai.sfc_verification import notice_for_issue, verify_issue
+import pytest
+
+from zucai.sfc_verification import notice_for_issue, resolve_notices, verify_issue
 
 NOW = "2026-11-22T16:00:00Z"
 
@@ -154,3 +156,27 @@ def test_late_republication_cannot_supersede_an_adjustment():
     )
     assert result["status"] == "pending"
     assert result["official"]["raw_sha256"] == unreadable["raw_sha256"]
+
+
+@pytest.mark.parametrize("future_field", ["observed_utc", "published_at", "notice_date"])
+def test_archived_schedule_receipt_cannot_supply_evidence_before_its_cutoff(future_field):
+    old = dict(notice(), title="原周公告", kind="schedule", notice_date="2026-11-17")
+    # The feed manifest stores the notice receipt even before a provider snapshot exists.
+    newer = dict(
+        old,
+        title="调整通知",
+        kind="amendment",
+        notice_date="2026-11-22",
+        published_at="2026-11-22T10:00:00Z",
+        observed_utc="2026-11-22T14:30:00Z",
+        sale_end_utc="2026-11-26T13:30:00Z",
+        raw_sha256="b" * 64,
+    )
+    newer.pop("fixtures")
+    newer[future_field] = "2026-11-24" if future_field == "notice_date" else "2026-11-23T01:00:00Z"
+    archived = [("26171", newer)]
+    assert resolve_notices([old], archived, NOW)["26171"] == old
+    retained = resolve_notices([old], archived, "2026-11-24T00:00:00Z")["26171"]
+    assert retained["sale_end_utc"] == newer["sale_end_utc"]
+    assert retained["observed_utc"] == newer["observed_utc"]
+    assert retained["from_archive"] is True

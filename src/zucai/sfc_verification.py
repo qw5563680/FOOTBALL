@@ -61,7 +61,10 @@ def _choose_version(notices):
         (notices[0].get("notice_date"), notices[0].get("title"))
     )
     complete = [
-        n for n in notices if not _receipt(n).get("reason") and len(n.get("fixtures") or []) == 14
+        n
+        for n in notices
+        if not _receipt(n).get("reason")
+        and (len(n.get("fixtures") or []) == 14 or (n.get("from_archive") and "fixtures" not in n))
     ]
     first = (complete or notices)[0]
     # A mirror without an attachment cannot invalidate a complete copy of the same
@@ -69,7 +72,11 @@ def _choose_version(notices):
     for other in notices:
         for field in ("sale_start_utc", "sale_end_utc", "fixtures"):
             left, right = first.get(field), other.get(field)
-            if not right and same_document and complete:
+            if (
+                same_document
+                and complete
+                and (not right or (field == "fixtures" and "fixtures" not in first))
+            ):
                 continue
             if field.endswith("_utc"):
                 left, right = _time(left), _time(right)
@@ -90,6 +97,8 @@ def notice_for_issue(issue_no, notices, checked_at):
         if any(stamp and stamp > cutoff for stamp in (observed, published)):
             continue
         if published is None or observed is None:
+            if notice.get("from_archive"):
+                continue
             return {
                 **notice,
                 "sale_start_utc": None,
@@ -104,6 +113,8 @@ def notice_for_issue(issue_no, notices, checked_at):
                 else published.astimezone(BEIJING).date()
             )
         except (TypeError, ValueError):
+            if notice.get("from_archive"):
+                continue
             return {
                 **notice,
                 "sale_start_utc": None,
@@ -123,6 +134,25 @@ def notice_for_issue(issue_no, notices, checked_at):
     records = [n for _, n in versions]
     amendments = [n for n in records if n.get("kind") == "amendment"]
     return _choose_version(amendments or records)
+
+
+def resolve_notices(notices, archived, checked_at):
+    """Resolve freshly read notices and archived receipts separately for each issue."""
+    by_issue = defaultdict(list)
+    for notice in notices:
+        by_issue[notice["issue_no"]].append(notice)
+    for number, receipt in archived:
+        if receipt.get("source_url") and re.fullmatch(
+            r"[a-f0-9]{64}", receipt.get("raw_sha256") or ""
+        ):
+            # A manifest receipt omits the fixture table. It can establish a window,
+            # but has no fixture fields to compare with a copy of the same notice.
+            by_issue[number].append({**receipt, "issue_no": number, "from_archive": True})
+    return {
+        number: selected
+        for number, versions in sorted(by_issue.items())
+        if (selected := notice_for_issue(number, versions, checked_at))
+    }
 
 
 def _names(row, side):
@@ -241,22 +271,40 @@ def verify_issue(
     issue_no, provider_sale_end_utc, provider_fixtures, notices, checked_at, *, source_error=None
 ):
     """Return JSON-safe evidence, without changing provider records or historical notices."""
-    checked = _instant(checked_at)
-    official = notice_for_issue(issue_no, notices, checked) if not source_error else {}
+    official = notice_for_issue(issue_no, notices, checked_at) if not source_error else {}
+    return compare_issue(
+        issue_no,
+        provider_sale_end_utc,
+        provider_fixtures,
+        official,
+        checked_at,
+        source_error=source_error,
+    )
+
+
+def compare_issue(
+    issue_no, provider_sale_end_utc, provider_fixtures, selected, checked_at, *, source_error=None
+):
+    """Check the provider against the same version used to select the current issue."""
+    official = selected.copy()
+    retained = official.pop("from_archive", False)
     result = {
         "issue_no": str(issue_no),
-        "checked_at": checked.isoformat(),
+        "checked_at": _instant(checked_at).isoformat(),
         "provider": "500.com",
         "status": "pending",
-        "official": official,
+        "official": {} if retained else official,
         "compared_fields": [],
         "differences": [],
         "aliases": [],
     }
+    if retained:
+        result["last_known_official"] = official
+        result["reason"] = str(source_error or "本次未重新取得当前适用的官方公告，沿用已归档版本")
     if not official or official.get("reason"):
         result["reason"] = str(source_error or official.get("reason") or "未取得本玩法本期官方公告")
         return result
-    result["compared_fields"] = ["issue_no", "sale_end_utc", "seq", "home", "away"]
+    result["compared_fields"] = ["issue_no", "sale_end_utc"]
     end = _time(provider_sale_end_utc)
     if end is None or end != _time(official["sale_end_utc"]):
         result["differences"].append(
@@ -267,7 +315,13 @@ def verify_issue(
                 "official": official["sale_end_utc"],
             }
         )
-    _compare_fixtures(provider_fixtures, official.get("fixtures") or [], result)
+    if not retained or "fixtures" in official:
+        result["compared_fields"].extend(("seq", "home", "away"))
+        _compare_fixtures(provider_fixtures, official.get("fixtures") or [], result)
+    # A comparison against archived fields can disclose known differences without
+    # claiming that the governing notice was obtainable in this attempt.
+    if retained:
+        return result
     statuses = {entry["status"] for entry in result["differences"]}
     if "conflict" in statuses:
         result["status"] = "conflict"

@@ -15,8 +15,8 @@ from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.nations import UnknownSfcTeam, sfc_team
 from zucai.sfc_club_names import club_name
-from zucai.sfc_sequence import known_official, period_windows, sequence
-from zucai.sfc_verification import notice_for_issue, verify_issue
+from zucai.sfc_sequence import known_official, period_windows, sequence, verification_at
+from zucai.sfc_verification import compare_issue, resolve_notices
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
 from zucai.sources.sfc_official import fetch_official_notices
 from zucai.sources.sporttery import BEIJING
@@ -728,12 +728,26 @@ def _sequence_time(meta):
     return datetime.fromisoformat(meta["fetched_at_utc"])
 
 
-def _schedule(notices, checked_at):
-    schedule = {}
-    for number in sorted({notice["issue_no"] for notice in notices}):
-        notice = notice_for_issue(number, notices, checked_at)
-        if notice:
-            schedule[number] = {
+def _resolve_schedule(result, notices, previous_schedule, known, checked_at):
+    prior_checks = {
+        row["issue_no"]: verification_at(row["official_verification"], checked_at)
+        for row in known
+        if not row["observed_utc"] or datetime.fromisoformat(row["observed_utc"]) <= checked_at
+    }
+    # A transport outage may use archived evidence. A known unreadable notice
+    # without a bound issue/version cannot be superseded by anything in the archive.
+    archived = []
+    if not result.get("official_error") or result["official_unavailable"]:
+        archived.extend((number, known_official(check)) for number, check in prior_checks.items())
+        archived.extend((previous_schedule or {}).items())
+    selected = resolve_notices(notices, archived, checked_at)
+    result.update(
+        official_checked_at=checked_at.isoformat(),
+        official_reused_schedule=[
+            n for n, notice in selected.items() if notice.get("from_archive")
+        ],
+        official_schedule={
+            number: {
                 key: notice.get(key)
                 for key in (
                     "source_url",
@@ -746,14 +760,19 @@ def _schedule(notices, checked_at):
                     "sale_end_utc",
                     "reason",
                     "versions",
+                    "observed_utc",
                 )
                 if notice.get(key) is not None
             }
-            schedule[number]["observed_utc"] = notice.get("observed_utc") or checked_at.isoformat()
-    return schedule
+            for number, notice in selected.items()
+        },
+    )
+    for summary in result["official_schedule"].values():
+        summary.setdefault("observed_utc", checked_at.isoformat())
+    return selected, prior_checks
 
 
-def _check_archived_issues(session, notices, checked_at, numbers, source_error, prior_checks):
+def _check_archived_issues(session, selected, checked_at, numbers, source_error, prior_checks):
     """An amendment may affect an already archived period other than the root or due page."""
     for record in session.scalars(select(SfcIssue)):
         previous = prior_checks.get(record.issue_no) or {}
@@ -764,16 +783,19 @@ def _check_archived_issues(session, notices, checked_at, numbers, source_error, 
             not previous_end or datetime.fromisoformat(previous_end) <= checked_at
         ):
             continue
-        check = verify_issue(
+        notice = selected.get(record.issue_no, {})
+        check = compare_issue(
             record.issue_no,
             record.sale_end_utc,
             record.snapshot,
-            notices,
+            notice,
             checked_at,
             source_error=source_error,
         )
-        if source_error and known_official(previous):
-            check["last_known_official"] = known_official(previous)
+        if check.get("last_known_official") and all(
+            known_official(previous).get(key) == notice.get(key)
+            for key in ("source_url", "raw_sha256")
+        ):
             check["last_official_check_at"] = (
                 previous.get("last_official_check_at") or previous["checked_at"]
             )
@@ -817,12 +839,18 @@ def collect_current_sfc(db, *, previous_schedule=None):
             )
         if not notices:
             result["official_error"] = source_error or "本次没有取得官方期次公告"
-        checked = datetime.now(UTC)
-        result["official_checked_at"] = checked.isoformat()
-        result["official_schedule"] = (
-            (previous_schedule or {}) if unavailable else _schedule(notices, checked)
-        )
         result["official_unavailable"] = unavailable
+        with session_scope(engine) as session:
+            known = [
+                dict(
+                    issue_no=row.issue_no,
+                    observed_utc=row.observed_utc,
+                    sale_end_utc=row.sale_end_utc,
+                    official_verification=row.official_verification,
+                )
+                for row in session.scalars(select(SfcIssue))
+            ]
+        _resolve_schedule(result, notices, previous_schedule, known, datetime.now(UTC))
         result["requests_scope"] = "500.com"
         result["requests"] += 1
         path = source.fetch_raw(current_only=True)
@@ -832,32 +860,19 @@ def collect_current_sfc(db, *, previous_schedule=None):
         # Periods are followed in order, one at a time (zucai.sfc_sequence). The root page
         # is taken unless it shows a period that is not in line yet; when it is not the
         # period that is due, that one is asked for by number with one more GET.
-        with session_scope(engine) as session:
-            known = [
-                dict(
-                    issue_no=row.issue_no,
-                    sale_end_utc=row.sale_end_utc,
-                    official_verification=row.official_verification,
-                )
-                for row in session.scalars(select(SfcIssue))
-                if not row.observed_utc or datetime.fromisoformat(row.observed_utc) <= observed
-            ]
-        prior_checks = {row["issue_no"]: row.get("official_verification") for row in known}
-        known = [row for row in known if row["issue_no"] != root.issue_no]
-        known.append(
-            dict(
-                issue_no=root.issue_no,
-                sale_end_utc=root.sale_end_utc,
-                official_verification=prior_checks.get(root.issue_no),
-            )
+        selected, prior_checks = _resolve_schedule(
+            result, notices, previous_schedule, known, observed
         )
-        if not unavailable:
-            # An unreadable adjustment (or an omitted issue) cannot ratify a cached window.
-            known = [{**row, "official_verification": None} for row in known]
-        schedule = (previous_schedule or {}) if unavailable else _schedule(notices, observed)
-        result["official_checked_at"] = observed.isoformat()
-        result["official_schedule"] = schedule
-        state = sequence(period_windows(known, schedule, observed).values(), observed)
+        provider_windows = [
+            dict(issue_no=row["issue_no"], sale_end_utc=row["sale_end_utc"])
+            for row in known
+            if row["issue_no"] != root.issue_no and row["issue_no"] in prior_checks
+        ]
+        provider_windows.append(dict(issue_no=root.issue_no, sale_end_utc=root.sale_end_utc))
+        state = sequence(
+            period_windows(provider_windows, result["official_schedule"], observed).values(),
+            observed,
+        )
         captures = []
         result["root_issue_no"] = root.issue_no
         if root.issue_no in state["ahead"]:
@@ -937,11 +952,11 @@ def collect_current_sfc(db, *, previous_schedule=None):
             )
             _check_archived_issues(
                 session,
-                notices,
+                selected,
                 checked_at,
-                set(schedule) | {p.issue_no for p, _, _ in captures},
+                {n["issue_no"] for n in notices} | {p.issue_no for p, _, _ in captures},
                 result.get("official_error"),
-                prior_checks if unavailable else {},
+                prior_checks,
             )
             if primary:
                 result.update(

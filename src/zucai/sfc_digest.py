@@ -81,8 +81,11 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
         # Legacy snapshots can be missing the third-party deadline.
         chosen = max(by_number, key=int)
     if chosen not in by_number:
+        reused = chosen in (collected or {}).get("official_reused_schedule", ())
         notice_label = (
-            "上次官方公告停售" if (collected or {}).get("official_unavailable") else "官方公告停售"
+            "上次官方公告停售"
+            if reused or (collected or {}).get("official_unavailable")
+            else "官方公告停售"
         )
         return lines + [
             f"期号：{chosen}；{notice_label}：{_beijing(windows[chosen]['sale_end_utc'])}"
@@ -115,8 +118,11 @@ def _incomplete_check(issue, collected, now):
         checked_at=collected["official_checked_at"],
         official={},
     )
-    notice = collected.get("official_schedule", {}).get(issue["issue_no"], {})
-    if collected.get("official_unavailable"):
+    number = issue["issue_no"]
+    notice = collected.get("official_schedule", {}).get(number, {})
+    if collected.get("official_unavailable") or number in collected.get(
+        "official_reused_schedule", ()
+    ):
         check["last_known_official"] = notice or known_official(
             verification_at(issue.get("official_verification"), now)
         )

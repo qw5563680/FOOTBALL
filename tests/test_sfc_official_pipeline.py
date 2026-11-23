@@ -9,12 +9,18 @@ from pathlib import Path
 import pytest
 import requests
 import responses
+from lxml import html
 from responses import matchers
 
+from sfc_publication_support import prepare_remote
 from zucai.cloud_feeds import export_feeds, restore_feeds
 from zucai.daily_digest import generate
 from zucai.db import get_engine, init_db, session_scope
-from zucai.models import Match, Team
+from zucai.models import Match, SfcIssue, Team
+from zucai.report.render import _json_bytes
+from zucai.report.sfc import build_sfc_report, write_sfc_report
+from zucai.sfc_reports import read_report
+from zucai.sfc_sequence import known_official
 from zucai.sfc_state import export_sfc_state, restore_sfc_state
 from zucai.sources import base, sfc, sfc_official
 from zucai.sources.c500 import URL, C500Sfc
@@ -29,10 +35,12 @@ BEIJING_DAY = date(2026, 11, 23)
 
 
 class ReplayClock(datetime):
+    instant = NOW
+
     @classmethod
     def now(cls, tz=None):
         assert tz is not None
-        return NOW.astimezone(tz)
+        return cls.instant.astimezone(tz)
 
 
 def _mock_provider(http):
@@ -45,12 +53,16 @@ def _mock_provider(http):
     http.get(URL, body=(FIXTURES / "t26/full-bridge.html").read_bytes())
 
 
-def _archive(tmp_path, monkeypatch, discover=None):
+def _setup_replay(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(base, "datetime", ReplayClock)
     monkeypatch.setattr(sfc, "datetime", ReplayClock)
     monkeypatch.setattr(base.RateLimiter, "wait", lambda self: None)
     monkeypatch.setattr(sfc_official, "INDEXES", (INDEX,))
+
+
+def _archive(tmp_path, monkeypatch, discover=None):
+    _setup_replay(tmp_path, monkeypatch)
     if discover is not None:
         monkeypatch.setattr(sfc, "fetch_official_notices", discover)
     path = tmp_path / "data/feed.db"
@@ -140,6 +152,203 @@ def test_adjusted_official_deadline_or_swapped_home_reported(tmp_path, monkeypat
     assert check["status"] == "conflict" and "冲突" in rendered
     assert check["official"]["source_url"] == amended
     assert any(d["field"] == field and d["status"] == "conflict" for d in check["differences"])
+
+
+def _mock_replay(http, *, revision=None):
+    _mock_provider(http)
+    weekly = (SAMPLES / "wenzhou_20261118.html").read_bytes()
+    index = (SAMPLES / "wenzhou_index.html").read_text(encoding="utf-8")
+    if revision is not None:
+        publication_day, code, readable = revision
+        link = f"https://www.wztc.cn/system/2026/11/{publication_day}/{code}.shtml"
+        title = "关于调整足球彩票第26169期竞猜场次的通知"
+        table = html.fromstring(weekly.decode("gb18030")).xpath("//table")[3]
+        appendix = html.tostring(table, encoding="unicode")
+        appendix = appendix.replace("2026-11-24 22:00", "2026-11-24 21:30") if readable else ""
+        http.get(
+            link,
+            body=(
+                f"<html><h1>{title}</h1><time>2026-11-{publication_day} 12:00:00</time>"
+                '<div id="artibody">'
+                "<p>足球彩票胜负游戏（14场和任选9场）第26169期</p>"
+                f"{appendix}<p>国家体育总局体育彩票管理中心 2026年11月{publication_day}日</p>"
+                "</div></html>"
+            ).encode(),
+        )
+        index = index.replace("</body>", f'<a href="{link}">{title}</a></body>')
+    http.get("https://www.wztc.cn/robots.txt", status=404)
+    http.get(INDEX, body=index.encode())
+    http.get(WENZHOU, body=weekly)
+
+
+def _collect_replay(database, *, revision=None, previous_schedule=None):
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+        _mock_replay(http, revision=revision)
+        result = sfc.collect_current_sfc(database, previous_schedule=previous_schedule)
+        requested = [call.request.url for call in http.calls]
+    assert result["status"] == "complete", result["errors"]
+    return result, requested
+
+
+def _freeze_issue(db, archive):
+    timestamp = NOW.isoformat()
+    batch = dict(
+        schema_version=1,
+        batch_id="offline-replay",
+        mode="prematch",
+        probability_type="P2",
+        validation_status="experimental_unadopted",
+        bet_allowed=False,
+        generated_utc=timestamp,
+        as_of_utc=timestamp,
+        models=[],
+        predictions=[],
+        input={},
+    )
+    engine = get_engine(db)
+    try:
+        with session_scope(engine) as session:
+            report = build_sfc_report(
+                session,
+                session.get(SfcIssue, "26169"),
+                batch,
+                generated=NOW,
+                forecast_sha256=hashlib.sha256(_json_bytes(batch)).hexdigest(),
+                allow_missing=True,
+            )
+    finally:
+        engine.dispose()
+    directory = "sfc/26169/history/first"
+    write_sfc_report(report, archive / directory)
+    for filename in ("sfc.json", "manifest.json", "report.md", "report.csv"):
+        (archive / f"sfc/26169/{filename}").write_bytes(
+            (archive / directory / filename).read_bytes()
+        )
+    return directory
+
+
+def _read_check(db, number):
+    with sqlite3.connect(db) as connection:
+        end, check = connection.execute(
+            "SELECT sale_end_utc, official_verification FROM sfc_issues WHERE issue_no=?", (number,)
+        ).fetchone()
+    return end, json.loads(check)
+
+
+def test_older_weekly_notice_cannot_revert_adjustment_after_restore(tmp_path, monkeypatch):
+    _setup_replay(tmp_path, monkeypatch)
+    sequence_inputs = []
+    select_issue = sfc.sequence
+
+    def record_selection(windows, at):
+        rows = list(windows)
+        state = select_issue(rows, at)
+        sequence_inputs.append(({r["issue_no"]: r for r in rows}, state))
+        return state
+
+    monkeypatch.setattr(sfc, "sequence", record_selection)
+    original_db = tmp_path / "data/feed.db"
+    archive = tmp_path / "archive"
+    restored_db = tmp_path / "restored/feed.db"
+    adjusted = "2026-11-24T13:30:00+00:00"
+    amendment = "https://www.wztc.cn/system/2026/11/22/105874265.shtml"
+    second_at = NOW + timedelta(minutes=10)
+    previous = None
+    frozen_evidence = {}
+
+    for run, moment, revision, database in (
+        ("first", NOW, ("22", "105874265", True), original_db),
+        ("second", second_at, None, restored_db),
+    ):
+        monkeypatch.setattr(ReplayClock, "instant", moment)
+        result, requested = _collect_replay(database, revision=revision, previous_schedule=previous)
+        assert (amendment in requested) == (run == "first")
+        assert WENZHOU in requested
+        windows, state = sequence_inputs[-1]
+        provider_end, check = _read_check(database, "26169")
+        selected = result["official_schedule"]["26169"]
+        assert result["due_issue_no"] == state["current"] == "26169"
+        assert windows["26169"]["sale_end_utc"] == adjusted
+        assert selected["sale_end_utc"] == adjusted and selected["source_url"] == amendment
+        assert datetime.fromisoformat(provider_end) == datetime(2026, 11, 24, 14, tzinfo=UTC)
+        assert known_official(check)["sale_end_utc"] == adjusted
+        assert known_official(check)["source_url"] == amendment
+        assert known_official(check)["observed_utc"] == "2026-11-22T16:00:00.000000Z"
+        if run == "first":
+            assert check["status"] == "conflict" and check["official"]["kind"] == "amendment"
+        else:
+            assert check["status"] == "pending" and not check["official"]
+            assert (
+                check["last_known_official"]["raw_sha256"]
+                == frozen_evidence["official"]["raw_sha256"]
+            )
+
+        export_feeds(database, archive, BEIJING_DAY, run, collection={"sfc": result})
+        assert _state(archive, "26169")["official_verification"] == check
+        assert (
+            json.loads((archive / "feed_manifest.json").read_bytes())["collection"]["sfc"][
+                "official_schedule"
+            ]["26169"]
+            == selected
+        )
+        if run == "first":
+            frozen_dir = _freeze_issue(database, archive)
+            prepare_remote(archive, NOW.isoformat())
+            frozen = {p: p.read_bytes() for p in (archive / frozen_dir).iterdir()}
+            frozen_evidence = read_report(archive, frozen_dir)["source"]["official_verification"]
+            assert frozen_evidence == check
+            previous_manifest = restore_feeds(archive, restored_db)
+            previous = previous_manifest["collection"]["sfc"]["official_schedule"]
+        digest = generate(archive, tmp_path / "digest", now=moment, run_id=run)
+        rendered = digest.read_text(encoding="utf-8")
+        headline = "官方公告停售" if run == "first" else "上次官方公告停售"
+        assert f"期号：26169；{headline}：2026-11-24 21:30:00" in rendered
+        label = "冲突" if run == "first" else "待核"
+        assert f"官方核对：{label}" in rendered and amendment in rendered.replace("\\.", ".")
+        assert "第三方所报截止：2026-11-24 22:00:00" in rendered
+        assert "报告冻结时的官方核对：冲突" in rendered
+        print(
+            f"{run} {moment.isoformat()} collection={result['status']} current={state['current']} "
+            f"sequence={windows['26169']['sale_end_utc']} "
+            f"db={known_official(check)['sale_end_utc']} archive={selected['sale_end_utc']}"
+        )
+        for line in rendered.splitlines():
+            if line.startswith(("期号：", "官方核对：", "公告来源：", "第三方所报截止：")):
+                print(line)
+
+    assert {p: p.read_bytes() for p in frozen} == frozen
+    assert read_report(archive, frozen_dir)["source"]["official_verification"] == frozen_evidence
+    boundary = generate(
+        archive,
+        tmp_path / "later",
+        now="2026-11-24T13:45:00Z",
+        run_id="after-adjusted-deadline",
+    ).read_text(encoding="utf-8")
+    assert "期号：26170" in boundary and "期号：26169" not in boundary
+    print("历史冻结报告原件逐字节一致；11月24日 21:45 日报展示 26170")
+
+
+def test_newer_unreadable_amendment_keeps_its_pending_status(tmp_path, monkeypatch):
+    _setup_replay(tmp_path, monkeypatch)
+    db = tmp_path / "feed.db"
+    first, _ = _collect_replay(db, revision=("22", "105874265", True))
+    assert first["official_schedule"]["26169"]["sale_end_utc"] == "2026-11-24T13:30:00+00:00"
+    later = NOW + timedelta(hours=13)
+    monkeypatch.setattr(ReplayClock, "instant", later)
+    second, _ = _collect_replay(
+        db, revision=("23", "105874266", False), previous_schedule=first["official_schedule"]
+    )
+    selected = second["official_schedule"]["26169"]
+    assert "sale_end_utc" not in selected and selected["notice_date"] == "2026-11-23"
+    _, check = _read_check(db, "26169")
+    assert check["status"] == "pending" and "last_known_official" not in check
+    assert check["official"]["source_url"].endswith("/105874266.shtml")
+    archive = tmp_path / "archive"
+    export_feeds(db, archive, BEIJING_DAY, "unreadable", collection={"sfc": second})
+    rendered = generate(archive, tmp_path / "digest", now=later).read_text(encoding="utf-8")
+    assert "官方核对：待核。官方售期不完整" in rendered
+    assert "期号：26169；第三方所报截止：2026-11-24 22:00:00" in rendered
+    assert "105874266" in rendered
 
 
 def test_official_outage_keeps_third_party_source(tmp_path, monkeypatch):

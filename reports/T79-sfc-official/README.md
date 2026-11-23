@@ -46,3 +46,37 @@ tmp_root=$(mktemp -d)
 pytest -q tests/test_sfc_official_pipeline.py --basetemp="$tmp_root/replay"
 python -c 'import json, pathlib, sys; p = next(pathlib.Path(sys.argv[1]).glob("test_26171_root*/archive/state/sfc/26171.json")); print(json.dumps(json.loads(p.read_text())["issue"]["official_verification"], indent=2, ensure_ascii=False))' "$tmp_root/replay"
 ```
+
+## 二审回归：旧转载不会覆盖已知调整
+
+用上面的温州周公告和 500 网裁片离线回放。第一轮从模拟的调整通知读到 26169 停售提前至北京时间 21:30，随后导入归档副本继续第二轮。第二轮目录只返回原周公告，按正式入口传入第一轮归档清单的 `previous_schedule`。调整链接 `105874265.shtml` 是测试地址。
+
+在 `d5589911` 上，第二轮选期输入回退至 `2026-11-24T14:00:00+00:00`，即北京时间 22:00。修复后两轮实际输出如下。日志里的 `sequence`、`db`、`archive` 分别为选期输入、库内官方证据和导出清单的有效停售时间，均用 UTC 保存。
+
+```text
+first 2026-11-22T16:00:00+00:00 collection=complete current=26169 sequence=2026-11-24T13:30:00+00:00 db=2026-11-24T13:30:00+00:00 archive=2026-11-24T13:30:00+00:00
+期号：26169；官方公告停售：2026-11-24 21:30:00（北京时间，未截止）。
+官方核对：冲突。第三方数据与官方公告存在字段冲突
+公告来源：https://www.wztc.cn/system/2026/11/22/105874265.shtml；公告版本：2026-11-22T04:00:00+00:00。
+第三方所报截止：2026-11-24 22:00:00（北京时间）。
+second 2026-11-22T16:10:00+00:00 collection=complete current=26169 sequence=2026-11-24T13:30:00+00:00 db=2026-11-24T13:30:00+00:00 archive=2026-11-24T13:30:00+00:00
+期号：26169；上次官方公告停售：2026-11-24 21:30:00（北京时间，未截止）。
+官方核对：待核。本次未重新取得当前适用的官方公告，沿用已归档版本
+公告来源：https://www.wztc.cn/system/2026/11/22/105874265.shtml；公告版本：2026-11-22T04:00:00+00:00。
+第三方所报截止：2026-11-24 22:00:00（北京时间）。
+历史冻结报告原件逐字节一致；11月24日 21:45 日报展示 26170
+```
+
+另一个离线用例模拟发现更新但附件不可读的调整，核对状态仍为待核。截点之后才签发、刊发或取得的归档版本不参与选择。冻结报告和清单共四个文件逐字节一致，冻结时的核对状态仍为冲突。
+
+复现命令
+
+```bash
+pytest -q -s tests/test_sfc_official_pipeline.py::test_older_weekly_notice_cannot_revert_adjustment_after_restore
+```
+
+本次二审修复的离线测试结果
+
+- 采集、版本核对、选期、归档和报告相关回归 93 项通过。
+- 全量 pytest 4,953 项通过，用时 178.36 秒。并行参数为 `-n 4 --dist=worksteal`。
+- `ruff check src tests examples`、`ruff format --check src tests`、`git diff --check` 通过。

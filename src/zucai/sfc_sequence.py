@@ -37,7 +37,7 @@ def verification_at(check, now):
 
 
 def known_official(check):
-    """A transport failure retains the last dated announcement with an explicit stale label."""
+    """Read a fresh comparison or the explicitly retained previous notice."""
     return check.get("official") or check.get("last_known_official") or {}
 
 
@@ -51,8 +51,10 @@ def period_windows(issues, schedule, now):
             row.update(
                 sale_start_utc=official["sale_start_utc"], sale_end_utc=official["sale_end_utc"]
             )
+    cutoff = _instant(now)
     for number, notice in schedule.items():
-        if not notice.get("observed_utc") or _instant(notice["observed_utc"]) > _instant(now):
+        seen, published = notice.get("observed_utc"), notice.get("published_at")
+        if not seen or _instant(seen) > cutoff or (published and _instant(published) > cutoff):
             continue
         if notice.get("sale_start_utc") and notice.get("sale_end_utc"):
             row = by_number.setdefault(number, {"issue_no": number})
