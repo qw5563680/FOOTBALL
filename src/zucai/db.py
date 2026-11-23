@@ -74,6 +74,7 @@ def init_db(engine: Engine) -> None:
                 "raw_sha256": "VARCHAR",
                 "date_basis": "VARCHAR",
                 "snapshot": "JSON",
+                "official_verification": "JSON",
             },
             "predictions": {"batch_id": "VARCHAR", "mode": "VARCHAR", "as_of_utc": "VARCHAR(27)"},
             "results": {"available_utc": "VARCHAR(27)", "available_source": "VARCHAR"},

@@ -130,6 +130,7 @@ class SfcIssue(Base):
     raw_sha256: Mapped[str | None]
     date_basis: Mapped[str | None]
     snapshot: Mapped[list[dict] | None] = mapped_column(JSON)
+    official_verification: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
 
 
 class SfcIssueMatch(Base):

@@ -176,6 +176,7 @@ def test_conflicting_ids_audited_then_retried_without_name_guessing(tmp_path, mo
         target = add_target(session, bridges[0])
         target_id = target.match_id
     engine.dispose()
+    monkeypatch.setattr("zucai.sources.sfc.fetch_official_notices", lambda: [])
     # Both fetchers read checked-in pages; no HTTP even to a mocked endpoint.
     page = tmp_path / "page"
     page.write_bytes(RAW)

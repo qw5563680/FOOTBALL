@@ -4,9 +4,10 @@ import copy
 import csv
 import hashlib
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
+import requests
 from sqlalchemy import delete, or_, select
 
 from zucai.db import get_engine, init_db, session_scope
@@ -14,8 +15,10 @@ from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.nations import UnknownSfcTeam, sfc_team
 from zucai.sfc_club_names import club_name
-from zucai.sfc_sequence import sequence
+from zucai.sfc_sequence import known_official, period_windows, sequence, verification_at
+from zucai.sfc_verification import compare_issue, pending_amendments, resolve_notices
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
+from zucai.sources.sfc_official import UnreadableAmendments, fetch_official_notices
 from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
 
@@ -635,6 +638,8 @@ def ingest_issue(
         session.add(record)
     record.sale_end_utc = issue.sale_end_utc.isoformat() if issue.sale_end_utc else None
     record.observed_utc = observed.isoformat()
+    if record.raw_sha256 != raw_sha256 or record.snapshot != snapshot:
+        record.official_verification = None
     record.source_url, record.raw_sha256 = url, raw_sha256
     record.date_basis, record.snapshot = issue.date_basis, snapshot
     session.flush()
@@ -723,7 +728,109 @@ def _sequence_time(meta):
     return datetime.fromisoformat(meta["fetched_at_utc"])
 
 
-def collect_current_sfc(db):
+def _resolve_schedule(result, notices, previous_schedule, known, checked_at, failures):
+    prior_checks = {
+        row["issue_no"]: verification_at(row["official_verification"], checked_at)
+        for row in known
+        if not row["observed_utc"] or datetime.fromisoformat(row["observed_utc"]) <= checked_at
+    }
+    pending = pending_amendments(failures, notices, checked_at)
+    result["pending_amendments"] = pending
+    archived = [(number, known_official(check)) for number, check in prior_checks.items()]
+    archived.extend((previous_schedule or {}).items())
+    if result.get("official_error") and not result["official_unavailable"]:
+        # A separate source error still blocks fresh verification. Preserve the
+        # last readable receipt alongside an identified outstanding adjustment.
+        archived = [(n, receipt) for n, receipt in archived if _pending_for(n, pending)]
+    # A body without its table cannot resolve its own earlier failed read.
+    unreadable_urls = {p["source_url"] for p in pending}
+    selected = resolve_notices(
+        [n for n in notices if n.get("source_url") not in unreadable_urls], archived, checked_at
+    )
+    for number, notice in selected.items():
+        applicable = _pending_for(number, pending)
+        if applicable:
+            notice["pending_amendments"] = applicable
+    result.update(
+        official_checked_at=checked_at.isoformat(),
+        official_reused_schedule=[
+            n
+            for n, notice in selected.items()
+            if notice.get("from_archive") or notice.get("pending_amendments")
+        ],
+        official_schedule={
+            number: {
+                key: notice.get(key)
+                for key in (
+                    "source_url",
+                    "title",
+                    "kind",
+                    "notice_date",
+                    "published_at",
+                    "raw_sha256",
+                    "sale_start_utc",
+                    "sale_end_utc",
+                    "reason",
+                    "versions",
+                    "pending_amendments",
+                    "observed_utc",
+                )
+                if notice.get(key) is not None
+            }
+            for number, notice in selected.items()
+        },
+    )
+    for summary in result["official_schedule"].values():
+        summary.setdefault("observed_utc", checked_at.isoformat())
+    return selected, prior_checks
+
+
+def _pending_for(number, pending):
+    return [entry for entry in pending if entry.get("issue_hint") in (None, number)]
+
+
+def _check_archived_issues(session, selected, checked_at, numbers, result, prior_checks):
+    """An amendment may affect an already archived period other than the root or due page."""
+    for record in session.scalars(select(SfcIssue)):
+        previous = prior_checks.get(record.issue_no) or {}
+        previous_end = known_official(previous).get("sale_end_utc") or record.sale_end_utc
+        if not record.snapshot:
+            continue
+        if (
+            record.issue_no not in numbers
+            and not previous.get("pending_amendments")
+            and (not previous_end or datetime.fromisoformat(previous_end) <= checked_at)
+        ):
+            continue
+        notice = selected.get(record.issue_no)
+        if notice is None:
+            notice = {
+                "pending_amendments": _pending_for(record.issue_no, result["pending_amendments"])
+            }
+        check = compare_issue(
+            record.issue_no,
+            record.sale_end_utc,
+            record.snapshot,
+            notice,
+            checked_at,
+            source_error=result.get("official_error"),
+        )
+        if (
+            previous
+            and check.get("last_known_official")
+            and all(
+                known_official(previous).get(key) == notice.get(key)
+                for key in ("source_url", "raw_sha256")
+            )
+        ):
+            check["last_official_check_at"] = (
+                previous.get("last_official_check_at") or previous["checked_at"]
+            )
+        check["provider_raw_sha256"] = record.raw_sha256
+        record.official_verification = check
+
+
+def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
     """Read current SFC and JC root pages without changing match identities."""
     import json
 
@@ -747,6 +854,41 @@ def collect_current_sfc(db):
         source = C500Sfc()
         engine = get_engine(db)
         init_db(engine)
+        source_error = None
+        unavailable = False
+        with session_scope(engine) as session:
+            known = [
+                dict(
+                    issue_no=row.issue_no,
+                    observed_utc=row.observed_utc,
+                    sale_end_utc=row.sale_end_utc,
+                    official_verification=row.official_verification,
+                )
+                for row in session.scalars(select(SfcIssue))
+            ]
+        failures = list(previous_pending)
+        for summary in (previous_schedule or {}).values():
+            failures.extend(summary.get("pending_amendments", ()))
+        for row in known:
+            failures.extend((row["official_verification"] or {}).get("pending_amendments", ()))
+        retry = pending_amendments(failures, [], datetime.now(UTC))
+        try:
+            notices = fetch_official_notices(retry) if retry else fetch_official_notices()
+        except UnreadableAmendments as exc:
+            failures.extend(exc.pending)
+            notices = exc.notices
+            source_error = exc.weekly_error
+        except (OSError, ValueError, requests.RequestException) as exc:
+            notices = []
+            source_error = f"{type(exc).__name__}: {exc}"[:200]
+            unavailable = isinstance(exc, (OSError, requests.RequestException)) and not isinstance(
+                exc, ValueError
+            )
+        if not notices and (source_error or not failures):
+            result["official_error"] = source_error or "本次没有取得官方期次公告"
+        result["official_unavailable"] = unavailable
+        _resolve_schedule(result, notices, previous_schedule, known, datetime.now(UTC), failures)
+        result["requests_scope"] = "500.com"
         result["requests"] += 1
         path = source.fetch_raw(current_only=True)
         raw, meta = source.store.load(path), source.store.load_metadata(path)
@@ -755,14 +897,19 @@ def collect_current_sfc(db):
         # Periods are followed in order, one at a time (zucai.sfc_sequence). The root page
         # is taken unless it shows a period that is not in line yet; when it is not the
         # period that is due, that one is asked for by number with one more GET.
-        with session_scope(engine) as session:
-            known = [
-                dict(issue_no=row.issue_no, sale_end_utc=row.sale_end_utc)
-                for row in session.scalars(select(SfcIssue))
-                if row.issue_no != root.issue_no
-            ]
-        known.append(dict(issue_no=root.issue_no, sale_end_utc=root.sale_end_utc))
-        state = sequence(known, observed)
+        selected, prior_checks = _resolve_schedule(
+            result, notices, previous_schedule, known, observed, failures
+        )
+        provider_windows = [
+            dict(issue_no=row["issue_no"], sale_end_utc=row["sale_end_utc"])
+            for row in known
+            if row["issue_no"] != root.issue_no and row["issue_no"] in prior_checks
+        ]
+        provider_windows.append(dict(issue_no=root.issue_no, sale_end_utc=root.sale_end_utc))
+        state = sequence(
+            period_windows(provider_windows, result["official_schedule"], observed).values(),
+            observed,
+        )
         captures = []
         result["root_issue_no"] = root.issue_no
         if root.issue_no in state["ahead"]:
@@ -771,8 +918,6 @@ def collect_current_sfc(db):
             captures.append((root, raw, meta))
         wanted = [state["current"]] if state["current"] else list(state["expected"][:1])
         if wanted and wanted[0] != root.issue_no and root.issue_no not in state["expected"]:
-            import requests
-
             result["due_issue_no"] = wanted[0]
             result["requests"] += 1
             try:
@@ -836,6 +981,21 @@ def collect_current_sfc(db):
                 rows.extend(unmatched)
                 # The last capture is the due period when one was fetched by number.
                 primary = (issue.issue_no, len(unmatched))
+            # Fixture/team ID bridges can establish a name match only after their own capture.
+            checked_at = max(
+                observed,
+                _sequence_time(bridge_meta),
+                *(_sequence_time(info) for _, _, info in captures),
+            )
+            _check_archived_issues(
+                session,
+                selected,
+                checked_at,
+                {n["issue_no"] for n in notices if "issue_no" in n}
+                | {p.issue_no for p, _, _ in captures},
+                result,
+                prior_checks,
+            )
             if primary:
                 result.update(
                     issue_no=primary[0],

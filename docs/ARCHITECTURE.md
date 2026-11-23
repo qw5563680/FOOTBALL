@@ -850,7 +850,7 @@ T14 将 `closing_odds` 加入 `cloud_feeds.TABLES`，v2 逐行导出/恢复全�
 旧归档没有拒绝清单仍可恢复。当前云端同步只用 jc 官方源。重跑保留已冻结的预测值。
 
 ### `sfc_issues` / `sfc_issue_matches`
-`sfc_issues` 的主键是字符串 `issue_no`，保存截止时间 `sale_end_utc`。
+`sfc_issues` 的主键是字符串 `issue_no`，`sale_end_utc` 保存采集页所报截止时间。可空 JSON 列 `official_verification` 保存同一期的公告版本、核对时刻、开停售时间及逐字段结论。云端期次 JSON 只在有核对记录时导出该字段，旧归档恢复为空。云端采集摘要的 `official_schedule` 也记录尚无第三方快照的官方排期，供日报选期。
 `sfc_issue_matches` 以 `(issue_no, seq)` 为主键，`seq` 为 1..14，
 `match_id` 引用比赛。同一期中一场比赛只能占一个位置。
 

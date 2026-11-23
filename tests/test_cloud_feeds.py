@@ -283,7 +283,7 @@ def test_schedule_and_results_success_times_are_separate_and_failed_attempt_keep
             raise ConnectionError("fixture results unavailable")
         return {"finished": 0, "cancelled": 0, "assumed": 0, "unchanged": 0}
 
-    def sfc(_):
+    def sfc(_, *, previous_schedule=None, previous_pending=()):
         now["utc"] = observed_time
         return dict(
             status="complete",

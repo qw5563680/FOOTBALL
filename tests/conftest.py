@@ -17,6 +17,7 @@ def sfc_fixture_clock(monkeypatch):
 
     import zucai.sources.sfc as sfc
 
+    monkeypatch.setattr(sfc, "fetch_official_notices", lambda: [])
     monkeypatch.setattr(
         sfc, "_sequence_time", lambda meta: datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
     )

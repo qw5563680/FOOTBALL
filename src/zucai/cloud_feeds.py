@@ -1347,9 +1347,14 @@ def main():
         from zucai.sources.sfc import collect_current_sfc
 
         jc, windows_complete = collect_jc(target, meta, day, args.days)
+        previous_sfc = meta.get("collection", {}).get("sfc", {})
         collection = {
             "jc": jc,
-            "sfc": collect_current_sfc(target),
+            "sfc": collect_current_sfc(
+                target,
+                previous_schedule=previous_sfc.get("official_schedule"),
+                previous_pending=previous_sfc.get("pending_amendments", ()),
+            ),
         }
         if not windows_complete:
             day = date.fromisoformat(meta["through_beijing"])
