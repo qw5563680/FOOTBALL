@@ -336,6 +336,56 @@ def test_sales_day_uses_earlier_published_version_after_kickoff_correction(
         assert "2026-11-23 10:05:00" in today
 
 
+@pytest.mark.parametrize(
+    "report_at, lane", [("02:00", "tomorrow"), ("02:02", "today"), ("02:05", None)]
+)
+def test_excluded_match_follows_corrected_kickoff_in_digest(tmp_path, report_at, lane):
+    from forecast_publication_support import confirm_fixture
+    from zucai.scoreboard.score import instant
+
+    sample = json.loads(FIXTURE.read_bytes())
+    batch = sample["batch"]
+    batch.update(as_of_utc="2026-11-23T01:00:00Z", generated_utc="2026-11-23T01:00:00Z")
+    target = next(row for row in batch["predictions"] if row["jc_num"] == "周一001")
+    reason = "缺少同来源同联赛的模型"
+    target.update(status="excluded", reason=reason)
+    for name in ("model_probabilities", "score_matrix"):
+        target.pop(name)
+    catalog = next(row for row in sample["catalog"] if row["match_id"] == target["match_id"])
+    db = tmp_path / "empty.db"
+    engine = get_engine(db)
+    init_db(engine)
+    engine.dispose()
+    archive = tmp_path / "archive"
+    export_feeds(db, archive, date.fromisoformat(DAY), RUN)
+    install(
+        archive,
+        [
+            catalog,
+            dict(catalog, kickoff_utc="2026-11-23T02:05:00Z", captured_utc="2026-11-23T02:01:00Z"),
+        ],
+    )
+    install_forecast(archive, tmp_path / "stage", batch)
+    confirm_fixture(archive, batch["generated_utc"])
+    frozen = snapshot(archive)
+    text = generate(
+        archive, tmp_path / "daily", now=instant(f"2026-11-23T{report_at}:00Z")
+    ).read_text()
+    assert snapshot(archive) == frozen
+    sales, upcoming = text.split("## 竞彩销售日", 1)[1].split("## 今日与明日", 1)
+    assert "应有 1 场、已预测 0 场、缺 1 场" in sales and reason in sales
+    today, tomorrow = upcoming.split("### 今日 2026-11-23", 1)[1].split("### 明日 2026-11-24", 1)
+    tomorrow = tomorrow.split("\n## ", 1)[0]
+    for name, section in (("today", today), ("tomorrow", tomorrow)):
+        rows = [line for line in section.splitlines() if line.startswith("| 周一001 |")]
+        assert len(rows) == int(name == lane)
+        if rows:
+            kickoff = "2026-11-23 10:05:00" if name == "today" else "2026-11-24 02:00:00"
+            assert kickoff in rows[0] and f"球队模型未生成（{reason}）" in rows[0]
+            assert f"forecasts/2026-11-24/{RUN}/forecast.json" in section
+    assert "未开球比赛，但本批未提供对应竞彩预测" not in today
+
+
 def test_old_manifest_marks_even_empty_spillover_as_partial():
     from zucai.digest_context import jc_digest_batch, prediction_window
     from zucai.scoreboard.score import instant

@@ -171,3 +171,22 @@ git diff --check
 ```
 
 本次定向测试为 `73 passed, 174 warnings in 11.53s`，全量为 `4972 passed, 10510 warnings in 299.37s`。Ruff 检查通过，454 个源文件和测试文件格式通过，Git 空白检查通过。
+
+## 模型未生成时的改期回放
+
+取 11 月 23 日归档中的周一001（厄格里特 VS 卡尔马），在离线副本中设置冻结原因「缺少同来源同联赛的模型」。目录在北京时间 10:01 记录改期，将 11 月 24 日 02:00 的开球提前到 11 月 23 日 10:05。基线 `b851cb71` 在 10:02 漏了「今日」这行，10:05 仍在「明日」展示旧开球时间。
+
+| 日报生成（北京时间） | 今日的周一001 | 明日的周一001 |
+|---|---|---|
+| 10:00 | 0 行 | 1 行，11 月 24 日 02:00 开球，列出冻结原因 |
+| 10:02 | 1 行，11 月 23 日 10:05 开球，显示「球队模型未生成（缺少同来源同联赛的模型）」 | 0 行 |
+| 10:05 | 0 行 | 0 行 |
+
+三次回放中，销售日表都显示「应有 1 场、已预测 0 场、缺 1 场」，并列明周一001的冻结原因。生成前后逐文件核对，归档字节一致。另用未改期的 226c3709 数据重跑八场，仍为应有 8 场、已预测 8 场、缺 0 场。
+
+```sh
+pytest -q -o addopts= tests/test_jc_sales_day_digest.py -k excluded_match_follows --tb=short
+pytest -q -o addopts= tests/test_jc_sales_day_digest.py tests/test_digest_horizon.py tests/test_digest_review_regressions.py tests/test_digest_rework.py tests/test_t73_digest_exclusion_reasons.py tests/test_t52_digest.py tests/test_daily_digest.py tests/test_t56_prior_display.py --tb=short
+```
+
+定向测试 `100 passed`，包括既有空批次日报逐字节一致与跨日模型展示。全量命令 `pytest -q -o addopts= -n 4 --dist=worksteal -o tmp_path_retention_policy=failed --basetemp=/tmp/jc-excl-all-v3` 输出 `4975 passed, 10510 warnings in 160.44s`。Ruff、格式和 Git 空白检查通过。

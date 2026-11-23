@@ -543,6 +543,7 @@ def generate(
             matches=matches,
             displayed_ids=displayed_ids,
             latest=latest,
+            kickoffs=kickoffs,
             runs=(manifest or {}).get("runs", {}),
             catalog=catalog,
             sfc_issues=archived_sfc_issues(archive, feed, at),

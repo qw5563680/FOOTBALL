@@ -418,15 +418,33 @@ def forecast_sections(
     catalog=None,
     sfc_issues=None,
     latest=None,
+    kickoffs=None,
 ):
     now = now or datetime.combine(today, time.min, BEIJING)
     matches = matches or {}
     lines = ["## 今日与明日预测（仅发报时未开球）", ""]
     window = prediction_window(batches, now, catalog)
-    # The catalog may move an already published fixture across Beijing midnight.
-    # Group the selected rows by the corrected day, retaining the path of the actual freeze.
+    ordered = sorted(
+        batches, key=lambda e: (_instant(e[2]["generated_utc"]), e[2]["batch_id"]), reverse=True
+    )
+    newest_native = {}
+    display_rows = dict(latest or {})
+    for frozen_day, path, batch in ordered:
+        if frozen_day in newest_native:
+            continue
+        newest_native[frozen_day] = path
+        # Only the newest batch for its original day supplies exclusions.
+        # A published prediction for the same match remains authoritative.
+        for row in batch["predictions"]:
+            match_id = row["match_id"]
+            if match_id in display_rows or row["status"] == "predicted":
+                continue
+            if row.get("kickoff_utc"):
+                kickoff = (kickoffs or {}).get(match_id, row["kickoff_utc"])
+                display_rows[match_id] = dict(row, kickoff_utc=kickoff, forecast_path=path)
+
     upcoming = defaultdict(dict)
-    for row in (latest or {}).values():
+    for row in display_rows.values():
         if _instant(row["kickoff_utc"]) > now:
             day = kickoff_day(row).isoformat()
             upcoming[day].setdefault(row["forecast_path"], []).append(row)
@@ -440,11 +458,8 @@ def forecast_sections(
             if day == (today + timedelta(days=1)).isoformat()
             else "竞彩销售日跨午夜"
         )
-        choices = sorted(
-            (entry for entry in batches if entry[0] == day or entry[1] in selected),
-            key=lambda e: (_instant(e[2]["generated_utc"]), e[2]["batch_id"]),
-            reverse=True,
-        )
+        native_path = newest_native.get(day)
+        choices = [entry for entry in ordered if entry[1] == native_path or entry[1] in selected]
         lines.extend([f"### {label} {day}", ""])
         if not choices:
             known = _known_unstarted_lines(
@@ -459,24 +474,20 @@ def forecast_sections(
             }
             known_scope = covered if spillover is None else spillover & covered
             lines.extend(["该日仅有按比赛编号冻结的部分批次，尚无覆盖当前计划的完整批次。", ""])
-        newest_native = next((path for frozen_day, path, _ in choices if frozen_day == day), None)
         shown = set()
         for _, path, batch in choices:
             rows = list(selected.get(path, ()))
-            if path == newest_native:
+            if latest is None and path == native_path:
                 rows.extend(
                     row
                     for row in batch["predictions"]
-                    if (
-                        latest is None
-                        or (row["match_id"] not in latest and row["status"] != "predicted")
-                    )
+                    if row["status"] == "predicted"
                     and row.get("kickoff_utc")
                     and _instant(row["kickoff_utc"]) > now
                 )
             if spillover is not None:
                 rows = [r for r in rows if r["match_id"] in spillover]
-            if not rows and path != newest_native:
+            if not rows and path != native_path:
                 continue
             lines.extend(
                 _batch_section(
