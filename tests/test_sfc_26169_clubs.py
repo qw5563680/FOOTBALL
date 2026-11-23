@@ -78,13 +78,14 @@ def test_collection_forecast_and_digest(tmp_path, monkeypatch):
                 None
             ] * 5 + EXPECTED[-1:]
 
-    # Exercise the five proposed names in this isolated session pending owner approval.
+    # The approved path uses the shipped table and checks the provider ID and printed label.
     table = sfc_club_names.load()
-    proposals = json.loads(sfc_club_names.PATH.read_bytes())["proposed"]["英冠"]
-    assert set(proposals) == KEYS and not any(("英冠", k) in table for k in KEYS)
-    monkeypatch.setattr(
-        sfc_club_names, "_table", lambda: table | {("英冠", k): v for k, v in proposals.items()}
-    )
+    for key in KEYS:
+        entry = table["英冠", key]
+        assert entry["approval_pr"] == "https://github.com/qw5563680/FOOTBALL/pull/221"
+        assert sfc_club_names.club_name("英冠", key, entry["label"]) == entry["canonical"]
+        assert sfc_club_names.club_name("英冠", key, entry["canonical"]) is None
+
     collection, _ = _collect_replay(db)
     with session_scope(engine) as session:
         rows = session.get(SfcIssue, "26169").snapshot[8:]
