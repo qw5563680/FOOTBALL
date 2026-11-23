@@ -419,6 +419,7 @@ def forecast_sections(
     sfc_issues=None,
     latest=None,
     kickoffs=None,
+    exclusions=None,
 ):
     now = now or datetime.combine(today, time.min, BEIJING)
     matches = matches or {}
@@ -428,7 +429,12 @@ def forecast_sections(
         batches, key=lambda e: (_instant(e[2]["generated_utc"]), e[2]["batch_id"]), reverse=True
     )
     newest_native = {}
-    display_rows = dict(latest or {})
+    display_rows = {
+        match_id: entry["postponed_row"]
+        for match_id, entry in (exclusions or {}).items()
+        if "postponed_row" in entry
+    }
+    display_rows.update(latest or {})
     for frozen_day, path, batch in ordered:
         if frozen_day in newest_native:
             continue

@@ -190,3 +190,35 @@ pytest -q -o addopts= tests/test_jc_sales_day_digest.py tests/test_digest_horizo
 ```
 
 定向测试 `100 passed`，包括既有空批次日报逐字节一致与跨日模型展示。全量命令 `pytest -q -o addopts= -n 4 --dist=worksteal -o tmp_path_retention_policy=failed --basetemp=/tmp/jc-excl-all-v3` 输出 `4975 passed, 10510 warnings in 160.44s`。Ruff、格式和 Git 空白检查通过。
+
+
+## 第三轮审查的推迟开球回放
+
+周一001（厄格里特 VS 卡尔马）原定 11 月 23 日 08:30 开球，09:00 截点的冻结批次按原时间排除该场。目录在 09:01 记录推迟至当天 20:00。基线 `25a4d7a3` 的「今日」仍照抄旧批次的「预测截点时已开赛」，销售日清单则写「原因未查明」。以下时间均为北京时间。
+
+| 发报时间 | 今日的周一001 | 明日的周一001 | 销售日清单 |
+|---|---|---|---|
+| 10:02 | 1 行，20:00 开球，显示原批次排除和改期后缺预测原因 | 0 行 | 应有 1 场、已预测 0 场、缺 1 场，引用同一冻结批次和原因 |
+| 20:00 | 0 行 | 0 行 | 仍保留 20:00 开球及同一缺预测原因 |
+
+10:02「今日」实际行。
+
+```markdown
+| 周一001 | 2026-11-23 20:00:00 | 瑞超 / 厄格里特 VS 卡尔马 | 球队模型未生成（原批次截点已过原定开球时间，赛程推迟后暂无有效赛前预测） | 市场参考未生成（原批次截点已过原定开球时间） | 未生成（融合实验尚未上线） | — | — | — | 2026-11-22 18:30:49 | — |
+```
+
+10:02「销售日」实际行。
+
+```markdown
+| 周一001 | 2026-11-23 20:00:00 | 厄格里特 VS 卡尔马 | — | — | 未预测：冻结批次 45048943753-1-2026-11-23：原批次截点已过原定开球时间，赛程推迟后暂无有效赛前预测（截点 2026-11-23 09:00:00） |
+```
+
+另以「当前场次状态不适用于赛前预测」作为旧批次的排除原因回放。10:02 两栏均说明原批次按当时比赛状态排除，赛程推迟后暂无有效赛前预测。20:00 退出未开球栏目。原有提前开球的两组回归也通过，生成日报前后逐文件核对，赛程目录、冻结预测及发布回执字节一致。
+
+```sh
+pytest -q -o addopts= tests/test_jc_sales_day_digest.py tests/test_digest_horizon.py tests/test_digest_review_regressions.py tests/test_digest_rework.py tests/test_t73_digest_exclusion_reasons.py tests/test_t52_digest.py tests/test_daily_digest.py tests/test_t56_prior_display.py --tb=short --basetemp=/tmp/219-postpone-focus
+PYTHONPATH=src:tests python reports/jc-midnight-coverage/replay.py /tmp/football-nov23-evidence
+pytest -q -o addopts= -n 4 --dist=worksteal -o tmp_path_retention_policy=failed --basetemp=/tmp/219-postpone-full
+```
+
+定向 `104 passed`。全量 `4979 passed, 10510 warnings in 156.77s`。原八场离线回放仍为应有 8 场、已预测 8 场、缺 0 场。Ruff、格式和 Git 空白检查通过。

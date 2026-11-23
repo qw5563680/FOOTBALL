@@ -229,30 +229,45 @@ MODEL_SCOPE_REASON = "缺少同来源同联赛的模型"
 
 
 def frozen_exclusions(batches, now, *, kickoffs=None):
-    """Latest stated non-prediction reason per match from batches frozen by its kickoff.
-
-    Only a prematch batch whose cutoff is not later than the kickoff is contemporaneous
-    evidence; a batch produced after kickoff can never supply the reason.
-    """
+    """Latest documented reason, including an old exclusion explained by a known delay."""
+    now = instant(now)
     found = {}
+    postponed = set()
+    kickoffs = kickoffs or {}
     for _, path, batch in batches:
-        if batch.get("mode") != "prematch" or instant(batch["generated_utc"]) > instant(now):
+        if batch.get("mode") != "prematch":
+            continue
+        generated = instant(batch["generated_utc"])
+        if generated > now:
             continue
         cutoff = instant(batch["as_of_utc"])
         for row in batch["predictions"]:
             reason = row.get("reason")
             if row.get("status") == "predicted" or not isinstance(reason, str) or not reason:
                 continue
-            if not row.get("kickoff_utc") or not cutoff <= instant(
-                batch["generated_utc"]
-            ) < instant(row["kickoff_utc"]):
+            if not row.get("kickoff_utc"):
                 continue
-            corrected = (kickoffs or {}).get(row["match_id"])
-            if corrected and instant(batch["generated_utc"]) >= instant(corrected):
+            match_id = row["match_id"]
+            original = instant(row["kickoff_utc"])
+            kickoff = instant(kickoffs.get(match_id, row["kickoff_utc"]))
+            if not cutoff <= generated < kickoff:
                 continue
-            key = (cutoff, instant(batch["generated_utc"]), batch["batch_id"])
-            if row["match_id"] not in found or key > found[row["match_id"]][0]:
-                found[row["match_id"]] = (
+            # A time-dependent exclusion can explain a known delay even when
+            # the old kickoff had already passed when that batch was frozen.
+            historical_reason = None
+            if original < kickoff:
+                if reason == "预测截点时已开赛" and original <= cutoff:
+                    historical_reason = "原批次截点已过原定开球时间"
+                elif reason == "当前场次状态不适用于赛前预测":
+                    historical_reason = "原批次按当时比赛状态排除"
+            if historical_reason:
+                postponed.add(match_id)
+                reason = f"{historical_reason}，赛程推迟后暂无有效赛前预测"
+            elif generated >= original:
+                continue
+            key = (cutoff, generated, batch["batch_id"])
+            if match_id not in found or key > found[match_id][0]:
+                found[match_id] = (
                     key,
                     {
                         "reason": reason,
@@ -260,8 +275,24 @@ def frozen_exclusions(batches, now, *, kickoffs=None):
                         "as_of_utc": batch["as_of_utc"],
                         "forecast_path": path,
                     },
+                    row,
+                    historical_reason,
                 )
-    return {match_id: value for match_id, (_, value) in found.items()}
+    exclusions = {}
+    for match_id, (_, evidence, row, historical_reason) in found.items():
+        if match_id in postponed:
+            # Use the same selected evidence and source in both report sections.
+            display_row = dict(
+                row,
+                kickoff_utc=kickoffs[match_id],
+                forecast_path=evidence["forecast_path"],
+                reason=evidence["reason"],
+            )
+            if historical_reason and row.get("market_missing_reason") == row["reason"]:
+                display_row["market_missing_reason"] = historical_reason
+            evidence["postponed_row"] = display_row
+        exclusions[match_id] = evidence
+    return exclusions
 
 
 def catalog_gaps(

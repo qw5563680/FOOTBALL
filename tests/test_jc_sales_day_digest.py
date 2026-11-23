@@ -24,7 +24,7 @@ DAY = "2026-11-23"
 MISSING = "jc:2042949"
 
 
-def install_forecast(archive, stage, batch, *, run=RUN):
+def install_forecast(archive, stage, batch, *, run=RUN, batch_day="2026-11-24"):
     # Synthetic artifacts let archive verification run without the production
     # model files. The frozen probabilities, fixture IDs and times are unchanged.
     models = stage / "models" / run
@@ -56,7 +56,7 @@ def install_forecast(archive, stage, batch, *, run=RUN):
             **batch,
             "batch_id": f"{run}-{day}",
             "input": {**batch["input"], "kickoff_date_beijing": day},
-            "predictions": [] if day == DAY else batch["predictions"],
+            "predictions": batch["predictions"] if day == batch_day else [],
         }
         write_report(frozen, stage / directory)
         forecasts[day] = dict(
@@ -384,6 +384,77 @@ def test_excluded_match_follows_corrected_kickoff_in_digest(tmp_path, report_at,
             assert kickoff in rows[0] and f"球队模型未生成（{reason}）" in rows[0]
             assert f"forecasts/2026-11-24/{RUN}/forecast.json" in section
     assert "未开球比赛，但本批未提供对应竞彩预测" not in today
+
+
+@pytest.mark.parametrize("report_at,today_count", [("02:02", 1), ("12:00", 0)])
+@pytest.mark.parametrize(
+    "frozen_reason,cutoff,expected_reason",
+    [
+        (
+            "预测截点时已开赛",
+            "01:00",
+            "原批次截点已过原定开球时间，赛程推迟后暂无有效赛前预测",
+        ),
+        (
+            "当前场次状态不适用于赛前预测",
+            "00:20",
+            "原批次按当时比赛状态排除，赛程推迟后暂无有效赛前预测",
+        ),
+    ],
+)
+def test_postponed_match_explains_missing_forecast_in_both_tables(
+    tmp_path, report_at, today_count, frozen_reason, cutoff, expected_reason
+):
+    from forecast_publication_support import confirm_fixture
+    from zucai.scoreboard.score import instant
+
+    sample = json.loads(FIXTURE.read_bytes())
+    old_kickoff = "2026-11-23T00:30:00Z"
+    new_kickoff = "2026-11-23T12:00:00Z"
+    frozen_at = f"2026-11-23T{cutoff}:00Z"
+    batch = sample["batch"]
+    target = next(row for row in batch["predictions"] if row["jc_num"] == "周一001")
+    target.update(status="excluded", reason=frozen_reason, kickoff_utc=old_kickoff)
+    if cutoff == "01:00":
+        target.update(market_reference=None, market_missing_reason=frozen_reason)
+    for name in ("model_probabilities", "score_matrix"):
+        target.pop(name)
+    batch.update(as_of_utc=frozen_at, generated_utc=frozen_at, predictions=[target])
+    catalog = dict(
+        next(row for row in sample["catalog"] if row["match_id"] == target["match_id"]),
+        kickoff_utc=old_kickoff,
+    )
+    db = tmp_path / "empty.db"
+    engine = get_engine(db)
+    init_db(engine)
+    engine.dispose()
+    archive = tmp_path / "archive"
+    export_feeds(db, archive, date.fromisoformat(DAY), RUN)
+    install(
+        archive,
+        [catalog, dict(catalog, kickoff_utc=new_kickoff, captured_utc="2026-11-23T01:01:00Z")],
+    )
+    install_forecast(archive, tmp_path / "stage", batch, batch_day=DAY)
+    confirm_fixture(archive, frozen_at)
+    frozen = snapshot(archive)
+    text = generate(
+        archive, tmp_path / "daily", now=instant(f"2026-11-23T{report_at}:00Z")
+    ).read_text()
+    assert snapshot(archive) == frozen
+    sales, upcoming = text.split("## 竞彩销售日", 1)[1].split("## 今日与明日", 1)
+    assert "应有 1 场、已预测 0 场、缺 1 场" in sales
+    sales_row = next(line for line in sales.splitlines() if line.startswith("| 周一001 |"))
+    assert "2026-11-23 20:00:00" in sales_row
+    today, tomorrow = upcoming.split("### 今日 2026-11-23", 1)[1].split("### 明日 2026-11-24", 1)
+    tomorrow = tomorrow.split("\n## ", 1)[0]
+    today_rows = [line for line in today.splitlines() if line.startswith("| 周一001 |")]
+    assert len(today_rows) == today_count and "| 周一001 |" not in tomorrow
+    if today_rows:
+        assert "2026-11-23 20:00:00" in today_rows[0]
+        assert f"球队模型未生成（{expected_reason}）" in today_rows[0]
+        assert frozen_reason not in today
+        assert f"forecasts/{DAY}/{RUN}/forecast.json" in today
+    assert f"冻结批次 {RUN}-{DAY}：{expected_reason}" in sales_row
 
 
 def test_old_manifest_marks_even_empty_spillover_as_partial():
