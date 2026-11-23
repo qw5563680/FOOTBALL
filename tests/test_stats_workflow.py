@@ -117,6 +117,7 @@ def test_all_dispatch_operation_job_conditions(operation):
         "stats-backfill": operation == "stats-backfill",
         "candidate-review": False,
         "jc-catalogue": False,
+        "okooo-public-probe": False,
     }
     assert {
         name: bool(evaluate(condition(job), **{"inputs.operation": operation}))
