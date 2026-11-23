@@ -1,12 +1,14 @@
 """Daily and review views of archived facts, with explicit observation times."""
 
 import re
+from collections import defaultdict
 from datetime import datetime, time, timedelta
 
 from zucai.digest_context import (
     catalog_gaps,
     kickoff_day,
     latest_catalog_rows,
+    missing_jc_batch,
     observed_result,
     prediction_window,
     settled_since,
@@ -120,7 +122,7 @@ def _local(value):
     )
 
 
-def jc_sales_day_section(catalog, skipped, batches, exclusions, today, now):
+def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window):
     """The archived sales-day list sets the denominator, even after kickoff."""
     lines = [f"## 竞彩销售日 {today}（北京时间）", ""]
     rows = sorted(
@@ -130,32 +132,15 @@ def jc_sales_day_section(catalog, skipped, batches, exclusions, today, now):
     if not rows:
         return lines + ["截点前没有当天的竞彩目录记录，无法核对场数与预测覆盖。", ""]
 
-    # Like the kickoff-day view, use the latest batch for each date, including
-    # empty batches. Join fixture identity by match ID, never by printed numbers.
-    seen_days = set()
-    forecasts = {}
-    for day, _, batch in sorted(
-        batches,
-        key=lambda entry: (_instant(entry[2]["generated_utc"]), entry[2]["batch_id"]),
-        reverse=True,
-    ):
-        generated = _instant(batch["generated_utc"])
-        if day in seen_days or batch["mode"] != "prematch" or generated > now:
-            continue
-        seen_days.add(day)
-        if _instant(batch["as_of_utc"]) > generated:
-            continue
-        for prediction in batch["predictions"]:
-            if prediction["status"] == "predicted" and generated < _instant(
-                prediction["kickoff_utc"]
-            ):
-                forecasts.setdefault(prediction["match_id"], (prediction, generated))
-
-    predicted = {}
-    for row in rows:
-        entry = forecasts.get(row["match_id"])
-        if entry and (kickoff_day(row) is None or entry[1] < _instant(row["kickoff_utc"])):
-            predicted[row["match_id"]] = entry
+    predicted = {
+        row["match_id"]: forecast
+        for row in rows
+        if (forecast := latest.get(row["match_id"]))
+        and (
+            kickoff_day(row) is None
+            or _instant(forecast["published_utc"]) < _instant(row["kickoff_utc"])
+        )
+    }
     gaps = catalog_gaps(rows, skipped, predicted, {}, exclusions=exclusions)
     by_number = {r["jc_num"]: r for r in gaps}
     lines += [f"应有 {len(rows)} 场、已预测 {len(rows) - len(gaps)} 场、缺 {len(gaps)} 场。"]
@@ -171,6 +156,10 @@ def jc_sales_day_section(catalog, skipped, batches, exclusions, today, now):
         kickoff = _local(row["kickoff_utc"]) if kickoff_day(row) else "未记录"
         if gap := by_number.get(row["jc_num"]):
             reasons = []
+            if (day := kickoff_day(row)) and missing_jc_batch(
+                window, day.isoformat(), row["match_id"]
+            ):
+                reasons.append("该场尚无覆盖它的冻结预测批次")
             if skip := gap["skip_evidence"]:
                 reasons.append(
                     f"同步时跳过：{SKIP_REASONS[skip['reason']]}（{_local(skip['captured_utc'])}）"
@@ -187,7 +176,8 @@ def jc_sales_day_section(catalog, skipped, batches, exclusions, today, now):
             probability, generated = "—", "—"
             status = "未预测：" + "；".join(reasons)
         else:
-            prediction, timestamp = predicted[row["match_id"]]
+            prediction = predicted[row["match_id"]]
+            timestamp = prediction["generated_utc"]
             probability, generated = _probabilities(prediction), _local(timestamp)
             status = "可用" if prediction.get("p2_ready") is True else "实验"
             if note := prior_label(prediction):
@@ -277,10 +267,13 @@ def prediction_source_lines(run):
     return lines + ([""] if lines else [])
 
 
-def _known_unstarted_lines(day, now, repository, catalog, sfc_issues, *, shown_ids=()):
+def _known_unstarted_lines(
+    day, now, repository, catalog, sfc_issues, *, shown_ids=(), scope_ids=None
+):
     def upcoming(row):
         return (
-            not row.get("source_ended")
+            (scope_ids is None or row.get("match_id") in scope_ids)
+            and not row.get("source_ended")
             and row.get("kickoff_basis") != "placeholder"
             and kickoff_day(row) is not None
             and kickoff_day(row).isoformat() == day
@@ -316,6 +309,103 @@ def _known_unstarted_lines(day, now, repository, catalog, sfc_issues, *, shown_i
     return lines + ([""] if lines else [])
 
 
+def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
+    lines = []
+    lines.extend(
+        [
+            f"来源：{_link(path, repository)}；批次 {_text(batch['batch_id'])}；"
+            f"生成 UTC：{_text(batch['generated_utc'])}。",
+            "",
+        ]
+    )
+    source_run = next(
+        (
+            run
+            for run in (runs or {}).values()
+            if any(entry["path"] + "/forecast.json" == path for entry in run["forecasts"].values())
+        ),
+        {},
+    )
+    lines.extend(prediction_source_lines(source_run))
+    lines.extend(batch_odds_lines(batch, source_run))
+    checked_at = (source_run.get("feed_snapshot") or {}).get("schedule_updated_utc")
+    rows = [
+        {**matches.get(row["match_id"], {}), **row}
+        for row in batch["predictions"]
+        if row.get("kickoff_utc") and _instant(row["kickoff_utc"]) > now
+    ]
+    if not rows:
+        return lines
+    has_half = any(row.get("half_full_time") for row in rows)
+    lines.extend(
+        [
+            "| 竞彩编号 | 北京开球 | 联赛 / 对阵 | 球队模型（胜 / 平 / 负） | "
+            "市场参考（胜 / 平 / 负） | 球队＋市场（实验） | 模型版本 | P2 | 比分前五 | "
+            "冻结赔率采集时间（北京时间） |" + (" 半全场（实验） |" if has_half else ""),
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+            + (" --- |" if has_half else ""),
+        ]
+    )
+    versions = {}
+    for row in sorted(rows, key=_order):
+        head = (
+            f"| {_text(row.get('jc_num'))} | {_local(row['kickoff_utc'])} | "
+            f"{_text(row.get('league'))} / {_match(row)}"
+        )
+        if displayed_ids is not None:
+            displayed_ids.add(row["match_id"])
+        if row["status"] != "predicted":
+            lines.append(
+                f"{head} | 球队模型未生成（{_text(row.get('reason'))}） | "
+                f"{_market_cell(row)} | {FUSION_UNAVAILABLE} | — | — | — | "
+                f"{odds_time(row, checked_at=checked_at)} |" + (" — |" if has_half else "")
+            )
+            continue
+        scores = (
+            "；".join(
+                f"{_text(s['score'])} {_number(s['probability'], 2, percent=True)}"
+                for s in row.get("top_scores", [])[:5]
+            )
+            or "未提供"
+        )
+        status = "可用" if row.get("p2_ready") is True else "实验"
+        disclosure = prior_label(row)
+        if disclosure:
+            status += "；" + _text(disclosure)
+        version = row["model_version"]
+        reference = _text(version)
+        if re.fullmatch(r"[0-9a-fA-F]{64}", version):
+            reference = versions.setdefault(version, f"M{len(versions) + 1}")
+        half = row.get("half_full_time")
+        half_text = "—"
+        if half and half.get("status") == "experimental":
+            probs = " ".join(
+                f"{HAFU_LABELS[key]} {_number(half['probabilities'][key], 2, percent=True)}"
+                for key in HAFU_SELECTIONS
+            )
+            tier = HAFU_TIER_LABELS.get(half["share_tier"], half["share_tier"])
+            half_text = (
+                f"{probs}；占比 {half['share']:.4f}（{tier}，{half['share_ht_matches']} 场）"
+            )
+        lines.append(
+            f"{head} | {_probabilities(row)} | {_market_cell(row)} | {FUSION_UNAVAILABLE} | "
+            f"{_text(row['model_name'])} / {reference} | "
+            f"{status} | {scores} | "
+            f"{odds_time(row, checked_at=checked_at)} |" + (f" {half_text} |" if has_half else "")
+        )
+    lines.append("")
+    lines.extend(strength_lines(rows))
+    lines.extend(_market_gap_line(rows))
+    if note := prior_footnote(rows):
+        lines.extend([_text(note), ""])
+    lines.extend(
+        f"模型版本 {reference}：{_text(version)}。" for version, reference in versions.items()
+    )
+    if versions:
+        lines.append("")
+    return lines
+
+
 def forecast_sections(
     batches,
     today,
@@ -327,129 +417,101 @@ def forecast_sections(
     runs=None,
     catalog=None,
     sfc_issues=None,
+    latest=None,
+    kickoffs=None,
+    exclusions=None,
 ):
     now = now or datetime.combine(today, time.min, BEIJING)
     matches = matches or {}
     lines = ["## 今日与明日预测（仅发报时未开球）", ""]
-    for offset, label in ((0, "今日"), (1, "明日")):
-        day = (today + timedelta(days=offset)).isoformat()
-        choices = [entry for entry in batches if entry[0] == day]
+    window = prediction_window(batches, now, catalog)
+    ordered = sorted(
+        batches, key=lambda e: (_instant(e[2]["generated_utc"]), e[2]["batch_id"]), reverse=True
+    )
+    newest_native = {}
+    display_rows = {
+        match_id: entry["postponed_row"]
+        for match_id, entry in (exclusions or {}).items()
+        if "postponed_row" in entry
+    }
+    display_rows.update(latest or {})
+    for frozen_day, path, batch in ordered:
+        if frozen_day in newest_native:
+            continue
+        newest_native[frozen_day] = path
+        # Only the newest batch for its original day supplies exclusions.
+        # A published prediction for the same match remains authoritative.
+        for row in batch["predictions"]:
+            match_id = row["match_id"]
+            if match_id in display_rows or row["status"] == "predicted":
+                continue
+            if row.get("kickoff_utc"):
+                kickoff = (kickoffs or {}).get(match_id, row["kickoff_utc"])
+                display_rows[match_id] = dict(row, kickoff_utc=kickoff, forecast_path=path)
+
+    upcoming = defaultdict(dict)
+    for row in display_rows.values():
+        if _instant(row["kickoff_utc"]) > now:
+            day = kickoff_day(row).isoformat()
+            upcoming[day].setdefault(row["forecast_path"], []).append(row)
+    for day in window["planned_dates"]:
+        selected = upcoming[day]
+        spillover = window["spillover"].get(day)
+        label = (
+            "今日"
+            if day == today.isoformat()
+            else "明日"
+            if day == (today + timedelta(days=1)).isoformat()
+            else "竞彩销售日跨午夜"
+        )
+        native_path = newest_native.get(day)
+        choices = [entry for entry in ordered if entry[1] == native_path or entry[1] in selected]
         lines.extend([f"### {label} {day}", ""])
         if not choices:
-            known = _known_unstarted_lines(day, now, repository, catalog, sfc_issues)
+            known = _known_unstarted_lines(
+                day, now, repository, catalog, sfc_issues, scope_ids=spillover
+            )
             lines.extend(["尚无竞彩冻结预测。" if known else "尚无冻结预测。", "", *known])
             continue
-        _, path, batch = max(
-            choices, key=lambda e: (_instant(e[2]["generated_utc"]), e[2]["batch_id"])
-        )
-        lines.extend(
-            [
-                f"来源：{_link(path, repository)}；批次 {_text(batch['batch_id'])}；"
-                f"生成 UTC：{_text(batch['generated_utc'])}。",
-                "",
-            ]
-        )
-        source_run = next(
-            (
-                run
-                for run in (runs or {}).values()
-                if any(
-                    entry["path"] + "/forecast.json" == path for entry in run["forecasts"].values()
+        known_scope = spillover
+        if day in window["missing_batch_dates"] and day in window["partial_ids"]:
+            covered = window["partial_ids"][day] | {
+                r["match_id"] for rows in selected.values() for r in rows
+            }
+            known_scope = covered if spillover is None else spillover & covered
+            lines.extend(["该日仅有按比赛编号冻结的部分批次，尚无覆盖当前计划的完整批次。", ""])
+        shown = set()
+        for _, path, batch in choices:
+            rows = list(selected.get(path, ()))
+            if latest is None and path == native_path:
+                rows.extend(
+                    row
+                    for row in batch["predictions"]
+                    if row["status"] == "predicted"
+                    and row.get("kickoff_utc")
+                    and _instant(row["kickoff_utc"]) > now
                 )
-            ),
-            {},
-        )
-        lines.extend(prediction_source_lines(source_run))
-        lines.extend(batch_odds_lines(batch, source_run))
-        checked_at = (source_run.get("feed_snapshot") or {}).get("schedule_updated_utc")
-        rows = [
-            {**matches.get(row["match_id"], {}), **row}
-            for row in batch["predictions"]
-            if row.get("kickoff_utc") and _instant(row["kickoff_utc"]) > now
-        ]
-        if not rows:
-            lines.extend(
-                _known_unstarted_lines(day, now, repository, catalog, sfc_issues)
-                or ["本批次未列出未开球比赛；今日预测与复盘见下方各表。", ""]
-            )
-            continue
-        has_half = any(row.get("half_full_time") for row in rows)
-        lines.extend(
-            [
-                "| 竞彩编号 | 北京开球 | 联赛 / 对阵 | 球队模型（胜 / 平 / 负） | "
-                "市场参考（胜 / 平 / 负） | 球队＋市场（实验） | 模型版本 | P2 | 比分前五 | "
-                "冻结赔率采集时间（北京时间） |" + (" 半全场（实验） |" if has_half else ""),
-                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
-                + (" --- |" if has_half else ""),
-            ]
-        )
-        versions = {}
-        for row in sorted(rows, key=_order):
-            head = (
-                f"| {_text(row.get('jc_num'))} | {_local(row['kickoff_utc'])} | "
-                f"{_text(row.get('league'))} / {_match(row)}"
-            )
-            if displayed_ids is not None:
-                displayed_ids.add(row["match_id"])
-            if row["status"] != "predicted":
-                lines.append(
-                    f"{head} | 球队模型未生成（{_text(row.get('reason'))}） | "
-                    f"{_market_cell(row)} | {FUSION_UNAVAILABLE} | — | — | — | "
-                    f"{odds_time(row, checked_at=checked_at)} |" + (" — |" if has_half else "")
-                )
+            if spillover is not None:
+                rows = [r for r in rows if r["match_id"] in spillover]
+            if not rows and path != native_path:
                 continue
-            scores = (
-                "；".join(
-                    f"{_text(s['score'])} {_number(s['probability'], 2, percent=True)}"
-                    for s in row.get("top_scores", [])[:5]
+            lines.extend(
+                _batch_section(
+                    path,
+                    {**batch, "predictions": rows},
+                    repository,
+                    now,
+                    matches,
+                    displayed_ids,
+                    runs,
                 )
-                or "未提供"
             )
-            status = "可用" if row.get("p2_ready") is True else "实验"
-            disclosure = prior_label(row)
-            if disclosure:
-                status += "；" + _text(disclosure)
-            version = row["model_version"]
-            reference = _text(version)
-            if re.fullmatch(r"[0-9a-fA-F]{64}", version):
-                reference = versions.setdefault(version, f"M{len(versions) + 1}")
-            half = row.get("half_full_time")
-            half_text = "—"
-            if half and half.get("status") == "experimental":
-                probs = " ".join(
-                    f"{HAFU_LABELS[key]} {_number(half['probabilities'][key], 2, percent=True)}"
-                    for key in HAFU_SELECTIONS
-                )
-                tier = HAFU_TIER_LABELS.get(half["share_tier"], half["share_tier"])
-                half_text = (
-                    f"{probs}；占比 {half['share']:.4f}（{tier}，{half['share_ht_matches']} 场）"
-                )
-            lines.append(
-                f"{head} | {_probabilities(row)} | {_market_cell(row)} | {FUSION_UNAVAILABLE} | "
-                f"{_text(row['model_name'])} / {reference} | "
-                f"{status} | {scores} | "
-                f"{odds_time(row, checked_at=checked_at)} |"
-                + (f" {half_text} |" if has_half else "")
-            )
-        lines.append("")
-        lines.extend(strength_lines(rows))
-        lines.extend(_market_gap_line(rows))
-        if note := prior_footnote(rows):
-            lines.extend([_text(note), ""])
-        lines.extend(
-            f"模型版本 {reference}：{_text(version)}。" for version, reference in versions.items()
+            shown.update(row["match_id"] for row in rows)
+        known = _known_unstarted_lines(
+            day, now, repository, catalog, sfc_issues, shown_ids=shown, scope_ids=known_scope
         )
-        if versions:
-            lines.append("")
         lines.extend(
-            _known_unstarted_lines(
-                day,
-                now,
-                repository,
-                catalog,
-                sfc_issues,
-                shown_ids={row["match_id"] for row in rows},
-            )
+            known or ([] if shown else ["本批次未列出未开球比赛；今日预测与复盘见下方各表。", ""])
         )
     return lines
 
@@ -648,12 +710,18 @@ def review_sections(
                 detail = "入库但无赛前预测（晚班或后续同步已入库，但无可查的赛前预测）"
             else:
                 detail = "原因未查明（无可核验的同期跳过记录；旧早班原始页面未归档时不能推断原因）"
+            if evidence and row["match_id"] in matches and not stated:
+                detail += "；该场已入库，这次同步跳过不能解释为何缺少冻结预测"
             if stated:
                 detail = f"{detail}；{stated}" if evidence else stated
             if not row["reason_known"]:
                 if "原因未查明" not in detail:
                     detail += "；原因未查明"
-                detail += "（已查同步跳过记录与截点不晚于开球的冻结批次，均无该场记录）"
+                detail += (
+                    "（无能解释漏预测的同期冻结证据）"
+                    if evidence
+                    else "（已查同步跳过记录与截点不晚于开球的冻结批次，均无该场记录）"
+                )
             lines.append(
                 f"- 缺 {_text(row['jc_num'])}（{_text(row['business_date'])}，{_match(row)}）："
                 f"确定漏了；{detail}。"

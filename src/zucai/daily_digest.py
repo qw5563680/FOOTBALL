@@ -18,6 +18,8 @@ from zucai.digest_context import (
     frozen_exclusions,
     frozen_rows,
     jc_digest_batch,
+    kickoff_day,
+    latest_catalog_rows,
     pending_tickets,
 )
 from zucai.digest_display import (
@@ -350,7 +352,7 @@ def generate(
                     }
                     for row in batch["predictions"]
                 )
-                batch = jc_digest_batch(batch)
+                batch = jc_digest_batch(batch, spillover=day in run.get("jc_extra_dates", []))
                 if batch is not None:
                     batches.append((day, path, batch))
     matches = archived_matches(archive, feed)
@@ -359,7 +361,14 @@ def generate(
     sales_catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True)
     catalog = sales_catalog or None
     skipped = audit_rows(archive, feed, "jc_skipped", at, all_shards=True)
-    exclusions = frozen_exclusions(batches, at)
+    kickoffs = {
+        row["match_id"]: row["kickoff_utc"]
+        for row in sorted(
+            latest_catalog_rows(sales_catalog), key=lambda r: _instant(r["captured_utc"])
+        )
+        if kickoff_day(row) is not None
+    }
+    exclusions = frozen_exclusions(batches, at, kickoffs=kickoffs)
     if catalog is not None:
         from zucai.digest_context import scoped_catalog
 
@@ -374,6 +383,7 @@ def generate(
         at,
         forecast_hashes=(manifest or {}).get("files", {}),
         publications=publications,
+        kickoffs=kickoffs,
     )
     from zucai.digest_context import prediction_window
     from zucai.scoreboard.score import published_score_keys, summarize_scores
@@ -423,7 +433,7 @@ def generate(
                     for value in summary["probability"]["leagues"].values()
                 ),
             )
-    window = prediction_window(batches, at)
+    window = prediction_window(batches, at, catalog)
     from zucai.publication_history import publication_updates
 
     sfc_lines = sfc_section(
@@ -524,7 +534,7 @@ def generate(
         f"记分板截点 UTC：{_text((summary or {}).get('as_of_utc'))}。",
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
-        *jc_sales_day_section(sales_catalog, skipped, batches, exclusions, today, at),
+        *jc_sales_day_section(sales_catalog, skipped, latest, exclusions, today, window=window),
         *_forecast_sections(
             batches,
             today,
@@ -532,6 +542,9 @@ def generate(
             now=at,
             matches=matches,
             displayed_ids=displayed_ids,
+            latest=latest,
+            kickoffs=kickoffs,
+            exclusions=exclusions,
             runs=(manifest or {}).get("runs", {}),
             catalog=catalog,
             sfc_issues=archived_sfc_issues(archive, feed, at),

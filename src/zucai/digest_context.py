@@ -75,7 +75,7 @@ def audit_rows(archive, feed, name, now, *, all_shards=False):
     return [row for row in rows if row.get("captured_utc") and instant(row["captured_utc"]) <= now]
 
 
-def frozen_rows(batches, matches, now, *, forecast_hashes=None, publications=None):
+def frozen_rows(batches, matches, now, *, forecast_hashes=None, publications=None, kickoffs=None):
     rows = []
     for _, path, batch in batches:
         for prediction in batch["predictions"]:
@@ -86,7 +86,17 @@ def frozen_rows(batches, matches, now, *, forecast_hashes=None, publications=Non
             if path in (forecast_hashes or {}):
                 row["forecast_sha256"] = forecast_hashes[path]
             rows.append(row)
-    latest = {row["match_id"]: row for row in prematch_rows(rows, now)}
+    latest = {}
+    for row in prematch_rows(rows, now):
+        match_id = row["match_id"]
+        corrected = (kickoffs or {}).get(match_id)
+        if corrected:
+            if max(instant(row["published_utc"]), instant(row["generated_utc"])) >= instant(
+                corrected
+            ):
+                continue
+            row = dict(row, kickoff_utc=corrected)
+        latest[match_id] = row
     observations = {
         row["match_id"]: row
         for row in sorted(rows, key=lambda r: (instant(r["generated_utc"]), r["batch_id"]))
@@ -94,29 +104,73 @@ def frozen_rows(batches, matches, now, *, forecast_hashes=None, publications=Non
     return latest, observations
 
 
-def jc_digest_batch(batch):
+def jc_digest_batch(batch, *, spillover=False):
     """An advance SFC freeze cannot establish full coverage of a JC day."""
     if batch.get("input", {}).get("scope") == "sfc_only":
         return None
-    return {**batch, "predictions": [p for p in batch["predictions"] if not p.get("sfc_only")]}
+    rows = [p for p in batch["predictions"] if not p.get("sfc_only")]
+    inputs = batch.get("input", {})
+    if spillover and "scope" not in inputs:
+        # Earlier freezes identified partial days only in the verified run manifest.
+        inputs = dict(
+            inputs, scope="jc_spillover", jc_scope_match_ids=[r["match_id"] for r in rows]
+        )
+    if inputs.get("scope") == "jc_spillover":
+        allowed = set(inputs["jc_scope_match_ids"])
+        rows = [r for r in rows if r["match_id"] in allowed]
+    return {**batch, "input": inputs, "predictions": rows}
 
 
-def prediction_window(batches, now):
-    """Plan is today's + tomorrow's Beijing dates, independently of batch success."""
+def jc_coverage(now, catalog):
+    """Whole Beijing kickoff days plus exact cross-midnight IDs of the covered sales days."""
     today = instant(now).astimezone(BEIJING).date()
-    planned = [today.isoformat(), (today + timedelta(days=1)).isoformat()]
+    tomorrow = today + timedelta(days=1)
+    days = {today: None, tomorrow: None}
+    sales = [
+        r
+        for r in catalog or []
+        if r.get("business_date") == tomorrow.isoformat()
+        and r.get("jc_num")
+        and instant(r["captured_utc"]) <= instant(now)
+    ]
+    for row in latest_catalog_rows(sales):
+        kickoff = kickoff_day(row)
+        if kickoff == tomorrow + timedelta(days=1):
+            days.setdefault(kickoff, set()).add(row["match_id"])
+    return days
+
+
+def prediction_window(batches, now, catalog=None):
+    coverage = jc_coverage(now, catalog)
+    planned = sorted(d.isoformat() for d in coverage)
     successful = set()
+    partial_ids = {}
+    spillover = {day.isoformat(): ids for day, ids in coverage.items() if ids is not None}
     for _, _, batch in batches:
         if batch.get("mode") != "prematch" or instant(batch["generated_utc"]) > instant(now):
             continue
-        declared = batch.get("input", {}).get("kickoff_date_beijing")
-        if declared in planned:
+        inputs = batch.get("input", {})
+        declared = inputs.get("kickoff_date_beijing")
+        if declared not in planned or inputs.get("scope") == "sfc_only":
+            continue
+        if inputs.get("scope") == "jc_spillover":
+            partial_ids.setdefault(declared, set()).update(inputs["jc_scope_match_ids"])
+        else:
             successful.add(declared)
+    successful.update(day for day, ids in spillover.items() if ids <= partial_ids.get(day, set()))
     return dict(
         planned_dates=planned,
         successful_dates=sorted(successful),
+        spillover=spillover,
+        partial_ids=partial_ids,
         missing_batch_dates=sorted(set(planned) - successful),
     )
+
+
+def missing_jc_batch(window, day, match_id):
+    return day in window["missing_batch_dates"] and match_id not in window.get(
+        "partial_ids", {}
+    ).get(day, ())
 
 
 def kickoff_day(row):
@@ -163,7 +217,10 @@ def skip_is_evidence(skipped, catalog):
     }:
         return False
     try:
-        return instant(skipped["captured_utc"]) == instant(catalog["captured_utc"])
+        capture = instant(skipped["captured_utc"])
+        return capture == instant(catalog["captured_utc"]) and (
+            kickoff_day(catalog) is None or capture < instant(catalog["kickoff_utc"])
+        )
     except (TypeError, ValueError, KeyError):
         return False
 
@@ -171,26 +228,46 @@ def skip_is_evidence(skipped, catalog):
 MODEL_SCOPE_REASON = "缺少同来源同联赛的模型"
 
 
-def frozen_exclusions(batches, now):
-    """Latest stated non-prediction reason per match from batches frozen by its kickoff.
-
-    Only a prematch batch whose cutoff is not later than the kickoff is contemporaneous
-    evidence; a batch produced after kickoff can never supply the reason.
-    """
+def frozen_exclusions(batches, now, *, kickoffs=None):
+    """Latest documented reason, including an old exclusion explained by a known delay."""
+    now = instant(now)
     found = {}
+    postponed = set()
+    kickoffs = kickoffs or {}
     for _, path, batch in batches:
-        if batch.get("mode") != "prematch" or instant(batch["generated_utc"]) > instant(now):
+        if batch.get("mode") != "prematch":
+            continue
+        generated = instant(batch["generated_utc"])
+        if generated > now:
             continue
         cutoff = instant(batch["as_of_utc"])
         for row in batch["predictions"]:
             reason = row.get("reason")
             if row.get("status") == "predicted" or not isinstance(reason, str) or not reason:
                 continue
-            if not row.get("kickoff_utc") or cutoff > instant(row["kickoff_utc"]):
+            if not row.get("kickoff_utc"):
                 continue
-            key = (cutoff, instant(batch["generated_utc"]), batch["batch_id"])
-            if row["match_id"] not in found or key > found[row["match_id"]][0]:
-                found[row["match_id"]] = (
+            match_id = row["match_id"]
+            original = instant(row["kickoff_utc"])
+            kickoff = instant(kickoffs.get(match_id, row["kickoff_utc"]))
+            if not cutoff <= generated < kickoff:
+                continue
+            # A time-dependent exclusion can explain a known delay even when
+            # the old kickoff had already passed when that batch was frozen.
+            historical_reason = None
+            if original < kickoff:
+                if reason == "预测截点时已开赛" and original <= cutoff:
+                    historical_reason = "原批次截点已过原定开球时间"
+                elif reason == "当前场次状态不适用于赛前预测":
+                    historical_reason = "原批次按当时比赛状态排除"
+            if historical_reason:
+                postponed.add(match_id)
+                reason = f"{historical_reason}，赛程推迟后暂无有效赛前预测"
+            elif generated >= original:
+                continue
+            key = (cutoff, generated, batch["batch_id"])
+            if match_id not in found or key > found[match_id][0]:
+                found[match_id] = (
                     key,
                     {
                         "reason": reason,
@@ -198,8 +275,24 @@ def frozen_exclusions(batches, now):
                         "as_of_utc": batch["as_of_utc"],
                         "forecast_path": path,
                     },
+                    row,
+                    historical_reason,
                 )
-    return {match_id: value for match_id, (_, value) in found.items()}
+    exclusions = {}
+    for match_id, (_, evidence, row, historical_reason) in found.items():
+        if match_id in postponed:
+            # Use the same selected evidence and source in both report sections.
+            display_row = dict(
+                row,
+                kickoff_utc=kickoffs[match_id],
+                forecast_path=evidence["forecast_path"],
+                reason=evidence["reason"],
+            )
+            if historical_reason and row.get("market_missing_reason") == row["reason"]:
+                display_row["market_missing_reason"] = historical_reason
+            evidence["postponed_row"] = display_row
+        exclusions[match_id] = evidence
+    return exclusions
 
 
 def catalog_gaps(
@@ -228,7 +321,10 @@ def catalog_gaps(
         skipped_row = explanations.get((*key, row["match_id"]))
         skipped_row = skipped_row if skip_is_evidence(skipped_row, row) else None
         exclusion = (exclusions or {}).get(row["match_id"])
-        reason_known = skipped_row is not None or exclusion is not None
+        # A later sync rejection does not explain an already stored fixture.
+        reason_known = exclusion is not None or (
+            skipped_row is not None and row["match_id"] not in known_ids
+        )
         observed = observations.get(row["match_id"])
         reason = (
             skipped_row["reason"]
@@ -248,11 +344,14 @@ def catalog_gaps(
         if window is not None:
             if day is None:
                 category = "unknown_window"
-            elif day > date.fromisoformat(max(window["planned_dates"])):
+            elif day > date.fromisoformat(max(window["planned_dates"])) or (
+                day.isoformat() in window.get("spillover", {})
+                and row["match_id"] not in window["spillover"][day.isoformat()]
+            ):
                 category = "outside_window"
                 expected = (day - timedelta(days=1)).isoformat()
             else:
-                missing_batch = day.isoformat() in window["missing_batch_dates"]
+                missing_batch = missing_jc_batch(window, day.isoformat(), row["match_id"])
         gaps.append(
             {
                 **row,

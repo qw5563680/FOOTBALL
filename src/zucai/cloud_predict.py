@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from zucai.cloud_feeds import digest, restore_feeds
 from zucai.db import get_engine
+from zucai.digest_context import audit_rows, jc_coverage
 from zucai.forecast_archive import _component, publish_forecasts, verify_forecasts
 from zucai.models import Match, SfcIssue
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
@@ -304,13 +305,19 @@ def run(
                         outcomes[league]["half_share"] = hints
                         if hints is None:
                             LOG.warning("%s 半场进球占比不可估计", league)
-                    standard_days = {day, day + timedelta(days=1)}
+                    catalog = audit_rows(
+                        archive, feed, "jc_catalog", prediction_time, all_shards=True
+                    )
+                    coverage = jc_coverage(prediction_time, catalog)
+                    result["jc_extra_dates"] = sorted(
+                        d.isoformat() for d, ids in coverage.items() if ids is not None
+                    )
                     schedule = feed.get("collection", {}).get("sfc", {}).get("official_schedule")
                     national = open_national_fixtures(session, prediction_time, schedule)
                     result["sfc_extra_dates"] = sorted(
-                        d.isoformat() for d in national.keys() - standard_days
+                        d.isoformat() for d in national.keys() - coverage.keys()
                     )
-                    for forecast_day in sorted(standard_days | national.keys()):
+                    for forecast_day in sorted(coverage.keys() | national.keys()):
                         start = datetime.combine(forecast_day, time(), BEIJING)
                         keys = list(
                             session.scalars(
@@ -323,8 +330,10 @@ def run(
                                 .order_by(Match.kickoff_utc, Match.match_id)
                             )
                         )
-                        if forecast_day not in standard_days:
+                        if forecast_day not in coverage:
                             keys = []
+                        elif coverage[forecast_day] is not None:
+                            keys = [key for key in keys if key in coverage[forecast_day]]
                         sfc_only = national.get(forecast_day, set()).difference(keys)
                         keys.extend(sorted(sfc_only))
                         batch = predict_batch(
@@ -340,8 +349,11 @@ def run(
                             prospective_evidence=prospective_evidence,
                             half_share_hints=half_share_hints,
                         )
-                        if forecast_day not in standard_days:
+                        if forecast_day not in coverage:
                             batch["input"]["scope"] = "sfc_only"
+                        elif coverage[forecast_day] is not None:
+                            batch["input"]["scope"] = "jc_spillover"
+                            batch["input"]["jc_scope_match_ids"] = sorted(coverage[forecast_day])
                         for prediction in batch["predictions"]:
                             if prediction["match_id"] in sfc_only:
                                 prediction["sfc_only"] = True

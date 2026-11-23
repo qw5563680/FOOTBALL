@@ -5,10 +5,12 @@ import json
 from zucai.forecast_publication import candidates
 
 
-def confirm_fixture(archive, published=None):
+def confirm_fixture(archive, published=None, *, only_unpublished=False):
     path = archive / "forecast_manifest.json"
     manifest = json.loads(path.read_bytes())
     for entry, name, prefix in candidates(manifest):
+        if only_unpublished and entry.get(prefix + "publication_evidence"):
+            continue
         stamp = published or entry.get(prefix + "published_utc") or entry["generated_utc"]
         entry[prefix + "published_utc"] = stamp
         entry[prefix + "publication_evidence"] = dict(

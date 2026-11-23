@@ -103,13 +103,13 @@ def test_generate_stored_match_needs_contemporaneous_reason_evidence(
     install(digest_archive, rows, skipped, stored=[row])
     text = generate(digest_archive, tmp_path / "out", now="2026-11-06T03:47:00Z").read_text()
     known = reason == "sell_status_not_1"
-    assert f"确定漏了（原因已知）{int(known)} 场；原因未查明 {2 - int(known)} 场" in text
-    assert "尚未进入预测窗口 7 场" in text
+    assert "确定漏了（原因已知）0 场；原因未查明 9 场" in text
+    assert "尚未进入预测窗口 0 场" in text
     assert "开球时间缺失，无法判断窗口 1 场" in text
-    assert "漏预测合计 2 场" in text
+    assert "漏预测合计 9 场" in text
     detail = next(line for line in text.splitlines() if line.startswith("- 缺 周六030"))
     if known:
-        assert "同步时跳过" in detail and "整批缺失原因待查" not in detail
+        assert "同步时跳过" in detail and "这次同步跳过不能解释" in detail
     else:
         assert "入库但无赛前预测" in detail and "原因未查明" in detail
         assert "整批缺失原因待查" in detail
@@ -121,7 +121,7 @@ def test_generate_stored_match_needs_contemporaneous_reason_evidence(
         known_ids={row["match_id"]},
         window=prediction_window([], instant("2026-11-06T03:47:00Z")),
     )[0]
-    assert gap["confirmed"] is True and gap["reason_known"] is known
+    assert gap["confirmed"] is True and gap["reason_known"] is False
 
 
 @pytest.mark.parametrize("kickoff", ["", "invalid"])
