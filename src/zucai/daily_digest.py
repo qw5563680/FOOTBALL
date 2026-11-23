@@ -18,6 +18,8 @@ from zucai.digest_context import (
     frozen_exclusions,
     frozen_rows,
     jc_digest_batch,
+    kickoff_day,
+    latest_catalog_rows,
     pending_tickets,
 )
 from zucai.digest_display import (
@@ -350,7 +352,7 @@ def generate(
                     }
                     for row in batch["predictions"]
                 )
-                batch = jc_digest_batch(batch)
+                batch = jc_digest_batch(batch, spillover=day in run.get("jc_extra_dates", []))
                 if batch is not None:
                     batches.append((day, path, batch))
     matches = archived_matches(archive, feed)
@@ -359,7 +361,14 @@ def generate(
     sales_catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True)
     catalog = sales_catalog or None
     skipped = audit_rows(archive, feed, "jc_skipped", at, all_shards=True)
-    exclusions = frozen_exclusions(batches, at)
+    kickoffs = {
+        row["match_id"]: row["kickoff_utc"]
+        for row in sorted(
+            latest_catalog_rows(sales_catalog), key=lambda r: _instant(r["captured_utc"])
+        )
+        if kickoff_day(row) is not None
+    }
+    exclusions = frozen_exclusions(batches, at, kickoffs=kickoffs)
     if catalog is not None:
         from zucai.digest_context import scoped_catalog
 
@@ -374,6 +383,7 @@ def generate(
         at,
         forecast_hashes=(manifest or {}).get("files", {}),
         publications=publications,
+        kickoffs=kickoffs,
     )
     from zucai.digest_context import prediction_window
     from zucai.scoreboard.score import published_score_keys, summarize_scores

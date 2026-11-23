@@ -16,6 +16,7 @@ from zucai.daily_digest import generate
 from zucai.db import get_engine, init_db
 from zucai.forecast_archive import publish_forecasts
 from zucai.report.render import write_report
+from zucai.sources.sporttery import BEIJING
 
 FIXTURE = Path(__file__).parents[1] / "data/fixtures/jc-sales-day/2026-11-23.json"
 RUN = "45048943753-1"
@@ -23,10 +24,10 @@ DAY = "2026-11-23"
 MISSING = "jc:2042949"
 
 
-def install_forecast(archive, stage, batch):
+def install_forecast(archive, stage, batch, *, run=RUN):
     # Synthetic artifacts let archive verification run without the production
     # model files. The frozen probabilities, fixture IDs and times are unchanged.
-    models = stage / "models" / RUN
+    models = stage / "models" / run
     models.mkdir(parents=True)
     database_sha = "b" * 64
     leagues = {}
@@ -50,10 +51,10 @@ def install_forecast(archive, stage, batch):
         )
     forecasts = {}
     for day in (DAY, "2026-11-24"):
-        directory = f"forecasts/{day}/{RUN}"
+        directory = f"forecasts/{day}/{run}"
         frozen = {
             **batch,
-            "batch_id": f"{RUN}-{day}",
+            "batch_id": f"{run}-{day}",
             "input": {**batch["input"], "kickoff_date_beijing": day},
             "predictions": [] if day == DAY else batch["predictions"],
         }
@@ -65,7 +66,7 @@ def install_forecast(archive, stage, batch):
         archive,
         stage,
         dict(
-            run_id=RUN,
+            run_id=run,
             generated_utc=batch["generated_utc"],
             database_sha256=database_sha,
             leagues=leagues,
@@ -182,6 +183,8 @@ def test_midnight_forecast_then_digest(scheduled_archive, monkeypatch, tmp_path)
     monkeypatch.setattr(cloud_predict, "_now", lambda: before)
     result = cloud_predict.run(archive, params, "midnight-replay")
     batch = load_batch(archive / result["forecasts"]["2026-11-24"]["path"] / "forecast.json")
+    assert batch["input"]["scope"] == "jc_spillover"
+    assert set(batch["input"]["jc_scope_match_ids"]) == ids | {"jc:never-stored"}
     assert {r["match_id"] for r in batch["predictions"]} == ids
     confirm_fixture(archive, historical["forecasts"]["2026-11-23"]["published_utc"])
     text = generate(archive, tmp_path / "daily", now=historical["report_generated_utc"]).read_text()
@@ -224,3 +227,106 @@ def test_sales_day_preserves_exact_published_prediction(kind):
     )
     assert "已开球" not in text
     assert ("已预测 0 场" if kind == "unpublished" else "已预测 8 场") in text
+
+
+@pytest.mark.parametrize("after_midnight", [False, True])
+def test_spillover_known_count_and_coverage_after_midnight(after_midnight):
+    from zucai.digest_context import prediction_window
+    from zucai.digest_views import forecast_sections
+    from zucai.scoreboard.score import instant
+
+    sample = json.loads(FIXTURE.read_bytes())
+    eligible = sample["catalog"][0]
+    other = dict(eligible, business_date="2026-11-24", jc_num="周二001", match_id="jc:outside")
+    before = instant("2026-11-22T15:57:32Z")
+    catalog = [dict(r, captured_utc=before.isoformat()) for r in [eligible, other]]
+    day = "2026-11-24"
+    empty = {
+        **sample["batch"],
+        "batch_id": "partial",
+        "generated_utc": before.isoformat(),
+        "input": {
+            "kickoff_date_beijing": day,
+            "scope": "jc_spillover",
+            "jc_scope_match_ids": [eligible["match_id"]],
+        },
+        "predictions": [],
+    }
+    batches = [(day, "forecasts/partial", empty)]
+    if not after_midnight:
+        text = "\n".join(
+            forecast_sections(
+                batches, before.astimezone(BEIJING).date(), "o/r", now=before, catalog=catalog
+            )
+        )
+        part = text.split("### 竞彩销售日跨午夜")[1]
+        assert "竞彩目录有 1 场未开球比赛" in part and "竞彩目录有 2 场" not in part
+        assert day in prediction_window(batches, before, catalog)["successful_dates"]
+        return
+    after = instant("2026-11-22T16:01:00Z")
+    window = prediction_window(batches, after, catalog)
+    assert day in window["missing_batch_dates"] and day not in window["successful_dates"]
+    part = "\n".join(
+        forecast_sections(
+            batches, after.astimezone(BEIJING).date(), "o/r", now=after, catalog=catalog
+        )
+    ).split("### 明日")[1]
+    assert "竞彩目录有 1 场未开球比赛" in part and "竞彩目录有 2 场" not in part
+    assert "仅有按比赛编号冻结的部分批次" in part
+    full = dict(empty, input={"kickoff_date_beijing": day}, generated_utc=after.isoformat())
+    assert (
+        day
+        in prediction_window([*batches, (day, "full", full)], after, catalog)["successful_dates"]
+    )
+
+
+def test_sales_day_uses_earlier_published_version_after_kickoff_correction(tmp_path):
+    from forecast_publication_support import confirm_fixture
+    from zucai.scoreboard.score import instant
+
+    sample = json.loads(FIXTURE.read_bytes())
+    early = deepcopy(sample["batch"])
+    key = early["predictions"][0]["match_id"]
+    catalog = [next(r for r in sample["catalog"] if r["match_id"] == key)]
+    first_at, second_at = "2026-11-23T01:00:00Z", "2026-11-23T02:00:00Z"
+    advanced = "2026-11-23T02:05:00Z"
+    early.update(as_of_utc=first_at, generated_utc=first_at)
+    db = tmp_path / "empty.db"
+    engine = get_engine(db)
+    init_db(engine)
+    engine.dispose()
+    archive = tmp_path / "archive"
+    export_feeds(db, archive, date.fromisoformat(DAY), "sample")
+    install(
+        archive,
+        [*catalog, dict(catalog[0], kickoff_utc=advanced, captured_utc="2026-11-23T02:01:00Z")],
+    )
+    install_forecast(archive, tmp_path / "early", early, run="before")
+    confirm_fixture(archive, first_at)
+    late = deepcopy(sample["batch"])
+    late.update(as_of_utc=second_at, generated_utc=second_at)
+    install_forecast(archive, tmp_path / "late", late, run="after")
+    confirm_fixture(archive, advanced, only_unpublished=True)
+    text = generate(archive, tmp_path / "daily", now=instant("2026-11-23T03:00:00Z")).read_text()
+    sales = text.split("## 竞彩销售日")[1].split("## 今日与明日")[0]
+    assert "应有 1 场、已预测 1 场、缺 0 场" in sales
+    line = next(line for line in sales.splitlines() if line.startswith("| 周一"))
+    assert "2026-11-23 10:05:00" in line and "2026-11-23 09:00:00" in line
+    assert "2026-11-23 10:00:00" not in line
+
+
+def test_old_manifest_marks_even_empty_spillover_as_partial():
+    from zucai.digest_context import jc_digest_batch, prediction_window
+    from zucai.scoreboard.score import instant
+
+    after = instant("2026-11-22T16:01:00Z")
+    day = "2026-11-24"
+    batch = {
+        "input": {"kickoff_date_beijing": day},
+        "mode": "prematch",
+        "generated_utc": "2026-11-22T15:57:32Z",
+        "predictions": [],
+    }
+    read = jc_digest_batch(batch, spillover=True)
+    assert day in prediction_window([(day, "old", read)], after)["missing_batch_dates"]
+    assert "scope" not in batch["input"]

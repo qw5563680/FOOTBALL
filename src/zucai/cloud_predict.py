@@ -351,6 +351,9 @@ def run(
                         )
                         if forecast_day not in coverage:
                             batch["input"]["scope"] = "sfc_only"
+                        elif coverage[forecast_day] is not None:
+                            batch["input"]["scope"] = "jc_spillover"
+                            batch["input"]["jc_scope_match_ids"] = sorted(coverage[forecast_day])
                         for prediction in batch["predictions"]:
                             if prediction["match_id"] in sfc_only:
                                 prediction["sfc_only"] = True
