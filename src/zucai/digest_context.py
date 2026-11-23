@@ -126,6 +126,13 @@ def kickoff_day(row):
         return None
 
 
+def latest_catalog_rows(catalog):
+    latest = {}
+    for row in sorted(catalog or [], key=lambda r: instant(r["captured_utc"])):
+        latest[row["business_date"], row["jc_num"]] = row
+    return list(latest.values())
+
+
 def scoped_catalog(catalog, now):
     """Latest catalog facts: this week's kickoffs and future fixtures, not business days.
 
@@ -135,12 +142,9 @@ def scoped_catalog(catalog, now):
     if catalog is None:
         return None
     start = week_start(now)
-    latest = {}
-    for row in sorted(catalog, key=lambda r: instant(r["captured_utc"])):
-        latest[row["business_date"], row["jc_num"]] = row
     return [
         row
-        for row in latest.values()
+        for row in latest_catalog_rows(catalog)
         if (
             kickoff_day(row) >= start.astimezone(BEIJING).date()
             if kickoff_day(row) is not None

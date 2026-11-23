@@ -35,6 +35,7 @@ from zucai.digest_views import (
 )
 from zucai.digest_views import (
     header_lines,
+    jc_sales_day_section,
     market_status_section,
     pending_sections,
     review_sections,
@@ -355,8 +356,10 @@ def generate(
     matches = archived_matches(archive, feed)
     # No rows known at the cutoff means no evidence, not a checked empty scope.
     # Only scoped_catalog below may produce [] after usable evidence was found.
-    catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True) or None
+    sales_catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True)
+    catalog = sales_catalog or None
     skipped = audit_rows(archive, feed, "jc_skipped", at, all_shards=True)
+    exclusions = frozen_exclusions(batches, at)
     if catalog is not None:
         from zucai.digest_context import scoped_catalog
 
@@ -521,6 +524,7 @@ def generate(
         f"记分板截点 UTC：{_text((summary or {}).get('as_of_utc'))}。",
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
+        *jc_sales_day_section(sales_catalog, skipped, batches, exclusions, today, at),
         *_forecast_sections(
             batches,
             today,
@@ -553,7 +557,7 @@ def generate(
             at,
             displayed_ids=displayed_ids,
             window=window,
-            exclusions=frozen_exclusions(batches, at),
+            exclusions=exclusions,
         ),
         *_settlement_sections(
             scored,

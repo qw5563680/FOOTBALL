@@ -6,6 +6,7 @@ from datetime import datetime, time, timedelta
 from zucai.digest_context import (
     catalog_gaps,
     kickoff_day,
+    latest_catalog_rows,
     observed_result,
     prediction_window,
     settled_since,
@@ -117,6 +118,85 @@ def _local(value):
         if value
         else "未知（旧归档未记录成功时刻）"
     )
+
+
+def jc_sales_day_section(catalog, skipped, batches, exclusions, today, now):
+    """The archived sales-day list sets the denominator, even after kickoff."""
+    lines = [f"## 竞彩销售日 {today}（北京时间）", ""]
+    rows = sorted(
+        latest_catalog_rows([r for r in catalog or [] if r["business_date"] == today.isoformat()]),
+        key=_order,
+    )
+    if not rows:
+        return lines + ["截点前没有当天的竞彩目录记录，无法核对场数与预测覆盖。", ""]
+
+    # Like the kickoff-day view, use the latest batch for each date, including
+    # empty batches. Join fixture identity by match ID, never by printed numbers.
+    seen_days = set()
+    forecasts = {}
+    for day, _, batch in sorted(
+        batches,
+        key=lambda entry: (_instant(entry[2]["generated_utc"]), entry[2]["batch_id"]),
+        reverse=True,
+    ):
+        generated = _instant(batch["generated_utc"])
+        if day in seen_days or batch["mode"] != "prematch" or generated > now:
+            continue
+        seen_days.add(day)
+        if _instant(batch["as_of_utc"]) > generated:
+            continue
+        for prediction in batch["predictions"]:
+            if prediction["status"] == "predicted" and generated < _instant(
+                prediction["kickoff_utc"]
+            ):
+                forecasts.setdefault(prediction["match_id"], (prediction, generated))
+
+    predicted = {}
+    for row in rows:
+        entry = forecasts.get(row["match_id"])
+        if entry and (kickoff_day(row) is None or entry[1] < _instant(row["kickoff_utc"])):
+            predicted[row["match_id"]] = entry
+    gaps = catalog_gaps(rows, skipped, predicted, {}, exclusions=exclusions)
+    by_number = {r["jc_num"]: r for r in gaps}
+    lines += [f"应有 {len(rows)} 场、已预测 {len(rows) - len(gaps)} 场、缺 {len(gaps)} 场。"]
+    if gaps:
+        lines += ["缺失编号：" + "、".join(map(_text, sorted(by_number))) + "。"]
+    lines += [
+        "",
+        "| 竞彩编号 | 北京开球 | 对阵 | 球队模型（主胜 / 平 / 客胜） | "
+        "预测生成（北京时间） | 状态 |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in rows:
+        kickoff = _local(row["kickoff_utc"]) if kickoff_day(row) else "未记录"
+        if gap := by_number.get(row["jc_num"]):
+            reasons = []
+            if skip := gap["skip_evidence"]:
+                reasons.append(
+                    f"同步时跳过：{SKIP_REASONS[skip['reason']]}（{_local(skip['captured_utc'])}）"
+                )
+            if frozen := gap["frozen_exclusion"]:
+                reasons.append(
+                    f"冻结批次 {_text(frozen['batch_id'])}：{_text(frozen['reason'])}"
+                    f"（截点 {_local(frozen['as_of_utc'])}）"
+                )
+            if not reasons:
+                reasons.append("原因未查明（无同期跳过或冻结原因记录）")
+            if kickoff == "未记录":
+                reasons.append("目录未记录有效开球时间")
+            probability, generated = "—", "—"
+            status = "未预测：" + "；".join(reasons)
+        else:
+            prediction, timestamp = predicted[row["match_id"]]
+            probability, generated = _probabilities(prediction), _local(timestamp)
+            status = "可用" if prediction.get("p2_ready") is True else "实验"
+            if note := prior_label(prediction):
+                status += f"；{_text(note)}"
+        lines.append(
+            f"| {_text(row['jc_num'])} | {kickoff} | {_match(row)} | "
+            f"{probability} | {generated} | {status} |"
+        )
+    return lines + [""]
 
 
 def strength_lines(rows):
