@@ -54,3 +54,31 @@ pytest -q -o addopts= -n 4 --dist=worksteal -o tmp_path_retention_policy=failed 
 ```
 
 定向 70 项、全量 4973 项通过。Ruff、格式与 Git 空白检查通过。
+
+## 评论已送达而回执丢失
+
+基线 `157264fb22a25d7ce77bc05245b05b6d68c93f97` 在两种故障下都把 A 的评论 201 改成了 B，后续补发 A 会产生新评论。现在编辑旧正文前，会核对旧版本的成功回执已在数据分支保存，且与当前仓库、Issue、评论和冻结版本一致。如果只有评论能证明 A 已送达，下一班将 B 发到另一条评论，旧正文得以保留。
+
+使用本地裸 Git 仓库模拟数据分支，拦截所有 GitHub HTTP 请求。以下时间与编号均来自离线 HTTP 响应。两轮均正常发布 B，再从远端重新克隆，验证新工作区只有 B 的成功回执，随后按日期和版本补发 A。
+
+| 注入的故障 | 首发 A | 正常下一班 B | 换工作区补发 A | 最终状态 |
+|---|---|---|---|---|
+| A 的评论写入成功，写回执文件时抛出 OSError | POST 评论 201 | POST 评论 202 | 评论写入 0 次，读取原评论 201 并重建回执 | 两条正文及两份成功回执均可核对，月报正文继续展示 B |
+| A 的回执已写文件并在本机提交，未推入数据分支 | POST 评论 201 | POST 评论 202 | 评论写入 0 次，读取原评论 201 并重建回执 | 同上 |
+
+| 版本 | Issue / 评论 | 服务端返回时间（UTC） | 北京时间 | 返回的评论正文 SHA-256 |
+|---|---|---|---|---|
+| A | 101 / 201 | 2026-11-03 10:00:17 | 18:00:17 | `81971e5d43794e4deeebb5a5088f202b94d489b4acf76d36d6c5f5bfff4300e0` |
+| B | 101 / 202 | 2026-11-03 11:00:41 | 19:00:41 | `89fd3be70ae23d6a8cefb70abea2bc9acb22e25f6d4f69421785fd300b598352` |
+
+测试对比首次写评论返回的正文、后续 GET 读回的正文以及成功回执的摘要、编号和送达时刻。重试时刻为 13:00:41 UTC。两种故障下 A 回执均记为其最初送达的 10:00:17 UTC。另有对照用例：A 确实未送达时可新增一条旧版评论并保留新版；A 回执已在数据分支持久化时，B 仍可编辑原评论。
+
+```sh
+pytest -q -o addopts= tests/test_digest_notify.py tests/test_digest_history.py tests/test_daily_digest_workflow.py --tb=short --basetemp=/tmp/220-durable
+pytest -q -o addopts= -n 4 --dist=worksteal -o tmp_path_retention_policy=failed --basetemp=/tmp/receipt-final-220
+ruff check src tests examples
+ruff format --check src tests
+git diff --check
+```
+
+本次定向测试为 `72 passed in 3.00s`，全量为 `4975 passed, 10336 warnings in 293.93s`。Ruff 检查通过，454 个源文件和测试文件格式通过，Git 空白检查通过。

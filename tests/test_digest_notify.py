@@ -1,5 +1,6 @@
 """All GitHub operations intercepted; never post to a real repository."""
 
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import pytest
 import responses
 
+from sfc_publication_support import commit_report, git, prepare_remote
 from test_digest_history import INPUTS, TODAY, render_version
 
 FIXTURE = json.loads((Path(__file__).parents[1] / "data/fixtures/t25/github.json").read_bytes())
@@ -176,6 +178,7 @@ def test_failed_notification_version_is_not_the_next_issue_previous(actions, tmp
 
     out = tmp_path / "daily"
     first, first_body = render_version(out, "published", notified=True)
+    prepare_remote(out.parent)
     when = NOW + timedelta(minutes=1)
     _, body = render_version(out, "failed", now=when, update=2)
     notification_routes(body, now=when, prior_body=first_body, status=500)
@@ -210,6 +213,7 @@ def test_success_receipts_follow_same_day_comment_edits_without_changing_frozen_
     assert first_receipt["markdown_sha256"] == first["markdown_sha256"]
     assert first_receipt["notified_utc"] == (NOW + timedelta(seconds=1)).isoformat()
     assert all(path.read_bytes() == raw for path, raw in originals.items())
+    prepare_remote(out.parent)
     when = NOW + timedelta(minutes=1)
     second, second_body = render_version(out, "second", now=when, update=2)
     notification_routes(second_body, now=when, prior_body=first_body)
@@ -556,12 +560,14 @@ def test_forbidden_comments_still_link_archive_without_receipt(actions, tmp_path
         responses.get(ROOT + "/issues/101/comments", json=[older])
         responses.post(ROOT + "/issues/101/comments", status=403)
     else:
-        _, prior = render_version(root, "prior", now=NOW - timedelta(hours=1))
+        _, prior = render_version(root, "prior", now=NOW - timedelta(hours=1), notified=True)
+        prepare_remote(root.parent)
         responses.get(
             ROOT + "/issues/101/comments", json=[older, dict(FIXTURE["comment"], body=prior)]
         )
         responses.patch(ROOT + "/issues/comments/201", status=403)
     responses.patch(ROOT + "/issues/101", json=issue)
+    receipts_before = {p: p.read_bytes() for p in root.rglob("*.notification.json")}
     with pytest.raises(ValueError, match="403"):
         publish(body, repo, now=NOW, history_root=root)
     (patch,) = [
@@ -572,7 +578,7 @@ def test_forbidden_comments_still_link_archive_without_receipt(actions, tmp_path
     directory = json.loads(patch.request.body)["body"]
     assert f"/daily/{TODAY}/frozen.md" in directory and body in directory
     assert "人工说明" in directory and "#issuecomment-170" in directory
-    assert not list(root.rglob("*.notification.json"))
+    assert {p: p.read_bytes() for p in root.rglob("*.notification.json")} == receipts_before
     evidence = json.loads(next(root.rglob("notification-failures/*/*.json")).read_bytes())
     assert (evidence["stage"], evidence["http_status"], evidence["markdown_sha256"]) == (
         "list_comments" if method == "GET" else "publish_comment",
@@ -622,6 +628,7 @@ def test_legacy_orphan_retries_then_regular_shift(actions, tmp_path, first_regul
     responses.add_callback(responses.PATCH, ROOT + "/issues/comments/202", callback=write_comment)
     responses.add_callback(responses.PATCH, ROOT + "/issues/101", callback=write_issue)
     later = NOW + timedelta(hours=4)
+    prepare_remote(root.parent)
     originals = {}
     for n, name in enumerate(("A", "B", "C"), start=1):
         _, body = render_version(root, name, now=NOW + timedelta(hours=n), update=n)
@@ -632,9 +639,125 @@ def test_legacy_orphan_retries_then_regular_shift(actions, tmp_path, first_regul
             result = redeliver(root, TODAY, name, repo, now=later)
             assert redeliver(root, TODAY, name, repo, now=later) == result
         assert result == (101, 202) and comments[202]["body"] == body
+        commit_report(root.parent, later.isoformat())
     assert redeliver(root, TODAY, "A", repo, now=later) == (101, 202)
     assert redeliver(root, TODAY, "B", repo, now=later) == (101, 202)
     assert writes == [("POST", 202), ("PATCH", 202), ("PATCH", 202)]
     assert comments == {201: legacy, 202: dict(comments[202], body=originals["C"])}
     assert all(f"/daily/{TODAY}/{name}.md" in issue["body"] for name in originals)
     assert len(list(root.rglob("*.notification.json"))) == 3
+
+
+@pytest.mark.parametrize("loss", ["write_failed", "local_only"])
+@responses.activate
+def test_lost_receipt_does_not_erase_delivery_before_later_shift(
+    actions, tmp_path, monkeypatch, loss
+):
+    from zucai import digest_notify
+    from zucai.digest_history import notification_path, read_notification
+
+    repo = FIXTURE["repository"]
+    archive = tmp_path / "working"
+    root = archive / "daily"
+    first, body_a = render_version(root, "A")
+    remote = prepare_remote(archive)
+    issue = dict(FIXTURE["issue"])
+    comments, writes = {}, []
+    first_time = NOW + timedelta(seconds=17)
+    next_shift = NOW + timedelta(hours=1)
+    second_time = next_shift + timedelta(seconds=41)
+    returned = {}
+
+    def write_comment(request):
+        cid = (
+            201 + len(comments) if request.method == "POST" else int(request.url.rsplit("/", 1)[1])
+        )
+        body = json.loads(request.body)["body"]
+        stamp = (first_time if body == body_a else second_time).isoformat()
+        comment = dict(
+            FIXTURE["comment"],
+            id=cid,
+            body=body,
+            created_at=comments.get(cid, {}).get("created_at", stamp),
+            updated_at=stamp,
+        )
+        comments[cid] = comment
+        returned.setdefault(body, comment.copy())
+        writes.append((request.method, cid, body))
+        return 200, {}, json.dumps(comment)
+
+    def update_issue(request):
+        issue.update(json.loads(request.body))
+        return 200, {}, json.dumps(issue)
+
+    responses.add_callback(
+        responses.GET, ROOT + "/issues", callback=lambda _: (200, {}, json.dumps([issue]))
+    )
+    responses.post(API + "/graphql", json=pinned([issue["node_id"]]))
+    responses.add_callback(
+        responses.GET,
+        ROOT + "/issues/101/comments",
+        callback=lambda _: (200, {}, json.dumps(list(comments.values()))),
+    )
+    responses.add_callback(responses.POST, ROOT + "/issues/101/comments", callback=write_comment)
+    responses.add_callback(responses.PATCH, ROOT + "/issues/comments/201", callback=write_comment)
+    responses.add_callback(responses.PATCH, ROOT + "/issues/101", callback=update_issue)
+
+    if loss == "write_failed":
+        write = digest_notify._atomic_write
+
+        def fail_first_receipt(path, data):
+            if path == notification_path(root, first):
+                raise OSError("simulated receipt write failure")
+            return write(path, data)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(digest_notify, "_atomic_write", fail_first_receipt)
+            with pytest.raises(OSError, match="receipt write failure"):
+                digest_notify.publish(body_a, repo, now=first_time, history_root=root)
+        assert read_notification(root, first) is None
+    else:
+        assert digest_notify.publish(body_a, repo, now=first_time, history_root=root) == (101, 201)
+        assert read_notification(root, first)["notified_utc"] == first_time.isoformat()
+
+    second, body_b = render_version(root, "B", now=next_shift, update=2)
+    git(archive, "add", f"daily/{TODAY}/B.md", f"daily/{TODAY}/B.json")
+    git(archive, "commit", "-m", "Freeze B")
+    git(archive, "push", "origin", "HEAD:refs/heads/data/football-feeds")
+    if loss == "local_only":
+        commit_report(archive, first_time.isoformat(), push=False)
+    assert digest_notify.publish(body_b, repo, now=second_time, history_root=root)[0] == 101
+    assert read_notification(root, second)["notified_utc"] == second_time.isoformat()
+
+    # Persist B's acknowledgement without accidentally uploading the local-only A receipt.
+    persist = tmp_path / "persist-b"
+    git(tmp_path, "clone", "-b", "data/football-feeds", str(remote), str(persist))
+    git(persist, "config", "user.name", "Offline fixture")
+    git(persist, "config", "user.email", "offline@example.invalid")
+    notification_path(persist / "daily", second).write_bytes(
+        notification_path(root, second).read_bytes()
+    )
+    commit_report(persist, second_time.isoformat())
+
+    fresh = tmp_path / "retry"
+    git(tmp_path, "clone", "-b", "data/football-feeds", str(remote), str(fresh))
+    new_root = fresh / "daily"
+    assert read_notification(new_root, first) is None
+    prior_writes = writes.copy()
+    later = second_time + timedelta(hours=2)
+    assert digest_notify.redeliver(new_root, TODAY, "A", repo, now=later) == (101, 201)
+    receipt = read_notification(new_root, first)
+    assert writes == prior_writes == [("POST", 201, body_a), ("POST", 202, body_b)]
+    assert returned[body_a] == comments[201] and returned[body_b] == comments[202]
+    receipt_b = read_notification(new_root, second)
+    assert receipt_b == read_notification(root, second)
+    assert receipt_b["comment_id"] == returned[body_b]["id"] == 202
+    assert receipt_b["notified_utc"] == returned[body_b]["updated_at"]
+    assert receipt_b["markdown_sha256"] == hashlib.sha256(body_b.encode()).hexdigest()
+    assert receipt["repository"] == repo and receipt["issue_number"] == 101
+    assert receipt["comment_id"] == returned[body_a]["id"]
+    assert receipt["notified_utc"] == returned[body_a]["updated_at"] == first_time.isoformat()
+    assert (
+        receipt["markdown_sha256"] == hashlib.sha256(returned[body_a]["body"].encode()).hexdigest()
+    )
+    assert body_b in issue["body"]

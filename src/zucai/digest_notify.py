@@ -17,6 +17,7 @@ import requests
 from zucai.daily_digest import DISCLAIMER, _day
 from zucai.digest_history import notification_path, read_notification, rendered_versions
 from zucai.forecast_archive import _path
+from zucai.publication_history import PublicationHistoryError, git_read
 from zucai.scoreboard.score import instant
 from zucai.sources.base import _atomic_write
 
@@ -278,7 +279,26 @@ def _version_order(version):
     return instant(version["generated_utc"]), version["version_id"]
 
 
-def _deliver_comment(api, path, matches, body, version, day):
+def _can_replace_comment(root, version, repository, issue_number, comment_id):
+    """Only edit away a body whose exact delivery proof survives a fresh checkout."""
+    receipt = read_notification(root, version)
+    if not receipt or (receipt["repository"], receipt["issue_number"], receipt["comment_id"]) != (
+        repository,
+        issue_number,
+        comment_id,
+    ):
+        return False
+    path = notification_path(root, version).relative_to(root).as_posix()
+    try:
+        published = git_read(
+            root, "cat-file", "blob", f"refs/remotes/origin/data/football-feeds:./{path}"
+        )
+        return json.loads(published) == receipt
+    except (PublicationHistoryError, json.JSONDecodeError, UnicodeDecodeError):
+        return False
+
+
+def _deliver_comment(api, issue_number, matches, body, version, day):
     exact = [item for item in matches if item["body"] == body]
     if len(exact) > 1:
         raise ValueError("有多个相同版本的机器人评论")
@@ -287,21 +307,28 @@ def _deliver_comment(api, path, matches, body, version, day):
     target = None
     if matches:
         if version:
-            by_hash = {
-                v["markdown_sha256"]: _version_order(v) for v in rendered_versions(version[0], day)
-            }
+            root, requested = version
+            by_hash = {}
+            for item in rendered_versions(root, day):
+                sha = item["markdown_sha256"]
+                # Identical bodies cannot prove which of two version receipts is safe to retire.
+                by_hash[sha] = item if sha not in by_hash else None
             ranked = {}
             for comment in matches:
-                rank = by_hash.get(hashlib.sha256(comment["body"].encode()).hexdigest())
-                if rank is None:
+                item = by_hash.get(hashlib.sha256(comment["body"].encode()).hexdigest())
+                if item is None:
                     continue
+                rank = _version_order(item)
                 if rank in ranked:
                     raise ValueError("同日已有多条相同归档版本的机器人评论")
-                ranked[rank] = comment
+                ranked[rank] = (comment, item)
             if ranked:
                 newest = max(ranked)
-                if newest <= _version_order(version[1]):
-                    target = ranked[newest]
+                comment, previous = ranked[newest]
+                if newest <= _version_order(requested) and _can_replace_comment(
+                    root, previous, f"{api.owner}/{api.name}", issue_number, comment["id"]
+                ):
+                    target = comment
         elif len(matches) == 1:
             target = matches[0]
         else:
@@ -310,7 +337,7 @@ def _deliver_comment(api, path, matches, body, version, day):
         return api.request(
             "PATCH", f"{api.root}/issues/comments/{target['id']}", json={"body": body}
         )
-    return api.request("POST", path, json={"body": body})
+    return api.request("POST", f"{api.root}/issues/{issue_number}/comments", json={"body": body})
 
 
 def redeliver(root, day, version_id, repository, *, now=None):
@@ -422,7 +449,7 @@ def publish(body, repository, *, now=None, history_root=None, report_day=None, v
                 else:
                     comment = _deliver_comment(
                         api,
-                        comment_path,
+                        issue["number"],
                         matches,
                         body,
                         version,
