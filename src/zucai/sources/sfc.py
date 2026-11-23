@@ -16,9 +16,9 @@ from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.nations import UnknownSfcTeam, sfc_team
 from zucai.sfc_club_names import club_name
 from zucai.sfc_sequence import known_official, period_windows, sequence, verification_at
-from zucai.sfc_verification import compare_issue, resolve_notices
+from zucai.sfc_verification import compare_issue, pending_amendments, resolve_notices
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
-from zucai.sources.sfc_official import fetch_official_notices
+from zucai.sources.sfc_official import UnreadableAmendments, fetch_official_notices
 from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
 
@@ -728,23 +728,35 @@ def _sequence_time(meta):
     return datetime.fromisoformat(meta["fetched_at_utc"])
 
 
-def _resolve_schedule(result, notices, previous_schedule, known, checked_at):
+def _resolve_schedule(result, notices, previous_schedule, known, checked_at, failures):
     prior_checks = {
         row["issue_no"]: verification_at(row["official_verification"], checked_at)
         for row in known
         if not row["observed_utc"] or datetime.fromisoformat(row["observed_utc"]) <= checked_at
     }
-    # A transport outage may use archived evidence. A known unreadable notice
-    # without a bound issue/version cannot be superseded by anything in the archive.
-    archived = []
-    if not result.get("official_error") or result["official_unavailable"]:
-        archived.extend((number, known_official(check)) for number, check in prior_checks.items())
-        archived.extend((previous_schedule or {}).items())
-    selected = resolve_notices(notices, archived, checked_at)
+    pending = pending_amendments(failures, notices, checked_at)
+    result["pending_amendments"] = pending
+    archived = [(number, known_official(check)) for number, check in prior_checks.items()]
+    archived.extend((previous_schedule or {}).items())
+    if result.get("official_error") and not result["official_unavailable"]:
+        # A separate source error still blocks fresh verification. Preserve the
+        # last readable receipt alongside an identified outstanding adjustment.
+        archived = [(n, receipt) for n, receipt in archived if _pending_for(n, pending)]
+    # A body without its table cannot resolve its own earlier failed read.
+    unreadable_urls = {p["source_url"] for p in pending}
+    selected = resolve_notices(
+        [n for n in notices if n.get("source_url") not in unreadable_urls], archived, checked_at
+    )
+    for number, notice in selected.items():
+        applicable = _pending_for(number, pending)
+        if applicable:
+            notice["pending_amendments"] = applicable
     result.update(
         official_checked_at=checked_at.isoformat(),
         official_reused_schedule=[
-            n for n, notice in selected.items() if notice.get("from_archive")
+            n
+            for n, notice in selected.items()
+            if notice.get("from_archive") or notice.get("pending_amendments")
         ],
         official_schedule={
             number: {
@@ -760,6 +772,7 @@ def _resolve_schedule(result, notices, previous_schedule, known, checked_at):
                     "sale_end_utc",
                     "reason",
                     "versions",
+                    "pending_amendments",
                     "observed_utc",
                 )
                 if notice.get(key) is not None
@@ -772,29 +785,43 @@ def _resolve_schedule(result, notices, previous_schedule, known, checked_at):
     return selected, prior_checks
 
 
-def _check_archived_issues(session, selected, checked_at, numbers, source_error, prior_checks):
+def _pending_for(number, pending):
+    return [entry for entry in pending if entry.get("issue_hint") in (None, number)]
+
+
+def _check_archived_issues(session, selected, checked_at, numbers, result, prior_checks):
     """An amendment may affect an already archived period other than the root or due page."""
     for record in session.scalars(select(SfcIssue)):
         previous = prior_checks.get(record.issue_no) or {}
         previous_end = known_official(previous).get("sale_end_utc") or record.sale_end_utc
         if not record.snapshot:
             continue
-        if record.issue_no not in numbers and (
-            not previous_end or datetime.fromisoformat(previous_end) <= checked_at
+        if (
+            record.issue_no not in numbers
+            and not previous.get("pending_amendments")
+            and (not previous_end or datetime.fromisoformat(previous_end) <= checked_at)
         ):
             continue
-        notice = selected.get(record.issue_no, {})
+        notice = selected.get(record.issue_no)
+        if notice is None:
+            notice = {
+                "pending_amendments": _pending_for(record.issue_no, result["pending_amendments"])
+            }
         check = compare_issue(
             record.issue_no,
             record.sale_end_utc,
             record.snapshot,
             notice,
             checked_at,
-            source_error=source_error,
+            source_error=result.get("official_error"),
         )
-        if check.get("last_known_official") and all(
-            known_official(previous).get(key) == notice.get(key)
-            for key in ("source_url", "raw_sha256")
+        if (
+            previous
+            and check.get("last_known_official")
+            and all(
+                known_official(previous).get(key) == notice.get(key)
+                for key in ("source_url", "raw_sha256")
+            )
         ):
             check["last_official_check_at"] = (
                 previous.get("last_official_check_at") or previous["checked_at"]
@@ -803,7 +830,7 @@ def _check_archived_issues(session, selected, checked_at, numbers, source_error,
         record.official_verification = check
 
 
-def collect_current_sfc(db, *, previous_schedule=None):
+def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
     """Read current SFC and JC root pages without changing match identities."""
     import json
 
@@ -829,17 +856,6 @@ def collect_current_sfc(db, *, previous_schedule=None):
         init_db(engine)
         source_error = None
         unavailable = False
-        try:
-            notices = fetch_official_notices()
-        except (OSError, ValueError, requests.RequestException) as exc:
-            notices = []
-            source_error = f"{type(exc).__name__}: {exc}"[:200]
-            unavailable = isinstance(exc, (OSError, requests.RequestException)) and not isinstance(
-                exc, ValueError
-            )
-        if not notices:
-            result["official_error"] = source_error or "本次没有取得官方期次公告"
-        result["official_unavailable"] = unavailable
         with session_scope(engine) as session:
             known = [
                 dict(
@@ -850,7 +866,28 @@ def collect_current_sfc(db, *, previous_schedule=None):
                 )
                 for row in session.scalars(select(SfcIssue))
             ]
-        _resolve_schedule(result, notices, previous_schedule, known, datetime.now(UTC))
+        failures = list(previous_pending)
+        for summary in (previous_schedule or {}).values():
+            failures.extend(summary.get("pending_amendments", ()))
+        for row in known:
+            failures.extend((row["official_verification"] or {}).get("pending_amendments", ()))
+        retry = pending_amendments(failures, [], datetime.now(UTC))
+        try:
+            notices = fetch_official_notices(retry) if retry else fetch_official_notices()
+        except UnreadableAmendments as exc:
+            failures.extend(exc.pending)
+            notices = exc.notices
+            source_error = exc.weekly_error
+        except (OSError, ValueError, requests.RequestException) as exc:
+            notices = []
+            source_error = f"{type(exc).__name__}: {exc}"[:200]
+            unavailable = isinstance(exc, (OSError, requests.RequestException)) and not isinstance(
+                exc, ValueError
+            )
+        if not notices and (source_error or not failures):
+            result["official_error"] = source_error or "本次没有取得官方期次公告"
+        result["official_unavailable"] = unavailable
+        _resolve_schedule(result, notices, previous_schedule, known, datetime.now(UTC), failures)
         result["requests_scope"] = "500.com"
         result["requests"] += 1
         path = source.fetch_raw(current_only=True)
@@ -861,7 +898,7 @@ def collect_current_sfc(db, *, previous_schedule=None):
         # is taken unless it shows a period that is not in line yet; when it is not the
         # period that is due, that one is asked for by number with one more GET.
         selected, prior_checks = _resolve_schedule(
-            result, notices, previous_schedule, known, observed
+            result, notices, previous_schedule, known, observed, failures
         )
         provider_windows = [
             dict(issue_no=row["issue_no"], sale_end_utc=row["sale_end_utc"])
@@ -954,8 +991,9 @@ def collect_current_sfc(db, *, previous_schedule=None):
                 session,
                 selected,
                 checked_at,
-                {n["issue_no"] for n in notices} | {p.issue_no for p, _, _ in captures},
-                result.get("official_error"),
+                {n["issue_no"] for n in notices if "issue_no" in n}
+                | {p.issue_no for p, _, _ in captures},
+                result,
                 prior_checks,
             )
             if primary:

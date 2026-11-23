@@ -80,3 +80,48 @@ pytest -q -s tests/test_sfc_official_pipeline.py::test_older_weekly_notice_canno
 - 采集、版本核对、选期、归档和报告相关回归 93 项通过。
 - 全量 pytest 4,953 项通过，用时 178.36 秒。并行参数为 `-n 4 --dist=worksteal`。
 - `ruff check src tests examples`、`ruff format --check src tests`、`git diff --check` 通过。
+
+## 连续四轮采集、归档恢复与日报
+
+基于 `238cceb1` 实跑新增回归，第二轮 HTTP 503 后，库内 26169 的官方停售值由 21:30 变为空值。修复后分别回放标题写明期号、标题只有奖期日期两种情形。采集读本目录说明所列的原周公告和 500 网裁片，两份调整公告和两次 HTTP 503 使用离线模拟。每轮均经过 `collect_current_sfc`、`export_feeds` 和日报 `generate`。每一轮后用 `restore_feeds` 将归档恢复到新的 SQLite 数据库，复核期次和证据。
+
+以下为标题含期号时的日报关键行及冻结文件检查输出，时间均为北京时间。第三、四轮目录均只列旧周公告。第三轮重读保存的网址仍失败，第四轮同一网址恢复可读。为验证系统确实采纳新正文，第四轮样本把停售定在 21:00，500 网样本四轮均为 22:00。
+
+```text
+第1轮
+期号：26169；官方公告停售：2026-11-24 21:30:00（北京时间，未截止）。
+官方核对：冲突。第三方数据与官方公告存在字段冲突
+第三方所报截止：2026-11-24 22:00:00（北京时间）。
+第2轮
+期号：26169；上次官方公告停售：2026-11-24 21:30:00（北京时间，未截止）。
+官方核对：待核。已发现的调整公告仍待核实
+待核调整公告：https://www.wztc.cn/system/2026/11/23/105874266.shtml；首次发现：2026-11-23 13:00:00（北京时间）；首次读取失败：官方来源 HTTP 503 (https://www.wztc.cn/system/2026/11/23/105874266.shtml)。
+第三方所报截止：2026-11-24 22:00:00（北京时间）。
+第3轮
+期号：26169；上次官方公告停售：2026-11-24 21:30:00（北京时间，未截止）。
+官方核对：待核。已发现的调整公告仍待核实
+待核调整公告：https://www.wztc.cn/system/2026/11/23/105874266.shtml；首次发现：2026-11-23 13:00:00（北京时间）；首次读取失败：官方来源 HTTP 503 (https://www.wztc.cn/system/2026/11/23/105874266.shtml)。
+第三方所报截止：2026-11-24 22:00:00（北京时间）。
+11月24日 21:45 期号：26170；官方公告停售：2026-11-25 17:30:00（北京时间）。第三方场次快照待采集，官方核对：待核。
+第4轮
+期号：26169；官方公告停售：2026-11-24 21:00:00（北京时间，未截止）。
+官方核对：冲突。第三方数据与官方公告存在字段冲突
+第三方所报截止：2026-11-24 22:00:00（北京时间）。
+第四轮归档恢复后停售 21:00，冻结报告四文件逐字节一致
+```
+
+第一、二、三轮采用的最后可读调整原件 SHA256 为 `04e53393b4811b324706c38038a1e02b9c6d7ce69353c805d8e692cfbebd0bf3`。第二轮目录原件 SHA256 为 `6850e27115355a764b7c7aef1af9b4a6bac49ecdc75a3e4d93ce7647db990fbe`，其待核条目在第三轮仍保留首次发现时刻 `2026-11-23T05:00:00.000000Z` 及 HTTP 503 原因。第四轮实际读取的新正文 SHA256 为 `ba6581c66e1866cf57216663528142fa250910e7aa60566baa5de10b2ede5616`，读取时刻为 `2026-11-23T07:00:00.000000Z`。以上哈希均对应离线回放的字节。
+
+测试每次导出并生成日报后都逐字节比较第一轮冻结的 `report.md`、`report.csv`、`sfc.json`、`manifest.json`。四个文件内容一致，日报保留其冻结时的“冲突”判定。
+
+复现命令
+
+```bash
+pytest -q -o addopts= -s tests/test_sfc_official_pipeline.py::test_pending_amendment_survives_four_collections
+pytest -q -o addopts= -n 4 --dist=worksteal -o tmp_path_retention_policy=failed --basetemp=work/t79-four-checked
+ruff check src tests examples
+ruff format --check src tests
+git diff --check
+```
+
+两种标题的四轮回放均通过。公告采集、版本、归档与选期专项命令 `pytest -q -o addopts= tests/test_sfc_official_pipeline.py tests/test_sfc_official_source.py tests/test_sfc_verification.py tests/test_sfc_sequence.py` 通过 44 项。全量测试通过 4,958 项，耗时 247.05 秒，另有 10,336 条依赖弃用警告。Ruff 静态与格式检查及 Git 差异空白检查均通过。

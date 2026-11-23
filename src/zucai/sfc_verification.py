@@ -90,7 +90,7 @@ def notice_for_issue(issue_no, notices, checked_at):
     cutoff = _instant(checked_at)
     versions = []
     for notice in notices:
-        if str(notice["issue_no"]) != str(issue_no) or notice.get("game", "sfc") != "sfc":
+        if notice.get("game", "sfc") != "sfc" or str(notice["issue_no"]) != str(issue_no):
             continue
         published = _time(notice.get("published_at"))
         observed = _time(notice.get("observed_utc"))
@@ -136,18 +136,62 @@ def notice_for_issue(issue_no, notices, checked_at):
     return _choose_version(amendments or records)
 
 
+def pending_amendments(failures, notices, checked_at):
+    """A missing article stays pending until that URL has a usable body at the cutoff."""
+    cutoff = _instant(checked_at)
+    pending = {}
+    for failure in failures:
+        seen = _time(failure.get("first_observed_utc"))
+        failed_at = _time(failure.get("failed_at_utc", failure.get("first_observed_utc")))
+        if seen is None or failed_at is None or not seen <= failed_at <= cutoff:
+            continue
+        url = failure["source_url"]
+        if url not in pending or seen < _time(pending[url]["first_observed_utc"]):
+            pending[url] = failure
+
+    for url, failure in list(pending.items()):
+        failed_at = _time(failure.get("failed_at_utc", failure["first_observed_utc"]))
+        rows = [
+            n for n in notices if n.get("source_url") == url and n.get("title") == failure["title"]
+        ]
+        if any(
+            n.get("game") == "other"
+            and failed_at <= _time(n["observed_utc"]) <= cutoff
+            and _time(n["published_at"]) <= cutoff
+            and date.fromisoformat(n["notice_date"]) <= cutoff.astimezone(BEIJING).date()
+            for n in rows
+        ):
+            del pending[url]
+            continue
+        rows = [n for n in rows if n.get("game", "sfc") == "sfc"]
+        if failure.get("issue_hint"):
+            rows = [n for n in rows if n["issue_no"] == failure["issue_hint"]]
+        if rows and all(
+            n.get("kind") == "amendment"
+            and len(n.get("fixtures") or ()) == 14
+            and notice_for_issue(n["issue_no"], [n], cutoff).get("sale_end_utc")
+            and _time(n["observed_utc"]) >= failed_at
+            for n in rows
+        ):
+            del pending[url]
+    return [pending[url] for url in sorted(pending)]
+
+
 def resolve_notices(notices, archived, checked_at):
     """Resolve freshly read notices and archived receipts separately for each issue."""
     by_issue = defaultdict(list)
     for notice in notices:
-        by_issue[notice["issue_no"]].append(notice)
+        if notice.get("game", "sfc") == "sfc":
+            by_issue[notice["issue_no"]].append(notice)
     for number, receipt in archived:
         if receipt.get("source_url") and re.fullmatch(
             r"[a-f0-9]{64}", receipt.get("raw_sha256") or ""
         ):
             # A manifest receipt omits the fixture table. It can establish a window,
             # but has no fixture fields to compare with a copy of the same notice.
-            by_issue[number].append({**receipt, "issue_no": number, "from_archive": True})
+            archived_notice = {**receipt, "issue_no": number, "from_archive": True}
+            archived_notice.pop("pending_amendments", None)
+            by_issue[number].append(archived_notice)
     return {
         number: selected
         for number, versions in sorted(by_issue.items())
@@ -287,7 +331,8 @@ def compare_issue(
 ):
     """Check the provider against the same version used to select the current issue."""
     official = selected.copy()
-    retained = official.pop("from_archive", False)
+    pending = official.pop("pending_amendments", [])
+    retained = official.pop("from_archive", False) or bool(pending)
     result = {
         "issue_no": str(issue_no),
         "checked_at": _instant(checked_at).isoformat(),
@@ -298,11 +343,19 @@ def compare_issue(
         "differences": [],
         "aliases": [],
     }
-    if retained:
+    if retained and official:
         result["last_known_official"] = official
         result["reason"] = str(source_error or "本次未重新取得当前适用的官方公告，沿用已归档版本")
+    if pending:
+        result["pending_amendments"] = pending
+        result["reason"] = "已发现的调整公告仍待核实"
     if not official or official.get("reason"):
-        result["reason"] = str(source_error or official.get("reason") or "未取得本玩法本期官方公告")
+        result["reason"] = str(
+            result.get("reason")
+            or source_error
+            or official.get("reason")
+            or "未取得本玩法本期官方公告"
+        )
         return result
     result["compared_fields"] = ["issue_no", "sale_end_utc"]
     end = _time(provider_sale_end_utc)

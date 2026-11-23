@@ -57,6 +57,7 @@ def _setup_replay(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(base, "datetime", ReplayClock)
     monkeypatch.setattr(sfc, "datetime", ReplayClock)
+    monkeypatch.setattr(sfc_official, "datetime", ReplayClock)
     monkeypatch.setattr(base.RateLimiter, "wait", lambda self: None)
     monkeypatch.setattr(sfc_official, "INDEXES", (INDEX,))
 
@@ -154,36 +155,43 @@ def test_adjusted_official_deadline_or_swapped_home_reported(tmp_path, monkeypat
     assert any(d["field"] == field and d["status"] == "conflict" for d in check["differences"])
 
 
-def _mock_replay(http, *, revision=None):
+def _mock_replay(http, *, revision=None, listed=True, title=None, weekly_status=200):
     _mock_provider(http)
     weekly = (SAMPLES / "wenzhou_20261118.html").read_bytes()
     index = (SAMPLES / "wenzhou_index.html").read_text(encoding="utf-8")
     if revision is not None:
-        publication_day, code, readable = revision
+        publication_day, code, response = revision
         link = f"https://www.wztc.cn/system/2026/11/{publication_day}/{code}.shtml"
-        title = "关于调整足球彩票第26169期竞猜场次的通知"
-        table = html.fromstring(weekly.decode("gb18030")).xpath("//table")[3]
-        appendix = html.tostring(table, encoding="unicode")
-        appendix = appendix.replace("2026-11-24 22:00", "2026-11-24 21:30") if readable else ""
-        http.get(
-            link,
-            body=(
-                f"<html><h1>{title}</h1><time>2026-11-{publication_day} 12:00:00</time>"
-                '<div id="artibody">'
-                "<p>足球彩票胜负游戏（14场和任选9场）第26169期</p>"
-                f"{appendix}<p>国家体育总局体育彩票管理中心 2026年11月{publication_day}日</p>"
-                "</div></html>"
-            ).encode(),
-        )
-        index = index.replace("</body>", f'<a href="{link}">{title}</a></body>')
+        title = title or "关于调整足球彩票第26169期竞猜场次的通知"
+        if response == 503:
+            http.get(link, status=503)
+        else:
+            appendix = ""
+            if response:
+                table = html.fromstring(weekly.decode("gb18030")).xpath("//table")[3]
+                appendix = html.tostring(table, encoding="unicode").replace(
+                    "2026-11-24 22:00", f"2026-11-24 {response}"
+                )
+            http.get(
+                link,
+                body=(
+                    f"<html><h1>{title}</h1><time>2026-11-{publication_day} 12:00:00</time>"
+                    '<div id="artibody">'
+                    "<p>足球彩票胜负游戏（14场和任选9场）第26169期</p>"
+                    f"{appendix}<p>国家体育总局体育彩票管理中心 2026年11月{publication_day}日</p>"
+                    "</div></html>"
+                ).encode(),
+            )
+        if listed:
+            index = index.replace("</body>", f'<a href="{link}">{title}</a></body>')
     http.get("https://www.wztc.cn/robots.txt", status=404)
     http.get(INDEX, body=index.encode())
-    http.get(WENZHOU, body=weekly)
+    http.get(WENZHOU, body=weekly, status=weekly_status)
 
 
-def _collect_replay(database, *, revision=None, previous_schedule=None):
+def _collect_replay(database, *, previous_schedule=None, **pages):
     with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
-        _mock_replay(http, revision=revision)
+        _mock_replay(http, **pages)
         result = sfc.collect_current_sfc(database, previous_schedule=previous_schedule)
         requested = [call.request.url for call in http.calls]
     assert result["status"] == "complete", result["errors"]
@@ -257,7 +265,7 @@ def test_older_weekly_notice_cannot_revert_adjustment_after_restore(tmp_path, mo
     frozen_evidence = {}
 
     for run, moment, revision, database in (
-        ("first", NOW, ("22", "105874265", True), original_db),
+        ("first", NOW, ("22", "105874265", "21:30"), original_db),
         ("second", second_at, None, restored_db),
     ):
         monkeypatch.setattr(ReplayClock, "instant", moment)
@@ -328,15 +336,114 @@ def test_older_weekly_notice_cannot_revert_adjustment_after_restore(tmp_path, mo
     print("历史冻结报告原件逐字节一致；11月24日 21:45 日报展示 26170")
 
 
+@pytest.mark.parametrize(
+    "title",
+    [None, "关于调整足球彩票11月24日奖期竞猜场次的通知"],
+    ids=["issue-in-title", "date-only-title"],
+)
+def test_pending_amendment_survives_four_collections(tmp_path, monkeypatch, title):
+    _setup_replay(tmp_path, monkeypatch)
+    archive = tmp_path / "archive"
+    previous = None
+    original_url = "https://www.wztc.cn/system/2026/11/22/105874265.shtml"
+    pending_url = "https://www.wztc.cn/system/2026/11/23/105874266.shtml"
+    rounds = [
+        (NOW, ("22", "105874265", "21:30"), "21:30", "冲突"),
+        (NOW + timedelta(hours=13), ("23", "105874266", 503), "21:30", "待核"),
+        (NOW + timedelta(hours=14), ("23", "105874266", 503), "21:30", "待核"),
+        (NOW + timedelta(hours=15), ("23", "105874266", "21:00"), "21:00", "冲突"),
+    ]
+    for run, (moment, revision, end, label) in enumerate(rounds, start=1):
+        monkeypatch.setattr(ReplayClock, "instant", moment)
+        db = tmp_path / f"round-{run}/feed.db"
+        if run > 1:
+            manifest = restore_feeds(archive, db)
+            previous = manifest["collection"]["sfc"]["official_schedule"]
+            assert _read_check(db, "26169")[1] == _state(archive, "26169")["official_verification"]
+        # The listing has rolled back to the weekly notice. In round four only
+        # the saved detail URL recovers; it has not reappeared in the index.
+        result, requested = _collect_replay(
+            db,
+            revision=revision,
+            listed=run < 3,
+            title=title if run > 1 else None,
+            previous_schedule=previous,
+        )
+        assert result["due_issue_no"] == "26169"
+        export_feeds(db, archive, BEIJING_DAY, str(run), collection={"sfc": result})
+        check = _read_check(db, "26169")[1]
+        assert _state(archive, "26169")["official_verification"] == check
+        schedule = json.loads((archive / "feed_manifest.json").read_bytes())["collection"]["sfc"][
+            "official_schedule"
+        ]
+        effective = known_official(check)
+        deadline = "2026-11-24T13:00:00+00:00" if run == 4 else "2026-11-24T13:30:00+00:00"
+        assert effective.get("sale_end_utc") == deadline
+        assert schedule["26169"]["sale_end_utc"] == deadline
+        assert effective["source_url"] == (pending_url if run == 4 else original_url)
+        if run == 1:
+            directory = _freeze_issue(db, archive)
+            prepare_remote(archive, NOW.isoformat())
+            frozen = {p.name: p.read_bytes() for p in (archive / directory).iterdir()}
+            assert set(frozen) == {"report.md", "report.csv", "sfc.json", "manifest.json"}
+            original = effective
+        digest = generate(archive, tmp_path / f"digest-{run}", now=moment, run_id=str(run))
+        rendered = digest.read_text(encoding="utf-8")
+        pending = run in (2, 3)
+        prefix = "上次官方公告停售" if pending else "官方公告停售"
+        assert f"期号：26169；{prefix}：2026-11-24 {end}:00" in rendered
+        assert f"官方核对：{label}" in rendered
+        assert "报告冻结时的官方核对：冲突" in rendered
+        if pending:
+            assert not check["official"] and check["last_known_official"] == original
+            (receipt,) = check["pending_amendments"]
+            assert schedule["26169"]["pending_amendments"] == [receipt]
+            assert bool(schedule["26171"].get("pending_amendments")) == bool(title)
+            assert receipt["source_url"] == pending_url and "HTTP 503" in receipt["reason"]
+            assert receipt["index_url"] == INDEX and len(receipt["index_sha256"]) == 64
+            assert datetime.fromisoformat(receipt["first_observed_utc"]) == rounds[1][0]
+            assert pending_url in rendered.replace("\\.", ".") and "HTTP 503" in rendered
+        else:
+            assert not check.get("pending_amendments")
+            assert not schedule["26169"].get("pending_amendments")
+        if run == 4:
+            assert pending_url in requested
+            assert all(not entry.get("pending_amendments") for entry in schedule.values())
+            assert effective["raw_sha256"] != original["raw_sha256"]
+            assert datetime.fromisoformat(effective["observed_utc"]) == moment
+        print(f"第{run}轮")
+        for line in rendered.splitlines():
+            if line.startswith(("期号：", "官方核对：", "待核调整公告：", "第三方所报截止：")):
+                print(line)
+        if run == 3:
+            boundary = generate(archive, tmp_path / "boundary", now="2026-11-24T13:45:00Z")
+            boundary_text = boundary.read_text(encoding="utf-8")
+            headline = next(
+                line for line in boundary_text.splitlines() if line.startswith("期号：")
+            )
+            assert "期号：26170" in headline and "期号：26169" not in boundary_text
+            print("11月24日 21:45", headline)
+        assert {p.name: p.read_bytes() for p in (archive / directory).iterdir()} == frozen
+
+    final_db = tmp_path / "final/feed.db"
+    restore_feeds(archive, final_db)
+    final_check = _read_check(final_db, "26169")[1]
+    assert (
+        final_check["official"]["source_url"] == pending_url and final_check["status"] == "conflict"
+    )
+    assert final_check["official"]["sale_end_utc"] == "2026-11-24T13:00:00+00:00"
+    print("第四轮归档恢复后停售 21:00，冻结报告四文件逐字节一致")
+
+
 def test_newer_unreadable_amendment_keeps_its_pending_status(tmp_path, monkeypatch):
     _setup_replay(tmp_path, monkeypatch)
     db = tmp_path / "feed.db"
-    first, _ = _collect_replay(db, revision=("22", "105874265", True))
+    first, _ = _collect_replay(db, revision=("22", "105874265", "21:30"))
     assert first["official_schedule"]["26169"]["sale_end_utc"] == "2026-11-24T13:30:00+00:00"
     later = NOW + timedelta(hours=13)
     monkeypatch.setattr(ReplayClock, "instant", later)
     second, _ = _collect_replay(
-        db, revision=("23", "105874266", False), previous_schedule=first["official_schedule"]
+        db, revision=("23", "105874266", None), previous_schedule=first["official_schedule"]
     )
     selected = second["official_schedule"]["26169"]
     assert "sale_end_utc" not in selected and selected["notice_date"] == "2026-11-23"
@@ -349,6 +456,23 @@ def test_newer_unreadable_amendment_keeps_its_pending_status(tmp_path, monkeypat
     assert "官方核对：待核。官方售期不完整" in rendered
     assert "期号：26169；第三方所报截止：2026-11-24 22:00:00" in rendered
     assert "105874266" in rendered
+
+
+def test_pending_amendment_retains_last_receipt_if_weekly_detail_also_fails(tmp_path, monkeypatch):
+    _setup_replay(tmp_path, monkeypatch)
+    db = tmp_path / "db"
+    first, _ = _collect_replay(db, revision=("22", "105874265", "21:30"))
+    monkeypatch.setattr(ReplayClock, "instant", NOW + timedelta(hours=13))
+    second, _ = _collect_replay(
+        db,
+        previous_schedule=first["official_schedule"],
+        revision=("23", "105874266", 503),
+        weekly_status=503,
+    )
+    assert "周公告无法核对" in second["official_error"]
+    assert second["official_schedule"]["26169"]["sale_end_utc"] == "2026-11-24T13:30:00+00:00"
+    check = _read_check(db, "26169")[1]
+    assert check["status"] == "pending" and check["pending_amendments"] and not check["official"]
 
 
 def test_official_outage_keeps_third_party_source(tmp_path, monkeypatch):

@@ -38,6 +38,22 @@ def test_image_only_official_notice_binds_issue_not_fixtures_or_deadline():
     assert all(n["sale_start_utc"] is n["sale_end_utc"] is None for n in rows)
 
 
+def test_recovered_notice_for_another_game_releases_pending_without_an_sfc_window():
+    from zucai.sfc_verification import pending_amendments, resolve_notices
+
+    title = "关于调整足球彩票竞猜场次的通知"
+    raw = (
+        f"<h1>{title}</h1><time>2026-11-22 12:00:00</time>"
+        "<p>足球彩票6场半全场胜负游戏第26233期</p>"
+        "<p>国家体育总局体育彩票管理中心 2026年11月22日</p>"
+    ).encode()
+    failure = dict(source_url=ARTICLE, title=title, first_observed_utc="2026-11-22T05:00:00Z")
+    read = parse_notice(raw, source_url=ARTICLE, observed_utc=CAPTURED, include_other_games=True)
+    assert pending_amendments([failure], read, "2026-11-22T15:00:00Z") == [failure]
+    assert pending_amendments([failure], read, CAPTURED) == []
+    assert resolve_notices(read, [], CAPTURED) == {}
+
+
 def test_known_revision_unreadable_blocks_earlier_versions(tmp_path, monkeypatch):
     index = (FIXTURES / "wenzhou_index.html").read_text()
     # Simulated newer revision. Only the index of the weekly schedule is a real excerpt.

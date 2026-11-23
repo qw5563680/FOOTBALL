@@ -4,7 +4,12 @@ from copy import deepcopy
 
 import pytest
 
-from zucai.sfc_verification import notice_for_issue, resolve_notices, verify_issue
+from zucai.sfc_verification import (
+    notice_for_issue,
+    pending_amendments,
+    resolve_notices,
+    verify_issue,
+)
 
 NOW = "2026-11-22T16:00:00Z"
 
@@ -31,6 +36,28 @@ def test_exact_comparison_uses_instants_and_sequence_numbers():
     assert result["status"] == "verified"
     assert result["differences"] == []
     assert result["official"]["raw_sha256"] == plan["raw_sha256"]
+
+
+def test_pending_url_requires_its_own_readable_body_by_the_cutoff():
+    amendment = dict(notice(), title="调整通知", kind="amendment", observed_utc=NOW)
+    failed = dict(
+        source_url=amendment["source_url"],
+        title="调整通知",
+        first_observed_utc="2026-11-22T14:00:00Z",
+    )
+    repeated = dict(failed, first_observed_utc="2026-11-22T15:00:00Z")
+    assert not pending_amendments([failed], [], "2026-11-22T13:59:59Z")
+    observed_later = dict(failed, failed_at_utc="2026-11-22T14:01:00Z")
+    assert not pending_amendments([observed_later], [], "2026-11-22T14:00:30Z")
+    assert pending_amendments([repeated, failed], [amendment], "2026-11-22T15:59:59Z") == [failed]
+    for unreadable in (
+        dict(amendment, source_url=amendment["source_url"] + "-mirror"),
+        dict(amendment, fixtures=[]),
+        dict(amendment, published_at="2026-11-23T00:00:00Z"),
+        dict(amendment, notice_date="2026-11-24"),
+    ):
+        assert pending_amendments([failed], [unreadable], NOW) == [failed]
+    assert not pending_amendments([failed], [amendment], NOW)
 
 
 def test_wrong_side_and_order_are_conflicts():

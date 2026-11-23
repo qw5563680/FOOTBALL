@@ -29,10 +29,21 @@ _ISSUE = re.compile(r"足球彩票胜负游戏[（(]14场(?:和|、|及)任选9�
 _CLOCK = r"(\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)"
 _NOTICE = re.compile(r"^(?=.*足球彩票)(?=.*(?:调整|变更|下发))(?=.*(?:竞猜场次|停售时间|销售时间))")
 _MAX_BYTES = 3 * 1024 * 1024
+_MAX_ARTICLES = 12
 
 
 class _UnresolvedNotice(ValueError):
     """A listed bulletin may supersede an older schedule."""
+
+
+class UnreadableAmendments(_UnresolvedNotice):
+    """Index evidence for unreadable articles, alongside the bodies successfully read."""
+
+    def __init__(self, pending, notices, weekly_error=None):
+        super().__init__("官方调整公告无法核对：" + "；".join(p["reason"] for p in pending))
+        self.pending = pending
+        self.notices = notices
+        self.weekly_error = weekly_error
 
 
 def _page(raw):
@@ -111,7 +122,7 @@ def _schedule(table, issue):
     return dict(fixtures=matches, sale_start_utc=start, sale_end_utc=end)
 
 
-def _parse(raw):
+def _parse(raw, *, include_other_games=False):
     doc = _page(raw)
     title = "".join("".join(_text(node).split()) for node in doc.xpath("//h1"))
     if not _NOTICE.search(title):
@@ -122,15 +133,18 @@ def _parse(raw):
     if "国家体育总局体育彩票管理中心" not in full:
         raise ValueError("缺少国家体育总局体育彩票管理中心落款")
     numbers = sorted(set(_ISSUE.findall(re.sub(r"\s+", "", full))))
-    if not numbers and ("6场半全场" in full or "4场进球" in full) and "14场" not in full:
+    other_game = not numbers and ("6场半全场" in full or "4场进球" in full) and "14场" not in full
+    if other_game and not include_other_games:
         return []
-    if not numbers:
+    if not numbers and not other_game:
         raise ValueError("无法定位14场胜负游戏及期号")
     published = _publication(doc)
     signed = re.search(r"国家体育总局体育彩票管理中心\s*(\d{4})年(\d{1,2})月(\d{1,2})日", full)
     if not signed:
         raise ValueError("无法确定体彩中心公告签发日期")
     notice_date = date(*map(int, signed.groups())).isoformat()
+    if other_game:
+        return [dict(game="other", title=title, published_at=published, notice_date=notice_date)]
     records = {
         n: dict(
             issue_no=n,
@@ -164,12 +178,14 @@ def _parse(raw):
     return list(records.values())
 
 
-def parse_notice(raw: bytes, *, source_url: str, observed_utc: str) -> list[dict]:
+def parse_notice(
+    raw: bytes, *, source_url: str, observed_utc: str, include_other_games=False
+) -> list[dict]:
     """Offline parser; provenance refers to the bytes the caller actually supplies."""
     digest = hashlib.sha256(raw).hexdigest()
     return [
         {**row, "source_url": source_url, "raw_sha256": digest, "observed_utc": observed_utc}
-        for row in _parse(raw)
+        for row in _parse(raw, include_other_games=include_other_games)
     ]
 
 
@@ -198,7 +214,7 @@ def _links(raw, index):
             schedules += 1
             if schedules > 2:
                 break
-        if len(links) >= 12:
+        if len(links) >= _MAX_ARTICLES:
             raise _UnresolvedNotice("两期周公告间的调整超过单次采集上限")
         links.append((link, title, "下发" in title and schedules > 1))
     if not links:
@@ -263,51 +279,90 @@ class OfficialNotices(Source[dict]):
         return _parse(raw)
 
 
-def fetch_official_notices() -> list[dict]:
+def fetch_official_notices(previous_pending=()) -> list[dict]:
     """Read recent schedules and revisions from each available official publisher.
 
     Return every version. A shared as-of selector reconciles mirrors by the issuing
     authority's date instead of letting an old schedule repost hide a newer amendment.
     """
-    failures, rows = [], []
+    failures, rows, pending = [], [], []
     missing_weekly = {}
     read_titles = set()
+    retry_urls = {p["source_url"] for p in previous_pending}
     with requests.Session() as session:
         session.headers["User-Agent"] = _USER_AGENT
         source = OfficialNotices(session, RawStore())
         for index in INDEXES:
             try:
-                links = _links(source.store.load(source.fetch_raw(url=index)), index)
+                index_path = source.fetch_raw(url=index)
+                links = _links(source.store.load(index_path), index)
+                index_meta = source.store.load_metadata(index_path)
             except _UnresolvedNotice:
                 raise
             except (requests.RequestException, ValueError) as exc:
                 failures.append(f"{index}: {exc}")
                 continue
-            for url, title, older_week in links:
+            listed = {url for url, _, _ in links}
+            retries = [
+                (p["source_url"], p["title"], False)
+                for p in previous_pending
+                if p.get("index_url") == index
+                and p["source_url"] not in listed
+                and urlsplit(p["source_url"]).netloc == urlsplit(index).netloc
+            ]
+            for url, title, older_week in (links + retries)[:_MAX_ARTICLES]:
                 # Do not hide a known but unreadable revision with an older mirror.
                 try:
                     path = source.fetch_raw(url=url)
                     observed = source.store.load_metadata(path)["fetched_at_utc"]
                     parsed = parse_notice(
-                        source.store.load(path), source_url=url, observed_utc=observed
+                        source.store.load(path),
+                        source_url=url,
+                        observed_utc=observed,
+                        include_other_games=url in retry_urls,
                     )
                     if any(row["title"] != title for row in parsed):
                         raise ValueError("官方目录标题与正文不一致")
                     rows.extend(parsed)
                     read_titles.add(title)
                 except (requests.RequestException, ValueError) as exc:
+                    if url not in listed:
+                        # Its original directory receipt is already pending. Today's
+                        # directory did not list this URL and cannot attest discovery.
+                        continue
                     # An older weekly appendix need not erase an accessible newer one.
                     # A missing initial notice may also be available on another channel.
                     if "下发" in title:
                         if not older_week:
                             missing_weekly[title] = f"{url}: {exc}"
                         continue
-                    raise _UnresolvedNotice(f"官方公告无法核对 {url}: {exc}") from exc
+                    # The index proves discovery, not the contents or signing date of the
+                    # missing body. Date-only or multi-issue titles have no reliable scope.
+                    hint = re.search(r"第(\d{5})期", title)
+                    pending.append(
+                        dict(
+                            source_url=url,
+                            title=title,
+                            issue_hint=hint[1]
+                            if hint and len(re.findall(r"\d{5}", title)) == 1
+                            else None,
+                            first_observed_utc=index_meta["fetched_at_utc"],
+                            failed_at_utc=datetime.now(UTC).isoformat(),
+                            index_url=index,
+                            index_sha256=index_meta["sha256"],
+                            reason=str(exc),
+                        )
+                    )
     unresolved = set(missing_weekly) - read_titles
+    weekly_error = None
     if unresolved:
-        raise _UnresolvedNotice(
-            "官方周公告无法核对：" + "；".join(missing_weekly[t] for t in sorted(unresolved))
+        weekly_error = "官方周公告无法核对：" + "；".join(
+            missing_weekly[t] for t in sorted(unresolved)
         )
+    if pending:
+        raise UnreadableAmendments(pending, [] if weekly_error else rows, weekly_error)
+    if weekly_error:
+        raise _UnresolvedNotice(weekly_error)
     if not rows:
         raise requests.RequestException("官方目录不可用：" + "；".join(failures))
     return rows

@@ -55,6 +55,7 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
     schedule = (collected or {}).get("official_schedule", {})
     windows = period_windows([issue for _, issue in states], schedule, now)
     if not windows:
+        lines.extend(_pending_lines(collected or {}, now))
         announced = [
             number
             for number, notice in schedule.items()
@@ -90,6 +91,7 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
         return lines + [
             f"期号：{chosen}；{notice_label}：{_beijing(windows[chosen]['sale_end_utc'])}"
             "（北京时间）。第三方场次快照待采集，官方核对：待核。",
+            *_pending_lines(schedule.get(chosen, {}), now),
             "",
         ]
     name, issue = by_number[chosen]
@@ -111,6 +113,15 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
     return lines
 
 
+def _pending_lines(evidence, now):
+    return [
+        f"待核调整公告：{_md(entry['source_url'])}；首次发现："
+        f"{_beijing(entry['first_observed_utc'])}（北京时间）；首次读取失败：{_md(entry['reason'])}。"
+        for entry in evidence.get("pending_amendments", ())
+        if _timestamp(entry.get("failed_at_utc", entry["first_observed_utc"])) <= now
+    ]
+
+
 def _incomplete_check(issue, collected, now):
     check = dict(
         status="pending",
@@ -120,6 +131,8 @@ def _incomplete_check(issue, collected, now):
     )
     number = issue["issue_no"]
     notice = collected.get("official_schedule", {}).get(number, {})
+    if notice.get("pending_amendments"):
+        check["pending_amendments"] = notice["pending_amendments"]
     if collected.get("official_unavailable") or number in collected.get(
         "official_reused_schedule", ()
     ):
@@ -240,6 +253,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
         f"期号：{number}；{deadline_source}：{deadline}（北京时间，{state}）。",
         f"官方核对：{official_label.get(check.get('status'), '待核')}。"
         + _md(check.get("reason") or "本期归档只有第三方来源，尚无官方核对记录。"),
+        *_pending_lines(check, now),
         *(
             [f"公告开售：{_beijing(official['sale_start_utc'])}（北京时间）。"]
             if official.get("sale_start_utc")
