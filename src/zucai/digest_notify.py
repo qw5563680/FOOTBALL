@@ -196,7 +196,7 @@ def _record_notification(root, version, repository, issue, comment, body):
 def monthly_issue_body(issue, comments, repository, today, root=None):
     """Keep dated report links newest first and show the latest report at the top."""
     reports = []
-    for comment in comments:
+    for comment in comments or []:
         body = comment.get("body") or ""
         markers = re.findall(r"<!-- zucai-daily:(\d{4}-\d{2}-\d{2}) -->", body)
         if len(markers) != 1 or comment.get("user", {}).get("login") != "github-actions[bot]":
@@ -209,6 +209,18 @@ def monthly_issue_body(issue, comments, repository, today, root=None):
             reports.append((day, comment["id"], body))
     issue_url = f"https://github.com/{repository}/issues/{issue['number']}"
     entries = {}
+    original = issue.get("body") or ""
+    if comments is None:
+        # A forbidden list is not evidence that former comment-only days disappeared.
+        managed = original.partition(OVERVIEW_START)[2].partition(OVERVIEW_END)[0]
+        index = managed.partition("**最新日报 ")[0]
+        link_pattern = (
+            rf"^- \[(\d{{4}}-\d{{2}}-\d{{2}})\]\(({re.escape(issue_url)}#issuecomment-[0-9]+)\)$"
+        )
+        for stamp, url in re.findall(link_pattern, index, re.MULTILINE):
+            day = date.fromisoformat(stamp)
+            if (day.year, day.month) == (today.year, today.month):
+                entries[day] = ([f"- [{day}]({url})"], f"[查看完整日报]({url})", url)
     for day, comment_id, body in sorted(reports):
         link = f"{issue_url}#issuecomment-{comment_id}"
         entries[day] = ([f"- [{day}]({link})"], body, link)
@@ -236,7 +248,6 @@ def monthly_issue_body(issue, comments, repository, today, root=None):
     _, latest_body, url = entries[latest_day]
     overview = f"**日报目录（最新在前）**\n\n{links}\n\n**最新日报 {latest_day}**\n\n"
     full_link = f"[查看完整日报]({url})"
-    original = issue.get("body") or ""
     if original.count(OVERVIEW_START) != original.count(OVERVIEW_END):
         raise ValueError("月报自动目录标记不完整，保留现有正文")
     if OVERVIEW_START in original:
@@ -256,11 +267,18 @@ def monthly_issue_body(issue, comments, repository, today, root=None):
     return result
 
 
+def _update_directory(api, issue, comments, repository, day, version):
+    api.stage = "update_directory"
+    overview = monthly_issue_body(issue, comments, repository, day, version[0] if version else None)
+    if overview != (issue.get("body") or ""):
+        api.request("PATCH", f"{api.root}/issues/{issue['number']}", json={"body": overview})
+
+
 def _version_order(version):
     return instant(version["generated_utc"]), version["version_id"]
 
 
-def _deliver_comment(api, path, matches, body, version, day, *, retry):
+def _deliver_comment(api, path, matches, body, version, day):
     exact = [item for item in matches if item["body"] == body]
     if len(exact) > 1:
         raise ValueError("有多个相同版本的机器人评论")
@@ -272,15 +290,18 @@ def _deliver_comment(api, path, matches, body, version, day, *, retry):
             by_hash = {
                 v["markdown_sha256"]: _version_order(v) for v in rendered_versions(version[0], day)
             }
-            ranks = [by_hash.get(hashlib.sha256(m["body"].encode()).hexdigest()) for m in matches]
-            if len(matches) > 1 and (None in ranks or len(set(ranks)) != len(ranks)):
-                raise ValueError("同日已有多条机器人评论，无法核对归档版本")
-            rank = max(ranks) if len(matches) > 1 else ranks[0]
-            # An undated legacy body cannot prove that the named retry is newer.
-            if (rank is None and not retry) or (
-                rank is not None and rank <= _version_order(version[1])
-            ):
-                target = matches[ranks.index(rank)]
+            ranked = {}
+            for comment in matches:
+                rank = by_hash.get(hashlib.sha256(comment["body"].encode()).hexdigest())
+                if rank is None:
+                    continue
+                if rank in ranked:
+                    raise ValueError("同日已有多条相同归档版本的机器人评论")
+                ranked[rank] = comment
+            if ranked:
+                newest = max(ranked)
+                if newest <= _version_order(version[1]):
+                    target = ranked[newest]
         elif len(matches) == 1:
             target = matches[0]
         else:
@@ -375,44 +396,51 @@ def publish(body, repository, *, now=None, history_root=None, report_day=None, v
             if manage_month:
                 api.stage = "pin_issue"
                 api.pin_current(issue, previous)
-            comment_path = f"{api.root}/issues/{issue['number']}/comments"
-            api.stage = "list_comments"
-            comments = api.pages(comment_path)
-            matches = [
-                comment
-                for comment in comments
-                if marker in comment.get("body", "")
-                and comment.get("user", {}).get("login") == "github-actions[bot]"
-            ]
-            api.stage = "publish_comment"
-            receipt = read_notification(*version) if version else None
-            if receipt and (receipt["repository"], receipt["issue_number"]) != (
-                repository,
-                issue["number"],
-            ):
-                raise ValueError("已有日报通知回执的目标冲突")
-            if receipt:
-                # A subsequent shift may have edited the shared daily comment.
-                # This version already has proof; never write its older body back.
-                comment_id = receipt["comment_id"]
-            else:
-                comment = _deliver_comment(
-                    api, comment_path, matches, body, version, today, retry=version_id is not None
-                )
-                comment_id = comment["id"]
-                if version:
-                    _record_notification(*version, repository, issue, comment, body)
-                comments = [c for c in comments if c["id"] != comment_id] + [
-                    {**comment, "body": body}
+        comments = None
+        try:
+            with _record_failure(version, api):
+                comment_path = f"{api.root}/issues/{issue['number']}/comments"
+                api.stage = "list_comments"
+                comments = api.pages(comment_path)
+                matches = [
+                    comment
+                    for comment in comments
+                    if marker in comment.get("body", "")
+                    and comment.get("user", {}).get("login") == "github-actions[bot]"
                 ]
-            api.stage = "update_directory"
-            overview = monthly_issue_body(
-                issue, comments, repository, today, version[0] if version else None
-            )
-            if overview != (issue.get("body") or ""):
-                api.request(
-                    "PATCH", f"{api.root}/issues/{issue['number']}", json={"body": overview}
-                )
+                api.stage = "publish_comment"
+                receipt = read_notification(*version) if version else None
+                if receipt and (receipt["repository"], receipt["issue_number"]) != (
+                    repository,
+                    issue["number"],
+                ):
+                    raise ValueError("已有日报通知回执的目标冲突")
+                if receipt:
+                    # A subsequent shift may have edited the shared daily comment.
+                    # This version already has proof; never write its older body back.
+                    comment_id = receipt["comment_id"]
+                else:
+                    comment = _deliver_comment(
+                        api,
+                        comment_path,
+                        matches,
+                        body,
+                        version,
+                        today,
+                    )
+                    comment_id = comment["id"]
+                    if version:
+                        _record_notification(*version, repository, issue, comment, body)
+                    comments = [c for c in comments if c["id"] != comment_id] + [
+                        {**comment, "body": body}
+                    ]
+        except GitHubFailure as exc:
+            if version and exc.status == 403:
+                with _record_failure(version, api):
+                    _update_directory(api, issue, comments, repository, today, version)
+            raise
+        with _record_failure(version, api):
+            _update_directory(api, issue, comments, repository, today, version)
             # Close only after the new month's report is successfully visible; safe to retry.
             if manage_month and previous and previous["state"] != "closed":
                 api.stage = "close_previous"

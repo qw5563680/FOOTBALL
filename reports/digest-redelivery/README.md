@@ -38,3 +38,19 @@ git diff --check
 定向测试 65 项通过。还在空 Git 仓库用工作流的两个路径表达式运行了 `git status --porcelain`，确认能发现首次产生的失败记录。
 
 全量 4968 passed，10336 条依赖警告。Ruff 检查、格式核验及 diff 空白检查全部通过。
+
+## 二审离线回放
+
+| 场景 | 原提交 f43e9a0e | 修复后的结果 |
+|---|---|---|
+| 评论接口 HTTP 403，月报 Issue 正文可写 | 月报目录更新 0 次，冻结链接未挂出 | 分别模拟评论列表 GET、新建 POST 和编辑 PATCH 的 403。三次均成功更新 Issue 101 正文，附上 frozen.md 的直接链接，保留人工说明及旧日期链接。每次记录实际失败阶段与 HTTP 403，成功评论回执均为 0。 |
+| 同日存在正文无法关联任何归档的机器人评论 201 | 可补发 A，补发 B 时因两条评论同时存在而中止 | 补发 A 新建 202；补发 B 更新 202；正常下一班 C 更新 202。三版各有一份成功回执，旧评论 201 保持原文。重试同版 A 或 B 追加评论 0 条；C 发出后再补 A、B 也保留 C 正文。 |
+
+三版连续运行一共写入评论 3 次，分别为 POST、PATCH、PATCH，最终保留 2 条评论。另测 A 由正常班次首发时也保留无法关联的旧评论。所有 GitHub 响应均由离线测试提供。
+
+```sh
+pytest -q -o addopts= tests/test_digest_notify.py tests/test_digest_history.py tests/test_daily_digest_workflow.py --tb=short
+pytest -q -o addopts= -n 4 --dist=worksteal -o tmp_path_retention_policy=failed --basetemp=/tmp/second-review-220
+```
+
+定向 70 项、全量 4973 项通过。Ruff、格式与 Git 空白检查通过。

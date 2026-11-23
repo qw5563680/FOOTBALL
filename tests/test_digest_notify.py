@@ -146,18 +146,21 @@ def test_pin_failure_is_explicit_and_does_not_post_comment(actions):
 
 
 def notification_routes(
-    body, *, now=NOW, edit=False, previous=False, status=200, changed=False, published_at=None
+    body, *, now=NOW, prior_body=None, previous=False, status=200, changed=False, published_at=None
 ):
     issues = [FIXTURE["issue"]] + ([FIXTURE["previous"]] if previous else [])
     responses.get(ROOT + "/issues", json=issues)
     responses.post(API + "/graphql", json=pinned([FIXTURE["issue"]["node_id"]]))
-    responses.get(ROOT + "/issues/101/comments", json=[FIXTURE["comment"]] if edit else [])
+    responses.get(
+        ROOT + "/issues/101/comments",
+        json=[dict(FIXTURE["comment"], body=prior_body)] if prior_body is not None else [],
+    )
     published = {
         **FIXTURE["comment"],
         "body": body + "changed" if changed else body,
         "updated_at": (published_at or now + timedelta(seconds=1)).isoformat(),
     }
-    if edit:
+    if prior_body is not None:
         responses.patch(ROOT + "/issues/comments/201", json=published, status=status)
     else:
         responses.post(ROOT + "/issues/101/comments", json=published, status=status)
@@ -172,10 +175,10 @@ def test_failed_notification_version_is_not_the_next_issue_previous(actions, tmp
     from zucai.digest_notify import publish
 
     out = tmp_path / "daily"
-    first, _ = render_version(out, "published", notified=True)
+    first, first_body = render_version(out, "published", notified=True)
     when = NOW + timedelta(minutes=1)
     _, body = render_version(out, "failed", now=when, update=2)
-    notification_routes(body, now=when, edit=True, status=500)
+    notification_routes(body, now=when, prior_body=first_body, status=500)
     with pytest.raises(ValueError, match="GitHub HTTP 500"):
         publish(body, FIXTURE["repository"], now=when, history_root=out)
     assert not (out / str(TODAY) / "failed.notification.json").exists()
@@ -209,7 +212,7 @@ def test_success_receipts_follow_same_day_comment_edits_without_changing_frozen_
     assert all(path.read_bytes() == raw for path, raw in originals.items())
     when = NOW + timedelta(minutes=1)
     second, second_body = render_version(out, "second", now=when, update=2)
-    notification_routes(second_body, now=when, edit=True)
+    notification_routes(second_body, now=when, prior_body=first_body)
     assert publish(second_body, FIXTURE["repository"], now=when, history_root=out) == (101, 201)
     previous, update, _ = version_context(
         tmp_path / "archive",
@@ -432,6 +435,7 @@ def test_redeliver_archived_version_after_forbidden_is_idempotent(actions, tmp_p
             "Set-Cookie": "secret",
         },
     )
+    responses.patch(ROOT + "/issues/101", json=FIXTURE["issue"])
     with pytest.raises(ValueError, match="403"):
         redeliver(root, TODAY, "first", repo, now=later)
     (failure,) = (root / str(TODAY) / "notification-failures").rglob("*.json")
@@ -531,3 +535,106 @@ def test_named_retry_rejects_wrong_day_version_or_hash_before_network(actions, t
     (root / str(TODAY) / "valid.md").write_text(body + "modified")
     assert main([*args, "valid"]) == 1
     assert not responses.calls
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "PATCH"])
+@responses.activate
+def test_forbidden_comments_still_link_archive_without_receipt(actions, tmp_path, method):
+    from zucai.digest_notify import monthly_issue_body, publish
+
+    root = tmp_path / "daily"
+    version, body = render_version(root, "frozen")
+    repo = FIXTURE["repository"]
+    older = dict(FIXTURE["comment"], id=170, body=BODY.replace("11-03", "11-02"))
+    issue = dict(FIXTURE["issue"], body="人工说明")
+    issue["body"] = monthly_issue_body(issue, [older], repo, TODAY)
+    responses.get(ROOT + "/issues", json=[issue])
+    responses.post(API + "/graphql", json=pinned([issue["node_id"]]))
+    if method == "GET":
+        responses.get(ROOT + "/issues/101/comments", status=403)
+    elif method == "POST":
+        responses.get(ROOT + "/issues/101/comments", json=[older])
+        responses.post(ROOT + "/issues/101/comments", status=403)
+    else:
+        _, prior = render_version(root, "prior", now=NOW - timedelta(hours=1))
+        responses.get(
+            ROOT + "/issues/101/comments", json=[older, dict(FIXTURE["comment"], body=prior)]
+        )
+        responses.patch(ROOT + "/issues/comments/201", status=403)
+    responses.patch(ROOT + "/issues/101", json=issue)
+    with pytest.raises(ValueError, match="403"):
+        publish(body, repo, now=NOW, history_root=root)
+    (patch,) = [
+        c
+        for c in responses.calls
+        if c.request.method == "PATCH" and c.request.url.endswith("/issues/101")
+    ]
+    directory = json.loads(patch.request.body)["body"]
+    assert f"/daily/{TODAY}/frozen.md" in directory and body in directory
+    assert "人工说明" in directory and "#issuecomment-170" in directory
+    assert not list(root.rglob("*.notification.json"))
+    evidence = json.loads(next(root.rglob("notification-failures/*/*.json")).read_bytes())
+    assert (evidence["stage"], evidence["http_status"], evidence["markdown_sha256"]) == (
+        "list_comments" if method == "GET" else "publish_comment",
+        403,
+        version["markdown_sha256"],
+    )
+
+
+@pytest.mark.parametrize("first_regular", [False, True])
+@responses.activate
+def test_legacy_orphan_retries_then_regular_shift(actions, tmp_path, first_regular):
+    from zucai.digest_notify import publish, redeliver
+
+    root = tmp_path / "daily"
+    repo = FIXTURE["repository"]
+    issue = dict(FIXTURE["issue"])
+    legacy = dict(FIXTURE["comment"])
+    comments = {legacy["id"]: legacy}
+    writes = []
+
+    def list_issues(_):
+        return 200, {}, json.dumps([issue])
+
+    def list_comments(_):
+        return 200, {}, json.dumps(list(comments.values()))
+
+    def write_comment(request):
+        comment_id = (
+            int(request.url.rsplit("/", 1)[1]) if request.method == "PATCH" else max(comments) + 1
+        )
+        assert comment_id != legacy["id"]
+        body = json.loads(request.body)["body"]
+        comments[comment_id] = dict(
+            legacy, id=comment_id, body=body, updated_at=(NOW + timedelta(hours=4)).isoformat()
+        )
+        writes.append((request.method, comment_id))
+        return 200, {}, json.dumps(comments[comment_id])
+
+    def write_issue(request):
+        issue.update(json.loads(request.body))
+        return 200, {}, json.dumps(issue)
+
+    responses.add_callback(responses.GET, ROOT + "/issues", callback=list_issues)
+    responses.post(API + "/graphql", json=pinned([issue["node_id"]]))
+    responses.add_callback(responses.GET, ROOT + "/issues/101/comments", callback=list_comments)
+    responses.add_callback(responses.POST, ROOT + "/issues/101/comments", callback=write_comment)
+    responses.add_callback(responses.PATCH, ROOT + "/issues/comments/202", callback=write_comment)
+    responses.add_callback(responses.PATCH, ROOT + "/issues/101", callback=write_issue)
+    later = NOW + timedelta(hours=4)
+    originals = {}
+    for n, name in enumerate(("A", "B", "C"), start=1):
+        _, body = render_version(root, name, now=NOW + timedelta(hours=n), update=n)
+        originals[name] = body
+        if name == "C" or (name == "A" and first_regular):
+            result = publish(body, repo, now=later, history_root=root)
+        else:
+            result = redeliver(root, TODAY, name, repo, now=later)
+            assert redeliver(root, TODAY, name, repo, now=later) == result
+        assert result == (101, 202) and comments[202]["body"] == body
+    assert redeliver(root, TODAY, "A", repo, now=later) == (101, 202)
+    assert redeliver(root, TODAY, "B", repo, now=later) == (101, 202)
+    assert writes == [("POST", 202), ("PATCH", 202), ("PATCH", 202)]
+    assert comments == {201: legacy, 202: dict(comments[202], body=originals["C"])}
+    assert all(f"/daily/{TODAY}/{name}.md" in issue["body"] for name in originals)
+    assert len(list(root.rglob("*.notification.json"))) == 3
