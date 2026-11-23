@@ -1,6 +1,7 @@
 """Daily and review views of archived facts, with explicit observation times."""
 
 import re
+from collections import defaultdict
 from datetime import datetime, time, timedelta
 
 from zucai.digest_context import (
@@ -422,7 +423,15 @@ def forecast_sections(
     matches = matches or {}
     lines = ["## 今日与明日预测（仅发报时未开球）", ""]
     window = prediction_window(batches, now, catalog)
+    # The catalog may move an already published fixture across Beijing midnight.
+    # Group the selected rows by the corrected day, retaining the path of the actual freeze.
+    upcoming = defaultdict(dict)
+    for row in (latest or {}).values():
+        if _instant(row["kickoff_utc"]) > now:
+            day = kickoff_day(row).isoformat()
+            upcoming[day].setdefault(row["forecast_path"], []).append(row)
     for day in window["planned_dates"]:
+        selected = upcoming[day]
         spillover = window["spillover"].get(day)
         label = (
             "今日"
@@ -432,7 +441,7 @@ def forecast_sections(
             else "竞彩销售日跨午夜"
         )
         choices = sorted(
-            (entry for entry in batches if entry[0] == day),
+            (entry for entry in batches if entry[0] == day or entry[1] in selected),
             key=lambda e: (_instant(e[2]["generated_utc"]), e[2]["batch_id"]),
             reverse=True,
         )
@@ -443,30 +452,31 @@ def forecast_sections(
             )
             lines.extend(["尚无竞彩冻结预测。" if known else "尚无冻结预测。", "", *known])
             continue
+        known_scope = spillover
         if day in window["missing_batch_dates"] and day in window["partial_ids"]:
-            covered = window["partial_ids"][day]
-            spillover = covered if spillover is None else spillover & covered
+            covered = window["partial_ids"][day] | {
+                r["match_id"] for rows in selected.values() for r in rows
+            }
+            known_scope = covered if spillover is None else spillover & covered
             lines.extend(["该日仅有按比赛编号冻结的部分批次，尚无覆盖当前计划的完整批次。", ""])
+        newest_native = next((path for frozen_day, path, _ in choices if frozen_day == day), None)
         shown = set()
-        for index, (_, path, batch) in enumerate(choices):
-            if latest is None and index:
-                break
-            rows = []
-            for row in batch["predictions"]:
-                match_id = row["match_id"]
-                if spillover is not None and match_id not in spillover:
-                    continue
-                if latest is not None:
-                    selected = latest.get(match_id)
-                    if selected:
-                        if selected["forecast_path"] != path:
-                            continue
-                        row = selected
-                    elif index or row["status"] == "predicted":
-                        continue
-                if row.get("kickoff_utc") and _instant(row["kickoff_utc"]) > now:
-                    rows.append(row)
-            if not rows and index:
+        for _, path, batch in choices:
+            rows = list(selected.get(path, ()))
+            if path == newest_native:
+                rows.extend(
+                    row
+                    for row in batch["predictions"]
+                    if (
+                        latest is None
+                        or (row["match_id"] not in latest and row["status"] != "predicted")
+                    )
+                    and row.get("kickoff_utc")
+                    and _instant(row["kickoff_utc"]) > now
+                )
+            if spillover is not None:
+                rows = [r for r in rows if r["match_id"] in spillover]
+            if not rows and path != newest_native:
                 continue
             lines.extend(
                 _batch_section(
@@ -481,7 +491,7 @@ def forecast_sections(
             )
             shown.update(row["match_id"] for row in rows)
         known = _known_unstarted_lines(
-            day, now, repository, catalog, sfc_issues, shown_ids=shown, scope_ids=spillover
+            day, now, repository, catalog, sfc_issues, shown_ids=shown, scope_ids=known_scope
         )
         lines.extend(
             known or ([] if shown else ["本批次未列出未开球比赛；今日预测与复盘见下方各表。", ""])

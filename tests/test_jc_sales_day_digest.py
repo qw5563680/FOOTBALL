@@ -280,7 +280,12 @@ def test_spillover_known_count_and_coverage_after_midnight(after_midnight):
     )
 
 
-def test_sales_day_uses_earlier_published_version_after_kickoff_correction(tmp_path):
+@pytest.mark.parametrize(
+    "report_at, upcoming", [("02:02", True), ("02:05", False), ("03:00", False)]
+)
+def test_sales_day_uses_earlier_published_version_after_kickoff_correction(
+    tmp_path, report_at, upcoming
+):
     from forecast_publication_support import confirm_fixture
     from zucai.scoreboard.score import instant
 
@@ -307,12 +312,28 @@ def test_sales_day_uses_earlier_published_version_after_kickoff_correction(tmp_p
     late.update(as_of_utc=second_at, generated_utc=second_at)
     install_forecast(archive, tmp_path / "late", late, run="after")
     confirm_fixture(archive, advanced, only_unpublished=True)
-    text = generate(archive, tmp_path / "daily", now=instant("2026-11-23T03:00:00Z")).read_text()
+    frozen = snapshot(archive)
+    text = generate(
+        archive, tmp_path / "daily", now=instant(f"2026-11-23T{report_at}:00Z")
+    ).read_text()
+    assert snapshot(archive) == frozen
     sales = text.split("## 竞彩销售日")[1].split("## 今日与明日")[0]
     assert "应有 1 场、已预测 1 场、缺 0 场" in sales
     line = next(line for line in sales.splitlines() if line.startswith("| 周一"))
     assert "2026-11-23 10:05:00" in line and "2026-11-23 09:00:00" in line
     assert "2026-11-23 10:00:00" not in line
+    today, tomorrow = text.split("### 今日 2026-11-23", 1)[1].split("### 明日 2026-11-24", 1)
+    tomorrow = tomorrow.split("\n## ", 1)[0]
+    assert today.count("| 周一001 |") == int(upcoming)
+    assert tomorrow.count("| 周一001 |") == 0
+    assert "未开球比赛，但本批未提供对应竞彩预测" not in today
+    if upcoming:
+        assert "forecasts/2026-11-24/before/forecast.json" in today
+        assert (
+            "生成 UTC：2026-11-23T01:00:00Z" in today
+            or "生成 UTC：2026-11-23T01:00:00+00:00" in today
+        )
+        assert "2026-11-23 10:05:00" in today
 
 
 def test_old_manifest_marks_even_empty_spillover_as_partial():
