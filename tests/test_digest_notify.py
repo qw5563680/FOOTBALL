@@ -405,3 +405,129 @@ def test_notification_receipt_survives_overview_update_failure(actions, tmp_path
     )
     assert receipt["markdown_sha256"] == value["markdown_sha256"]
     assert (receipt["issue_number"], receipt["comment_id"]) == (101, 201)
+
+
+@responses.activate
+def test_redeliver_archived_version_after_forbidden_is_idempotent(actions, tmp_path):
+    from zucai.digest_notify import redeliver
+
+    root = tmp_path / "daily"
+    version, body = render_version(root, "first")
+    render_version(root, "other", now=NOW + timedelta(minutes=5), update=2)
+    before = {p: p.read_bytes() for p in (root / str(TODAY)).iterdir()}
+    repo = FIXTURE["repository"]
+    later = NOW + timedelta(days=2)
+    responses.get(ROOT + "/issues", json=[FIXTURE["issue"]])
+    responses.post(API + "/graphql", json=pinned([FIXTURE["issue"]["node_id"]]))
+    responses.get(ROOT + "/issues/101/comments", json=[])
+    responses.post(
+        ROOT + "/issues/101/comments",
+        status=403,
+        body="secret response",
+        headers={
+            "X-GitHub-Request-Id": "FACE:1234",
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1793760000",
+            "Retry-After": "60",
+            "Set-Cookie": "secret",
+        },
+    )
+    with pytest.raises(ValueError, match="403"):
+        redeliver(root, TODAY, "first", repo, now=later)
+    (failure,) = (root / str(TODAY) / "notification-failures").rglob("*.json")
+    evidence = json.loads(failure.read_bytes())
+    assert (evidence["stage"], evidence["http_status"], evidence["request_id"]) == (
+        "publish_comment",
+        403,
+        "FACE:1234",
+    )
+    assert evidence["rate_limit"] == {
+        "x-ratelimit-remaining": "0",
+        "x-ratelimit-reset": "1793760000",
+        "retry-after": "60",
+    }
+    assert "secret" not in failure.read_text() and "offline-token" not in failure.read_text()
+    assert not (root / str(TODAY) / "first.notification.json").exists()
+    responses.reset()
+    notification_routes(body, now=later)
+    assert redeliver(root, TODAY, "first", repo, now=later) == (101, 201)
+    patches = [
+        json.loads(c.request.body)["body"]
+        for c in responses.calls
+        if c.request.method == "PATCH" and c.request.url.endswith("/101")
+    ]
+    assert all(
+        f"/blob/data/football-feeds/daily/{TODAY}/{name}.md" in patches[0]
+        for name in ("first", "other")
+    )
+    receipt = root / str(TODAY) / "first.notification.json"
+    raw = receipt.read_bytes()
+    assert json.loads(raw)["markdown_sha256"] == version["markdown_sha256"]
+    responses.reset()
+    responses.get(ROOT + "/issues", json=[dict(FIXTURE["issue"], body=patches[0])])
+    responses.post(API + "/graphql", json=pinned([FIXTURE["issue"]["node_id"]]))
+    responses.get(ROOT + "/issues/101/comments", json=[dict(FIXTURE["comment"], body=body)])
+    assert redeliver(root, TODAY, "first", repo, now=later) == (101, 201)
+    assert all(
+        c.request.method == "GET" or c.request.url.endswith("/graphql") for c in responses.calls
+    )
+    assert receipt.read_bytes() == raw and all(p.read_bytes() == v for p, v in before.items())
+
+
+@responses.activate
+def test_older_unnotified_version_preserves_newer_comment_and_history(actions, tmp_path):
+    from zucai.digest_history import version_context
+    from zucai.digest_notify import redeliver
+
+    out = tmp_path / "daily"
+    _, older = render_version(out, "older")
+    newer, newer_body = render_version(
+        out, "newer", now=NOW + timedelta(hours=1), update=2, notified=True
+    )
+    when = NOW + timedelta(days=31)
+    responses.get(ROOT + "/issues", json=[dict(FIXTURE["issue"], state="closed")])
+    responses.get(ROOT + "/issues/101/comments", json=[dict(FIXTURE["comment"], body=newer_body)])
+    responses.post(
+        ROOT + "/issues/101/comments",
+        json=dict(FIXTURE["comment"], id=202, body=older, updated_at=when.isoformat()),
+        status=201,
+    )
+    responses.patch(ROOT + "/issues/101", json=FIXTURE["issue"])
+    assert redeliver(out, TODAY, "older", FIXTURE["repository"], now=when) == (101, 202)
+    index = json.loads(responses.calls[-1].request.body)
+    assert list(index) == ["body"] and newer_body in index["body"]
+    assert not any(
+        c.request.url.endswith("graphql") or c.request.url.endswith("/comments/201")
+        for c in responses.calls
+    )
+    prev, *_ = version_context(
+        tmp_path / "archive",
+        out,
+        TODAY,
+        when + timedelta(minutes=1),
+        "next",
+        INPUTS,
+        require_notified=True,
+    )
+    assert prev == newer
+
+
+@responses.activate
+def test_named_retry_rejects_wrong_day_version_or_hash_before_network(actions, tmp_path):
+    from zucai.digest_notify import main
+
+    root = tmp_path / "daily"
+    _, body = render_version(root, "valid")
+    args = [
+        "--history-root",
+        str(root),
+        "--repository",
+        FIXTURE["repository"],
+        "--date",
+        str(TODAY),
+        "--version",
+    ]
+    assert main([*args, "wrong"]) == 1
+    (root / str(TODAY) / "valid.md").write_text(body + "modified")
+    assert main([*args, "valid"]) == 1
+    assert not responses.calls
