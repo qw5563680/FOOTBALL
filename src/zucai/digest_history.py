@@ -83,7 +83,7 @@ def version_context(archive, out, today, now, run_id, inputs, *, require_notifie
         or run_id.endswith(".notification")
     ):
         raise ValueError("日报 run ID 格式无效")
-    versions, notified = {}, {}
+    versions, notified = {}, set()
     for root in sorted({archive / "daily", out}):
         for value in rendered_versions(root, today):
             identity = value["version_id"], value["generated_utc"], value["markdown_sha256"]
@@ -94,7 +94,7 @@ def version_context(archive, out, today, now, run_id, inputs, *, require_notifie
                 at = instant(receipt["notified_utc"])
                 repository = inputs.get("repository")
                 if at <= now and (repository is None or receipt["repository"] == repository):
-                    notified[identity] = max(notified.get(identity, at), at)
+                    notified.add(identity)
     if any(instant(value["generated_utc"]) > now for value in versions.values()):
         raise ValueError("不可倒退已有日报版本")
     valid = [v for v in versions.values() if instant(v["generated_utc"]) <= now]
@@ -118,9 +118,7 @@ def version_context(archive, out, today, now, run_id, inputs, *, require_notifie
     previous = max(
         candidates,
         key=lambda v: (
-            notified[v["version_id"], v["generated_utc"], v["markdown_sha256"]]
-            if require_notified
-            else instant(v["generated_utc"]),
+            instant(v["generated_utc"]),
             v["update_number"],
         ),
         default=None,

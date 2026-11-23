@@ -735,6 +735,9 @@ jobs:
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DIGEST_DATE: ${{ inputs.operation == 'digest' && fromJSON(inputs.options || '{}').digest_date || '' }}
+      DIGEST_VERSION: ${{ inputs.operation == 'digest' && fromJSON(inputs.options || '{}').digest_version || '' }}
     steps:
       - name: Identify manual daily chain
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
@@ -756,23 +759,30 @@ jobs:
       - name: Install project for read-only digest
         run: python -m pip install -e ./app
       - name: Render daily digest from frozen archives
+        if: ${{ !env.DIGEST_DATE && !env.DIGEST_VERSION }}
         env:
           SPORTTERY_STATUS: ${{ needs.sporttery.result }}
           SPORTTERY_PUBLISH_STATUS: ${{ needs.sporttery.outputs.publish_status }}
         run: python -m zucai.daily_digest --archive cloud-data --out cloud-data/daily --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --jc-sync-status "$SPORTTERY_STATUS" --jc-sync-run-id "$GITHUB_RUN_ID" --require-notified-history
       - name: Publish daily Markdown
+        if: ${{ !env.DIGEST_DATE && !env.DIGEST_VERSION }}
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
       - name: Update monthly report Issue with today's exact Markdown
         id: notify_digest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python -m zucai.digest_notify --file cloud-data/daily/latest.md --history-root cloud-data/daily
+        run: |
+          if [[ -n "$DIGEST_DATE" || -n "$DIGEST_VERSION" ]]; then
+            python -m zucai.digest_notify --date "$DIGEST_DATE" --version "$DIGEST_VERSION" --history-root cloud-data/daily
+          else
+            python -m zucai.digest_notify --file cloud-data/daily/latest.md --history-root cloud-data/daily
+          fi
       - name: Publish successful notification receipts even after later cleanup failure
         if: ${{ !cancelled() && (steps.notify_digest.outcome == 'success' || steps.notify_digest.outcome == 'failure') }}
         working-directory: cloud-data
         run: |
-          if [[ -n "$(git status --porcelain -- ':(glob)daily/*/*.notification.json')" ]]; then
+          if [[ -n "$(git status --porcelain -- ':(glob)daily/*/*.notification.json' ':(glob)daily/*/notification-failures/**/*.json')" ]]; then
             bash ../app/scripts/publish-football-feeds.sh
           fi
       - name: Keep digest evidence even on publish or notification failure

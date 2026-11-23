@@ -139,7 +139,45 @@ def test_receipt_publish_script_only_pushes_when_a_success_record_was_written(
         "--porcelain",
         "--",
         ":(glob)daily/*/*.notification.json",
+        ":(glob)daily/*/notification-failures/**/*.json",
     ]
     assert publish_args.exists() is has_receipt
     if has_receipt:
         assert publish_args.read_text().splitlines() == ["../app/scripts/publish-football-feeds.sh"]
+
+
+@pytest.mark.parametrize(
+    "day, version", [("", ""), ("2026-11-23", "45039288240-1"), ("2026-11-23", "")]
+)
+def test_dispatch_uses_frozen_pair_and_skips_render_on_retry(tmp_path, day, version):
+    from test_stats_workflow import jobs, script, step
+
+    job = jobs()["digest"]
+    for name in ("Render daily digest", "Publish daily Markdown"):
+        assert "!env.DIGEST_DATE && !env.DIGEST_VERSION" in step(name, job)
+    python = tmp_path / "python"
+    python.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    python.chmod(0o755)
+    command = subprocess.run(
+        ["bash", "-eu", "-c", script(step("Update monthly report Issue", job))],
+        env={
+            **os.environ,
+            "PATH": str(tmp_path) + ":" + os.defpath,
+            "DIGEST_DATE": day,
+            "DIGEST_VERSION": version,
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert command.stdout.splitlines() == [
+        "-m",
+        "zucai.digest_notify",
+        *(
+            ["--date", day, "--version", version]
+            if day or version
+            else ["--file", "cloud-data/daily/latest.md"]
+        ),
+        "--history-root",
+        "cloud-data/daily",
+    ]
