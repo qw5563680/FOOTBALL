@@ -88,6 +88,8 @@ T34a 起 strict 按真实捕获时刻判断，已在截点前抓到的回填可�
 
 ## 快速开始
 
+澳客足彩只读探测在 Football cloud feeds 中选择本分支、`operation=probe`，选项填 `{"probe_kind":"okooo-sfc","issues":"26169,26170"}`。运行后打开 `okooo-public-*` 附件逐场核对。
+
 T61 只读目录由审查者在 Actions 运行：`python -m zucai.cloud_feeds probe --probe-kind catalogue --archive ../cloud-data --run-id <批次>`；
 竞彩过去12个完整北京时间月目录改用 `--probe-kind jc-catalogue`，仅限 `football-local` 自托管运行器。
 T68 补开球时刻先离线生成清单：`python -m zucai.jc_catalogue_kickoffs plan --archive ../cloud-data --out work/t68-head-plan.json`。

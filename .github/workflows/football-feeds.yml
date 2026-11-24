@@ -25,7 +25,7 @@ on:
         type: string
         default: ''
       options:
-        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue/jc-kickoffs/jc-supplement；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、max_requests（jc-kickoffs 默认5，先导后可扩量）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）、canonical_approvals（reconcile 且 leagues 为空时应用批准创建）、identity_evidence（reconcile 且 leagues 为赛事编号时离线生成开启证据并跑开启检查）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
+        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue/jc-kickoffs/jc-supplement/okooo-sfc；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、max_requests（jc-kickoffs 默认5，先导后可扩量）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）、canonical_approvals（reconcile 且 leagues 为空时应用批准创建）、identity_evidence（reconcile 且 leagues 为赛事编号时离线生成开启证据并跑开启检查）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
         type: string
         default: '{}'
       endpoints:
@@ -104,7 +104,7 @@ jobs:
 
   apis:
     needs: [schedule-gate]
-    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (inputs.operation != 'probe' || fromJSON(inputs.options || '{}').probe_kind != 'jc-catalogue' && fromJSON(inputs.options || '{}').probe_kind != 'jc-kickoffs' && fromJSON(inputs.options || '{}').probe_kind != 'jc-supplement') && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (inputs.operation != 'probe' || fromJSON(inputs.options || '{}').probe_kind != 'jc-catalogue' && fromJSON(inputs.options || '{}').probe_kind != 'jc-kickoffs' && fromJSON(inputs.options || '{}').probe_kind != 'jc-supplement' && fromJSON(inputs.options || '{}').probe_kind != 'okooo-sfc') && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -356,6 +356,50 @@ jobs:
             ${{ env.WORK_DIR }}/data/unmatched_teams.csv
           retention-days: 90
           if-no-files-found: ignore
+
+  okooo-public-probe:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'probe' && fromJSON(inputs.options || '{}').probe_kind == 'okooo-sfc' }}
+    runs-on: [self-hosted, football-local]
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the public source probe
+        shell: powershell
+        run: |
+          $venv = Join-Path $env:RUNNER_TEMP "okooo-venv-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          python -m venv $venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $python = Join-Path $venv 'Scripts/python.exe'
+          & $python -m pip install -e ./app
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "OKOOO_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Probe the public SFC and pick-nine sheets
+        shell: powershell
+        working-directory: app
+        env:
+          PROBE_ISSUES: ${{ fromJSON(inputs.options || '{}').issues }}
+        run: |
+          foreach ($round in 1, 2) {
+            if ($round -gt 1) { Start-Sleep -Seconds 3 }
+            & $env:OKOOO_PYTHON -m zucai.okooo_probe --issues "$env:PROBE_ISSUES" --out "$env:RUNNER_TEMP/okooo-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" --notice-file data/fixtures/sfc_official/wenzhou_20261118.html --notice-url https://www.wztc.cn/system/2026/11/18/105874264.shtml
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Preserve public probe evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: okooo-public-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/okooo-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
 
   jc-catalogue:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'probe' && (fromJSON(inputs.options || '{}').probe_kind == 'jc-catalogue' || fromJSON(inputs.options || '{}').probe_kind == 'jc-kickoffs' || fromJSON(inputs.options || '{}').probe_kind == 'jc-supplement') }}
