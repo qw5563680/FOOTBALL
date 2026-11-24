@@ -1,0 +1,49 @@
+# P2 预测报告
+
+> **非购买建议 · BET 禁用 · 各联赛P2历史评估门槛见逐场状态**
+
+常规 90 分钟含补时。纯模型仅使用球队历史比分；市场 SP 和去水概率单独对照。
+EV 为模型概率 × SP − 1 的点估计，EV > 0.05 仅加粗显示，不构成 BET 或购买建议。
+
+批次：45479530916-1-2026-11-27；模式：prematch。
+生成时间（北京时间）：2026-11-25 05:14:43；数据截止（北京时间）：2026-11-25 05:14:29。
+
+## 模型与训练范围
+
+版本为模型文件 SHA256；所有展示时间均为北京时间。assumed 占比表示使用假定赛果可知时间的训练场次占比，不代表已核实发布时间。
+
+| 模型 | 版本 SHA256 | 来源 | 联赛 | 模型截点 | 训练场数 | 最近赛果可知时间 | 可知依据 | assumed 占比 | 训练库 SHA256 | 评估库 SHA256 | 数据库说明 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| dixon-coles | 63eaa35ed7c6f0066e40883ab5fca57becd3a8ddbcd8a754b02f9a473bc67494 | fd,jc | 德甲 | 2026-11-25 04:59:29 | 1619 | 2026-11-23 20:08:39 | mixed | 95.06% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09 | 评估库 ≠ 训练库 |
+| dixon-coles | d26ce4cd12d1f9e5da009fddc3b63a13363b914826fb40056a49ca8a9b02d658 | fd,jc | 意甲 | 2026-11-25 04:59:29 | 2018 | 2026-11-24 21:34:09 | mixed | 95.14% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09 | 评估库 ≠ 训练库 |
+| dixon-coles | ddb31c5fa4f7fa6b67694b94a9f540b324c00d158f2c05f164f3dabc024396bb | fd,jc | 西甲 | 2026-11-25 04:59:29 | 2025 | 2026-11-24 21:34:09 | mixed | 95.41% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09 | 评估库 ≠ 训练库 |
+| dixon-coles | 5ab057700483ed07bfdc8ba0f0548d87a85f6dc60237b7611adf2c7ee9c78db2 | fd,jc | 英超 | 2026-11-25 04:59:29 | 2009 | 2026-11-24 21:34:09 | mixed | 95.97% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09 | 评估库 ≠ 训练库 |
+| dixon-coles | 153ccbd785e5bd74eb22753094717ea1e5d6eb204916c9c465d9cd86a53fdbf9 | fd,jc | 法甲 | 2026-11-25 04:59:29 | 1771 | 2026-11-23 20:08:39 | mixed | 97.52% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09 | 评估库 ≠ 训练库 |
+| dixon-coles | 190ff8299b6862d3b17d686be0a87684a69bc13535d761d77280da5f629d1231 | apif,fd,fdorg,jc | 荷甲 | 2026-11-25 04:59:29 | 1646 | 2026-11-23 20:08:21 | mixed | 97.39% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | e5db120dd9cf128c1c9b43a20e1c1f2ebc69ddc9897428e3b94244d1a2f3be92 | fd,jc | 葡超 | 2026-11-25 04:59:29 | 1628 | 2026-11-11 04:14:29 | mixed | 98.28% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09 | 评估库 ≠ 训练库 |
+| dixon-coles | 229709c8531e7741b388fba79b8d25466e8a7f0b30e5a768983df6971f5f6f57 | apif,fd,fdorg,jc | 英冠 | 2026-11-25 04:59:29 | 2952 | 2026-11-23 19:41:19 | mixed | 98.37% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | 5c759cd24e78ae3b44cbfe4daa5d45f86991dc4e67b472723197b5e970c2418c | apif,fd,jc | 瑞超 | 2026-11-25 04:59:29 | 1817 | 2026-11-24 21:34:09 | mixed | 98.29% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | f0b9116bcb33136aebca07d68bc7229acb0d7b6fe9d2f3b993709e23269d5e89 | apif,fd,jc | 挪超 | 2026-11-25 04:59:29 | 1835 | 2026-11-23 20:08:39 | mixed | 98.53% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | d85b9a08cd5ee23cd711acaf4a1a744b42840b86cf4f6076444684b88a862c5a | apif,fd,jc | 法乙 | 2026-11-25 04:59:29 | 1854 | 2026-11-24 21:34:09 | mixed | 99.51% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | f46088d02549ce9fd37e0b4b00577690e6b28751bdc82748ba119dd3b896b33f | apif,fd,jc | 日职 | 2026-11-25 04:59:29 | 3006 | 2026-11-21 18:34:37 | mixed | 98.47% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | a991f5d8f0fa41f4a568068df1d52fabd7b95960f954aafcc6e164aaf4d861a0 | apif,fd,jc | 芬超 | 2026-11-25 04:59:29 | 1172 | 2026-11-14 16:18:30 | mixed | 98.89% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | 5aa7bcb861fd10e6769706fcccca5aade402a28e811b03aaf11efb1f1c5df83a | fd,jc | 巴甲 | 2026-11-25 04:59:29 | 2247 | 2026-11-24 21:34:09 | mixed | 98.18% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09 | 评估库 ≠ 训练库 |
+| dixon-coles | 061ba6105b8030ed753923b899107180c846c3490acba4e3584674ae2e59a800 | apif,fd,jc | 美职 | 2026-11-25 04:59:29 | 4777 | 2026-11-24 21:34:09 | mixed | 99.41% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | 3b2f53ed086b41915ce7321ca929dbfac9c85d5fab9ff1d66d3c6f48ca2830e2 | apif,fd,fdorg,jc | 欧战 | 2026-11-25 04:59:29 | 28116 | 2026-11-24 21:34:09 | mixed | 97.61% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 385035b903b4aa575365a8635f187e7d18bd49b5c24ab46cdfdfd5ed386ea1dd | 评估库 ≠ 训练库 |
+| dixon-coles | 94256321f383c93f08149f981dad19e7c4ea1519d6502dd1ff916305fdb46152 | apif,jc | 欧国联 | 2026-11-25 04:59:29 | 818 | 2026-11-18 11:18:59 | mixed | 87.29% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | — | — |
+| dixon-coles | e161f849b4f1c882f7c967d3662ee4bf7a11aa589169a207e4567f224b313ae6 | apif,jc | 韩职 | 2026-11-25 04:59:29 | 2237 | 2026-11-22 18:31:23 | mixed | 98.48% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 1f5a99bfad007629272d2272fc0dfb10d4a11b9e0dcad775bb22f7dbc4d5f44f | 评估库 ≠ 训练库 |
+| dixon-coles | c68f4fe60956c2e9664e1d42a90615bd016180c456f2e1a78ebde3ff08c03432 | apif,jc | 澳超 | 2026-11-25 04:59:29 | 2288 | 2026-11-22 18:17:23 | mixed | 99.04% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 1f5a99bfad007629272d2272fc0dfb10d4a11b9e0dcad775bb22f7dbc4d5f44f | 评估库 ≠ 训练库 |
+| dixon-coles | ed041e4a9c0a65c56cb2efa924cadbeac67cb50a659a7ecda543f0753f9a99e5 | apif,jc | 沙职 | 2026-11-25 04:59:29 | 2587 | 2026-11-21 18:13:05 | mixed | 99.50% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 1dd8b10efce1fc56fb85ddc988fae7e7def8c908d37df16e0dae9ff62417994f | 评估库 ≠ 训练库 |
+| dixon-coles | e9c9f21631e606fe0e5cb0119cc3328bcff93e787abc98c0af27484f143dacbd | apif,jc | 德乙 | 2026-11-25 04:59:29 | 4708 | 2026-11-23 01:22:23 | mixed | 99.64% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | 5f2eb263016233afd55c8d2b880ec21753881e49916b0ae3b4645751c5f325c1 | 评估库 ≠ 训练库 |
+| dixon-coles | 2e9ddd28df4b6b317ca67ca5c40b9c71126c8546f5e47831fccac8f2582e33d8 | apif,jc | 荷乙 | 2026-11-25 04:59:29 | 3882 | 2026-11-24 05:40:20 | mixed | 99.23% | 4e513120f11e89cf9325ed73c736ec5ed97e1aa313c2e1ea71d1c0338f6f77ba | e1da97a554d7ef2ba40fe611a7c1c5eb962b8efba2117709bbdb6e9e96385710 | 评估库 ≠ 训练库 |
+
+来源列为显式选择的训练语料范围；实际符合截点的训练来源及场数见 forecast.json 的 training_source_counts（null 表示旧模型未记录）。
+
+## 纯模型与市场对照
+
+| 比赛 ID / 编号 | 联赛 / 对阵 | 开球（北京时间） | 状态 / 排除原因 | 模型主胜 | 模型平局 | 模型客胜 | 市场主胜 | 市场平局 | 市场客胜 | SP 主胜 | SP 平局 | SP 客胜 | EV 主胜 | EV 平局 | EV 客胜 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| apif:1636301 / — | 欧罗巴 / 奈梅亨 vs 雷恩 | 2026-11-27 04:00:00 | 排除：缺少同来源同联赛的模型 | — | — | — | — | — | — | — | — | — | — | — | — |
+
+## 比分前五与快照
+
