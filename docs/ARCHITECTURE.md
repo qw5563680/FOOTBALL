@@ -1253,7 +1253,7 @@ dispatch 保持10项输入：新增 boolean gate 默认 false，将原 slot 放�
 `apis` 失败或整体取消时不运行，竞彩 job 跳过仍运行并提示「竞彩数据非今日」。手动 predict 不采集。
 `sporttery_stale` 同时检查竞彩 job 结果、`through_beijing` 与 `collection.jc.schedule_status`；
 赛程阶段非 `complete` 时即使 job 成功、赛果水位已到当日，也提示旧赛程与赔率未确认更新。旧归档缺该字段时默认 `complete`，兼容原判断。
-安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。单次上限 45 分钟。
+安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。单次上限 90 分钟（2026-11-25 由 45 分钟放宽：实验模型正常跑完后，预测一步实际用时已到 42–45 分钟，16:16 北京时间那一班被上限取消）。
 
 `cloud_predict.run` 在临时目录调用 `restore_feeds` 并记录工作库 SHA256。每个联赛调用现有 `train`，
 来源严格取配置，原有国内条目只允许 jc/fd；T21 的「欧战」条目允许 jc/fd/fdorg/apif。
