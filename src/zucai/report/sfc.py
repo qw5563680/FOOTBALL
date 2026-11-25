@@ -476,9 +476,11 @@ def unconfirmed_mapping_status(row):
     return "无冻结概率" + ("；" + reason if reason.startswith("未映射：") else "")
 
 
-def pick_nine_lines(report, *, prior_explained=False):
+def pick_nine_lines(report, *, prior_explained=False, unavailable_reason=None):
     """Render one single-choice ticket from verified, frozen match probabilities."""
     lines = ["### 任九 · 模型单选", ""]
+    if unavailable_reason is not None:
+        return lines + [unavailable_reason, ""]
     rows = disclosed_rows(report) if report else []
     lines += _prior_diagnostics(rows, explain=not prior_explained)
     if waiting := [row for row in rows if identity_pending(row)]:
