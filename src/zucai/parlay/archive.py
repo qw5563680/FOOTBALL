@@ -80,13 +80,21 @@ def _identities(database):
         engine.dispose()
 
 
+def _is_spillover(run, day, batch):
+    return (
+        day in run.get("jc_extra_dates", ())
+        or batch.get("input", {}).get("scope") == "jc_spillover"
+    )
+
+
 def load_documents(archive, manifest, as_of, *, publications=None):
     publications = publication_times(archive, manifest) if publications is None else publications
     documents = []
     for run in (manifest or {}).get("runs", {}).values():
         for day, entry in run["forecasts"].items():
             name = entry.get("parlay_path")
-            formal = publications.get(entry["path"] + "/forecast.json")
+            forecast_path = entry["path"] + "/forecast.json"
+            formal = publications.get(forecast_path)
             attachment = publications.get(name)
             if not name or not formal or not attachment:
                 continue
@@ -98,9 +106,13 @@ def load_documents(archive, manifest, as_of, *, publications=None):
                 raise ValueError("复式冻结文件与批次不符")
             if instant(doc["generated_utc"]) > published:
                 raise ValueError("复式生成时间晚于归档时间")
+            # Attach the parent batch scope only in memory. Older F documents
+            # remain available to the publication view of saved ledger entries.
+            batch = json.loads(_path(archive, forecast_path).read_bytes())
             documents.append(
                 {
                     **doc,
+                    "batch_scope": "jc_spillover" if _is_spillover(run, day, batch) else None,
                     "path": name,
                     "sha256": manifest["files"][name],
                     "published_utc": published.isoformat(),
@@ -172,6 +184,8 @@ def freeze(archive, database, run_id, *, injuries=None, clock=None, config=None)
             continue  # A changed rule/configuration never rewrites an already frozen batch.
         path = entry["path"] + "/forecast.json"
         batch = load_batch(archive / path)
+        if _is_spillover(run, day, batch):
+            continue
         experimental = (
             json.loads((archive / entry["experimental_path"]).read_bytes())
             if entry.get("experimental_path")

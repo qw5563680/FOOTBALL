@@ -39,11 +39,18 @@ def load_forecasts(archive: Path, as_of: datetime, *, publications=None) -> list
     if found != expected:
         raise ValueError("冻结预测目录与清单不一致")
     publications = publication_times(archive, manifest) if publications is None else publications
+    # Earlier freezes identified partial days only in the verified run manifest.
+    spillover_paths = {
+        run["forecasts"][day]["path"] + "/forecast.json"
+        for run in (manifest or {}).get("runs", {}).values()
+        for day in run.get("jc_extra_dates", ())
+    }
     rows = []
     for name in sorted(expected):
         batch = load_batch(archive / name)
         if instant(batch["generated_utc"]) > instant(as_of):
             continue
+        scope = "jc_spillover" if name in spillover_paths else batch.get("input", {}).get("scope")
         for prediction in batch["predictions"]:
             rows.append(
                 {
@@ -54,6 +61,7 @@ def load_forecasts(archive: Path, as_of: datetime, *, publications=None) -> list
                         else {}
                     ),
                     **{k: batch[k] for k in ("batch_id", "generated_utc", "as_of_utc", "mode")},
+                    "batch_scope": scope,
                     "published_utc": publications.get(name, {}).get("published_utc"),
                     "publication_evidence": publications.get(name),
                     "forecast_path": name,
