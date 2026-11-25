@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from zucai.cloud_feeds import digest, restore_feeds
+from zucai.cloud_feeds import archive_info, digest, restore_feeds
 from zucai.db import get_engine
 from zucai.digest_context import audit_rows, jc_coverage
 from zucai.forecast_archive import _component, publish_forecasts, verify_forecasts
@@ -32,14 +32,21 @@ from zucai.predict.pooled import POOL, SOURCES, model_targets
 from zucai.predict.training_sources import apif_history_sources
 from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
-from zucai.report.render import write_report
+from zucai.report.render import load_batch, write_report
 from zucai.scoreboard.evidence import read_evidence
 from zucai.sfc_sequence import period_windows, sequence
+from zucai.sources.base import _atomic_write
 from zucai.sources.sfc import refresh_snapshot
 from zucai.sources.sporttery import BEIJING
 
 LOG = logging.getLogger(__name__)
 DISCLAIMER = "非购买建议 · BET 禁用 · P2 标签含义见 README"
+EXPERIMENT_UNAVAILABLE_REASONS = (
+    "experiment_timeout",
+    "experiment_cancelled",
+    "experiment_failed",
+    "experiment_publication_failed",
+)
 
 
 def _now():
@@ -158,7 +165,9 @@ def run(
     sporttery_status="unknown",
     sporttery_publish_status=None,
     feed_commit=None,
+    production_state: Path | None = None,
 ) -> dict:
+    """Freeze production, optionally retaining its exact database for later experiments."""
     archive, params = Path(archive).resolve(), parameters_path(params)
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", run_id):
         raise ValueError("无效 run ID")
@@ -184,10 +193,13 @@ def run(
             raise ValueError("欧战每日预测的训练来源须包含 jc，才能注册三项竞彩赛事")
         if league in LEGACY_LEAGUES and set(entry["sources"]) != {"fd", "jc"}:
             raise ValueError("七个旧规联赛的主模型须保留 fd,jc；新来源走独立候选冻结")
+    if production_state is not None:
+        production_state = Path(production_state).resolve()
+        production_state.mkdir(parents=True)
     cutoff = _now()
     with TemporaryDirectory(prefix="zucai-forecast-") as temporary:
         stage = Path(temporary)
-        database = stage / "work/data/zucai.db"
+        database = (production_state or stage / "work/data") / "zucai.db"
         feed = restore_feeds(archive, database)
         database_sha = digest(database)
         models = stage / "models" / run_id
@@ -395,77 +407,8 @@ def run(
         check_snapshot_and_deadlines()
         result["generated_utc"] = _now().isoformat()
         publish_forecasts(archive, stage, result, before_commit=check_snapshot_and_deadlines)
-        # The approved legacy stream is already immutable. Source candidates use
-        # the identical training/prediction cutoffs and never replace that stream.
-        candidate_stage = "training"
-        try:
-            from zucai.source_version_archive import (
-                attach_source_versions,
-                record_source_version_failure,
-            )
-            from zucai.source_version_training import predict_candidates, train_candidates
-
-            candidates, candidate_models, candidate_params = train_candidates(
-                database, stage, run_id, cutoff, config, trainer=train
-            )
-            if candidates:
-                candidate_stage = "prediction"
-                candidate_engine = get_engine(database)
-                try:
-                    with candidate_engine.connect() as connection:
-                        connection.exec_driver_sql("PRAGMA query_only=ON")
-                        connection.exec_driver_sql("BEGIN")
-                        with Session(bind=connection) as session:
-                            documents = {
-                                batch["input"]["kickoff_date_beijing"]: predict_candidates(
-                                    session,
-                                    primary=batch,
-                                    outcomes=candidates,
-                                    fitted=candidate_models,
-                                    params_path=candidate_params,
-                                    clock=_now,
-                                )
-                                for batch in batches
-                            }
-                finally:
-                    candidate_engine.dispose()
-                candidate_stage = "freeze"
-                result = attach_source_versions(
-                    archive, stage, run_id, candidates, documents, clock=_now
-                )
-        except Exception as exc:
-            LOG.exception("新来源候选冻结失败；已冻结旧版与原实验联赛结果保持原样")
-            try:
-                result = record_source_version_failure(
-                    archive, run_id, candidate_stage, exc, clock=_now
-                )
-            except Exception:
-                LOG.exception("新来源候选失败状态写入失败；已冻结主运行保持原样")
-        # Production is frozen first; experimental restoration/fitting cannot roll it back.
-        parlay_injuries = {}
-        try:
-            from zucai.experimental_archive import freeze_parallel
-            from zucai.parlay.archive import capture_injuries
-
-            result = freeze_parallel(
-                archive,
-                database,
-                feed,
-                batches,
-                result,
-                clock=_now,
-                on_restored=lambda working: parlay_injuries.update(
-                    capture_injuries(working, batches)
-                ),
-            )
-        except Exception:
-            LOG.exception("实验归档失败，已冻结的正式预测不受影响")
-        try:
-            from zucai.parlay.archive import freeze
-
-            result = freeze(archive, database, run_id, injuries=parlay_injuries, clock=_now)
-        except Exception:
-            LOG.exception("纸面复式归档失败，已冻结的正式与实验预测不受影响")
+        if production_state is None:
+            result = _freeze_additions(archive, stage, database, feed, batches, result, config)
     _summary(archive, result)
     LOG.info(
         "预测归档 %s：%s；%d/%d 个联赛训练成功",
@@ -477,9 +420,142 @@ def run(
     return result
 
 
+def _freeze_additions(archive, stage, database, feed, batches, result, config, *, state=None):
+    run_id = result["run_id"]
+    cutoff = datetime.fromisoformat(result["training_cutoff_utc"])
+    # The approved legacy stream is already immutable. Source candidates use
+    # the identical training/prediction cutoffs and never replace that stream.
+    candidate_stage = "training"
+    try:
+        from zucai.source_version_archive import (
+            attach_source_versions,
+            record_source_version_failure,
+        )
+        from zucai.source_version_training import predict_candidates, train_candidates
+
+        candidates, candidate_models, candidate_params = train_candidates(
+            database, stage, run_id, cutoff, config, trainer=train
+        )
+        if candidates:
+            candidate_stage = "prediction"
+            candidate_engine = get_engine(database)
+            try:
+                with candidate_engine.connect() as connection:
+                    connection.exec_driver_sql("PRAGMA query_only=ON")
+                    connection.exec_driver_sql("BEGIN")
+                    with Session(bind=connection) as session:
+                        documents = {
+                            batch["input"]["kickoff_date_beijing"]: predict_candidates(
+                                session,
+                                primary=batch,
+                                outcomes=candidates,
+                                fitted=candidate_models,
+                                params_path=candidate_params,
+                                clock=_now,
+                            )
+                            for batch in batches
+                        }
+            finally:
+                candidate_engine.dispose()
+            candidate_stage = "freeze"
+            result = attach_source_versions(
+                archive, stage, run_id, candidates, documents, clock=_now
+            )
+    except Exception as exc:
+        LOG.exception("新来源候选冻结失败；已冻结旧版与原实验联赛结果保持原样")
+        try:
+            result = record_source_version_failure(
+                archive, run_id, candidate_stage, exc, clock=_now
+            )
+        except Exception:
+            LOG.exception("新来源候选失败状态写入失败；已冻结主运行保持原样")
+
+    from zucai.experimental_archive import freeze_parallel
+    from zucai.parlay.archive import capture_injuries
+
+    parlay_injuries = {}
+
+    def on_restored(working):
+        parlay_injuries.update(capture_injuries(working, batches))
+        if state is not None:
+            raw = json.dumps(parlay_injuries, ensure_ascii=False, allow_nan=False).encode()
+            _atomic_write(state / "parlay-injuries.json", raw)
+
+    try:
+        result = freeze_parallel(
+            archive, database, feed, batches, result, clock=_now, on_restored=on_restored
+        )
+    except Exception:
+        if state is not None:
+            raise  # The workflow discards this worktree and records the failure independently.
+        LOG.exception("实验归档失败，已冻结的正式预测不受影响")
+    return _freeze_parlay(archive, database, result, parlay_injuries)
+
+
+def _freeze_parlay(archive, database, result, injuries):
+    from zucai.parlay.archive import freeze
+
+    try:
+        return freeze(archive, database, result["run_id"], injuries=injuries, clock=_now)
+    except Exception:
+        LOG.exception("纸面复式归档失败，已冻结的正式与实验预测不受影响")
+        return result
+
+
+def _resume_run(archive, run_id, production_state):
+    manifest = verify_forecasts(archive)
+    if not manifest or run_id not in manifest["runs"]:
+        raise ValueError("找不到本次已冻结的正式预测")
+    run = manifest["runs"][run_id]
+    database = production_state / "zucai.db"
+    if not database.is_file() or digest(database) != run["database_sha256"]:
+        raise ValueError("实验阶段的训练库与正式冻结记录不符")
+    if digest(archive / "feed_manifest.json") != run["feed_manifest_sha256"]:
+        raise ValueError("实验阶段的采集快照与正式冻结记录不符")
+    batches = [
+        load_batch(archive / forecast["path"] / "forecast.json")
+        for forecast in sorted(run["forecasts"].values(), key=lambda item: item["path"])
+    ]
+    return run, database, batches
+
+
+def run_experiments(archive, params, run_id, production_state):
+    """Continue the same frozen run in the separately publishable experiment worktree."""
+    archive, state = Path(archive).resolve(), Path(production_state).resolve()
+    run, database, batches = _resume_run(archive, run_id, state)
+    config, params_sha = read_parameters(parameters_path(params))
+    if params_sha != run["params_sha256"]:
+        raise ValueError("实验阶段的参数与正式冻结记录不符")
+    feed = archive_info(archive)
+    with TemporaryDirectory(prefix="zucai-forecast-extras-") as temporary:
+        return _freeze_additions(
+            archive, Path(temporary), database, feed, batches, run, config, state=state
+        )
+
+
+def record_experiment_unavailable(archive, run_id, production_state, *, reason):
+    """Keep missing evidence for this run without replacing any frozen probabilities."""
+    from zucai.experimental_archive import freeze_unavailable
+
+    if reason not in EXPERIMENT_UNAVAILABLE_REASONS:
+        raise ValueError("无效实验未生成原因")
+    archive, state = Path(archive).resolve(), Path(production_state).resolve()
+    run, database, batches = _resume_run(archive, run_id, state)
+    missing = [
+        batch
+        for batch in batches
+        if "experimental_path" not in run["forecasts"][batch["input"]["kickoff_date_beijing"]]
+    ]
+    if missing:
+        run = freeze_unavailable(archive, missing, run, reason=reason, clock=_now)
+    injuries_path = state / "parlay-injuries.json"
+    injuries = json.loads(injuries_path.read_bytes()) if injuries_path.is_file() else {}
+    return _freeze_parlay(archive, database, run, injuries)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["run"])
+    parser.add_argument("command", choices=["run", "experiments", "experiment-unavailable"])
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--params", type=Path, help="默认遵循 ZUCAI_PARAMS / T16 定位规则")
     parser.add_argument("--run-id", required=True)
@@ -488,8 +564,27 @@ def main():
         "--sporttery-publish-status", default=os.environ.get("SPORTTERY_PUBLISH_STATUS") or None
     )
     parser.add_argument("--feed-commit")
+    parser.add_argument("--production-state", type=Path)
+    parser.add_argument("--reason", choices=EXPERIMENT_UNAVAILABLE_REASONS)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
+    if args.command != "run" and args.production_state is None:
+        parser.error("独立实验阶段需要 --production-state")
+    if args.command == "experiments":
+        result = run_experiments(args.archive, args.params, args.run_id, args.production_state)
+        if "experimental_release" not in result and (
+            summary := os.environ.get("GITHUB_STEP_SUMMARY")
+        ):
+            with Path(summary).open("a", encoding="utf-8") as output:
+                output.write("\n实验未生成。缺席原因见本班实验归档和计算日志。\n")
+        return
+    if args.command == "experiment-unavailable":
+        if args.reason is None:
+            parser.error("实验未生成需要 --reason")
+        record_experiment_unavailable(
+            args.archive, args.run_id, args.production_state, reason=args.reason
+        )
+        return
     run(
         args.archive,
         args.params,
@@ -497,6 +592,7 @@ def main():
         sporttery_status=args.sporttery_status,
         sporttery_publish_status=args.sporttery_publish_status,
         feed_commit=args.feed_commit,
+        production_state=args.production_state,
     )
 
 

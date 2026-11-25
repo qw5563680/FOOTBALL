@@ -26,6 +26,42 @@ from zucai.stats_rows import restore_rows
 LOG = logging.getLogger(__name__)
 
 
+def _targets(batches):
+    return [
+        {key: row[key] for key in ("match_id", "source", "league", "home", "away", "kickoff_utc")}
+        for batch in batches
+        for row in batch["predictions"]
+    ]
+
+
+def _documents(batches, rows, cutoff, generated):
+    documents = {}
+    for batch in batches:
+        day = batch["input"]["kickoff_date_beijing"]
+        ids = {r["match_id"] for r in batch["predictions"]}
+        documents[day] = dict(
+            schema_version=1,
+            batch_id=batch["batch_id"],
+            generated_utc=generated,
+            as_of_utc=cutoff,
+            mode="prematch",
+            validation_status="experimental_unadopted",
+            p2_ready=False,
+            availability_mode="strict",
+            **AVAILABILITY_MODES,
+            predictions=[r for r in rows if r["match_id"] in ids],
+        )
+    return documents
+
+
+def freeze_unavailable(archive, batches, run, *, reason, clock):
+    """Attach the normal experiment rows with an explicit absence and no probabilities."""
+    cutoff = run["training_cutoff_utc"]
+    rows = unavailable(_targets(batches), cutoff, reason)
+    docs = _documents(batches, rows, cutoff, clock().isoformat())
+    return attach_experiments(Path(archive), docs, run["run_id"], clock=clock)
+
+
 def freeze_parallel(
     archive,
     database,
@@ -37,14 +73,10 @@ def freeze_parallel(
     release_factory=ReleaseStore,
     on_restored=None,
 ):
-    """Production is already published; even restore/fit/upload errors cannot undo it."""
+    """Restore and fit in isolation after the production forecast has been frozen."""
     clock = clock or (lambda: datetime.now(UTC))
     cutoff = run["training_cutoff_utc"]
-    targets = [
-        {key: row[key] for key in ("match_id", "source", "league", "home", "away", "kickoff_utc")}
-        for batch in batches
-        for row in batch["predictions"]
-    ]
+    targets = _targets(batches)
     release, receipt, rows, fits, error = None, None, None, [], None
     with TemporaryDirectory(prefix="zucai-experiments-") as temporary:
         root = Path(temporary)
@@ -83,22 +115,7 @@ def freeze_parallel(
                     top_score=None,
                     fallback_reason="already_started",
                 )
-        docs = {}
-        for batch in batches:
-            day = batch["input"]["kickoff_date_beijing"]
-            ids = {r["match_id"] for r in batch["predictions"]}
-            docs[day] = dict(
-                schema_version=1,
-                batch_id=batch["batch_id"],
-                generated_utc=generated,
-                as_of_utc=cutoff,
-                mode="prematch",
-                validation_status="experimental_unadopted",
-                p2_ready=False,
-                availability_mode="strict",
-                **AVAILABILITY_MODES,
-                predictions=[r for r in rows if r["match_id"] in ids],
-            )
+        docs = _documents(batches, rows, cutoff, generated)
         try:
             if error is None:
                 release = release or release_factory()

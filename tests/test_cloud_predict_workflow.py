@@ -49,7 +49,7 @@ def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
     expression = expression.replace("&&", " and ").replace("||", " or ")
     assert eval(expression, {"__builtins__": {}}, {}) is expected
     assert "needs: [schedule-gate, apis, sporttery]" in job
-    assert "runs-on: ubuntu-latest" in job and "timeout-minutes: 90" in job
+    assert "runs-on: ubuntu-latest\n    timeout-minutes: 130" in job
     assert "retention-days: 90" in job
     assert "${{ github.workspace }}/app/data/model/params.json" in job
     assert 'pip install -e "./app[model]"' in job
@@ -362,3 +362,170 @@ def test_actual_start_slot_and_prediction_for_both_crons(tmp_path, case):
     test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
         "schedule", "", case["cron"], "success", False, True
     )
+
+
+def test_production_publication_is_complete_before_optional_experiments():
+    text = WORKFLOW.read_text()
+    job = text.split("  predict:\n", 1)[1].split("  scoreboard:\n", 1)[0]
+    steps = [
+        "Train configured leagues",
+        "Freeze SFC14 diagnostics",
+        "Publish frozen models and forecasts",
+        "Confirm forecast and SFC publication",
+        "Publish confirmed forecast and SFC publication evidence",
+        "Record production publication duration",
+        "Run and publish independent experiments",
+    ]
+    position = [job.index("- name: " + title) for title in steps]
+    assert position == sorted(position)
+    assert "--production-state production-state" in job
+    optional = job[position[-1] :].split("      - name:", 1)[0]
+    assert "steps.publish_confirmed_forecasts.outcome == 'success'" in optional
+    assert "continue-on-error: true" in optional
+    assert "EXPERIMENT_BUDGET_MINUTES: '30'" in optional
+    assert "PREDICT_OPTIONAL_DEADLINE" in job and "+ 128 * 60" in job
+    assert "publish-football-experiments.sh" in optional
+    scoreboard = text.split("  scoreboard:\n", 1)[1].split("  digest:\n", 1)[0]
+    digest = text.split("  digest:\n", 1)[1].split("  sporttery:\n", 1)[0]
+    assert "needs: [schedule-gate, predict]" in scoreboard and "!cancelled()" in scoreboard
+    assert "needs: [schedule-gate, scoreboard, sporttery]" in digest and "!cancelled()" in digest
+    assert "needs.predict.result" not in scoreboard and "needs.scoreboard.result" not in digest
+
+
+@pytest.mark.parametrize(
+    ("behavior", "expected"),
+    [
+        ("success", "generated"),
+        ("error", "experiment_failed"),
+        ("timeout", "experiment_timeout"),
+        ("near_job_deadline", "experiment_timeout"),
+        ("cancel", "experiment_cancelled"),
+        ("push_error", "experiment_publication_failed"),
+        ("receipt_push_error", None),
+    ],
+)
+def test_optional_shell_keeps_production_and_confirms_only_published_evidence(
+    tmp_path, behavior, expected
+):
+    import os
+    import subprocess
+    import time
+    from textwrap import dedent
+
+    publisher = WORKFLOW.parents[2] / "scripts/publish-football-experiments.sh"
+    archive, remote = tmp_path / "archive", tmp_path / "remote.git"
+
+    def git(path, *args):
+        return subprocess.check_output(["git", "-C", str(path), *args], text=True).strip()
+
+    git(tmp_path, "init", "--bare", str(remote))
+    git(tmp_path, "init", str(archive))
+    git(archive, "config", "user.email", "offline@example.invalid")
+    git(archive, "config", "user.name", "Offline fixture")
+    for name in ("state", "matches", "forecasts/day/run"):
+        (archive / name).mkdir(parents=True)
+        (archive / name / "frozen").write_text("production bytes\n")
+    (archive / "feed_manifest.json").write_text("{}\n")
+    git(archive, "add", ".")
+    git(archive, "commit", "-m", "Freeze official forecasts and confirmations")
+    git(archive, "remote", "add", "origin", str(remote))
+    git(archive, "push", "origin", "HEAD:refs/heads/data/football-feeds")
+    original, ref = git(archive, "rev-parse", "HEAD"), "refs/heads/data/football-feeds"
+    path = "forecasts/day/run/optional"
+    receipt = path + ".receipt"
+    # Reject either the calculated attachment or its receipt. The successful push
+    # of an attachment is irreversible for this run even when its receipt is rejected.
+    hook = remote / "hooks/pre-receive"
+    hook.write_text(
+        dedent(f"""\
+        #!/bin/bash
+        read -r old new ref
+        if [[ "$MODE" == push_error ]] &&
+           [[ "$(git show "$new:{path}" 2>/dev/null)" == generated ]]; then exit 1; fi
+        if [[ "$MODE" == receipt_push_error ]] &&
+           git cat-file -e "$new:{receipt}" 2>/dev/null; then exit 1; fi
+        """)
+    )
+    hook.chmod(0o755)
+    fake_python = tmp_path / "python"
+    fake_python.write_text(
+        dedent(f"""\
+        #!/bin/bash
+        set -eu
+        if [[ "$2" == zucai.forecast_publication ]]; then
+            candidate=$4
+            git -C "$candidate" cat-file -e "$6:{path}"
+            cp "$candidate/{path}" "$candidate/{receipt}"
+            exit 0
+        fi
+        candidate=$5
+        [[ "$candidate" != "$ORIGINAL_ARCHIVE" ]]
+        [[ "$9" == "$PRODUCTION_STATE" ]]
+        test "$(git -C "$candidate" rev-parse origin/data/football-feeds)" = "$PRODUCTION_HEAD"
+        test ! -e "$candidate/{path}"
+        if [[ "$3" == experiment-unavailable ]]; then
+            printf '%s\\n' "${{11}}" > "$candidate/{path}"
+            exit 0
+        fi
+        printf 'generated\\n' > "$candidate/{path}"
+        case "$MODE" in
+          error) exit 12 ;;
+          timeout) sleep 10 ;;
+          cancel) kill -TERM "$$" ;;
+        esac
+        """)
+    )
+    fake_python.chmod(0o755)
+    state = tmp_path / "production-state"
+    state.mkdir()
+    summary = tmp_path / "summary.md"
+    env = dict(
+        os.environ,
+        PATH=str(tmp_path) + os.pathsep + os.environ["PATH"],
+        MODE=behavior,
+        ORIGINAL_ARCHIVE=str(archive),
+        PRODUCTION_HEAD=original,
+        PRODUCTION_STATE=str(state),
+        GITHUB_STEP_SUMMARY=str(summary),
+        GITHUB_RUN_ID="100",
+        GITHUB_RUN_ATTEMPT="1",
+    )
+    if behavior == "near_job_deadline":
+        env["PREDICT_OPTIONAL_DEADLINE"] = str(int(time.time()) + 25)
+    result = subprocess.run(
+        [
+            "bash",
+            str(publisher),
+            str(archive),
+            str(state),
+            "1" if behavior == "timeout" else "60",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=12,
+    )
+    assert result.returncode == 0, result.stderr + "\n" + result.stdout
+    assert git(archive, "rev-parse", "HEAD") == original
+    assert git(archive, "status", "--porcelain") == ""
+    assert git(remote, "show", ref + ":forecasts/day/run/frozen") == "production bytes"
+    assert git(remote, "show", ref + ":" + path) == (expected or "generated")
+    if expected is not None:
+        assert git(remote, "show", ref + ":" + receipt) == expected
+    else:
+        assert (
+            subprocess.run(
+                ["git", "-C", str(remote), "cat-file", "-e", ref + ":" + receipt],
+                capture_output=True,
+                check=False,
+            ).returncode
+            != 0
+        )
+    summary_text = summary.read_text()
+    assert "实验阶段开始" in summary_text and "实验阶段用时" in summary_text
+    if behavior == "receipt_push_error":
+        assert "实验归档已推送，发布回执未确认（experiment_publication_failed）" in summary_text
+    elif behavior != "success":
+        assert f"实验未生成（{expected}）" in summary_text
+    assert git(archive, "worktree", "list", "--porcelain").count("worktree ") == 1

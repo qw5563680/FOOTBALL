@@ -101,7 +101,8 @@ T66 的单边占位 APIF→FD 关系仅作完整数据库校验后的旧代表�
 七个旧联赛的新来源候选也始终标“实验”。旧 gate 仍供历史参考，不用于自动恢复候选资格或自动撤销原定义资格；
 原有模型适用性、未知球队及非重放等检查继续执行。完整批准登记和前瞻计数留给 T67。
 
-`cloud_predict` 先按原子归档流程冻结主批，再由 `source_version_training` 以原截点训练七个候选。
+`cloud_predict` 先按原子归档流程冻结主批。Actions 按 T88 发布并确认主批后，
+再由 `source_version_training` 在实验阶段以原截点训练七个候选。
 `source_version_archive` 保存 `models/{run_id}/*.source-expanded.pkl`、训练 JSON、候选参数及每个主批旁的
 完整 `source_versions.json`，校验同 ID/同截点、定义、模型哈希与失败排除记录；候选失败不改变主批或 LATEST。
 主运行清单另存 `source_version_status`：complete/partial/failed、失败阶段、固定原因码、异常类别、
@@ -1253,7 +1254,8 @@ dispatch 保持10项输入：新增 boolean gate 默认 false，将原 slot 放�
 `apis` 失败或整体取消时不运行，竞彩 job 跳过仍运行并提示「竞彩数据非今日」。手动 predict 不采集。
 `sporttery_stale` 同时检查竞彩 job 结果、`through_beijing` 与 `collection.jc.schedule_status`；
 赛程阶段非 `complete` 时即使 job 成功、赛果水位已到当日，也提示旧赛程与赔率未确认更新。旧归档缺该字段时默认 `complete`，兼容原判断。
-安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。单次上限 90 分钟（2026-11-25 由 45 分钟放宽：实验模型正常跑完后，预测一步实际用时已到 42–45 分钟，16:16 北京时间那一班被上限取消）。
+安装现有 `[model]` extra，`ZUCAI_PARAMS` 指向 app 内的绝对配置路径。T88 将 `predict` job
+总上限定为 130 分钟，按正式训练及冻结步骤的 90 分钟上限、30 分钟实验计算及 10 分钟发布和收尾余量核定。
 
 `cloud_predict.run` 在临时目录调用 `restore_feeds` 并记录工作库 SHA256。每个联赛调用现有 `train`，
 来源严格取配置，原有国内条目只允许 jc/fd；T21 的「欧战」条目允许 jc/fd/fdorg/apif。
@@ -1293,6 +1295,22 @@ Actions artifact 保存本次模型、两日报告及索引 90 天，长期证�
 T26 在 predict job 的两日冻结步骤后运行 `zucai.sfc_reports`，只读取当日最新 run 的两个冻件，不扩大模型预测日期范围。
 SFC 步骤标 `continue-on-error`，失败保留运行记录并仍发布已成功冻结的竞彩数据；SFC 产物一并保存 artifact。
 
+### T88 正式预测先发布
+
+Actions 的 `cloud_predict run --production-state` 冻结正式批次，并在运行临时目录保留供实验复用的工作库。
+先生成只依赖正式预测的 14 场诊断，再推送模型和冻结预测到数据分支。随后核对远端已发布的原件，
+按 T55 写入并推送正式预测与 14 场的发布证据。正式阶段完成后才启动实验进程。
+
+`cloud_predict experiments` 在独立 Git 检出中复用同一训练快照和原截点，计算新来源候选与 T34a 并行实验，
+再追加纸面复式附加产物。工作流给实验进程 30 分钟，到期发出终止信号，30 秒后仍未退出则强制结束。
+实验及其发布也受剩余作业时间限制，给清理和产物上传留出余量。
+实验产物按确认后的正式提交另行推送，再从远端核对附件和写入发布回执。
+实验超时、报错、进程被终止或发布失败时，Actions 摘要写明阶段和原因。远端仍为确认后的正式提交时，
+`experiment-unavailable` 沿用实验空缺格式记下「实验未生成」及原因，纸面复式可基于现有正式预测独立冻结。
+实验失败不阻断记分板和日报，日报仍按原有口径展示缺失原因。整条工作流取消仍遵循各 job 的原有条件。
+
+Actions 摘要分别记录正式阶段和实验阶段耗时，并列出实验启动 UTC。合并后的正式运行验收对照
+正式推送与实验启动顺序、两段耗时，以及连续三天是否还有预测因超时缺失。模型、选参、回测及归档格式沿用原有规则。
 
 ## T18 一次性 fd 历史回填
 
@@ -1515,7 +1533,8 @@ selected_min_minus_omitted 与 selected_gaps；完全同分按 h+d、h+a、d+a�
 | `summary.parlay_sd` | rules 按版本/伤停资料/证据/是否事后重建分列；totals 仅全账核对；待结原因、更正审计、ledger_sha256 不变 |
 | `daily/<日>/<run>.json` | 另存 parlay_pending 与 parlay_versions，原 A–E pending 不动 |
 
-`cloud_predict` 在原预测与实验已冻结后追加组合，不改原五个文件。组合发布前再次检查最早腿未开球；
+`cloud_predict` 在正式预测冻结后追加组合，Actions 将其随实验阶段的附加产物另行发布。
+实验阶段不可用时可以从正式预测独立冻结组合。组合发布前再次检查最早腿未开球；
 parlay_published_utc 是归档写入时刻，不是官方停售凭据。schema_version=2、rule=single_plus_double_v2，
 rule_effective_utc 记录新规则对本批开始生效的实际生成时刻，不倒填发布前的历史。
 首次冻结即锁定（包括零组、尚未记账批次），换规则或配置也不重写；新规则只作用于新批次。
@@ -1926,9 +1945,9 @@ FD普通赛程抓取仍只有UTC周一early，不重复请求。回填 ingest_fd
 match_id/team_id来自既有jc比赛。store_rows/check_stats验证这个确切链接，多个候选拒绝；不创建/修改比赛球队、
 不改任何导入器或 _Teams.resolve。外部行表仍先验证上传后接纳，失败照旧回滚。
 
-`cloud_predict` 完成原模型四件套与清单发布后，再调用 `experimental_archive.freeze_parallel`。
-另复制临时库、从既有 Release 恢复技术行，原训练库/参数/预测四件套不修改。恢复/计算/拟合/上传失败
-隔离记录空缺，实验附加发布失败回滚实验文件和清单，不回滚正式预测。run记录 experimental_protocol 激活截点。
+Actions 确认原模型四件套与清单已推送到数据分支后，实验阶段才调用 `experimental_archive.freeze_parallel`。
+另复制临时库、从既有 Release 恢复技术行。恢复、计算、拟合或上传失败时保留本班空缺及原因。
+实验附加发布与正式预测独立。run 记录 `experimental_protocol` 激活截点。
 两个模型严格固定射正九联赛N10、xG英西意N10/德N5、半衰期90。所有者采纳 PR #68 建议修 1 后：
 训练标签仍须 `kickoff < available_utc < 拟合截点`；训练特征在样本各自开球前用 backfill_replay，
 对历史统计作开球+3h 可用假设，与 T33 一致。目标特征截点仍是当批原模型训练截点，使用 strict：
@@ -1949,8 +1968,8 @@ target_availability_mode=strict_capture_time，实验文件头和预测行也保
 无效行冻结null概率及明确原因，始终p2_ready=false、experimental_unadopted。
 
 每个两日目录的 experimental.json 由稳定排序JSON序列化，SHA256进入 forecast_manifest.files；
-原 forecast/report 内层清单不变，旧归档无实验字段照常校验。attach_experiments 先写文件/哈希，
-提交清单前记录 experimental_published_utc；记分板采用 generated/published 中较晚时间判断赛前。
+原 forecast/report 内层清单不变，旧归档无实验字段照常校验。`attach_experiments` 写入附件、哈希和本地归档时间
+`experimental_published_utc`。T55 远端回执用于判断实际发布，记分板取生成时间与已证实发布时间中的较晚者。
 load_experiments 按文件先完整校验再接纳行；JSON、身份、时间、概率或必要字段格式异常时整文件跳过，
 同一比赛/模型重复、缺失原因缺漏、非法P2标签类型及夹带market对象也在该边界拒绝，避免进入下游后才失败。
 将相对路径、批次、invalid_experimental_file 与错误明细写入 summary.experimental_audit.invalid_files，
