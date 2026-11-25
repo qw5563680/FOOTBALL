@@ -8,6 +8,7 @@ from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.report.render import BEIJING, _beijing, _md, _percent, _timestamp
 from zucai.report.sfc import (
     OPTIONS,
+    _unmapped_reason,
     disclosed_rows,
     hit_line,
     own_fixture_note,
@@ -15,13 +16,14 @@ from zucai.report.sfc import (
     unconfirmed_mapping_status,
 )
 from zucai.scoreboard.sfc import prior_group_text, read_settled
+from zucai.sfc_okooo_names import is_okooo
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
 from zucai.sfc_reports import read_reports
 from zucai.sfc_sequence import known_official, period_windows, sequence, verification_at
 
 _TEAM_SIDES = {"home": "主队", "away": "客队"}
 _LINEUP_CONFLICT = (
-    "官方公告和 500 网的场序或主客队不一致。因此本期不展示单选、复式和任九，等两边核对一致后恢复。"
+    "官方公告和{source}的场序或主客队不一致。因此本期不展示单选、复式和任九，等两边核对一致后恢复。"
 )
 
 
@@ -34,16 +36,7 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
     )
     settled, _ = read_settled(archive, summary)
     states = archived_sfc_issues(archive, feed, now)
-    lines = ["## 14 场胜负彩", ""]
-    collected = feed.get("collection", {}).get("sfc")
-    if collected:
-        lines += [
-            f"采集状态：{_md(collected.get('status', '未记录'))}；"
-            + "；".join(_md(e) for e in collected.get("errors", [])),
-            "",
-        ]
-    if collected and collected.get("official_error"):
-        lines += [f"官方公告采集待核：{_md(collected['official_error'])}；第三方来源：500网。", ""]
+    collected = feed.get("collection", {}).get("sfc") or {}
     if (
         collected
         and collected.get("status") == "partial"
@@ -57,10 +50,38 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
             for name, issue in states
         ]
     by_number = {issue["issue_no"]: (name, issue) for name, issue in states}
-    schedule = (collected or {}).get("official_schedule", {})
+    schedule = collected.get("official_schedule", {})
     windows = period_windows([issue for _, issue in states], schedule, now)
+    state = sequence(windows.values(), now)
+    chosen = state["current"] or state["last_closed"]
+    if chosen is None and windows and not state["announced"]:
+        # Legacy snapshots can be missing the third-party deadline.
+        chosen = max(by_number, key=int, default=None)
+    lines = ["## 14 场胜负彩", ""]
+    if collected:
+        lines += [
+            f"采集状态：{_md(collected.get('status', '未记录'))}；"
+            + "；".join(_md(e) for e in collected.get("errors", [])),
+            "",
+        ]
+    if collected.get("official_error"):
+        visible_source = by_number.get(chosen, (None, {}))[1].get("source_url")
+        label = "澳客" if is_okooo(visible_source) else "500网"
+        lines += [
+            f"官方公告采集待核：{_md(collected['official_error'])}；第三方来源：{label}。",
+            "",
+        ]
+    backup = collected.get("okooo") or {}
+    if backup.get("status") == "unavailable":
+        lines.append(f"本班澳客不可用：{_md(backup.get('reason') or '未记录原因')}。")
+        if number := backup.get("issue_no"):
+            if number == chosen and number in by_number:
+                lines.append(f"第 {_md(number)} 期继续展示已归档名单。")
+            elif number not in by_number:
+                lines.append(f"第 {_md(number)} 期未取得完整名单。")
+        lines.append("")
     if not windows:
-        lines.extend(_pending_lines(collected or {}, now))
+        lines.extend(_pending_lines(collected, now))
         announced = [
             number
             for number, notice in schedule.items()
@@ -74,8 +95,6 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
                 "",
             ]
         return lines + ["尚无已归档期次。", ""]
-    state = sequence(windows.values(), now)
-    chosen = state["current"] or state["last_closed"]
     if chosen is None:
         if state["announced"]:
             first = state["announced"][0]
@@ -84,8 +103,7 @@ def section(archive, feed, summary, now, link, *, pending_history=None):
                 f"{_beijing(windows[first]['sale_start_utc'])} 开售。",
                 "",
             ]
-        # Legacy snapshots can be missing the third-party deadline.
-        chosen = max(by_number, key=int)
+        return lines + ["尚无已归档期次。", ""]
     if chosen not in by_number:
         reused = chosen in (collected or {}).get("official_reused_schedule", ())
         notice_label = (
@@ -128,12 +146,30 @@ def _pending_lines(evidence, now):
 
 
 def _incomplete_check(issue, collected, now):
+    previous = verification_at(issue.get("official_verification"), now)
+    okooo = is_okooo(issue.get("source_url"))
+    if (
+        okooo
+        and previous
+        and _timestamp(previous["checked_at"]) >= _timestamp(collected["official_checked_at"])
+    ):
+        return previous
     check = dict(
         status="pending",
         reason="本班第三方采集未完成，使用已归档快照。",
         checked_at=collected["official_checked_at"],
         official={},
     )
+    if okooo:
+        # A failed refresh cannot clear a lineup conflict on the retained snapshot.
+        conflicts = [
+            row
+            for row in previous.get("differences", ())
+            if row.get("status") == "conflict" and row.get("field") in {"home", "away", "seq"}
+        ]
+        if conflicts:
+            check["differences"] = conflicts
+            check["reason"] += "已归档对阵冲突仍待重新核对。"
     number = issue["issue_no"]
     notice = collected.get("official_schedule", {}).get(number, {})
     if notice.get("pending_amendments"):
@@ -141,15 +177,13 @@ def _incomplete_check(issue, collected, now):
     if collected.get("official_unavailable") or number in collected.get(
         "official_reused_schedule", ()
     ):
-        check["last_known_official"] = notice or known_official(
-            verification_at(issue.get("official_verification"), now)
-        )
+        check["last_known_official"] = notice or known_official(previous)
     else:
         check["official"] = notice
     return check
 
 
-def not_yet_note(rows, end, now):
+def not_yet_note(rows, end, now, *, from_okooo=False):
     """Say plainly when a period on sale simply has not reached its forecast day.
 
     Forecasts are frozen for fixtures of the current and the next Beijing day only, so a
@@ -162,11 +196,13 @@ def not_yet_note(rows, end, now):
     earliest = first.date() - timedelta(days=1)
     if now.astimezone(BEIJING).date() >= earliest:
         return None
-    return (
+    note = (
         f"本期还没到出预测的时候：最早一场在北京时间 {first:%m-%d %H:%M} 开球，"
         f"预测只对当天和次日的比赛生成，最早在 {earliest:%m-%d} 的日报里给出。"
-        "表中「未映射」「无模型」是在等竞彩开售这些比赛，开售后自动对上。"
     )
+    if not from_okooo:
+        note += "表中「未映射」「无模型」是在等竞彩开售这些比赛，开售后自动对上。"
+    return note
 
 
 def _fixture_list(rows):
@@ -186,19 +222,19 @@ def _fixture_list(rows):
     )
 
 
-def _conflict_line(difference, official_end, provider_end):
+def _conflict_line(difference, official_end, provider_end, provider):
     field = difference.get("field")
     if field == "sale_end_utc":
         # Older records can flag a difference without storing both values on the row.
         official = _beijing(difference.get("official", official_end))
-        provider = _beijing(difference.get("provider", provider_end))
-        return f"- 停售时间（北京时间）：官方公告写『{official}』，500 网写『{provider}』。"
+        reported = _beijing(difference.get("provider", provider_end))
+        return f"- 停售时间（北京时间）：官方公告写『{official}』，{provider}写『{reported}』。"
     label = "场序" if field == "seq" else _TEAM_SIDES.get(field, _md(field))
     if (seq := difference.get("seq")) is not None:
         label = f"第 {_md(seq)} 场{label}"
     line = (
         f"- {label}：官方公告写『{_md(difference.get('official'))}』，"
-        f"500 网写『{_md(difference.get('provider'))}』"
+        f"{provider}写『{_md(difference.get('provider'))}』"
     )
     side = _TEAM_SIDES.get(difference.get("official_side"))
     if side and (seq := difference.get("official_seq")) is not None:
@@ -209,6 +245,8 @@ def _conflict_line(difference, official_end, provider_end):
 def _issue_lines(name, issue, reports, settled, now, link):
     number = issue["issue_no"]
     check = verification_at(issue.get("official_verification"), now)
+    okooo = is_okooo(issue.get("source_url"))
+    provider = "澳客" if okooo else "500 网"
     official = known_official(check)
     provider_end = issue["sale_end_utc"]
     end = official.get("sale_end_utc") or provider_end
@@ -220,8 +258,19 @@ def _issue_lines(name, issue, reports, settled, now, link):
     latest_frozen = max(
         choices, key=lambda item: (_timestamp(item[1]["generated_utc"]), item[0]), default=None
     )
-    if check or (
-        end and _timestamp(end) > now and any(r["league"] == "欧国联" for r in issue["snapshot"])
+    choices = [
+        (path, report)
+        for path, report in choices
+        if is_okooo((report.get("source") or {}).get("url")) == okooo
+    ]
+    if (
+        okooo
+        or check
+        or (
+            end
+            and _timestamp(end) > now
+            and any(r["league"] == "欧国联" for r in issue["snapshot"])
+        )
     ):
         current = _fixture_list(issue["snapshot"])
         choices = [
@@ -231,19 +280,23 @@ def _issue_lines(name, issue, reports, settled, now, link):
     conflicts = [d for d in differences if d.get("status") == "conflict"]
     # A stale third-party lineup cannot certify a current set of official selections.
     lineup_conflict = any(d.get("field") in {"home", "away", "seq"} for d in conflicts)
+    lineup_reason = _LINEUP_CONFLICT.format(source=provider if okooo else " 500 网")
     if lineup_conflict:
         choices = []
     conflict_lines = (
         [
             "",
-            *(_conflict_line(d, official.get("sale_end_utc"), provider_end) for d in conflicts),
+            *(
+                _conflict_line(d, official.get("sale_end_utc"), provider_end, provider)
+                for d in conflicts
+            ),
             "",
         ]
         if conflicts
         else []
     )
     if lineup_conflict:
-        conflict_lines.extend([_LINEUP_CONFLICT, ""])
+        conflict_lines.extend([lineup_reason, ""])
     timely = [
         (path, report)
         for path, report in choices
@@ -277,14 +330,18 @@ def _issue_lines(name, issue, reports, settled, now, link):
     if report:
         report_line = f"报告生成：{_beijing(report['generated_utc'])}（北京时间）。"
     elif latest_frozen:
-        report_line = (
-            "场次或主客对阵存在差异，当前展示采用第三方场次快照；历史冻结报告见"
-            f"{link(latest_frozen[0] + '/sfc.json')}。"
+        frozen_url = (latest_frozen[1].get("source") or {}).get("url")
+        detail = (
+            "当前名单来源与此前冻结报告不同，本期尚无同来源冻结报告。"
+            if is_okooo(frozen_url) != okooo
+            else "场次或主客对阵存在差异，当前展示采用第三方场次快照；"
         )
+        report_line = detail + f"历史冻结报告见{link(latest_frozen[0] + '/sfc.json')}。"
     else:
         report_line = "尚无当日冻结报告。"
     lines = [
         f"期号：{number}；{deadline_source}：{deadline}（北京时间，{state}）。",
+        *(["本期名单来自备用来源澳客。"] if okooo else []),
         f"官方核对：{official_label.get(check.get('status'), '待核')}。"
         + _md(check.get("reason") or "本期归档只有第三方来源，尚无官方核对记录。"),
         *_pending_lines(check, now),
@@ -293,7 +350,11 @@ def _issue_lines(name, issue, reports, settled, now, link):
             if official.get("sale_start_utc")
             else []
         ),
-        *([f"本次核对：{checked}（北京时间）；第三方来源：500网。"] if checked else []),
+        *(
+            [f"本次核对：{checked}（北京时间）；第三方来源：{provider.replace(' ', '')}。"]
+            if checked
+            else []
+        ),
         *(
             [
                 f"公告来源：{_md(official['source_url'])}；"
@@ -344,7 +405,11 @@ def _issue_lines(name, issue, reports, settled, now, link):
         if not p:
             if row.get("match_id") is None:
                 if not reason.startswith("未映射："):
-                    reason = "未映射：" + reason
+                    reason = "未映射：" + (
+                        _unmapped_reason(row, row.get("reason") or row.get("mapping"))
+                        if okooo
+                        else reason
+                    )
             elif not reason.startswith("无模型"):
                 reason = "无模型：" + reason
         kickoff = _beijing(row["kickoff_utc"])
@@ -362,7 +427,11 @@ def _issue_lines(name, issue, reports, settled, now, link):
                     reason,
                 ]
                 if eligible
-                else [unconfirmed_mapping_status(row)]
+                else [
+                    reason
+                    if okooo and row.get("match_id") is None
+                    else unconfirmed_mapping_status(row)
+                ]
             ),
         ]
         lines.append("| " + " | ".join(_md(value) for value in values) + " |")
@@ -375,7 +444,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
             f"{scope}各取模型最高项：" + hit_line(forecast, report, "14场单选", "全中"),
             "",
         ]
-    if not lineup_conflict and (note := not_yet_note(rows, end, now)):
+    if not lineup_conflict and (note := not_yet_note(rows, end, now, from_okooo=okooo)):
         lines += [note, ""]
     if eligible and (note := prior_footnote(rows)):
         lines.extend([_md(note), ""])
@@ -396,7 +465,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
         *pick_nine_lines(
             publication if report else None,
             prior_explained=eligible,
-            unavailable_reason=_LINEUP_CONFLICT if lineup_conflict else None,
+            unavailable_reason=lineup_reason if lineup_conflict else None,
         ),
     ]
     previous = [

@@ -1,4 +1,4 @@
-"""Compare archived 500.com rows with the official 14-match sale schedule."""
+"""Compare archived provider rows with the official 14-match sale schedule."""
 
 import re
 from collections import defaultdict
@@ -6,6 +6,8 @@ from datetime import date
 
 from zucai.nations import LEAGUE, sfc_team
 from zucai.sfc_club_names import club_name
+from zucai.sfc_okooo_names import PROVIDER as OKOOO_PROVIDER
+from zucai.sfc_okooo_names import approved_name, name_evidence
 from zucai.sfc_sequence import _instant
 from zucai.sources.sporttery import BEIJING
 
@@ -199,13 +201,23 @@ def resolve_notices(notices, archived, checked_at):
     }
 
 
-def _names(row, side):
+def _names(row, side, provider, checked_at):
     """Return label and auditable exact alternatives scoped to this provider team/fixture."""
     label = row.get(side)
     if not label:
         return {}
     names = {label: None}
     league = row.get("league")
+    if provider == OKOOO_PROVIDER:
+        if entry := approved_name(league, label, checked_at):
+            name = entry.get("official", entry["canonical"])
+            if name != label:
+                names[name] = {
+                    "basis": "approved_okooo_name",
+                    "league": league,
+                    **name_evidence(entry, label),
+                }
+        return names
     team_id = row.get(f"provider_{side}_id")
     if league == LEAGUE:
         try:
@@ -268,7 +280,11 @@ def _compare_fixtures(rows, official, result):
                 }
             )
             return
-    labels = {(row["seq"], side): _names(row, side) for row in rows for side in ("home", "away")}
+    labels = {
+        (row["seq"], side): _names(row, side, result["provider"], result["checked_at"])
+        for row in rows
+        for side in ("home", "away")
+    }
     # A name can attest a side/order conflict only when its other position is unambiguous.
     official_positions = defaultdict(set)
     for row in official:
@@ -312,7 +328,14 @@ def _compare_fixtures(rows, official, result):
 
 
 def verify_issue(
-    issue_no, provider_sale_end_utc, provider_fixtures, notices, checked_at, *, source_error=None
+    issue_no,
+    provider_sale_end_utc,
+    provider_fixtures,
+    notices,
+    checked_at,
+    *,
+    source_error=None,
+    provider="500.com",
 ):
     """Return JSON-safe evidence, without changing provider records or historical notices."""
     official = notice_for_issue(issue_no, notices, checked_at) if not source_error else {}
@@ -323,11 +346,19 @@ def verify_issue(
         official,
         checked_at,
         source_error=source_error,
+        provider=provider,
     )
 
 
 def compare_issue(
-    issue_no, provider_sale_end_utc, provider_fixtures, selected, checked_at, *, source_error=None
+    issue_no,
+    provider_sale_end_utc,
+    provider_fixtures,
+    selected,
+    checked_at,
+    *,
+    source_error=None,
+    provider="500.com",
 ):
     """Check the provider against the same version used to select the current issue."""
     official = selected.copy()
@@ -336,7 +367,7 @@ def compare_issue(
     result = {
         "issue_no": str(issue_no),
         "checked_at": _instant(checked_at).isoformat(),
-        "provider": "500.com",
+        "provider": provider,
         "status": "pending",
         "official": {} if retained else official,
         "compared_fields": [],
