@@ -85,7 +85,11 @@ def test_comment_boundary_and_sections_are_preserved(tmp_path, mailbox, size):
         assert "超过单条评论上限" in sent
         assert "省略章节" in sent and "技术数据覆盖率" in sent
         assert ARCHIVE_URL in sent
-    assert "### 完整三级小节" in issue["body"] and ARCHIVE_URL in issue["body"]
+    index, _, latest = issue["body"].partition(f"**最新日报 {TODAY}**")
+    assert [line for line in index.splitlines() if line.startswith("- ")] == [
+        f"- [{TODAY}](https://github.com/{REPO}/issues/101#issuecomment-201)"
+    ]
+    assert "### 完整三级小节" in latest and f"[查看完整日报]({ARCHIVE_URL})" in latest
     receipt = read_notification(root, version)
     assert receipt["markdown_sha256"] == hashlib.sha256(full.encode()).hexdigest()
     assert receipt["comment_sha256"] == hashlib.sha256(sent.encode()).hexdigest()
@@ -170,7 +174,7 @@ def test_monthly_archive_keeps_directory_while_fitting_latest(tmp_path, room):
     link = f"[查看完整日报]({ARCHIVE_URL})"
     required = (
         f"\n{digest_notify.OVERVIEW_START}\n\n**日报目录（最新在前）**\n\n"
-        f"- [{TODAY} · first]({ARCHIVE_URL})\n\n**最新日报 {TODAY}**\n\n"
+        f"- [{TODAY}]({ARCHIVE_URL})\n\n**最新日报 {TODAY}**\n\n"
         f"{link}\n\n{digest_notify.OVERVIEW_END}{suffix}"
     )
     prefix = ("注" * (LIMIT - len(required)) if room == "link" else "人工说明") + "\n"
@@ -180,7 +184,7 @@ def test_monthly_archive_keeps_directory_while_fitting_latest(tmp_path, room):
     }
     result = digest_notify.monthly_issue_body(issue, [], REPO, TODAY, root)
     assert len(result) <= LIMIT and result.startswith(prefix) and result.endswith(suffix)
-    assert f"- [{TODAY} · first]({ARCHIVE_URL})" in result
+    assert f"- [{TODAY}]({ARCHIVE_URL})" in result
     assert full not in result
     if room == "shortened":
         assert FIRST in result and "省略章节" in result and "技术数据覆盖率" in result
