@@ -665,7 +665,7 @@ jobs:
     needs: [schedule-gate, apis, sporttery]
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict'))) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       WORK_DIR: work-predict-${{ github.run_id }}-${{ github.run_attempt }}
       ZUCAI_PARAMS: ${{ github.workspace }}/app/data/model/params.json

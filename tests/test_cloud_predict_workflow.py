@@ -49,7 +49,7 @@ def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
     expression = expression.replace("&&", " and ").replace("||", " or ")
     assert eval(expression, {"__builtins__": {}}, {}) is expected
     assert "needs: [schedule-gate, apis, sporttery]" in job
-    assert "runs-on: ubuntu-latest" in job and "timeout-minutes: 45" in job
+    assert "runs-on: ubuntu-latest" in job and "timeout-minutes: 90" in job
     assert "retention-days: 90" in job
     assert "${{ github.workspace }}/app/data/model/params.json" in job
     assert 'pip install -e "./app[model]"' in job
