@@ -69,6 +69,15 @@ def read_notification(root, version):
         )
     ):
         raise ValueError("日报通知回执与冻结版本不符")
+    # Old receipts implicitly delivered the archived Markdown verbatim.
+    if "comment_sha256" in receipt or "shortened" in receipt:
+        comment_sha = receipt.get("comment_sha256")
+        if (
+            not isinstance(comment_sha, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", comment_sha)
+            or receipt.get("shortened") is not (comment_sha != receipt["markdown_sha256"])
+        ):
+            raise ValueError("日报通知回执的评论哈希或缩短标记无效")
     try:
         instant(receipt["notified_utc"])
     except (KeyError, TypeError, ValueError):

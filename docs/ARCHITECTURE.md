@@ -1641,14 +1641,22 @@ T46 在范围筛选之前区分证据是否可得：截点前没有任何可用�
 工作流顶层仅保留 `contents: write`；`issues: write` 仅在 digest job 声明（连同该 job 发布数据需要的 contents）。
 只有通知步骤得到显式 GITHUB_TOKEN 环境变量，源码仓库 checkout 不持久化凭证。
 
-`python -m zucai.digest_notify --file <daily/latest.md>` 仅允许 Actions schedule/workflow_dispatch：
-校验首行、唯一北京当日标记与单评论长度，正文与发布文件完全相同。REST 分页精确查找「每日报告 YYYY-MM」，
-不存在则创建，GraphQL pinIssue 置顶；按 `<!-- zucai-daily:YYYY-MM-DD -->` 查找 github-actions[bot]
-当天评论，找到则 PATCH，否则 POST。同名 Issue/同日机器人评论重复则报错，不任意挑选；整体由写锁串行化。
-每月 1 日首次运行轮换（漏跑后补做），取消上月置顶，新报告成功后关闭上月；重试不重复建 Issue/评论。
-T39 云端带 `--require-notified-history`，仅从已成功更新同日评论的版本选“上一版”。通知步骤在正文确认成功后
-写独立 `<version>.notification.json`（issue/comment ID、正文SHA），再推送回执；通知失败不标成功。
-回执缺失时不推断该版已发出；本地默认按归档版本离线对比，只表示重放，不证明实际通知。
+`python -m zucai.digest_notify --file <daily/latest.md>` 仅允许 Actions schedule/workflow_dispatch。
+校验首行免责说明、唯一北京时间日报日期标记，并用正文哈希定位冻结版本。正文在 65,536 字符以内时发全文。
+超限时按原有顺序保留能放下的完整二级章节和其中的三级小节，列出省略的标题，链接到对应版本的归档全文。
+若首节放不下，仍发免责说明、日期标记、省略说明和全文链接。冻结 Markdown 与元数据的内容和哈希保持原样。
+「每日报告」页保留原目录和人工说明，先尝试嵌入全文，再按剩余空间嵌入缩短版，最后只放全文链接。
+
+REST 分页精确查找「每日报告 YYYY-MM」，不存在则创建，GraphQL pinIssue 置顶。
+按日期标记查找当天的 github-actions[bot] 评论。已经送达的相同正文可直接确认。
+前版评论对应已知归档且回执已持久化到远端数据分支时，可按版本顺序 PATCH 同日评论，否则 POST。
+同名 Issue 或无法唯一确定同一版本的重复评论会报错。按日期和版本补发沿用同样的正文与回执规则。
+每月 1 日首次运行轮换（漏跑后补做），取消上月置顶，新报告成功后关闭上月。整体由写锁串行化。
+
+T39 云端带 `--require-notified-history`，仅从有送达回执的版本选“上一版”。通知步骤确认 GitHub 返回的正文后
+写独立 `<version>.notification.json` 并推送。回执保留 Issue 和评论 ID、归档全文的 `markdown_sha256`，
+用 `comment_sha256` 记录实际评论正文的哈希，并用 `shortened` 标明是否发的是缩短版。旧回执继续有效。
+回执缺失时，选“上一版”仍须等送达证据补齐。本地默认按归档版本离线对比，只表示重放，不证明实际通知。
 不改无关 Issue 或人工评论。HTTP/GraphQL 失败显式报错，日志不输出 token 或响应正文。通知是否到手机、
 编辑是否再次提醒、GITHUB_TOKEN 实际置顶权限由 Claude 的 Actions 运行验收，不以离线测试冒充实测。
 
