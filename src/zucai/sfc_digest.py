@@ -19,6 +19,11 @@ from zucai.sfc_publication import deadline_message, deadline_status, resolve_pub
 from zucai.sfc_reports import read_reports
 from zucai.sfc_sequence import known_official, period_windows, sequence, verification_at
 
+_TEAM_SIDES = {"home": "主队", "away": "客队"}
+_LINEUP_CONFLICT = (
+    "官方公告和 500 网的场序或主客队不一致。因此本期不展示单选、复式和任九，等两边核对一致后恢复。"
+)
+
 
 def section(archive, feed, summary, now, link, *, pending_history=None):
     reports = resolve_publications(
@@ -181,6 +186,26 @@ def _fixture_list(rows):
     )
 
 
+def _conflict_line(difference, official_end, provider_end):
+    field = difference.get("field")
+    if field == "sale_end_utc":
+        # Older records can flag a difference without storing both values on the row.
+        official = _beijing(difference.get("official", official_end))
+        provider = _beijing(difference.get("provider", provider_end))
+        return f"- 停售时间（北京时间）：官方公告写『{official}』，500 网写『{provider}』。"
+    label = "场序" if field == "seq" else _TEAM_SIDES.get(field, _md(field))
+    if (seq := difference.get("seq")) is not None:
+        label = f"第 {_md(seq)} 场{label}"
+    line = (
+        f"- {label}：官方公告写『{_md(difference.get('official'))}』，"
+        f"500 网写『{_md(difference.get('provider'))}』"
+    )
+    side = _TEAM_SIDES.get(difference.get("official_side"))
+    if side and (seq := difference.get("official_seq")) is not None:
+        line += f"；公告里这支队在第 {_md(seq)} 场{side}"
+    return line + "。"
+
+
 def _issue_lines(name, issue, reports, settled, now, link):
     number = issue["issue_no"]
     check = verification_at(issue.get("official_verification"), now)
@@ -202,13 +227,23 @@ def _issue_lines(name, issue, reports, settled, now, link):
         choices = [
             (path, report) for path, report in choices if _fixture_list(report["rows"]) == current
         ]
+    differences = check.get("differences", [])
+    conflicts = [d for d in differences if d.get("status") == "conflict"]
     # A stale third-party lineup cannot certify a current set of official selections.
-    lineup_conflict = any(
-        d.get("status") == "conflict" and d.get("field") in {"home", "away", "seq"}
-        for d in check.get("differences", [])
-    )
+    lineup_conflict = any(d.get("field") in {"home", "away", "seq"} for d in conflicts)
     if lineup_conflict:
         choices = []
+    conflict_lines = (
+        [
+            "",
+            *(_conflict_line(d, official.get("sale_end_utc"), provider_end) for d in conflicts),
+            "",
+        ]
+        if conflicts
+        else []
+    )
+    if lineup_conflict:
+        conflict_lines.extend([_LINEUP_CONFLICT, ""])
     timely = [
         (path, report)
         for path, report in choices
@@ -239,7 +274,6 @@ def _issue_lines(name, issue, reports, settled, now, link):
     official_label = {"verified": "已核对", "pending": "待核", "conflict": "冲突"}
     checked = _beijing(check["checked_at"]) if check else None
     frozen_status = (report or {}).get("source", {}).get("official_verification", {}).get("status")
-    differences = check.get("differences", [])
     if report:
         report_line = f"报告生成：{_beijing(report['generated_utc'])}（北京时间）。"
     elif latest_frozen:
@@ -274,6 +308,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
             else []
         ),
         *([f"核对差异 {len(differences)} 项，逐场记录见{link(name)}。"] if differences else []),
+        *conflict_lines,
         f"来源：{link(path + '/sfc.json') if report else link(name)}；仅作诊断，BET 禁用。",
         report_line,
         *(
@@ -281,8 +316,11 @@ def _issue_lines(name, issue, reports, settled, now, link):
             if report and check
             else []
         ),
-        deadline_message(publication) + "。",
-        f"存好时间：{published}（北京时间）。",
+        *(
+            [deadline_message(publication) + "。", f"存好时间：{published}（北京时间）。"]
+            if not lineup_conflict
+            else []
+        ),
         "",
         *(
             [
@@ -337,7 +375,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
             f"{scope}各取模型最高项：" + hit_line(forecast, report, "14场单选", "全中"),
             "",
         ]
-    if note := not_yet_note(rows, end, now):
+    if not lineup_conflict and (note := not_yet_note(rows, end, now)):
         lines += [note, ""]
     if eligible and (note := prior_footnote(rows)):
         lines.extend([_md(note), ""])
@@ -353,7 +391,14 @@ def _issue_lines(name, issue, reports, settled, now, link):
         lines += [
             f"复式未生成：至少 {report['minimum_lines']} 注，超过 64 注上限；覆盖概率未生成。"
         ]
-    lines += ["", *pick_nine_lines(publication if report else None, prior_explained=eligible)]
+    lines += [
+        "",
+        *pick_nine_lines(
+            publication if report else None,
+            prior_explained=eligible,
+            unavailable_reason=_LINEUP_CONFLICT if lineup_conflict else None,
+        ),
+    ]
     previous = [
         r for r in settled if r["issue_no"] < number and _timestamp(r["settled_utc"]) <= now
     ]
