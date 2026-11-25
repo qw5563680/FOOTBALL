@@ -665,7 +665,7 @@ jobs:
     needs: [schedule-gate, apis, sporttery]
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict'))) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 130
     env:
       WORK_DIR: work-predict-${{ github.run_id }}-${{ github.run_attempt }}
       ZUCAI_PARAMS: ${{ github.workspace }}/app/data/model/params.json
@@ -675,6 +675,9 @@ jobs:
         shell: bash
         run: |
           printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Reserve time for prediction job cleanup
+        # Stop optional work before the 130-minute job cap, even after a long production phase.
+        run: printf 'PREDICT_OPTIONAL_DEADLINE=%s\n' "$(($(date -u +%s) + 128 * 60))" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           path: app
@@ -690,6 +693,7 @@ jobs:
       - name: Install project and existing model extra
         run: python -m pip install -e "./app[model]"
       - name: Train configured leagues and freeze two Beijing days
+        timeout-minutes: 90
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPORTTERY_STATUS: ${{ needs.sporttery.result }}
@@ -697,7 +701,8 @@ jobs:
         run: |
           mkdir "$WORK_DIR"
           cd "$WORK_DIR"
-          python -m zucai.cloud_predict run --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --sporttery-status "$SPORTTERY_STATUS" --feed-commit "$(git -C ../cloud-data rev-parse HEAD)"
+          date -u +%s > production.started
+          python -m zucai.cloud_predict run --archive ../cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --sporttery-status "$SPORTTERY_STATUS" --feed-commit "$(git -C ../cloud-data rev-parse HEAD)" --production-state production-state
       - name: Freeze SFC14 diagnostics from today's model reports
         continue-on-error: true
         run: python -m zucai.sfc_reports --archive cloud-data --summary "$GITHUB_STEP_SUMMARY"
@@ -712,8 +717,33 @@ jobs:
           python -m zucai.forecast_publication --archive cloud-data --published-ref refs/remotes/origin/data/football-feeds
           python -m zucai.sfc_reports --archive cloud-data --confirm-publication --published-ref refs/remotes/origin/data/football-feeds --summary "$GITHUB_STEP_SUMMARY"
       - name: Publish confirmed forecast and SFC publication evidence
+        id: publish_confirmed_forecasts
         working-directory: cloud-data
         run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Record production publication duration
+        if: ${{ !cancelled() }}
+        env:
+          PRODUCTION_OUTCOME: ${{ steps.publish_confirmed_forecasts.outcome }}
+        run: |
+          if [[ -f "$WORK_DIR/production.started" ]]; then
+            start=$(cat "$WORK_DIR/production.started")
+            end=$(date -u +%s)
+            printf '\n正式阶段用时：%s 秒，发布确认结果：%s，阶段结束：%s（北京时间 %s）。\n' \
+              "$((end - start))" "$PRODUCTION_OUTCOME" "$(date -u -d "@$end" +%FT%TZ)" \
+              "$(TZ=Asia/Shanghai date -d "@$end" '+%F %T')" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '\n正式阶段未启动。\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "$PRODUCTION_OUTCOME" != success ]]; then
+            printf '实验阶段未启动，正式发布尚未确认。\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Run and publish independent experiments
+        if: ${{ success() && steps.publish_confirmed_forecasts.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPERIMENT_BUDGET_MINUTES: '30'
+        run: bash app/scripts/publish-football-experiments.sh cloud-data "$WORK_DIR/production-state" "$((EXPERIMENT_BUDGET_MINUTES * 60))"
       - name: Keep frozen evidence even on publish conflict
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

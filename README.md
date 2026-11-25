@@ -193,8 +193,12 @@ zucai train --strict-availability    # 排除 assumed 训练，并列报告默�
 zucai train --league 英超 --source jc,fd --replay-known-after 3h  # 开发阶段历史回放
 zucai features build --out data/features.parquet  # 提取球队特征，市场对比列单独隔离
 python -m zucai.cloud_feeds apis --archive ../cloud-data --days 3 --run-id manual  # 在全新隔离目录运行
-python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/params.json --run-id manual-1
+python -m zucai.cloud_predict run --archive ../cloud-data --params data/model/params.json --run-id manual-1 --production-state ../work-predict/production-state
 python -m zucai.forecast_publication --archive ../cloud-data  # 仅成功推送并 fetch 数据分支后确认发布时间
+# T88 工作流确认正式预测发布后，在独立检出计算本班实验
+python -m zucai.cloud_predict experiments --archive ../cloud-experiments --run-id manual-1 --production-state ../work-predict/production-state
+# 以下为实验超时时的替代步骤，按实际原因记录本班缺项
+python -m zucai.cloud_predict experiment-unavailable --archive ../cloud-data --run-id manual-1 --production-state ../work-predict/production-state --reason experiment_timeout
 python -m zucai.cloud_feeds backfill --archive ../cloud-data --run-id history-1  # 全新隔离目录，一次性回填
 python -m zucai.cloud_stats backfill --archive ../cloud-data --run-id stats-1 --endpoints index,fd,statistics --leagues 39 --seasons 2025 --max-requests 7000 --resume  # 仅审查者在 Actions
 python -m zucai.cloud_stats daily --archive ../cloud-data --run-id stats-daily-1 --max-requests 300  # 复用晚班已恢复数据库和 fixtures 原件
@@ -289,7 +293,7 @@ gate 对其他操作不生效。原来的三条 cron 均保留，不保证准点
 | `schedule-gate` | `ubuntu-latest` | 15:40 班或手动 daily 勾选 gate 时读取 `state/sfc/` 判定；不请求体育数据 |
 | `apis` | `ubuntu-latest`，不依赖运行器变量 | fdorg 九个国内联赛及欧冠共用前后各 `days` 个 UTC 日窗口，默认 3，共 7 天一次请求；apif 固定今天、昨天、前天，过滤配置含欧罗巴、欧协联，通常各一次请求；fd 距上次完整成功采集满 7 个 UTC 自然日时拉已核验联赛当季，无成功记录则本班补采，假设延时仍为 3h |
 | `sporttery` | 仓库变量 `FOOTBALL_FEEDS_RUNNER` 指定的标签 | 官方在售赛程与赛果 `sync` 后，分别单次请求 `/sfc/` 与 `/jczq/` 根页，归档并关联当期14场；未配置时整个 job 显示 skipped |
-| `predict` | `ubuntu-latest`，90 分钟上限 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；15 联赛训练、北京今天剩余与明天的竞彩开球场次，两批冻结报告；随后生成未截止期次的14场诊断 |
+| `predict` | `ubuntu-latest`，总上限 130 分钟 | 每次定时采集后（含迟到班次）或手动 `operation=predict`；先发布正式预测及 14 场诊断，确认后才运行实验，实验计算预算 30 分钟 |
 | `scoreboard` | `ubuntu-latest`，30 分钟上限 | 早晚班均更新赛后评分和虚拟账户；等待 `predict` 结束，预测失败仍可结算旧批次；另支持手动 `operation=scoreboard` |
 | `digest` | `ubuntu-latest`，15 分钟上限 | 等待 `scoreboard`，把冻结数字写成每日摘要并推送到当月 Issue；另支持手动 `operation=digest` |
 | `stats-backfill` | `ubuntu-latest`，300 分钟上限 | 只在手动 `operation=stats-backfill` 时运行；独立恢复数据库、按范围续跑技术数据，与其他 job 共用写锁 |
@@ -297,6 +301,9 @@ gate 对其他操作不生效。原来的三条 cron 均保留，不保证准点
 
 定时五个 job 依赖顺序为 `apis → sporttery → predict → scoreboard → digest`，各自恢复最新数据，整个工作流共用 `write-football-feed-data` concurrency，不取消正在运行的任务。
 daily 沿用相同顺序与失败处理：apis 失败则不预测，预测失败仍可结算旧批次并发日报；竞彩 job 的真实状态传给预测与日报。
+T88 将正式训练及冻结步骤的 90 分钟上限、30 分钟实验计算和 10 分钟发布与收尾余量计入 `predict` 总上限。
+Actions 摘要分别记录正式与实验阶段耗时，以及实验启动的 UTC 时间。实验超时、报错或发布失败时，
+已经发布的正式预测可继续结算，日报沿用「未生成」及原因的展示。
 daily 各 job 的 Actions 摘要首行是「手动整条链（gate=true/false）」。feed 清单保留原字符串 `run`，
 另记 `event_name` / `operation`；forecast 清单每条 `runs` 也记录这两个字段。定时为 `schedule` / null，
 补跑为 `workflow_dispatch` / `daily`，旧清单仍可恢复。同一天补跑时日报的更新次数沿用原有计数。
@@ -623,7 +630,7 @@ Actions 摘要第一行为「非购买建议 · BET 禁用 · P2 标签含义见
 
 #### 每日并行实验（T34a）
 
-正式预测先冻结，再运行 `dc-sot-v1`（fd 射正，九主联赛近10场）和 `dc-xg-v1`
+工作流先将正式预测发布到数据分支并确认，再在独立检出中运行 `dc-sot-v1`（fd 射正，九主联赛近10场）和 `dc-xg-v1`
 （apif xG，英超/西甲/意甲近10场，德甲近5场）。两者均为 **TEAM / P2 实验**，首行提示
 **实验 · 不下注**。训练截点与当批正式模型相同，半衰期固定90天；复用 T33 已拟合的函数形式、
 重新拟合系数，发布未经校准的原始概率，不用赔率训练、选窗或校准。
@@ -645,7 +652,7 @@ Actions 摘要第一行为「非购买建议 · BET 禁用 · P2 标签含义见
 它的 SHA256 进入 `forecast_manifest.json`，实验实际发布时刻另记在清单中。完整预测副本、训练样本特征与
 系数存入 Release **`experiments-YYYYMM`**，ZIP 和 `SHA256SUMS-<run>-<hash>` 都校验上传回执。
 Release 中每日实验 JSON 与冻结文件同字节；是否及时发布以 forecast manifest 的发布时间为准。
-不把全量实验训练文件写进数据分支 `experiments/`。上传或恢复失败只记实验空缺，已冻结正式结果仍可发布。
+全量实验训练文件保存在 Release。上传、恢复或超时等失败只记本班实验空缺，数据显示依据该班实际证据。
 单个 experimental.json 格式异常时整文件跳过，原因写入 `summary.json → experimental_audit.invalid_files`；
 其他实验文件与正式评分、虚拟账户照常处理。原归档哈希校验仍保留，损坏哈希不被忽略。
 现有 predict job 使用已有 `contents: write` 的 GITHUB_TOKEN，没有新 job / 权限 / 体育数据请求。

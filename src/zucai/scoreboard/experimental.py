@@ -367,7 +367,10 @@ def render_experiments(summary):
             "fit_failed": "拟合失败",
             "prediction_failed": "计算失败",
             "experiment_failed": "实验数据或计算失败",
+            "experiment_timeout": "实验超过时间预算",
+            "experiment_cancelled": "实验运行被取消",
             "experiment_archive_failed": "实验附件上传失败",
+            "experiment_publication_failed": "实验发布失败",
             "experimental_artifact_missing": "实验附件缺失",
         }
         missing = (
