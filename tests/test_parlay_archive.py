@@ -16,7 +16,8 @@ from zucai.db import get_engine, init_db, session_scope
 from zucai.forecast_archive import attach_experiments, publish_forecasts, verify_forecasts
 from zucai.models import Match, Result, Team
 from zucai.parlay.archive import freeze, load_documents, publish_document, raw_json
-from zucai.parlay.paper import LEDGER, advance_ledger, summarize
+from zucai.parlay.paper import LEDGER, advance_ledger, publication_view, summarize
+from zucai.parlay.single_double import build
 from zucai.report.render import write_report
 from zucai.scoreboard.score import instant
 
@@ -30,7 +31,8 @@ def files(root):
 
 
 @pytest.fixture
-def archive_setup(tmp_path):
+def archive_setup(tmp_path, request):
+    extra_dates, scope = getattr(request, "param", (None, None))
     sample = json.loads((FIX / "input.json").read_bytes())
     database, archive, stage = tmp_path / "data/feeds.db", tmp_path / "archive", tmp_path / "stage"
     engine = get_engine(database)
@@ -69,11 +71,17 @@ def archive_setup(tmp_path):
         },
         forecasts={},
     )
-    for day in (DAY, "2026-11-07"):
+    days = (DAY, "2026-11-07")
+    if extra_dates:
+        run[extra_dates] = [DAY]
+        days = ("2026-11-04", "2026-11-05", DAY)
+    for day in days:
         batch = copy.deepcopy(sample["batch"])
         if day != DAY:
             batch["predictions"] = []
-            batch["batch_id"] += "-empty"
+            batch["batch_id"] += f"-empty-{day}"
+        elif scope:
+            batch["input"]["scope"] = scope
         batch["input"]["kickoff_date_beijing"] = day
         path = f"forecasts/{day}/{RUN}"
         write_report(batch, stage / path)
@@ -118,6 +126,59 @@ def install_ledger(archive, document):
     summary["ledger_sha256"] = hashlib.sha256(raw).hexdigest()
     (target.parent / "summary.json").write_bytes(raw_json({"parlay_sd": summary}))
     return ledger
+
+
+@pytest.mark.parametrize(
+    "archive_setup",
+    [("jc_extra_dates", "jc_spillover"), ("jc_extra_dates", None), (None, "jc_spillover")],
+    indirect=True,
+)
+def test_spillover_leaves_no_frozen_parlay_attachment(archive_setup):
+    archive, db, sample = archive_setup
+
+    run = freeze(archive, db, RUN, injuries=sample["injuries"], clock=lambda: instant(STAMP))
+
+    assert "parlay_path" not in run["forecasts"][DAY]
+    assert not list((archive / run["forecasts"][DAY]["path"]).glob("parlay_sd*.json"))
+    assert all("parlay_path" in entry for day, entry in run["forecasts"].items() if day != DAY)
+
+
+@pytest.mark.parametrize("archive_setup", [("sfc_extra_dates", "sfc_only")], indirect=True)
+def test_sfc_only_still_leaves_no_frozen_parlay_attachment(archive_setup):
+    archive, db, sample = archive_setup
+
+    run = freeze(archive, db, RUN, injuries=sample["injuries"], clock=lambda: instant(STAMP))
+
+    assert "parlay_path" not in run["forecasts"][DAY]
+    assert not list((archive / run["forecasts"][DAY]["path"]).glob("parlay_sd*.json"))
+
+
+@pytest.mark.parametrize(
+    "archive_setup", [("jc_extra_dates", None), (None, "jc_spillover")], indirect=True
+)
+def test_preexisting_spillover_attachment_cannot_add_f_ledger_rows(archive_setup):
+    archive, db, sample = archive_setup
+    publish_document(archive, RUN, DAY, build(**sample), clock=lambda: instant(STAMP))
+    confirm_fixture(archive, published=STAMP)
+    frozen = files(archive)
+    docs = load_documents(archive, verify_forecasts(archive), BEFORE)
+    (document,) = docs
+    assert len(document["groups"]) == 3
+
+    assert advance_ledger(docs, {}, [], BEFORE) == []
+    recorded = advance_ledger(
+        [{k: v for k, v in document.items() if k != "batch_scope"}], {}, [], BEFORE
+    )
+    assert len(recorded) == 10
+    replayed = advance_ledger(docs, {}, recorded, BEFORE)
+    assert raw_json(replayed) == raw_json(recorded)
+    assert publication_view(docs, {}, replayed, BEFORE)[0] == recorded
+    freeze(archive, db, RUN, injuries=sample["injuries"], clock=lambda: instant(STAMP))
+    assert all(
+        (archive / name).read_bytes() == raw
+        for name, raw in frozen.items()
+        if name != "forecast_manifest.json"
+    )
 
 
 def test_append_manifest_and_original_quartet_and_experiments_never_change(archive_setup):
@@ -189,7 +250,6 @@ def test_archive_failure_rolls_back_and_kickoff_boundary_refuses(archive_setup, 
     from zucai.parlay import archive as module
 
     archive, _, _ = archive_setup
-    from zucai.parlay.single_double import build
 
     sample = archive_setup[2]
     doc = build(**sample)

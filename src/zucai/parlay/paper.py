@@ -99,6 +99,8 @@ def advance_ledger(documents, results, existing, at):
                 _settle(row, results, at)
     locked_batches = {r["batch_id"] for r in ledger}
     for doc in sorted(documents, key=lambda d: (instant(d["generated_utc"]), d["batch_id"])):
+        if doc.get("batch_scope") == "jc_spillover":
+            continue
         rule = doc["rule"]
         if rule not in SUPPORTED_RULES:
             raise ValueError("F 冻结文件策略不受支持")
