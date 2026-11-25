@@ -233,7 +233,8 @@ def test_relink_jc_workflow_runs_only_offline_relink_and_archive_steps(ref):
     ]
     assert all("secrets." not in value for value in active)
     commands = [value for value in active if "python -m zucai." in value]
-    assert len(commands) == 1 and "backfill --relink-jc" in commands[0]
+    assert len(commands) == 2 and "backfill --relink-jc" in commands[0]
+    assert "python -m zucai.github_api summary" in commands[1]
     assert any("publish-football-feeds.sh" in value for value in active)
     assert any("data/state" in value and "upload-artifact" in value for value in active)
 

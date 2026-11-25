@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import logging
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -100,13 +102,15 @@ def test_guard_and_stale_digest_do_not_make_requests(monkeypatch, actions):
 
 
 @responses.activate
-def test_github_failure_does_not_leak_response_or_token(actions):
+def test_github_failure_does_not_leak_response_or_token(actions, caplog):
     from zucai.digest_notify import publish
 
     responses.get(ROOT + "/issues", status=403, json={"message": "offline-token secret"})
     with pytest.raises(ValueError, match="GitHub HTTP 403") as error:
         publish(BODY, FIXTURE["repository"], now=NOW)
     assert "secret" not in str(error.value) and "offline-token" not in str(error.value)
+    assert '"http_status": 403' in caplog.text and '"category": "permission_denied"' in caplog.text
+    assert "secret" not in caplog.text and "offline-token" not in caplog.text
 
 
 @responses.activate
@@ -136,15 +140,86 @@ def test_paginated_comments_edit_bot_comment_only(actions):
 
 
 @responses.activate
-def test_pin_failure_is_explicit_and_does_not_post_comment(actions):
+def test_pin_failure_is_explicit_and_preserves_delivered_comment(actions, tmp_path):
     from zucai.digest_notify import publish
 
+    out = tmp_path / "daily"
+    version, body = render_version(out, "before-pin")
     responses.get(ROOT + "/issues", json=[FIXTURE["issue"]])
+    responses.get(ROOT + "/issues/101/comments", json=[])
+    responses.post(
+        ROOT + "/issues/101/comments",
+        json={**FIXTURE["comment"], "body": body, "updated_at": NOW.isoformat()},
+    )
+    responses.patch(ROOT + "/issues/101", json=FIXTURE["issue"])
     responses.post(API + "/graphql", json={"errors": [{"message": "offline-token private"}]})
     with pytest.raises(ValueError, match="置顶操作失败") as error:
-        publish(BODY, FIXTURE["repository"], now=NOW)
+        publish(body, FIXTURE["repository"], now=NOW, history_root=out)
     assert "private" not in str(error.value)
-    assert not any("/comments" in call.request.url for call in responses.calls)
+    assert responses.calls[2].request.method == "POST"
+    assert responses.calls[2].request.url.endswith("/issues/101/comments")
+    receipt = json.loads((out / str(TODAY) / "before-pin.notification.json").read_bytes())
+    assert receipt["markdown_sha256"] == version["markdown_sha256"]
+
+
+@pytest.mark.parametrize("status", [403, 429])
+@responses.activate
+def test_comment_rate_limit_waits_for_recovery_and_keeps_frozen_receipt(
+    actions, tmp_path, monkeypatch, caplog, status
+):
+    from zucai.digest_notify import publish
+
+    out = tmp_path / "daily"
+    version, body = render_version(out, "rate-limited")
+    caplog.set_level(logging.INFO)
+    frozen = (out / str(TODAY) / "rate-limited.md").read_bytes()
+    current = [int(NOW.timestamp())]
+    restore = current[0] + 10
+    waited = []
+
+    def sleep(seconds):
+        waited.append(seconds)
+        current[0] += seconds
+
+    monkeypatch.setattr(time, "time", lambda: current[0])
+    monkeypatch.setattr(time, "sleep", sleep)
+    monkeypatch.setenv("ZUCAI_GITHUB_DEADLINE", str(restore + 90))
+    responses.get(ROOT + "/issues", json=[FIXTURE["issue"]])
+    comments_url = ROOT + "/issues/101/comments"
+    responses.get(comments_url, json=[])
+    responses.post(
+        comments_url,
+        status=status,
+        json={"message": "API rate limit exceeded for installation (offline-token secret)"},
+        headers={"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(restore)},
+    )
+
+    def recovered(request):
+        assert current[0] >= restore
+        assert json.loads(request.body) == {"body": body}
+        published = datetime.fromtimestamp(current[0], UTC).isoformat()
+        comment = dict(FIXTURE["comment"], body=body, updated_at=published)
+        return 201, {}, json.dumps(comment)
+
+    responses.add_callback(responses.POST, comments_url, callback=recovered)
+    responses.patch(ROOT + "/issues/101", json=FIXTURE["issue"])
+    responses.post(API + "/graphql", json=pinned([FIXTURE["issue"]["node_id"]]))
+
+    assert publish(body, FIXTURE["repository"], now=NOW, history_root=out) == (101, 201)
+    assert waited and len(waited) == 1
+    assert [
+        call.response.status_code for call in responses.calls if call.request.method == "POST"
+    ] == [
+        status,
+        201,
+        200,
+    ]
+    receipt = json.loads((out / str(TODAY) / "rate-limited.notification.json").read_bytes())
+    assert receipt["markdown_sha256"] == version["markdown_sha256"]
+    assert receipt["notified_utc"] == datetime.fromtimestamp(current[0], UTC).isoformat()
+    assert (out / str(TODAY) / "rate-limited.md").read_bytes() == frozen
+    assert not list(out.rglob("notification-failures"))
+    assert "secret" not in caplog.text and "offline-token" not in caplog.text
 
 
 def notification_routes(
@@ -415,7 +490,9 @@ def test_notification_receipt_survives_overview_update_failure(actions, tmp_path
 
 
 @responses.activate
-def test_redeliver_archived_version_after_forbidden_is_idempotent(actions, tmp_path):
+def test_redeliver_archived_version_after_rate_limit_is_idempotent(
+    actions, tmp_path, monkeypatch, caplog
+):
     from zucai.digest_notify import redeliver
 
     root = tmp_path / "daily"
@@ -424,6 +501,11 @@ def test_redeliver_archived_version_after_forbidden_is_idempotent(actions, tmp_p
     before = {p: p.read_bytes() for p in (root / str(TODAY)).iterdir()}
     repo = FIXTURE["repository"]
     later = NOW + timedelta(days=2)
+    current = int(later.timestamp())
+    restore = current + 60
+    monkeypatch.setattr(time, "time", lambda: current)
+    monkeypatch.setattr(time, "sleep", lambda _: pytest.fail("wait outside budget"))
+    monkeypatch.setenv("ZUCAI_GITHUB_DEADLINE", str(current + 15))
     responses.get(ROOT + "/issues", json=[FIXTURE["issue"]])
     responses.post(API + "/graphql", json=pinned([FIXTURE["issue"]["node_id"]]))
     responses.get(ROOT + "/issues/101/comments", json=[])
@@ -434,14 +516,18 @@ def test_redeliver_archived_version_after_forbidden_is_idempotent(actions, tmp_p
         headers={
             "X-GitHub-Request-Id": "FACE:1234",
             "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": "1793760000",
+            "X-RateLimit-Reset": str(restore),
             "Retry-After": "60",
             "Set-Cookie": "secret",
         },
     )
     responses.patch(ROOT + "/issues/101", json=FIXTURE["issue"])
-    with pytest.raises(ValueError, match="403"):
+    with pytest.raises((ValueError, RuntimeError), match="次数用光") as error:
         redeliver(root, TODAY, "first", repo, now=later)
+    assert error.value.status == 403 and error.value.restored_at == restore
+    assert len(responses.calls) == 3
+    assert '"http_status": 403' in caplog.text and '"category": "rate_limited"' in caplog.text
+    assert "secret" not in caplog.text and "offline-token" not in caplog.text
     (failure,) = (root / str(TODAY) / "notification-failures").rglob("*.json")
     evidence = json.loads(failure.read_bytes())
     assert (evidence["stage"], evidence["http_status"], evidence["request_id"]) == (
@@ -449,9 +535,10 @@ def test_redeliver_archived_version_after_forbidden_is_idempotent(actions, tmp_p
         403,
         "FACE:1234",
     )
+    assert evidence["rate_limit_restored_utc"] == datetime.fromtimestamp(restore, UTC).isoformat()
     assert evidence["rate_limit"] == {
         "x-ratelimit-remaining": "0",
-        "x-ratelimit-reset": "1793760000",
+        "x-ratelimit-reset": str(restore),
         "retry-after": "60",
     }
     assert "secret" not in failure.read_text() and "offline-token" not in failure.read_text()

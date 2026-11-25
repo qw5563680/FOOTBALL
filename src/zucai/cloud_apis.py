@@ -65,12 +65,15 @@ def fd_scopes(today, leagues):
 
 def failure_reason(exc):
     """Publish safe APIF wording and redacted Release diagnostics; bound other errors."""
+    from zucai.github_api import GitHubRateLimited
     from zucai.request_budget import DeferredRequestBudget
 
     if isinstance(exc, DeferredRequestBudget):
         return "请求中途达到本批上限，分页/范围未完成"
     if isinstance(exc, ReleaseHttpError):
         return exc.summary
+    if isinstance(exc, GitHubRateLimited):
+        return str(exc)
     if isinstance(exc, ApifResponseError):
         return exc.summary.replace("\r", "\\r").replace("\n", "\\n")
     if isinstance(exc, requests.RequestException):

@@ -12,13 +12,15 @@ from urllib.parse import quote, urlparse
 
 import requests
 
+from zucai.github_api import GitHubApi
 from zucai.sources.base import _atomic_write
 
 TAG = r"(?:stats-raw|experiments)-[0-9]{4}(?:0[1-9]|1[0-2])"
 # Waits (seconds) before repeating a call that failed at connection level (reset, timeout).
-# An HTTP answer, whatever its status, is never repeated.
+# The separate GitHub rate handler repeats only an explicit rejection.
 RETRY_WAITS = (2, 5, 10)
 NAME = r"[A-Za-z0-9][A-Za-z0-9_.-]*"
+GITHUB_HOSTS = {"api.github.com", "uploads.github.com"}
 
 
 def validate_tag(tag):
@@ -100,43 +102,56 @@ class ReleaseStore:
         self.token = token if token is not None else os.environ.get("GITHUB_TOKEN")
         self.session = session or requests.Session()
         self.base = f"https://api.github.com/repos/{repository}"
+        self._api = GitHubApi()
+        self._releases = {}
+        self._asset_index = {}
 
-    def _request(self, method, url, *, retry=True, **kwargs):
+    def _request(self, method, url, *, retry=True, before_retry=None, **kwargs):
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.username or parsed.password:
             raise ValueError("Release URL 无效")
         headers = {"Accept": "application/vnd.github+json", **kwargs.pop("headers", {})}
-        if parsed.hostname in {"api.github.com", "uploads.github.com"} and self.token:
+        api_host = parsed.hostname in GITHUB_HOSTS
+        if api_host and self.token:
             headers["Authorization"] = "Bearer " + self.token
         else:
             headers.pop("Authorization", None)
         # Request-level auth/header overrides also suppress a caller-supplied session token.
         headers.setdefault("Authorization", None)
+
+        def send():
+            return self.session.request(
+                method,
+                url,
+                headers=headers,
+                auth=(),
+                allow_redirects=False,
+                timeout=120,
+                **kwargs,
+            )
+
         # Only a read is repeated here: it changes nothing, so asking again is safe. An
         # upload body is a consumed stream; upload() repeats its whole checked procedure.
         waits = RETRY_WAITS if method == "GET" and retry else ()
         for wait in (*waits, None):
             try:
-                return self.session.request(
-                    method,
-                    url,
-                    headers=headers,
-                    auth=(),
-                    allow_redirects=False,
-                    timeout=120,
-                    **kwargs,
-                )
-            except requests.RequestException:
+                if api_host:
+                    return self._api.request(send, before_retry=before_retry, reserve=True)
+                return send()
+            except requests.RequestException as exc:
                 if wait is None:
-                    raise
+                    raise type(exc)("Release 网络请求失败") from None
                 time.sleep(wait)
 
-    def _raise_for_status(self, response):
+    def _raise_for_status(self, response, *, redact_body=False):
         if 400 <= response.status_code < 600:
-            raise ReleaseHttpError(response.status_code, response.text, token=self.token)
+            body = "[REDACTED]" if redact_body else response.text
+            raise ReleaseHttpError(response.status_code, body, token=self.token)
 
     def _release(self, tag, *, create=False):
         validate_tag(tag)
+        if tag in self._releases:
+            return self._releases[tag]
         response = self._request("GET", f"{self.base}/releases/tags/{quote(tag, safe='')}")
         if response.status_code == 404 and create:
             response = self._request(
@@ -145,20 +160,27 @@ class ReleaseStore:
             if response.status_code == 422:  # Another writer may have created the month.
                 response = self._request("GET", f"{self.base}/releases/tags/{tag}")
         self._raise_for_status(response)
-        return response.json()
+        release = response.json()
+        self._releases[tag] = release
+        return release
 
     def _assets(self, release):
-        assets, page = [], 1
+        release_id = int(release["id"])
+        if release_id in self._asset_index:
+            return self._asset_index[release_id]
+        assets, page = {}, 1
         while True:
             response = self._request(
                 "GET",
-                f"{self.base}/releases/{int(release['id'])}/assets",
+                f"{self.base}/releases/{release_id}/assets",
                 params={"per_page": 100, "page": page},
             )
             self._raise_for_status(response)
             batch = response.json()
-            assets.extend(batch)
+            for asset in batch:
+                assets.setdefault(asset["name"], asset)
             if len(batch) < 100:
+                self._asset_index[release_id] = assets
                 return assets
             page += 1
 
@@ -170,9 +192,9 @@ class ReleaseStore:
                 return self._download_once(asset, dest)
             except ReleaseHttpError:
                 raise
-            except requests.RequestException:
+            except requests.RequestException as exc:
                 if wait is None:
-                    raise
+                    raise type(exc)("Release 网络请求失败") from None
                 time.sleep(wait)
         raise AssertionError("unreachable")
 
@@ -186,26 +208,27 @@ class ReleaseStore:
                 headers={"Accept": "application/octet-stream"},
                 stream=True,
             )
-            if response.status_code in {301, 302, 303, 307, 308}:
-                url = response.headers["Location"]
-                response.close()
-                continue
-            self._raise_for_status(response)
-            dest = Path(dest)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            with dest.open("wb") as output:
-                for block in response.iter_content(1024 * 1024):
-                    output.write(block)
-            response.close()
+            with response:
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    url = response.headers["Location"]
+                    continue
+                self._raise_for_status(
+                    response, redact_body=urlparse(url).hostname not in GITHUB_HOSTS
+                )
+                dest = Path(dest)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with dest.open("wb") as output:
+                    for block in response.iter_content(1024 * 1024):
+                        output.write(block)
             return dest
         raise ValueError("Release 下载重定向过多")
 
     def upload(self, tag: str, path: Path) -> dict:
         """Upload one immutable asset; a connection-level failure repeats the whole procedure.
 
-        Each attempt lists the Release again first, so an upload that did arrive before the
-        connection dropped is recognised by name, size and hash and is not sent twice. A
-        same-name asset with another hash stays a refusal: nothing is overwritten or deleted.
+        Only an interrupted upload invalidates its Release inventory. Reconciling an
+        ambiguous upload before resending keeps an asset that arrived from being sent twice.
+        A same-name asset with another hash still refuses the upload.
         """
         for wait in (*RETRY_WAITS, None):
             try:
@@ -222,7 +245,8 @@ class ReleaseStore:
             raise ValueError("Release 上传需要普通文件")
         want = descriptor(tag, path)
         release = self._release(tag, create=True)
-        existing = next((a for a in self._assets(release) if a["name"] == path.name), None)
+        assets = self._assets(release)
+        existing = assets.get(path.name)
         if existing is not None:
             digest = existing.get("digest")
             if digest is None:
@@ -232,6 +256,7 @@ class ReleaseStore:
                     )
             if digest != "sha256:" + want["sha256"] or existing.get("size") != want["size"]:
                 raise ValueError("Release asset collision：同名文件哈希冲突，禁止覆盖")
+            assets[path.name] = {**existing, "digest": digest}
             return want
         url = release["upload_url"].split("{", 1)[0]
         if urlparse(url).netloc != "uploads.github.com" or not url.startswith("https://"):
@@ -244,8 +269,10 @@ class ReleaseStore:
                     params={"name": path.name},
                     data=stream,
                     headers={"Content-Type": "application/octet-stream"},
+                    before_retry=lambda: stream.seek(0),
                 )
             except requests.RequestException as exc:
+                self._asset_index.pop(int(release["id"]), None)
                 raise _UploadInterrupted from exc
         self._raise_for_status(response)
         asset = response.json()
@@ -258,13 +285,14 @@ class ReleaseStore:
             with TemporaryDirectory(prefix="stats-upload-verify-") as temporary:
                 if sha256(self._download_asset(asset, Path(temporary) / "asset")) != want["sha256"]:
                     raise ValueError("Release 上传哈希不符")
+        assets[path.name] = {**asset, "digest": "sha256:" + want["sha256"]}
         return want
 
     def download(self, tag: str, name: str, dest: Path) -> Path:
         validate_tag(tag)
         validate_name(name)
         release = self._release(tag)
-        asset = next((a for a in self._assets(release) if a["name"] == name), None)
+        asset = self._assets(release).get(name)
         if asset is None:
             raise ValueError(f"Release asset 缺失：{tag}/{name}")
         return self._download_asset(asset, dest)
