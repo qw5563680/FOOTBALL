@@ -1,4 +1,4 @@
-"""Publish the exact daily Markdown to a monthly Issue, only from Actions."""
+"""Publish a frozen daily report to a monthly Issue, only from Actions."""
 
 import argparse
 import hashlib
@@ -25,6 +25,8 @@ LOG = logging.getLogger(__name__)
 API = "https://api.github.com"
 OVERVIEW_START = "<!-- zucai-daily-overview:start -->"
 OVERVIEW_END = "<!-- zucai-daily-overview:end -->"
+GITHUB_BODY_LIMIT = 65536
+COMMENT_LIMIT_NOTICE = "本期日报全文超过单条评论上限。"
 
 
 def validate_repository(repository):
@@ -163,15 +165,74 @@ def _notification_version(root, body, today, repository, version_id=None):
     return root, version
 
 
+def _archive_link(repository, day, name):
+    return (
+        f"https://github.com/{repository}/blob/data/football-feeds/daily/"
+        f"{day}/{quote(name, safe='')}.md"
+    )
+
+
+def _report_header(body):
+    markers = re.findall(r"<!-- zucai-daily:[^\n]* -->", body)
+    if not body.startswith(DISCLAIMER + "\n") or len(markers) != 1:
+        return None
+    return f"{DISCLAIMER}\n{markers[0]}\n"
+
+
+def _shortened_body(body, url, limit, notice):
+    header = _report_header(body)
+    if header is None:
+        return None
+    headings = list(re.finditer(r"(?m)^## ([^\r\n]+)$", body))
+    titles = [heading[1] for heading in headings] or ["正文"]
+
+    def footer(kept):
+        omitted = "、".join(titles[kept:]) or "无，已省略开头说明"
+        return f"\n\n{notice}\n\n省略章节：{omitted}。\n\n[查看完整日报]({url})\n"
+
+    minimal = header + footer(0)
+    if len(minimal) > limit:
+        return None
+    if not headings:
+        return minimal
+
+    start = headings[0].start()
+    kept = minimal
+    for count, end in enumerate([h.start() for h in headings[1:]] + [len(body)], start=1):
+        tail = footer(count)
+        if len(header) + end - start + len(tail) > limit:
+            break
+        # Keep the original preamble when it fits, and slice each chapter verbatim.
+        kept = (body[:end] if end + len(tail) <= limit else header + body[start:end]) + tail
+    return kept
+
+
+def _comment_body(body, url):
+    if len(body) <= GITHUB_BODY_LIMIT:
+        return body
+    shortened = _shortened_body(body, url, GITHUB_BODY_LIMIT, COMMENT_LIMIT_NOTICE)
+    if shortened is not None:
+        return shortened
+    header = _report_header(body)
+    if header is None:
+        raise ValueError("缩短版缺少固定免责行与唯一当日标记")
+    # Even a single unusually long title must not prevent delivery.
+    return (
+        f"{header}\n{COMMENT_LIMIT_NOTICE}\n\n"
+        f"省略章节的标题清单超过评论可用空间。\n\n[查看完整日报]({url})\n"
+    )
+
+
 def _record_notification(root, version, repository, issue, comment, body):
     if comment.get("body") != body:
-        raise ValueError("GitHub 评论响应正文与冻结日报不符，无法确认通知")
+        raise ValueError("GitHub 评论响应正文与提交的日报不符，无法确认通知")
     if any(type(value) is not int or value <= 0 for value in (issue["number"], comment["id"])):
         raise ValueError("GitHub 评论或 Issue 身份无效")
     try:
         notified = instant(comment.get("updated_at") or comment["created_at"])
     except (KeyError, TypeError, ValueError):
         raise ValueError("GitHub 评论响应缺少有效发布时间，无法确认通知") from None
+    comment_sha = hashlib.sha256(body.encode()).hexdigest()
     receipt = {
         "schema_version": 1,
         "status": "published",
@@ -179,6 +240,8 @@ def _record_notification(root, version, repository, issue, comment, body):
         "issue_number": issue["number"],
         "comment_id": comment["id"],
         **{key: version[key] for key in ("date", "run_id", "version_id", "markdown_sha256")},
+        "comment_sha256": comment_sha,
+        "shortened": comment_sha != version["markdown_sha256"],
         "notified_utc": notified.isoformat(),
     }
     existing = read_notification(root, version)
@@ -233,15 +296,14 @@ def monthly_issue_body(issue, comments, repository, today, root=None):
             versions = sorted(rendered_versions(root, day), key=_version_order, reverse=True)
             if not versions:
                 continue
-            base_url = f"https://github.com/{repository}/blob/data/football-feeds/daily/{day}"
             links = []
             for item in versions:
                 name = item["version_id"]
-                link = f"{base_url}/{quote(name, safe='')}.md"
+                link = _archive_link(repository, day, name)
                 links.append(f"- [{day} · {name}]({link})")
             newest = versions[0]["version_id"]
             markdown = _path(root, f"{day}/{newest}.md").read_text(encoding="utf-8")
-            entries[day] = (links, markdown, f"{base_url}/{quote(newest, safe='')}.md")
+            entries[day] = (links, markdown, _archive_link(repository, day, newest))
     if not entries:
         raise ValueError("月报缺少可核实的当月日报，无法更新目录")
     latest_day = max(entries)
@@ -260,12 +322,17 @@ def monthly_issue_body(issue, comments, repository, today, root=None):
         prefix, suffix = original.rstrip() + "\n\n", ""
     leading = prefix + OVERVIEW_START + "\n\n" + overview
     trailing = "\n\n" + OVERVIEW_END + suffix
-    result = leading + latest_body + trailing
-    if len(result) > 65536:
-        result = leading + full_link + trailing
-    if len(result) > 65536:
+    available = GITHUB_BODY_LIMIT - len(leading) - len(trailing)
+    if len(latest_body) > available:
+        notice = (
+            COMMENT_LIMIT_NOTICE
+            if len(latest_body) > GITHUB_BODY_LIMIT
+            else "月报正文空间不足，以下为缩短版。"
+        )
+        latest_body = _shortened_body(latest_body, url, available, notice) or full_link
+    if len(latest_body) > available:
         raise ValueError("月报正文超过 GitHub 长度限制，保留现有正文和完整日报评论")
-    return result
+    return leading + latest_body + trailing
 
 
 def _update_directory(api, issue, comments, repository, day, version):
@@ -310,7 +377,13 @@ def _deliver_comment(api, issue_number, matches, body, version, day):
             root, requested = version
             by_hash = {}
             for item in rendered_versions(root, day):
-                sha = item["markdown_sha256"]
+                name = item["version_id"]
+                if receipt := read_notification(root, item):
+                    sha = receipt.get("comment_sha256", item["markdown_sha256"])
+                else:
+                    full = _path(root, f"{day}/{name}.md").read_bytes().decode("utf-8")
+                    sent = _comment_body(full, _archive_link(f"{api.owner}/{api.name}", day, name))
+                    sha = hashlib.sha256(sent.encode()).hexdigest()
                 # Identical bodies cannot prove which of two version receipts is safe to retire.
                 by_hash[sha] = item if sha not in by_hash else None
             ranked = {}
@@ -376,8 +449,6 @@ def publish(body, repository, *, now=None, history_root=None, report_day=None, v
         or "推荐" in body
     ):
         raise ValueError("只能发布含固定免责行与唯一当日标记的摘要")
-    if len(body) > 65536:
-        raise ValueError("摘要超过单条 GitHub 评论长度限制；保留数据分支全文，未截断发布")
     version = (
         _notification_version(history_root, body, today, repository, version_id)
         if history_root
@@ -385,6 +456,10 @@ def publish(body, repository, *, now=None, history_root=None, report_day=None, v
     )
     if version and instant(version[1]["generated_utc"]) > instant(clock):
         raise ValueError("不能补发尚未生成的日报版本")
+    if len(body) > GITHUB_BODY_LIMIT:
+        if not version:
+            raise ValueError("日报超过评论上限，缺少可链接的冻结版本")
+        body = _comment_body(body, _archive_link(repository, today, version[1]["version_id"]))
     title = f"每日报告 {today:%Y-%m}"
     previous_title = f"每日报告 {today.replace(day=1) - timedelta(days=1):%Y-%m}"
     with requests.Session() as session:
