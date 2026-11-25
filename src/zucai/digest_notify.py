@@ -17,6 +17,7 @@ import requests
 from zucai.daily_digest import DISCLAIMER, _day
 from zucai.digest_history import notification_path, read_notification, rendered_versions
 from zucai.forecast_archive import _path
+from zucai.github_api import GitHubApi, GitHubRateLimited, diagnose
 from zucai.publication_history import PublicationHistoryError, git_read
 from zucai.scoreboard.score import instant
 from zucai.sources.base import _atomic_write
@@ -35,43 +36,36 @@ def validate_repository(repository):
 
 
 class GitHubFailure(ValueError):
-    def __init__(self, response, message=None):
-        super().__init__(message or f"GitHub HTTP {response.status_code}；未输出响应或凭证")
-        self.status = response.status_code
-        rid = response.headers.get("X-GitHub-Request-Id", "")
-        self.request_id = rid if re.fullmatch(r"[A-Fa-f0-9:]{1,100}", rid) else None
-        self.rate_limit = {}
-        for key in (
-            "x-ratelimit-limit",
-            "x-ratelimit-remaining",
-            "x-ratelimit-reset",
-            "x-ratelimit-used",
-            "retry-after",
-        ):
-            value = response.headers.get(key, "")
-            if re.fullmatch(r"[0-9]{1,20}", value):
-                self.rate_limit[key] = value
-        resource = response.headers.get("x-ratelimit-resource")
-        if resource in {"core", "graphql", "search", "integration_manifest", "issues"}:
-            self.rate_limit["x-ratelimit-resource"] = resource
+    def __init__(self, response, message=None, *, graphql=False):
+        error = diagnose(response, graphql=graphql)
+        super().__init__(message or f"GitHub HTTP {error.status}；未输出响应或凭证")
+        self.status = error.status
+        self.category = error.category
+        self.request_id = error.request_id
+        self.rate_limit = error.rate_limit
 
 
 @contextmanager
 def _record_failure(version, api):
     try:
         yield
-    except (ValueError, KeyError, TypeError, OSError) as exc:
+    except (ValueError, KeyError, TypeError, OSError, GitHubRateLimited) as exc:
+        evidence = {
+            "stage": api.stage,
+            "failed_utc": datetime.now(UTC).isoformat(),
+            "http_status": getattr(exc, "status", None),
+            "category": getattr(exc, "category", "other"),
+            "request_id": getattr(exc, "request_id", None),
+            "rate_limit": getattr(exc, "rate_limit", {}),
+        }
+        if isinstance(exc, GitHubRateLimited) and exc.restored_at is not None:
+            evidence["rate_limit_restored_utc"] = datetime.fromtimestamp(
+                exc.restored_at, UTC
+            ).isoformat()
         if version:
             root, item = version
-            evidence = {
-                k: item[k] for k in ("date", "version_id", "generated_utc", "markdown_sha256")
-            }
             evidence.update(
-                stage=api.stage,
-                failed_utc=datetime.now(UTC).isoformat(),
-                http_status=getattr(exc, "status", None),
-                request_id=getattr(exc, "request_id", None),
-                rate_limit=getattr(exc, "rate_limit", {}),
+                {k: item[k] for k in ("date", "version_id", "generated_utc", "markdown_sha256")}
             )
             path = _path(
                 root,
@@ -79,7 +73,7 @@ def _record_failure(version, api):
             )
             path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(path, (json.dumps(evidence, sort_keys=True, indent=2) + "\n").encode())
-            LOG.error("日报通知失败 %s", json.dumps(evidence, sort_keys=True))
+        LOG.error("日报通知失败 %s", json.dumps(evidence, sort_keys=True))
         raise
 
 
@@ -87,27 +81,34 @@ class _GitHub:
     def __init__(self, session, repository):
         self.stage = "find_issue"
         self.session = session
+        self.github = GitHubApi()
         self.root = f"/repos/{repository}"
         self.owner, self.name = repository.split("/")
 
     def request(self, method, path, **kwargs):
+        graphql = path == "/graphql"
         try:
-            response = self.session.request(
-                method, API + path, timeout=30, allow_redirects=False, **kwargs
+            response = self.github.request(
+                lambda: self.session.request(
+                    method, API + path, timeout=30, allow_redirects=False, **kwargs
+                ),
+                graphql=graphql,
             )
         except requests.RequestException:
             raise ValueError("GitHub 请求失败；未输出响应或凭证") from None
         if not 200 <= response.status_code < 300:
-            raise GitHubFailure(response)
+            raise GitHubFailure(response, graphql=graphql)
         try:
             parsed = response.json()
         except ValueError:
-            raise GitHubFailure(response, "GitHub 响应不是 JSON") from None
-        if path == "/graphql" and (
+            raise GitHubFailure(response, "GitHub 响应不是 JSON", graphql=graphql) from None
+        if graphql and (
             not isinstance(parsed, dict) or parsed.get("errors") or not parsed.get("data")
         ):
             raise GitHubFailure(
-                response, "GitHub 置顶操作失败，请检查 Actions 的 issues: write 权限与运行记录"
+                response,
+                "GitHub 置顶操作失败，请检查 Actions 的 issues: write 权限与运行记录",
+                graphql=True,
             )
         return parsed
 
@@ -504,9 +505,6 @@ def publish(body, repository, *, now=None, history_root=None, report_day=None, v
             elif manage_month and issue["state"] == "closed":
                 api.stage = "reopen_issue"
                 api.request("PATCH", f"{api.root}/issues/{issue['number']}", json={"state": "open"})
-            if manage_month:
-                api.stage = "pin_issue"
-                api.pin_current(issue, previous)
         comments = None
         try:
             with _record_failure(version, api):
@@ -546,19 +544,22 @@ def publish(body, repository, *, now=None, history_root=None, report_day=None, v
                         {**comment, "body": body}
                     ]
         except GitHubFailure as exc:
-            if version and exc.status == 403:
+            if version and exc.status == 403 and exc.category == "permission_denied":
                 with _record_failure(version, api):
                     _update_directory(api, issue, comments, repository, today, version)
             raise
+        LOG.info("摘要已发布到 Issue #%s，评论 %s", issue["number"], comment_id)
         with _record_failure(version, api):
             _update_directory(api, issue, comments, repository, today, version)
+            if manage_month:
+                api.stage = "pin_issue"
+                api.pin_current(issue, previous)
             # Close only after the new month's report is successfully visible; safe to retry.
             if manage_month and previous and previous["state"] != "closed":
                 api.stage = "close_previous"
                 api.request(
                     "PATCH", f"{api.root}/issues/{previous['number']}", json={"state": "closed"}
                 )
-    LOG.info("摘要已发布到 Issue #%s，评论 %s", issue["number"], comment_id)
     return issue["number"], comment_id
 
 
@@ -585,8 +586,8 @@ def main(argv=None):
             args.repository or "",
             history_root=args.history_root,
         )
-    except (ValueError, OSError, KeyError, TypeError) as exc:
-        LOG.error("摘要未推送：%s", exc)
+    except (ValueError, OSError, KeyError, TypeError, GitHubRateLimited) as exc:
+        LOG.error("摘要通知流程未完成：%s", exc)
         return 1
     return 0
 

@@ -134,6 +134,141 @@ def test_signed_download_has_no_token(tmp_path):
     assert responses.calls[0].request.headers["Authorization"] == "Bearer private-token"
 
 
+@responses.activate
+def test_fifty_downloads_share_one_paginated_release_inventory(tmp_path):
+    from zucai.stats_release import ReleaseStore
+
+    root = "https://api.github.com/repos/owner/repo/releases"
+    responses.get(root + "/tags/stats-raw-202611", json={"id": 1})
+    inventory = [dict(id=n, name=f"shard-{n}.zst") for n in range(1, 151)]
+    for page, assets in enumerate((inventory[:100], inventory[100:]), start=1):
+        responses.get(
+            root + "/1/assets",
+            match=[responses.matchers.query_param_matcher({"per_page": 100, "page": page})],
+            json=assets,
+        )
+    selected = [*range(1, 26), *range(101, 126)]
+    for n in selected:
+        responses.get(f"{root}/assets/{n}", body=f"payload {n}")
+
+    store = ReleaseStore("owner/repo", "private-token")
+    for n in selected:
+        dest = tmp_path / f"shard-{n}.zst"
+        store.download("stats-raw-202611", dest.name, dest)
+        assert dest.read_text() == f"payload {n}"
+
+    assert sum("/tags/" in c.request.path_url for c in responses.calls) == 1
+    listings = [c.request.path_url for c in responses.calls if "/1/assets?" in c.request.path_url]
+    assert listings == [
+        "/repos/owner/repo/releases/1/assets?per_page=100&page=1",
+        "/repos/owner/repo/releases/1/assets?per_page=100&page=2",
+    ]
+
+
+@responses.activate
+def test_verified_upload_updates_inventory_used_for_downloads_and_collisions(tmp_path):
+    from zucai.stats_release import ReleaseStore
+
+    root = "https://api.github.com/repos/owner/repo/releases"
+    upload = "https://uploads.github.com/repos/owner/repo/releases/1/assets"
+    path = tmp_path / "rows.zst"
+    path.write_bytes(b"payload")
+    sha = hashlib.sha256(b"payload").hexdigest()
+    responses.get(root + "/tags/stats-raw-202611", json={"id": 1, "upload_url": upload})
+    responses.get(root + "/1/assets", json=[])
+    responses.post(
+        upload, json={"id": 2, "name": "rows.zst", "size": 7, "digest": "sha256:" + sha}, status=201
+    )
+    responses.get(root + "/assets/2", body=b"payload")
+
+    store = ReleaseStore("owner/repo", "private-token")
+    assert store.upload("stats-raw-202611", path)["sha256"] == sha
+    downloaded = store.download("stats-raw-202611", "rows.zst", tmp_path / "downloaded")
+    assert downloaded.read_bytes() == b"payload"
+    assert store.upload("stats-raw-202611", path)["sha256"] == sha
+    path.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="collision"):
+        store.upload("stats-raw-202611", path)
+    assert [c.request.method for c in responses.calls] == ["GET", "GET", "POST", "GET"]
+
+
+@responses.activate
+def test_upload_waits_for_rate_reset_and_resends_the_complete_file(tmp_path, monkeypatch):
+    from zucai.stats_release import ReleaseStore
+
+    clock = [1_800_000_000]
+    waits, sent = [], []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr("zucai.github_api.time.time", lambda: clock[0])
+    monkeypatch.setattr("zucai.github_api.time.sleep", sleep)
+    monkeypatch.setenv("ZUCAI_GITHUB_DEADLINE", str(clock[0] + 60))
+    token = "offline-release-token-placeholder"
+    path = tmp_path / "rows.zst"
+    path.write_bytes(b"payload")
+    sha = hashlib.sha256(b"payload").hexdigest()
+    upload = _release_with([[]])
+
+    def limited(request):
+        body = request.body
+        sent.append(body if isinstance(body, bytes) else body.read())
+        return (
+            403,
+            {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1800000005"},
+            json.dumps({"message": f"API rate limit exceeded for installation {token}"}),
+        )
+
+    def uploaded(request):
+        body = request.body
+        sent.append(body if isinstance(body, bytes) else body.read())
+        return (
+            201,
+            {},
+            json.dumps({"id": 2, "name": path.name, "size": 7, "digest": "sha256:" + sha}),
+        )
+
+    responses.add_callback(responses.POST, upload, callback=limited)
+    responses.add_callback(responses.POST, upload, callback=uploaded)
+    result = ReleaseStore("owner/repo", token).upload("stats-raw-202611", path)
+    assert result["sha256"] == sha
+    assert sent == [b"payload", b"payload"]
+    assert waits == [6]
+    assert [c.request.method for c in responses.calls] == ["GET", "GET", "POST", "POST"]
+
+
+@pytest.mark.parametrize("transport_error", [False, True])
+@responses.activate
+def test_signed_download_failure_omits_cdn_credentials(tmp_path, monkeypatch, transport_error):
+    from zucai.stats_release import ReleaseStore
+
+    _quiet(monkeypatch)
+    signed = "https://release-assets.githubusercontent.com/signed?token=cdn-access-placeholder"
+    root = "https://api.github.com/repos/owner/repo/releases"
+    responses.get(root + "/tags/stats-raw-202611", json={"id": 1})
+    responses.get(root + "/1/assets", json=[{"id": 2, "name": "rows.zst"}])
+    responses.get(root + "/assets/2", status=302, headers={"Location": signed})
+    if transport_error:
+        responses.get(signed, body=requests.ConnectionError(f"failed to open {signed}"))
+        error_type = requests.ConnectionError
+    else:
+        responses.get(signed, status=403, body=f"signature failed for {signed}")
+        error_type = requests.HTTPError
+    with pytest.raises(error_type) as caught:
+        ReleaseStore("owner/repo", "private-token").download(
+            "stats-raw-202611", "rows.zst", tmp_path / "rows"
+        )
+    assert "cdn-access-placeholder" not in str(caught.value)
+    assert "private-token" not in str(caught.value)
+    assert all(
+        c.request.headers.get("Authorization") is None
+        for c in responses.calls
+        if c.request.url == signed
+    )
+
+
 @pytest.mark.parametrize(
     "repository",
     [
@@ -221,12 +356,14 @@ def test_a_dropped_read_is_asked_again_and_an_http_answer_is_not(tmp_path, monke
     with pytest.raises(ValueError, match="缺失"):
         store.download("stats-raw-202611", "rows.zst", tmp_path / "rows")
     assert waits == list(RETRY_WAITS[:2])
-    # A status answer is final: one call, no wait.
+    # A fresh run sees the new server state, and an ordinary HTTP failure is final.
     waits.clear()
     responses.replace(responses.GET, tag, status=503, body="busy")
     before = len(responses.calls)
     with pytest.raises(ReleaseHttpError):
-        store.download("stats-raw-202611", "rows.zst", tmp_path / "rows")
+        ReleaseStore("owner/repo", "private-token").download(
+            "stats-raw-202611", "rows.zst", tmp_path / "rows"
+        )
     assert len(responses.calls) == before + 1 and waits == []
 
 

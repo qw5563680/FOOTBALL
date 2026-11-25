@@ -81,9 +81,11 @@ run_experiments() {
   # Leave room for the TERM-to-KILL grace period.
   if (( remaining < budget )); then budget=$remaining; fi
   (( budget > 0 )) || return 124
-  timeout --signal=TERM --kill-after=30s "${budget}s" \
-    python -m zucai.cloud_predict experiments --archive "$scratch" --run-id "$run_id" \
-    --production-state "$state"
+  # Reserve the duration of a Release request (120s) and a little cleanup time.
+  ZUCAI_GITHUB_DEADLINE="$(($(date -u +%s) + budget - 125))" \
+    timeout --signal=TERM --kill-after=30s "${budget}s" \
+      python -m zucai.cloud_predict experiments --archive "$scratch" --run-id "$run_id" \
+      --production-state "$state"
 }
 
 if new_worktree && run_experiments; then

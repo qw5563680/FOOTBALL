@@ -62,7 +62,10 @@ def evaluate(expression, **overrides):
     for key, value in context.items():
         expression = expression.replace(key, repr(value))
     expression = (
-        expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+        expression.replace("!cancelled()", "True")
+        .replace("always()", "True")
+        .replace("&&", " and ")
+        .replace("||", " or ")
     )
     return eval(expression, {"__builtins__": {}, "startsWith": str.startswith}, {})
 
@@ -154,9 +157,10 @@ def test_stats_job_lock_timeout_secret_boundaries_and_artifact():
     for path in ("data/raw", "data/state", "data/stats_assets"):
         assert path in job
         assert path in jobs()["apis"]
-    for chunk in text.split("      - name:"):
-        if "        run:" in chunk:
-            assert "${{ inputs." not in chunk.split("        run:", 1)[1]
+    for workflow_job in jobs().values():
+        for chunk in workflow_job.split("      - "):
+            if "        run:" in chunk:
+                assert "${{ inputs." not in chunk.split("        run:", 1)[1]
 
 
 @pytest.mark.parametrize("outcome", ["success", "failure", "skipped", "cancelled", ""])

@@ -101,6 +101,10 @@ jobs:
           ARCHIVE_STATUS: ${{ steps.archive.outcome }}
         run: |
           python3 app/src/zucai/schedule_gate.py --archive cloud-data --archive-status "$ARCHIVE_STATUS"
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        run: |
+          printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
 
   apis:
     needs: [schedule-gate]
@@ -110,9 +114,15 @@ jobs:
     outputs:
       slot: ${{ steps.collect.outputs.slot }}
     env:
+      ZUCAI_GITHUB_RESERVE: '25'
       WORK_DIR: work-apis-${{ github.run_id }}-${{ github.run_attempt }}
       ZUCAI_APIF_DAILY_CAP: ${{ vars.ZUCAI_APIF_DAILY_CAP }}
     steps:
+      - name: Set GitHub API budget
+        run: |
+          printf 'ZUCAI_GITHUB_DEADLINE=%s\n' "$(($(date -u +%s) + 55 * 60))" >> "$GITHUB_ENV"
+          printf 'ZUCAI_GITHUB_USAGE_FILE=%s/zucai-github-api-%s-%s-%s.jsonl\n' \
+            "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" >> "$GITHUB_ENV"
       - name: Identify manual daily chain
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
         shell: bash
@@ -356,6 +366,14 @@ jobs:
             ${{ env.WORK_DIR }}/data/unmatched_teams.csv
           retention-days: 90
           if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        run: |
+          if [[ -s "${ZUCAI_GITHUB_USAGE_FILE:-}" ]]; then
+            python -m zucai.github_api summary
+          else
+            printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   okooo-public-probe:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'probe' && fromJSON(inputs.options || '{}').probe_kind == 'okooo-sfc' }}
@@ -400,6 +418,11 @@ jobs:
           path: ${{ runner.temp }}/okooo-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 30
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        shell: powershell
+        run: |
+          'GitHub 接口调用 0 次，余量未知，恢复时间未知。' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
   jc-catalogue:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'probe' && (fromJSON(inputs.options || '{}').probe_kind == 'jc-catalogue' || fromJSON(inputs.options || '{}').probe_kind == 'jc-kickoffs' || fromJSON(inputs.options || '{}').probe_kind == 'jc-supplement') }}
@@ -504,15 +527,26 @@ jobs:
             cloud-data/feed_manifest.json
           retention-days: 90
           if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        shell: powershell
+        run: |
+          'GitHub 接口调用 0 次，余量未知，恢复时间未知。' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
   stats-backfill:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'stats-backfill' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
+      ZUCAI_GITHUB_RESERVE: '25'
       WORK_DIR: work-stats-${{ github.run_id }}-${{ github.run_attempt }}
       ZUCAI_APIF_DAILY_CAP: ${{ vars.ZUCAI_APIF_DAILY_CAP }}
     steps:
+      - name: Set GitHub API budget
+        run: |
+          printf 'ZUCAI_GITHUB_DEADLINE=%s\n' "$(($(date -u +%s) + 295 * 60))" >> "$GITHUB_ENV"
+          printf 'ZUCAI_GITHUB_USAGE_FILE=%s/zucai-github-api-%s-%s-%s.jsonl\n' \
+            "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           path: app
@@ -606,6 +640,14 @@ jobs:
             ${{ env.WORK_DIR }}/data/stats_assets
           retention-days: 90
           if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        run: |
+          if [[ -s "${ZUCAI_GITHUB_USAGE_FILE:-}" ]]; then
+            python -m zucai.github_api summary
+          else
+            printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   candidate-review:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'candidate-review' }}
@@ -660,6 +702,10 @@ jobs:
             cloud-data/feed_manifest.json
           retention-days: 90
           if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        run: |
+          printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
 
   predict:
     needs: [schedule-gate, apis, sporttery]
@@ -667,17 +713,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 130
     env:
+      ZUCAI_GITHUB_RESERVE: '25'
       WORK_DIR: work-predict-${{ github.run_id }}-${{ github.run_attempt }}
       ZUCAI_PARAMS: ${{ github.workspace }}/app/data/model/params.json
     steps:
+      - name: Set GitHub API budget
+        run: |
+          printf 'PREDICT_OPTIONAL_DEADLINE=%s\n' "$(($(date -u +%s) + 128 * 60))" >> "$GITHUB_ENV"
+          printf 'ZUCAI_GITHUB_USAGE_FILE=%s/zucai-github-api-%s-%s-%s.jsonl\n' \
+            "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" >> "$GITHUB_ENV"
       - name: Identify manual daily chain
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
         shell: bash
         run: |
           printf '手动整条链（gate=%s）\n\n' "$ZUCAI_DAILY_GATE" >> "$GITHUB_STEP_SUMMARY"
-      - name: Reserve time for prediction job cleanup
-        # Stop optional work before the 130-minute job cap, even after a long production phase.
-        run: printf 'PREDICT_OPTIONAL_DEADLINE=%s\n' "$(($(date -u +%s) + 128 * 60))" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           path: app
@@ -757,6 +806,14 @@ jobs:
             cloud-data/sfc
           retention-days: 90
           if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        run: |
+          if [[ -s "${ZUCAI_GITHUB_USAGE_FILE:-}" ]]; then
+            python -m zucai.github_api summary
+          else
+            printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   scoreboard:
     needs: [schedule-gate, predict]
@@ -799,6 +856,10 @@ jobs:
             cloud-data/sfc/settled.jsonl
           retention-days: 90
           if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        run: |
+          printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
 
   digest:
     permissions:
@@ -808,11 +869,16 @@ jobs:
     # Report the available frozen state even if upstream work failed; never rescore here.
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 75
     env:
       DIGEST_DATE: ${{ inputs.operation == 'digest' && fromJSON(inputs.options || '{}').digest_date || '' }}
       DIGEST_VERSION: ${{ inputs.operation == 'digest' && fromJSON(inputs.options || '{}').digest_version || '' }}
     steps:
+      - name: Set GitHub API budget
+        run: |
+          printf 'ZUCAI_GITHUB_DEADLINE=%s\n' "$(($(date -u +%s) + 70 * 60))" >> "$GITHUB_ENV"
+          printf 'ZUCAI_GITHUB_USAGE_FILE=%s/zucai-github-api-%s-%s-%s.jsonl\n' \
+            "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" >> "$GITHUB_ENV"
       - name: Identify manual daily chain
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'daily' }}
         shell: bash
@@ -867,6 +933,14 @@ jobs:
           path: cloud-data/daily
           retention-days: 90
           if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        run: |
+          if [[ -s "${ZUCAI_GITHUB_USAGE_FILE:-}" ]]; then
+            python -m zucai.github_api summary
+          else
+            printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   sporttery:
     outputs:
@@ -938,3 +1012,8 @@ jobs:
             ${{ env.WORK_DIR }}/data/rejected_results.csv
           retention-days: 90
           if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        shell: powershell
+        run: |
+          'GitHub 接口调用 0 次，余量未知，恢复时间未知。' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
