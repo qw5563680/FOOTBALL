@@ -258,7 +258,7 @@ def _record_notification(root, version, repository, issue, comment, body):
 
 
 def monthly_issue_body(issue, comments, repository, today, root=None):
-    """Keep dated report links newest first and show the latest report at the top."""
+    """List one link per Beijing date and embed the latest report below the index."""
     reports = []
     for comment in comments or []:
         body = comment.get("body") or ""
@@ -273,41 +273,50 @@ def monthly_issue_body(issue, comments, repository, today, root=None):
             reports.append((day, comment["id"], body))
     issue_url = f"https://github.com/{repository}/issues/{issue['number']}"
     entries = {}
+    comment_prefix = f"{issue_url}#issuecomment-"
     original = issue.get("body") or ""
     if comments is None:
-        # A forbidden list is not evidence that former comment-only days disappeared.
+        # Older directories list each version newest first. Keep the first link per day.
         managed = original.partition(OVERVIEW_START)[2].partition(OVERVIEW_END)[0]
         index = managed.partition("**最新日报 ")[0]
         link_pattern = (
-            rf"^- \[(\d{{4}}-\d{{2}}-\d{{2}})\]\(({re.escape(issue_url)}#issuecomment-[0-9]+)\)$"
+            r"^- \[(\d{4}-\d{2}-\d{2})(?: · [^\]\n]+)?\]\("
+            rf"({re.escape(comment_prefix)}[0-9]+|"
+            rf"https://github\.com/{re.escape(repository)}/blob/data/football-feeds/daily/"
+            r"\1/[A-Za-z0-9_.%-]+\.md)\)$"
         )
         for stamp, url in re.findall(link_pattern, index, re.MULTILINE):
-            day = date.fromisoformat(stamp)
+            try:
+                day = date.fromisoformat(stamp)
+            except ValueError:
+                continue
             if (day.year, day.month) == (today.year, today.month):
-                entries[day] = ([f"- [{day}]({url})"], f"[查看完整日报]({url})", url)
+                entries.setdefault(day, (url, f"[查看完整日报]({url})", url))
     for day, comment_id, body in sorted(reports):
-        link = f"{issue_url}#issuecomment-{comment_id}"
-        entries[day] = ([f"- [{day}]({link})"], body, link)
+        link = f"{comment_prefix}{comment_id}"
+        entries[day] = (link, body, link)
     if root:
         for directory in sorted(root.glob(f"{today:%Y-%m}-??")):
             if not directory.is_dir():
                 continue
             day = date.fromisoformat(directory.name)
-            versions = sorted(rendered_versions(root, day), key=_version_order, reverse=True)
-            if not versions:
+            latest = max(rendered_versions(root, day), key=_version_order, default=None)
+            if latest is None:
                 continue
-            links = []
-            for item in versions:
-                name = item["version_id"]
-                link = _archive_link(repository, day, name)
-                links.append(f"- [{day} · {name}]({link})")
-            newest = versions[0]["version_id"]
+            newest = latest["version_id"]
+            archive_url = _archive_link(repository, day, newest)
             markdown = _path(root, f"{day}/{newest}.md").read_text(encoding="utf-8")
-            entries[day] = (links, markdown, _archive_link(repository, day, newest))
+            link = entries[day][0] if day in entries else archive_url
+            # Keep the directory's comment link and the embedded report's permalink distinct.
+            entries[day] = (
+                link if link.startswith(comment_prefix) else archive_url,
+                markdown,
+                archive_url,
+            )
     if not entries:
         raise ValueError("月报缺少可核实的当月日报，无法更新目录")
     latest_day = max(entries)
-    links = "\n".join(line for day in sorted(entries, reverse=True) for line in entries[day][0])
+    links = "\n".join(f"- [{day}]({entries[day][0]})" for day in sorted(entries, reverse=True))
     _, latest_body, url = entries[latest_day]
     overview = f"**日报目录（最新在前）**\n\n{links}\n\n**最新日报 {latest_day}**\n\n"
     full_link = f"[查看完整日报]({url})"

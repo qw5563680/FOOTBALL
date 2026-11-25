@@ -420,7 +420,7 @@ def test_redeliver_archived_version_after_forbidden_is_idempotent(actions, tmp_p
 
     root = tmp_path / "daily"
     version, body = render_version(root, "first")
-    render_version(root, "other", now=NOW + timedelta(minutes=5), update=2)
+    _, newest_body = render_version(root, "other", now=NOW + timedelta(minutes=5), update=2)
     before = {p: p.read_bytes() for p in (root / str(TODAY)).iterdir()}
     repo = FIXTURE["repository"]
     later = NOW + timedelta(days=2)
@@ -464,10 +464,11 @@ def test_redeliver_archived_version_after_forbidden_is_idempotent(actions, tmp_p
         for c in responses.calls
         if c.request.method == "PATCH" and c.request.url.endswith("/101")
     ]
-    assert all(
-        f"/blob/data/football-feeds/daily/{TODAY}/{name}.md" in patches[0]
-        for name in ("first", "other")
-    )
+    index, _, latest = patches[0].partition(f"**最新日报 {TODAY}**")
+    assert [line for line in index.splitlines() if line.startswith("- ")] == [
+        f"- [{TODAY}](https://github.com/{repo}/issues/101#issuecomment-201)"
+    ]
+    assert newest_body in latest
     receipt = root / str(TODAY) / "first.notification.json"
     raw = receipt.read_bytes()
     assert json.loads(raw)["markdown_sha256"] == version["markdown_sha256"]
@@ -543,7 +544,7 @@ def test_named_retry_rejects_wrong_day_version_or_hash_before_network(actions, t
 
 @pytest.mark.parametrize("method", ["GET", "POST", "PATCH"])
 @responses.activate
-def test_forbidden_comments_still_link_archive_without_receipt(actions, tmp_path, method):
+def test_forbidden_comments_update_directory_without_receipt(actions, tmp_path, method):
     from zucai.digest_notify import monthly_issue_body, publish
 
     root = tmp_path / "daily"
@@ -576,8 +577,18 @@ def test_forbidden_comments_still_link_archive_without_receipt(actions, tmp_path
         if c.request.method == "PATCH" and c.request.url.endswith("/issues/101")
     ]
     directory = json.loads(patch.request.body)["body"]
-    assert f"/daily/{TODAY}/frozen.md" in directory and body in directory
-    assert "人工说明" in directory and "#issuecomment-170" in directory
+    index, _, latest = directory.partition(f"**最新日报 {TODAY}**")
+    issue_url = f"https://github.com/{repo}/issues/101"
+    today_url = (
+        f"{issue_url}#issuecomment-201"
+        if method == "PATCH"
+        else f"https://github.com/{repo}/blob/data/football-feeds/daily/{TODAY}/frozen.md"
+    )
+    assert [line for line in index.splitlines() if line.startswith("- ")] == [
+        f"- [{TODAY}]({today_url})",
+        f"- [2026-11-02]({issue_url}#issuecomment-170)",
+    ]
+    assert "人工说明" in directory and body in latest
     assert {p: p.read_bytes() for p in root.rglob("*.notification.json")} == receipts_before
     evidence = json.loads(next(root.rglob("notification-failures/*/*.json")).read_bytes())
     assert (evidence["stage"], evidence["http_status"], evidence["markdown_sha256"]) == (
@@ -644,7 +655,15 @@ def test_legacy_orphan_retries_then_regular_shift(actions, tmp_path, first_regul
     assert redeliver(root, TODAY, "B", repo, now=later) == (101, 202)
     assert writes == [("POST", 202), ("PATCH", 202), ("PATCH", 202)]
     assert comments == {201: legacy, 202: dict(comments[202], body=originals["C"])}
-    assert all(f"/daily/{TODAY}/{name}.md" in issue["body"] for name in originals)
+    index, _, latest = issue["body"].partition(f"**最新日报 {TODAY}**")
+    assert [line for line in index.splitlines() if line.startswith("- ")] == [
+        f"- [{TODAY}](https://github.com/{repo}/issues/101#issuecomment-202)"
+    ]
+    assert originals["C"] in latest
+    assert all(
+        (root / str(TODAY) / f"{name}.md").read_bytes() == body.encode()
+        for name, body in originals.items()
+    )
     assert len(list(root.rglob("*.notification.json"))) == 3
 
 
