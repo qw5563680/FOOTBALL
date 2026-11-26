@@ -1414,6 +1414,10 @@ robots核查：UEFA的公开规则未禁止本次newsfiles/news路径；raw.gith
 
 ### T92 中国足彩网备用赛程探测
 
-公开索引显示中国足彩网首页有足彩和竞彩足球导航。下方链接是公开索引提供的测试入口，首页的实际导航目标、两页的 HTTP 状态和玩法还待正式采集机核实。[首页](https://www.zgzcw.com/) · [14 场候选页](https://cp.zgzcw.com/zgzcw/lottery/) · [竞彩候选页](https://cp.zgzcw.com/lottery/jczq/index.jsp)
+2026-11-26 北京时间 21:26 至 21:27，正式采集机从公开索引提供的两个 `cp.zgzcw.com` 路径探测 14 场与竞彩。`cp.zgzcw.com/robots.txt` 返回 HTTP 200，禁止 `/homePage/`，未公布时段。两个候选页均返回 200，均为 0 条可核对的静态对阵，字段为空，未复读。澳客竞彩对照同为 HTTP 200 和 0 条静态对阵。中国足彩网首页的实际入口和未读到对阵的原因仍未确认。[运行 45826832242](https://github.com/qw5563680/FOOTBALL/actions/runs/45826832242) · [附件 backup-sources-45826832242-1](https://github.com/qw5563680/FOOTBALL/actions/runs/45826832242/artifacts/15122555379) · [报告与哈希](../reports/t92-zgzcw-probe/README.md)
 
-沿用 `operation=probe`、`probe_kind=backup-sources`。先向候选页面所在的 `cp.zgzcw.com` 读取 robots.txt，按适用路径、访问时段和频率判断能否访问。每个候选最多尝试 3 次公开页面请求，间隔至少 3 秒，服从 robots 公布的更长间隔。证据保留 HTTP 状态、观察时间、原始响应 SHA-256 和白名单字段裁片。访问规则、静态对阵和时间、字段覆盖和重复可读性均待实测。中国足彩网本轮仅列入探测，由所有者根据正式证据决定是否另立任务接入。[T92 探测记录](../reports/t92-zgzcw-probe/README.md)
+### T97 中国足彩网从首页发现入口
+
+第二轮沿用 `operation=probe`、`probe_kind=backup-sources`，先核验 `www.zgzcw.com` 的 robots，再从静态首页找 14 场和竞彩足球入口。只接受 `zgzcw.com` 与其子域的链接，每个访问域各核验自己的 robots。找不到明确入口时记录首页相关链接文字。中国足彩网页面请求上限为 6 次，澳客竞彩对照为 3 次，robots 每域一次单独计数。两次请求至少间隔 3 秒，并遵守适用规则的更长间隔和访问时段。`www.zgzcw.com` 的正式访问规则待第二轮核验。[T97 任务单](tasks/T97-zgzcw-probe-from-homepage.md)
+
+证据含标题、响应字节数、表格与脚本数、关键字计数及按赛程字段裁剪的表格文字。未读到对阵时，区分「不是对阵页」「需要执行脚本」「是普通网页但结构未识别」，证据不足时注明未确认。读到静态对阵的页面在预算内复读，逐次比较有效行数与字段覆盖。探测只输出证据，保留澳客竞彩作为对照。正式结果由 DeepSeek 合并后在采集机验证，并由 Claude 回填。[回填报告](../reports/t92-zgzcw-probe/README.md#t97-第二轮验收)
