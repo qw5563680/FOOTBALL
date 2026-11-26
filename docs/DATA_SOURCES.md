@@ -1399,3 +1399,9 @@ robots核查：UEFA的公开规则未禁止本次newsfiles/news路径；raw.gith
 澳客简称独立登记在 `data/team_aliases/sfc_okooo.json`。证据由 Claude 核验后交所有者批准。#223 是逐场证据，现有 500 网 ID 对照也只适用于 500 网。澳客未获批的异名按未映射保留。T89 在开发环境只用 `data/fixtures/okooo/` 的页面和本地模拟 HTTP 验证。正式采集机的补验由 DeepSeek 通过 `operation=probe` 的 `okooo-sfc` 取得，实际备用班次留待合并后验收。
 
 [既有探测报告](../reports/okooo-public-probe/README.md) · [运行器观察记录](https://github.com/qw5563680/FOOTBALL/actions/runs/45417504091) · [此前离线回放](../reports/okooo-offline-acceptance/README.md) · [逐场名称证据](../reports/okooo-team-name-review/README.md)
+
+### T90 新球体育、雷速体育和澳客竞彩探测
+
+公开索引已确认新球体育的传足、竞彩页面和澳客的竞足赛程入口。雷速首页带有竞彩和传统足彩标签，独立赛程地址仍未确认。三个候选的 robots 规则、静态赛程字段和访问稳定性均待本轮正式采集机实测。此前澳客探测的规则证据对应传统足彩路径。[新球传足](https://aiplus.titan007.com/ai/pc/zucai) · [新球竞彩](https://jc.titan007.com/schedule.aspx) · [雷速首页](https://www.leisu.com/) · [澳客竞彩](https://www.okooo.com/jingcai/)
+
+T90 通过 `operation=probe` 和 `probe_kind=backup-sources` 生成独立探测附件。按来源域核对 robots，每个品牌最多尝试 3 个公开页面，连续请求至少间隔 3 秒。附件保留 HTTP、原始响应哈希和裁剪证据，赛程样本以白名单字段为限。正式渠道选择等待实测结果和所有者决定。[T90 入口与待核记录](../reports/t90-backup-source-probe/README.md)
