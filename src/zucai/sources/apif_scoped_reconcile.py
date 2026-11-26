@@ -31,12 +31,12 @@ def reconcile_scoped(database, codes, run_id, *, aliases_path=None):
     raw = path.read_bytes()
     aliases = json.loads(raw)
     validate_approvals(aliases, require_metadata=True)
-    from zucai.jc_catalogue_kickoffs import APPROVED_ROUTE_IDS
+    from zucai.jc_catalogue_kickoffs import APPROVED_ROUTE_IDS, cup_identity_route
 
     registry = load_registry()["providers"]["apif"]
     codes = sorted(set(str(c) for c in codes))
     if not codes or any(
-        c not in APPROVED_ROUTE_IDS
+        (c not in APPROVED_ROUTE_IDS and not cup_identity_route(c, registry.get(c)))
         or c not in registry
         or registry[c]["status"] != "verified"
         or registry[c].get("mode") != "import"
