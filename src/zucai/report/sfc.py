@@ -134,6 +134,8 @@ def _unmapped_reason(row, mapping_reason):
         reasons.append("开球时间为占位，待核实")
     if basis == "national_team_name_missing":
         reasons.append("队名对照表缺该队")
+    if basis == "okooo_exact_names_and_kickoff" and row["mapping_evidence"].get("missing_names"):
+        reasons.append("澳客队名缺少可用的获批对应")
     if reasons:
         return "；".join(reasons)
     if basis == "national_team_ids_and_exact_kickoff":
@@ -142,6 +144,8 @@ def _unmapped_reason(row, mapping_reason):
         return "已有来源编号，待场次桥接（竞彩开售状态未核实）"
     if basis == "exact_team_names":
         return "队名精确匹配未找到对应比赛，待场次桥接（竞彩开售状态未核实）"
+    if basis == "okooo_exact_names_and_kickoff":
+        return "澳客队名、联赛和开球时间未找到唯一比赛，待核实"
     if mapping_reason not in {"unmatched", "matched", None}:
         return mapping_reason
     return "尚无已核验的比赛对应关系"

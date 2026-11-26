@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
+from lxml.etree import ParserError
 from sqlalchemy import delete, or_, select
 
 from zucai.db import get_engine, init_db, session_scope
@@ -15,14 +16,18 @@ from zucai.models import Match, SfcIssue, SfcIssueMatch, Team
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.nations import UnknownSfcTeam, sfc_team
 from zucai.sfc_club_names import club_name
+from zucai.sfc_okooo_names import PROVIDER as OKOOO_PROVIDER
+from zucai.sfc_okooo_names import approved_name, is_okooo, name_evidence
 from zucai.sfc_sequence import known_official, period_windows, sequence, verification_at
 from zucai.sfc_verification import compare_issue, pending_amendments, resolve_notices
 from zucai.sources.c500 import C500FixtureBridge, C500Sfc, SfcFixture, SfcSnapshot
+from zucai.sources.okooo_sfc import OkoooSfc
 from zucai.sources.sfc_official import UnreadableAmendments, fetch_official_notices
 from zucai.sources.sporttery import BEIJING
 from zucai.sources.teams import normalize_team, upsert_team
 
 LOG = logging.getLogger(__name__)
+_SOURCE_ERRORS = (OSError, ValueError, ParserError, requests.RequestException)
 
 
 def _iso(value):
@@ -399,23 +404,73 @@ def _placeholder(issue, fixture):
     )
 
 
+def _map_okooo_fixture(session, fixture, observed):
+    """Use exact or approved names without consulting 500 IDs or general aliases."""
+    evidence = dict(
+        basis="okooo_exact_names_and_kickoff",
+        provider=OKOOO_PROVIDER,
+        provider_fixture_id=fixture.fixture_id,
+    )
+    teams, approved = {}, {}
+    for side, label in (("home", fixture.home), ("away", fixture.away)):
+        entry = approved_name(fixture.league, label, observed)
+        canonical = entry["canonical"] if entry else label
+        team = session.scalar(select(Team).where(Team.name == canonical))
+        if team is not None and team.name == canonical:
+            teams[side] = team.id
+        if entry:
+            approved[side] = name_evidence(entry, label)
+    if approved:
+        evidence["names"] = approved
+    if len(teams) != 2:
+        evidence["missing_names"] = [side for side in ("home", "away") if side not in teams]
+        return None, "unmatched", [], evidence
+    candidates = list(
+        session.scalars(
+            select(Match)
+            .where(
+                Match.league == fixture.league,
+                Match.home_team_id == teams["home"],
+                Match.away_team_id == teams["away"],
+                Match.kickoff_utc == fixture.kickoff_utc,
+            )
+            .order_by(Match.match_id)
+        )
+    )
+    match = _preferred_candidate(candidates)
+    mapping = "matched" if match is not None else "ambiguous" if candidates else "unmatched"
+    return match, mapping, [row.match_id for row in candidates], evidence
+
+
 def _snapshot_rows(
-    session, issue, bridge_map, *, mapped_only, bridge_conflicts=(), own_fixtures=False
+    session,
+    issue,
+    bridge_map,
+    *,
+    mapped_only,
+    bridge_conflicts=(),
+    own_fixtures=False,
+    okooo_observed=None,
 ):
     snapshot = []
     for fixture in issue.fixtures:
-        placeholder = _placeholder(issue, fixture)
+        placeholder = okooo_observed is None and _placeholder(issue, fixture)
         try:
             if fixture.fixture_id in bridge_conflicts:
                 raise ValueError(f"{fixture.fixture_id} 新旧比赛ID对照冲突，须人工核对")
-            match, mapping, candidates, evidence = _map_fixture(
-                session,
-                fixture,
-                bridge_map,
-                mapped_only=mapped_only,
-                # Never from a placeholder time: the fixture would carry a made-up kick-off.
-                own_fixtures=own_fixtures and not placeholder,
-            )
+            if okooo_observed is not None:
+                match, mapping, candidates, evidence = _map_okooo_fixture(
+                    session, fixture, okooo_observed
+                )
+            else:
+                match, mapping, candidates, evidence = _map_fixture(
+                    session,
+                    fixture,
+                    bridge_map,
+                    mapped_only=mapped_only,
+                    # Never from a placeholder time: the fixture would carry a made-up kick-off.
+                    own_fixtures=own_fixtures and not placeholder,
+                )
         except UnknownSfcTeam as exc:
             # An unreviewed identity leaves one row unresolved, including manual imports.
             match, mapping, candidates = None, "unmatched", []
@@ -428,7 +483,7 @@ def _snapshot_rows(
             if fixture.fixture_id in bridge_map:
                 evidence["bridge"] = copy.deepcopy(bridge_map[fixture.fixture_id])
         except ValueError as exc:
-            if not mapped_only:
+            if not mapped_only or okooo_observed is not None:
                 raise
             match, mapping = None, "ambiguous"
             evidence = _conflict_evidence(session, fixture, bridge_map.get(fixture.fixture_id), exc)
@@ -519,6 +574,14 @@ def refresh_snapshot(session, issue):
         ],
         issue.date_basis,
     )
+    if is_okooo(getattr(issue, "source_url", None)):
+        return _snapshot_rows(
+            session,
+            source,
+            {},
+            mapped_only=True,
+            okooo_observed=datetime.fromisoformat(issue.observed_utc),
+        )
     bridges = {}
     conflicts = {}
     for row in rows:
@@ -585,13 +648,16 @@ def ingest_issue(
         previous = datetime.fromisoformat(record.observed_utc)
         if observed < previous or (observed == previous and raw_sha256 != record.raw_sha256):
             raise ValueError("旧期次快照不能覆盖新版本")
+    okooo = is_okooo(url)
+    if okooo:
+        bridges = ()
     bridge_map = {b["fixture_id"]: b for b in bridges}
     if len(bridge_map) != len(bridges):
         raise ValueError("重复比赛ID对照")
     # The public current page rolls past old fixtures. Preserve their archived
     # ID evidence, including its original capture time, without inventing aliases.
     bridge_conflicts = {}
-    for row in (record.snapshot or []) if record else []:
+    for row in (record.snapshot or []) if record and not okooo else []:
         saved = row.get("mapping_evidence", {})
         successful = saved.get("basis") == "provider_fixture_and_team_ids"
         if saved.get("previous_bridge"):
@@ -625,6 +691,7 @@ def ingest_issue(
         mapped_only=mapped_only,
         bridge_conflicts=bridge_conflicts,
         own_fixtures=own_fixtures,
+        okooo_observed=observed if okooo else None,
     )
     if (
         len(snapshot) != 14
@@ -814,6 +881,7 @@ def _check_archived_issues(session, selected, checked_at, numbers, result, prior
             notice,
             checked_at,
             source_error=result.get("official_error"),
+            provider=OKOOO_PROVIDER if is_okooo(record.source_url) else "500.com",
         )
         if (
             previous
@@ -830,6 +898,69 @@ def _check_archived_issues(session, selected, checked_at, numbers, result, prior
         record.official_verification = check
 
 
+def _capture_500(source, *, issue=None):
+    path = (
+        source.fetch_raw(issue=issue, single_attempt=True)
+        if issue
+        else source.fetch_raw(current_only=True)
+    )
+    raw = source.store.load(path)
+    (snapshot,) = source.parse(raw)
+    if issue and snapshot.issue_no != issue:
+        raise ValueError(f"来源返回期号 {snapshot.issue_no}")
+    return snapshot, raw, source.store.load_metadata(path)
+
+
+def _capture_okooo(number, audit, provider_windows, official_schedule):
+    audit.update(status="unavailable", issue_no=number)
+    if not number:
+        audit["reason"] = "按原期次顺序无法确认当前应展示期号"
+        return None
+    source = OkoooSfc()
+    try:
+        path = source.fetch_raw(issue=number)
+        raw, meta = source.store.load(path), source.store.load_metadata(path)
+        (issue,) = source.parse(raw)
+        observed = _sequence_time(meta)
+        state = sequence(
+            period_windows(provider_windows, official_schedule, observed).values(), observed
+        )
+        if issue.issue_no != number or state["current"] != number:
+            raise ValueError("澳客返回的期号在实际取数时不是当前应展示期")
+        if not issue.sale_end_utc or issue.sale_end_utc <= observed:
+            raise ValueError("澳客名单已到停售时间")
+        meta["response_sha256"] = source.response_sha256
+        return issue, raw, meta
+    except _SOURCE_ERRORS as exc:
+        audit["reason"] = str(exc)[:200] or type(exc).__name__
+        return None
+    finally:
+        audit.update(
+            requests=source.requests,
+            robots_requests=source.robots_requests,
+            page_requests=source.page_requests,
+        )
+        if source.robots_sha256:
+            audit["robots_sha256"] = source.robots_sha256
+        source.session.close()
+
+
+def _collect_500_bridge(source):
+    # The 500-only identity bridge shares the session and at-least-one-second limiter.
+    bridge_source = C500FixtureBridge(store=source.store, session=source.session)
+    bridge_source.limiter = source.limiter
+    path = bridge_source.fetch_raw()
+    raw, meta = source.store.load(path), source.store.load_metadata(path)
+    bridges = bridge_source.parse(raw)
+    for bridge in bridges:
+        bridge["provenance"] = dict(
+            url=meta["url"],
+            observed_utc=meta["fetched_at_utc"],
+            raw_sha256=hashlib.sha256(raw).hexdigest(),
+        )
+    return bridges, _sequence_time(meta)
+
+
 def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
     """Read current SFC and JC root pages without changing match identities."""
     import json
@@ -844,8 +975,18 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
         issue_no=None,
         mapped=0,
         unmatched=0,
+        okooo=dict(
+            status="not_needed",
+            issue_no=None,
+            reason=None,
+            requests=0,
+            robots_requests=0,
+            page_requests=0,
+            request_limit=OkoooSfc.request_limit,
+        ),
     )
     source = engine = None
+    backup = None
     audit = Path(db).parent / "state/audit/sfc_unmatched.csv"
     previous_audit = None
     published = False
@@ -890,10 +1031,16 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
         _resolve_schedule(result, notices, previous_schedule, known, datetime.now(UTC), failures)
         result["requests_scope"] = "500.com"
         result["requests"] += 1
-        path = source.fetch_raw(current_only=True)
-        raw, meta = source.store.load(path), source.store.load_metadata(path)
-        root = source.parse(raw)[0]
-        observed = _sequence_time(meta)
+        root_capture, root_error = None, None
+        try:
+            root_capture = _capture_500(source)
+            observed = _sequence_time(root_capture[2])
+        except _SOURCE_ERRORS as exc:
+            root_capture = None
+            root_error = exc
+            observed = datetime.now(UTC)
+            result["primary_error"] = f"{type(exc).__name__}: {exc}"[:200]
+        root = root_capture[0] if root_capture else None
         # Periods are followed in order, one at a time (zucai.sfc_sequence). The root page
         # is taken unless it shows a period that is not in line yet; when it is not the
         # period that is due, that one is asked for by number with one more GET.
@@ -903,63 +1050,71 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
         provider_windows = [
             dict(issue_no=row["issue_no"], sale_end_utc=row["sale_end_utc"])
             for row in known
-            if row["issue_no"] != root.issue_no and row["issue_no"] in prior_checks
+            if (not root or row["issue_no"] != root.issue_no) and row["issue_no"] in prior_checks
         ]
-        provider_windows.append(dict(issue_no=root.issue_no, sale_end_utc=root.sale_end_utc))
+        if root:
+            provider_windows.append(dict(issue_no=root.issue_no, sale_end_utc=root.sale_end_utc))
         state = sequence(
             period_windows(provider_windows, result["official_schedule"], observed).values(),
             observed,
         )
         captures = []
-        result["root_issue_no"] = root.issue_no
-        if root.issue_no in state["ahead"]:
-            result["skipped_ahead_issue_no"] = root.issue_no
-        else:
-            captures.append((root, raw, meta))
+        if root:
+            result["root_issue_no"] = root.issue_no
+            if root.issue_no in state["ahead"]:
+                result["skipped_ahead_issue_no"] = root.issue_no
+            else:
+                captures.append(root_capture)
         wanted = [state["current"]] if state["current"] else list(state["expected"][:1])
-        if wanted and wanted[0] != root.issue_no and root.issue_no not in state["expected"]:
+        if (
+            root
+            and wanted
+            and wanted[0] != root.issue_no
+            and root.issue_no not in state["expected"]
+        ):
             result["due_issue_no"] = wanted[0]
             result["requests"] += 1
             try:
-                due_path = source.fetch_raw(issue=wanted[0], single_attempt=True)
-                due_raw = source.store.load(due_path)
-                due = source.parse(due_raw)[0]
-                if due.issue_no != wanted[0]:
-                    raise ValueError(f"来源返回期号 {due.issue_no}")
-                captures.append((due, due_raw, source.store.load_metadata(due_path)))
+                captures.append(_capture_500(source, issue=wanted[0]))
                 result["due_status"] = "collected"
-            except (ValueError, requests.RequestException) as exc:
+            except _SOURCE_ERRORS as exc:
                 # Not published yet (or unreadable this time): nothing is invented and no
                 # other period stands in for it.
                 result["due_status"] = "unavailable"
                 result["due_detail"] = (f"{type(exc).__name__}: {exc}")[:200]
-        # Share the no-retry session and limiter: one GET per root, spaced >=1s.
-        bridge_source = C500FixtureBridge(store=source.store, session=source.session)
-        bridge_source.limiter = source.limiter
-        result["requests"] += 1
-        bridge_path = bridge_source.fetch_raw()
-        bridge_raw = source.store.load(bridge_path)
-        bridge_meta = source.store.load_metadata(bridge_path)
-        bridges = bridge_source.parse(bridge_raw)
-        for bridge in bridges:
-            bridge["provenance"] = dict(
-                url=bridge_meta["url"],
-                observed_utc=bridge_meta["fetched_at_utc"],
-                raw_sha256=hashlib.sha256(bridge_raw).hexdigest(),
+        if root_error or (state["current"] and result.get("due_status") == "unavailable"):
+            backup = _capture_okooo(
+                state["current"], result["okooo"], provider_windows, result["official_schedule"]
             )
+        if root_error and not backup:
+            raise root_error
+        bridges, bridge_observed = (), observed
+        if root:
+            result["requests"] += 1
+            try:
+                bridges, bridge_observed = _collect_500_bridge(source)
+            except _SOURCE_ERRORS as exc:
+                if not backup:
+                    raise
+                result["bridge_error"] = f"{type(exc).__name__}: {exc}"[:200]
+                captures = []
+        if backup:
+            captures.append(backup)
         with session_scope(engine) as session:
             rows, primary = [], None
             for issue, issue_raw, issue_meta in captures:
+                okooo = is_okooo(issue_meta["url"])
                 record = ingest_issue(
                     session,
                     issue,
                     observed=datetime.fromisoformat(issue_meta["fetched_at_utc"]),
                     url=issue_meta["url"],
-                    raw_sha256=hashlib.sha256(issue_raw).hexdigest(),
-                    bridges=bridges,
+                    raw_sha256=issue_meta.get("response_sha256")
+                    or hashlib.sha256(issue_raw).hexdigest(),
+                    bridges=() if okooo else bridges,
                     mapped_only=True,
                     # T78: a row no regular source carries stands as its own fixture.
-                    own_fixtures=True,
+                    own_fixtures=not okooo,
                 )
                 unmatched = [
                     dict(
@@ -980,11 +1135,11 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
                 ]
                 rows.extend(unmatched)
                 # The last capture is the due period when one was fetched by number.
-                primary = (issue.issue_no, len(unmatched))
+                primary = (issue.issue_no, len(unmatched), OKOOO_PROVIDER if okooo else "500.com")
             # Fixture/team ID bridges can establish a name match only after their own capture.
             checked_at = max(
                 observed,
-                _sequence_time(bridge_meta),
+                bridge_observed,
                 *(_sequence_time(info) for _, _, info in captures),
             )
             _check_archived_issues(
@@ -1003,6 +1158,7 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
                     unmatched=primary[1],
                     linked_existing=14 - primary[1],
                     rejected_rows=primary[1],
+                    source_provider=primary[2],
                 )
             audit.parent.mkdir(parents=True, exist_ok=True)
             fields = [
@@ -1036,6 +1192,15 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
             temporary.replace(audit)
             published = True
         result["status"] = "complete"
+        if backup:
+            result["okooo"].update(
+                status="collected",
+                source_url=backup[2]["url"],
+                response_sha256=backup[2]["response_sha256"],
+                observed_utc=backup[2]["fetched_at_utc"],
+            )
+            if result.get("due_status") == "unavailable":
+                result["due_status"] = "collected"
     except Exception as exc:
         if published:
             if previous_audit is None:
@@ -1046,6 +1211,8 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
                 _atomic_write(audit, previous_audit)
         result.update(inserted=0, linked_existing=0, rejected_rows=0, mapped=0, unmatched=0)
         detail = f"{type(exc).__name__}: {exc}"[:200] if str(exc) else type(exc).__name__
+        if backup:
+            result["okooo"]["reason"] = "备用名单归档失败：" + detail
         result["errors"] = ["SFC collection failed: " + detail]
         LOG.warning("SFC collection failed (%s)", detail)
     finally:
