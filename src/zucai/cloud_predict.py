@@ -354,6 +354,7 @@ def run(
                             as_of=prediction_time,
                             generated=prediction_time,
                             match_ids=keys,
+                            sfc_only_ids=sfc_only,
                             params_file=params,
                             market_weight=0,
                             persist=False,
@@ -366,9 +367,6 @@ def run(
                         elif coverage[forecast_day] is not None:
                             batch["input"]["scope"] = "jc_spillover"
                             batch["input"]["jc_scope_match_ids"] = sorted(coverage[forecast_day])
-                        for prediction in batch["predictions"]:
-                            if prediction["match_id"] in sfc_only:
-                                prediction["sfc_only"] = True
                         batch["input"]["kickoff_date_beijing"] = forecast_day.isoformat()
                         batch["batch_id"] = f"{run_id}-{forecast_day}"
                         completed = _now()

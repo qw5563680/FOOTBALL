@@ -105,11 +105,7 @@ def _preferred_candidate(candidates):
         return (
             a.counterpart_id == b.match_id
             or b.counterpart_id == a.match_id
-            or (
-                (a.league, a.home_team_id, a.away_team_id)
-                == (b.league, b.home_team_id, b.away_team_id)
-                and datetime.fromisoformat(a.kickoff_utc) == datetime.fromisoformat(b.kickoff_utc)
-            )
+            or _same_stored_fixture(a, b)
         )
 
     group, pending = [ordered[0]], ordered[1:]
@@ -120,6 +116,14 @@ def _preferred_candidate(candidates):
         group.extend(joined)
         pending = [m for m in pending if m not in joined]
     return ordered[0]
+
+
+def _same_stored_fixture(a, b):
+    return (a.league, a.home_team_id, a.away_team_id) == (
+        b.league,
+        b.home_team_id,
+        b.away_team_id,
+    ) and datetime.fromisoformat(_iso(a.kickoff_utc)) == datetime.fromisoformat(_iso(b.kickoff_utc))
 
 
 def _plays_in(session, team, league):
@@ -135,25 +139,6 @@ def _plays_in(session, team, league):
             .limit(1)
         )
         is not None
-    )
-
-
-def _own_fixture_allowed(session, fixture, bridge, home, away, candidates):
-    """Whether the lottery row itself may stand as the fixture (T78).
-
-    Only when no regular source has the fixture: JC does not sell it (no ID bridge), no
-    stored fixture matches, and both printed teams are stored identities that already play
-    in this league. No team is ever created and no name is guessed here.
-    """
-    return (
-        not bridge
-        and not candidates
-        and fixture.league != NATIONS_LEAGUE
-        and home is not None
-        and away is not None
-        and home.id != away.id
-        and _plays_in(session, home, fixture.league)
-        and _plays_in(session, away, fixture.league)
     )
 
 
@@ -299,7 +284,20 @@ def _map_fixture(session, fixture, bridges, *, mapped_only=False, own_fixtures=F
     if preferred is not None:
         return preferred, "matched", [m.match_id for m in candidates], evidence
     if mapped_only:
-        allowed = _own_fixture_allowed(session, fixture, bridge, home, away, candidates)
+        # T78: an own fixture still needs two stored, distinct teams of this league,
+        # no regular fixture and no JC bridge. Record why a team's evidence fell short.
+        allowed = False
+        if not bridge and not candidates and fixture.league != NATIONS_LEAGUE:
+            gaps = {}
+            for side, team in (("home", home), ("away", away)):
+                if team is None:
+                    gaps[side] = "team_missing"
+                elif not _plays_in(session, team, fixture.league):
+                    gaps[side] = "league_history_missing"
+            if gaps:
+                evidence["own_fixture_team_gaps"] = gaps
+            else:
+                allowed = home.id != away.id
         if own is None and own_fixtures and allowed:
             own = Match(
                 match_id=own_id,
@@ -545,11 +543,26 @@ def _same_national_counterpart(session, archived_id, candidate_id):
             archived.counterpart_id == candidate.match_id
             or candidate.counterpart_id == archived.match_id
         )
-        and (archived.league, archived.home_team_id, archived.away_team_id)
-        == (candidate.league, candidate.home_team_id, candidate.away_team_id)
-        and datetime.fromisoformat(archived.kickoff_utc)
-        == datetime.fromisoformat(candidate.kickoff_utc)
+        and _same_stored_fixture(archived, candidate)
     )
+
+
+def _replaces_with_jc(session, row, match, candidate):
+    """A refreshed candidate may replace a checked, exact non-JC counterpart."""
+    original = row.get("matched_identity") or {}
+    confirmed = candidate.get("matched_identity") or {}
+    if (
+        not match
+        or match.source == "jc"
+        or row.get("mapping") != "matched"
+        or row.get("kickoff_basis") == "placeholder"
+        or confirmed.get("source") != "jc"
+        or original.get("source") != match.source
+        or any(original.get(key) != confirmed.get(key) for key in ("league", "home", "away"))
+    ):
+        return False
+    jc = session.get(Match, candidate["match_id"])
+    return jc is not None and _same_stored_fixture(match, jc)
 
 
 def refresh_snapshot(session, issue):
@@ -596,9 +609,13 @@ def refresh_snapshot(session, issue):
     refreshed = _snapshot_rows(
         session, source, bridges, mapped_only=True, bridge_conflicts=conflicts
     )
+    occupied = {row["match_id"] for row in rows if row["match_id"] is not None}
     for index, row in enumerate(rows):
+        candidate = refreshed[index]
         if row["match_id"] is None or row["league"] == NATIONS_LEAGUE:
-            candidate = refreshed[index]
+            # Only refresh this disclosure for snapshots that already recorded it.
+            if "own_fixture_team_gaps" not in (row.get("mapping_evidence") or {}):
+                candidate["mapping_evidence"].pop("own_fixture_team_gaps", None)
             if row["league"] == NATIONS_LEAGUE and (
                 row.get("kickoff_basis") == "placeholder"
                 or (
@@ -618,11 +635,18 @@ def refresh_snapshot(session, issue):
                     kickoff_basis=row.get("kickoff_basis"),
                 )
             rows[index] = candidate
+            if candidate["match_id"] is not None:
+                occupied.add(candidate["match_id"])
             continue
-        # Previously linked rows (including manual T07 c500 rows) keep their
-        # identity evidence. Only the clock is refreshed; the report still checks
-        # all other identity fields against the DB and the frozen forecast.
         match = session.get(Match, row["match_id"])
+        if candidate["match_id"] not in occupied and _replaces_with_jc(
+            session, row, match, candidate
+        ):
+            candidate["mapping_evidence"]["jc_preferred_over"] = row["match_id"]
+            rows[index] = candidate
+            occupied.add(candidate["match_id"])
+            continue
+        # Other bound rows retain identity evidence, refreshing only the database clock.
         if match:
             row.setdefault("source_kickoff_utc", row["kickoff_utc"])
             row.update(kickoff_utc=_iso(match.kickoff_utc), kickoff_basis="database")

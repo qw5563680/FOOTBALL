@@ -97,6 +97,12 @@ def publication_reason(row, as_of):
     return None
 
 
+def _fixture_identity(row, by_model):
+    sides = tuple(row.get(key) for key in ("league", "home", "away"))
+    if all(isinstance(value, str) and value for value in sides) and sides[1] != sides[2]:
+        return (*sides, instant(row["kickoff_utc"]), row.get("model_name") if by_model else None)
+
+
 def prematch_rows(forecasts, as_of, *, by_model=False, excluded=None):
     seen = {}
     for row in forecasts:
@@ -118,6 +124,21 @@ def prematch_rows(forecasts, as_of, *, by_model=False, excluded=None):
         if key in seen and seen[key] != row:
             raise ValueError("同一比赛/批次包含冲突预测")
         seen[key] = row
+    sfc_only = {
+        key: row
+        for key, row in seen.items()
+        if row.get("sfc_only") is True and row.get("source") != "jc"
+    }
+    if sfc_only:
+        jc = {
+            _fixture_identity(row, by_model) for row in seen.values() if row.get("source") == "jc"
+        }
+        jc.discard(None)
+        for key, row in sfc_only.items():
+            if _fixture_identity(row, by_model) in jc:
+                del seen[key]
+                if excluded is not None:
+                    excluded["sfc_jc_counterpart"] += 1
     return sorted(
         seen.values(), key=lambda r: (instant(r["generated_utc"]), r["batch_id"], r["match_id"])
     )
