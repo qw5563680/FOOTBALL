@@ -19,6 +19,8 @@ from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time, sam
 from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, HAFU_TIER_LABELS
 from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.scoreboard.score import enrich_prior_disclosures
+from zucai.upset import cell as upset_cell
+from zucai.upset_review import table as upset_review_table
 
 SKIP_REASONS = {
     "match_status_not_selling": "比赛状态非 Selling",
@@ -149,8 +151,8 @@ def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window)
     lines += [
         "",
         "| 竞彩编号 | 北京开球 | 对阵 | 球队模型（主胜 / 平 / 客胜） | "
-        "预测生成（北京时间） | 状态 |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "预测生成（北京时间） | 状态 | 爆冷 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
         kickoff = _local(row["kickoff_utc"]) if kickoff_day(row) else "未记录"
@@ -175,6 +177,7 @@ def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window)
                 reasons.append("目录未记录有效开球时间")
             probability, generated = "—", "—"
             status = "未预测：" + "；".join(reasons)
+            upset = upset_cell({})
         else:
             prediction = predicted[row["match_id"]]
             timestamp = prediction["generated_utc"]
@@ -182,9 +185,10 @@ def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window)
             status = "可用" if prediction.get("p2_ready") is True else "实验"
             if note := prior_label(prediction):
                 status += f"；{_text(note)}"
+            upset = upset_cell(prediction)
         lines.append(
             f"| {_text(row['jc_num'])} | {kickoff} | {_match(row)} | "
-            f"{probability} | {generated} | {status} |"
+            f"{probability} | {generated} | {status} | {upset} |"
         )
     return lines + [""]
 
@@ -341,9 +345,12 @@ def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
         [
             "| 竞彩编号 | 北京开球 | 联赛 / 对阵 | 球队模型（胜 / 平 / 负） | "
             "市场参考（胜 / 平 / 负） | 球队＋市场（实验） | 模型版本 | P2 | 比分前五 | "
-            "冻结赔率采集时间（北京时间） |" + (" 半全场（实验） |" if has_half else ""),
+            "冻结赔率采集时间（北京时间） |"
+            + (" 半全场（实验） |" if has_half else "")
+            + " 爆冷 |",
             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
-            + (" --- |" if has_half else ""),
+            + (" --- |" if has_half else "")
+            + " --- |",
         ]
     )
     versions = {}
@@ -354,11 +361,14 @@ def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
         )
         if displayed_ids is not None:
             displayed_ids.add(row["match_id"])
+        upset = upset_cell(row)
         if row["status"] != "predicted":
             lines.append(
                 f"{head} | 球队模型未生成（{_text(row.get('reason'))}） | "
                 f"{_market_cell(row)} | {FUSION_UNAVAILABLE} | — | — | — | "
-                f"{odds_time(row, checked_at=checked_at)} |" + (" — |" if has_half else "")
+                f"{odds_time(row, checked_at=checked_at)} |"
+                + (" — |" if has_half else "")
+                + f" {upset} |"
             )
             continue
         scores = (
@@ -391,7 +401,9 @@ def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
             f"{head} | {_probabilities(row)} | {_market_cell(row)} | {FUSION_UNAVAILABLE} | "
             f"{_text(row['model_name'])} / {reference} | "
             f"{status} | {scores} | "
-            f"{odds_time(row, checked_at=checked_at)} |" + (f" {half_text} |" if has_half else "")
+            f"{odds_time(row, checked_at=checked_at)} |"
+            + (f" {half_text} |" if has_half else "")
+            + f" {upset} |"
         )
     lines.append("")
     lines.extend(strength_lines(rows))
@@ -529,6 +541,8 @@ def review_sections(
     displayed_ids=None,
     window=None,
     exclusions=None,
+    sfc_upsets=(),
+    upset_matches=None,
 ):
     start = week_start(now)
     active = set((summary or {}).get("audit", {}).get("active_keys", []))
@@ -621,6 +635,14 @@ def review_sections(
         group = [r for r in enriched if r["prior_disclosure"]["used"] is used]
         correct = sum(max("hda", key=r["model_probabilities"].get) == r["actual"] for r in group)
         lines.append(f"| {label} | {len(group)} | {correct} | {len(group) - correct} |")
+    lines.extend(
+        upset_review_table(
+            ((latest[row["match_id"]], row["actual"]) for row in settled),
+            sfc_upsets,
+            upset_matches if upset_matches is not None else matches,
+            now,
+        )
+    )
     lines.extend(["", "### 竞彩完整清单逐号核对", ""])
     displayed = set(latest) if displayed_ids is None else displayed_ids | (set(rows) & set(latest))
     window = window or prediction_window([], now)

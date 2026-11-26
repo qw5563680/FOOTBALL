@@ -20,6 +20,7 @@ from zucai.sfc_okooo_names import is_okooo
 from zucai.sfc_publication import deadline_message, deadline_status, resolve_publications
 from zucai.sfc_reports import read_reports
 from zucai.sfc_sequence import known_official, period_windows, sequence, verification_at
+from zucai.upset import cell as upset_cell
 
 _TEAM_SIDES = {"home": "主队", "away": "客队"}
 _LINEUP_CONFLICT = (
@@ -27,13 +28,18 @@ _LINEUP_CONFLICT = (
 )
 
 
-def section(archive, feed, summary, now, link, *, pending_history=None):
-    reports = resolve_publications(
+def published_reports(archive, now, *, pending_history=None):
+    return resolve_publications(
         archive,
         read_reports(archive, include_unconfirmed=True),
         now=now,
         pending_history=pending_history,
     )
+
+
+def section(archive, feed, summary, now, link, *, pending_history=None, reports=None):
+    if reports is None:
+        reports = published_reports(archive, now, pending_history=pending_history)
     settled, _ = read_settled(archive, summary)
     states = archived_sfc_issues(archive, feed, now)
     collected = feed.get("collection", {}).get("sfc") or {}
@@ -385,8 +391,8 @@ def _issue_lines(name, issue, reports, settled, now, link):
         "",
         *(
             [
-                "| 序号 | 对阵 | 北京开球 | 主胜 | 平 | 客胜 | 单选首项 | 复式项 | 状态 |",
-                "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| 序号 | 对阵 | 北京开球 | 主胜 | 平 | 客胜 | 单选首项 | 复式项 | 状态 | 爆冷 |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
             if eligible
             else ["| 序号 | 对阵 | 北京开球 | 状态 |", "| --- | --- | --- | --- |"]
@@ -425,6 +431,7 @@ def _issue_lines(name, issue, reports, settled, now, link):
                     OPTIONS.get(row.get("top_outcome"), "—"),
                     "+".join(OPTIONS[k] for k in selection) or "—",
                     reason,
+                    upset_cell(row, sfc=True),
                 ]
                 if eligible
                 else [
