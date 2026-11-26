@@ -1375,6 +1375,7 @@ def main():
     published_collection = collection
     status_collection = None
     if args.command in {"sync", "apis"}:
+        from zucai.jc_candidate_queue import resolve_pending
         from zucai.source_result_reconcile import reconcile_source_results
         from zucai.source_results_audit import audit_source_results
 
@@ -1383,6 +1384,9 @@ def main():
         from zucai.cross_day_decisions import apply_decisions
 
         apply_decisions(target)
+        resolved = resolve_pending(target, args.run_id, recorded=datetime.now(UTC))
+        if resolved:
+            LOG.info("本次按既有获批证据自动出队 %d 条竞彩待核队名", resolved)
         audit = audit_source_results(
             target, target.parent / "state/audit/apif_results_crosscheck.csv"
         )

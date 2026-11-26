@@ -15,6 +15,7 @@ LAZY = (
     "zucai.cloud_probe",
     "zucai.backup_source_probe",
     "zucai.cloud_catalogue",
+    "zucai.jc_candidate_queue",
     "zucai.jc_catalogue_kickoffs",
     "zucai.sources.sfc",
     "zucai.sources.okooo_sfc",

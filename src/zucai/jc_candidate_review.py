@@ -1,8 +1,7 @@
 """Offline, explicit JC candidate review; never merge identities or alter matches.
 
-The operator reviews the complete pinned identity inventory, supplies exact names
-and a conclusion, and applies that plan to a restored copy. A distinct conclusion
-is bounded to that inventory, not a global alias approval or model qualification.
+The operator supplies exact names and a conclusion. Each new plan decision pins
+its candidate, teams and matches. Older plans still pin the complete inventory.
 """
 
 import argparse
@@ -87,10 +86,11 @@ def _pending(candidates):
 
 def _decision(row, info, matches, now):
     league, name = row["league"], row["raw_name"]
-    entry = info["candidates"][league][name]
+    entry = info["candidates"].get(league, {}).get(name)
     team_id = row["team_id"]
     if (
-        entry.get("status") != "pending"
+        not isinstance(entry, dict)
+        or entry.get("status") != "pending"
         or entry.get("source") != "jc"
         or entry["team_id"] != team_id
     ):
@@ -167,12 +167,97 @@ def _decision(row, info, matches, now):
     )
 
 
+def _plan_rows(plan):
+    if (
+        not isinstance(plan, dict)
+        or not isinstance(plan.get("reviewer"), str)
+        or not plan["reviewer"].strip()
+        or not isinstance(plan.get("decisions"), list)
+        or not plan["decisions"]
+    ):
+        raise ValueError("须提供有审核者、版本及逐条决定的显式计划")
+    rows = plan["decisions"]
+    if any(
+        not isinstance(row, dict)
+        or any(
+            not isinstance(row.get(key), str) or not row[key].strip()
+            for key in ("league", "raw_name")
+        )
+        or type(row.get("team_id")) is not int
+        or row["team_id"] <= 0
+        for row in rows
+    ):
+        raise ValueError("计划决定必须指定赛事、候选名和正整数球队编号")
+    if len({(row["league"], row["raw_name"]) for row in rows}) != len(rows):
+        raise ValueError("同一候选不能有多个核验决定")
+    return rows
+
+
+def _scoped_evidence(connection, decision, info):
+    match_ids = {
+        row["match_id"]
+        for row in (*decision["observation_matches"], *decision["same_game_conflicts"])
+    }
+    # Include full evidence rows only in v2. The v1 global inventory digest keeps
+    # the original identity projection for already approved plans.
+    matches = [
+        dict(
+            connection.execute(
+                "SELECT match_id,source,league,home_team_id,away_team_id,kickoff_utc,"
+                "counterpart_id,jc_num,status,result_checked_utc,result_provider "
+                "FROM matches WHERE match_id=?",
+                (mid,),
+            ).fetchone()
+        )
+        for mid in sorted(match_ids)
+    ]
+    ids = {team["id"] for team in decision["exact_name_owners"]}
+    for match in matches:
+        ids.update((match["home_team_id"], match["away_team_id"]))
+        result = connection.execute(
+            "SELECT match_id,home_goals,away_goals,ht_home_goals,ht_away_goals,"
+            "available_utc,available_source FROM results WHERE match_id=?",
+            (match["match_id"],),
+        ).fetchone()
+        match["result"] = dict(result) if result is not None else None
+    teams = [row for row in info["teams"] if row["id"] in ids]
+    if len(teams) != len(ids):
+        raise ValueError("证据比赛引用的球队身份缺失")
+    return dict(
+        candidate=dict(info["candidates"][decision["league"]][decision["raw_name"]]),
+        teams=teams,
+        matches=matches,
+    )
+
+
+def plan_candidates(database, draft):
+    """Seal the operator's explicit decisions against a single read-only snapshot."""
+    rows = _plan_rows(draft)
+    if any("scope_sha256" in row for row in rows):
+        raise ValueError("请用复核后的决定草稿生成计划")
+    database = Path(database).resolve(strict=True)
+    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as connection:
+        connection.execute("BEGIN")
+        info, matches = _snapshot(database, connection)
+        now = datetime.now(UTC)
+        decisions = [
+            dict(
+                row,
+                scope_sha256=_sha(
+                    _encoded(_scoped_evidence(connection, _decision(row, info, matches, now), info))
+                ),
+            )
+            for row in rows
+        ]
+    return dict(version=2, reviewer=draft["reviewer"], decisions=decisions)
+
+
 def review_candidates(database, plan_path, audit_dir):
     """Apply an explicit plan to a copy's queue and save review evidence.
 
     DB identities and matches are read only. BEGIN IMMEDIATE serializes the queue
     update with normal JC ingestion; no SQL update is issued. All decisions are
-    validated before any output. Confirmed duplicates remain pending until T54.
+    validated before any output. Confirmed duplicates stay pending until merged.
     """
     database = Path(database).resolve(strict=True)
     plan_bytes = Path(plan_path).read_bytes()
@@ -183,23 +268,25 @@ def review_candidates(database, plan_path, audit_dir):
     queue_path = database.parent / QUEUE
     if queue_path.is_symlink():
         raise ValueError("候选队列不能为符号链接")
-    if (
-        plan.get("version") != 1
-        or not isinstance(plan.get("reviewer"), str)
-        or not plan["reviewer"].strip()
-        or not plan.get("decisions")
-    ):
+    rows = _plan_rows(plan)
+    version = plan.get("version")
+    if type(version) is not int or version not in {1, 2}:
         raise ValueError("须提供有审核者、版本及逐条决定的显式计划")
     with sqlite3.connect(database.as_uri() + "?mode=rw", uri=True) as connection:
         connection.execute("BEGIN IMMEDIATE")
         info, matches = _snapshot(database, connection)
-        if any(plan.get(key) != info[key] for key in ("inventory_sha256", "queue_sha256")):
+        if version == 1 and any(
+            plan.get(key) != info[key] for key in ("inventory_sha256", "queue_sha256")
+        ):
             raise ValueError("身份清单或候选队列已变化，须重新核验后制定计划")
         now = datetime.now(UTC)
-        keys = [(row["league"], row["raw_name"]) for row in plan["decisions"]]
-        if len(set(keys)) != len(keys):
-            raise ValueError("同一候选不能有多个核验决定")
-        decisions = [_decision(row, info, matches, now) for row in plan["decisions"]]
+        decisions = [_decision(row, info, matches, now) for row in rows]
+        if version == 2:
+            for decision in decisions:
+                evidence = _scoped_evidence(connection, decision, info)
+                if decision.get("scope_sha256") != _sha(_encoded(evidence)):
+                    raise ValueError("计划所涉及的候选、球队或比赛事实已变化，须重新核验")
+                decision["scoped_evidence"] = evidence
         pending_before = _pending(info["candidates"])
         report = dict(
             version=1,
@@ -215,6 +302,8 @@ def review_candidates(database, plan_path, audit_dir):
             pending_after=pending_before - sum(d["conclusion"] == "distinct" for d in decisions),
             decisions=decisions,
         )
+        if version == 2:
+            report["plan_version"] = version
         audit_bytes = _encoded(report)
         for decision in decisions:
             entry = info["candidates"][decision["league"]][decision["raw_name"]]
@@ -232,6 +321,8 @@ def review_candidates(database, plan_path, audit_dir):
                 other_team_ids=decision["other_team_ids"],
                 next_action=decision["next_action"],
             )
+            if version == 2:
+                entry["review"]["scope_sha256"] = decision["scope_sha256"]
         audit_dir.mkdir(parents=True)
         (audit_dir / "plan.json").write_bytes(plan_bytes)
         (audit_dir / "identity_inventory.json").write_bytes(_encoded(info["teams"]))
@@ -249,18 +340,26 @@ def main():
     inspect = commands.add_parser("inspect", help="只读导出固定身份清单与候选证据")
     inspect.add_argument("--db", type=Path, required=True)
     inspect.add_argument("--out", type=Path, required=True)
+    plan = commands.add_parser("plan", help="用显式决定草稿生成逐条绑定证据的计划")
+    plan.add_argument("--db", type=Path, required=True)
+    plan.add_argument("--decisions", type=Path, required=True)
+    plan.add_argument("--out", type=Path, required=True)
     review = commands.add_parser("apply", help="将显式核验计划应用到恢复副本的候选队列")
     review.add_argument("--db", type=Path, required=True)
     review.add_argument("--plan", type=Path, required=True)
     review.add_argument("--audit", type=Path, required=True)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    if args.command == "inspect":
-        payload = _encoded(inspect_candidates(args.db))
+    if args.command in {"inspect", "plan"}:
+        result = (
+            inspect_candidates(args.db)
+            if args.command == "inspect"
+            else plan_candidates(args.db, json.loads(args.decisions.read_bytes()))
+        )
         args.out.parent.mkdir(parents=True, exist_ok=True)
         with args.out.open("xb") as stream:
-            stream.write(payload)
-        LOG.info("只读身份清单已保存：%s", args.out)
+            stream.write(_encoded(result))
+        LOG.info("只读核验产物已保存：%s", args.out)
     else:
         result = review_candidates(args.db, args.plan, args.audit)
         LOG.info(

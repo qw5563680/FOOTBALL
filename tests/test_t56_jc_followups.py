@@ -92,8 +92,9 @@ def test_daily_shows_pending_name_league_and_first_observed_match(digest_archive
     text = generate(digest_archive, tmp_path / "daily", now=NOW).read_text()
     line = next(line for line in text.splitlines() if "竞彩待核新队名" in line)
     assert "竞彩待核新队名 1 个" in line
-    assert "待核甲队" in line and "友谊赛" in line and "jc:first" in line
-    assert "jc:later" not in line
+    detail = next(line for line in text.splitlines() if "待核甲队" in line)
+    assert "友谊赛" in detail and "jc:first" in detail and "从未处置" in detail
+    assert "jc:later" not in detail
     assert text.index("采集状态：") < text.index(line) < text.index("采集归档 UTC：")
     assert snapshot(digest_archive) == before
 
@@ -105,13 +106,48 @@ def test_daily_omits_empty_pending_queue(digest_archive, tmp_path, entries):
     assert "竞彩待核新队名" not in text
 
 
-def test_daily_bounds_pending_names_and_excludes_future_observations(digest_archive, tmp_path):
+def test_daily_lists_every_pending_name_with_its_actual_stage(digest_archive, tmp_path):
     entries = {f"待核{i}": candidate(f"jc:pending-{i}") for i in range(7)}
+    for index, conclusion in enumerate(("duplicate", "unresolved")):
+        entries[f"待核{index}"]["review"] = {
+            "recorded_utc": "2026-11-03T09:40:00Z",
+            "conclusion": conclusion,
+        }
     entries["未来"] = candidate("jc:future", captured="2026-11-04T10:00:00Z")
     install_candidates(digest_archive, {"世预赛": entries})
     text = generate(digest_archive, tmp_path / "daily", now=NOW).read_text()
-    line = next(line for line in text.splitlines() if "竞彩待核新队名" in line)
-    assert "竞彩待核新队名 7 个" in line
-    assert line.count("jc:pending-") == 5
-    assert "其余 2 个" in line
-    assert "未来" not in line and "jc:future" not in line
+    assert "竞彩待核新队名 7 个" in text
+    lines = [line for line in text.splitlines() if "jc:pending-" in line]
+    assert len(lines) == 7
+    assert "等所有者批准对照" in lines[0]
+    assert "处置结论未决" in lines[1]
+    assert sum("从未处置" in line for line in lines) == 5
+    assert "其余 2 个" not in text and "jc:future" not in text
+
+
+def test_daily_shows_an_automatic_resolution_only_in_its_own_batch(digest_archive, tmp_path):
+    base = candidate("jc:first", status="resolved")
+    base["resolution"] = {
+        "run_id": "current",
+        "recorded_utc": "2026-11-03T09:40:00Z",
+        "basis": "approved_api_binding",
+        "source": "apif",
+        "binding": "apif:欧罗巴:team:9876",
+        "approval_pr": "https://github.com/qw5563680/FOOTBALL/pull/251",
+    }
+    earlier = deepcopy(base)
+    earlier["resolution"]["run_id"] = "yesterday"
+    install_candidates(digest_archive, {"欧罗巴": {"本班队": base, "前班队": earlier}})
+
+    manifest_path = digest_archive / "feed_manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["run"] = "current"
+    manifest_path.write_text(json.dumps(manifest))
+    output = tmp_path / "daily"
+    first = generate(digest_archive, output, now=NOW, run_id="current").read_text()
+    assert "本班自动出队 1 个" in first
+    assert "本班队" in first and "前班队" not in first
+    assert "https://github.com/qw5563680/FOOTBALL/pull/251" in first
+    assert "竞彩待核新队名" not in first
+    replay = generate(digest_archive, output, now=NOW, run_id="later").read_text()
+    assert "自动出队" not in replay

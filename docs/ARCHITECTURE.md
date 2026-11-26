@@ -444,7 +444,7 @@ GitHub 的运行列表没有原定 cron，02:40 和 09:40 的跨档迟到按创�
 | `zucai/parlay/` / `digest_parlay.py` | T45 同批单选＋双选枚举、独立 F 账本与冻结视图；不训练、不读取后续价格 |
 | `zucai/daily_digest.py` / `digest_notify.py` | 只读冻结归档生成 daily Markdown；仅在 Actions 用 GITHUB_TOKEN 更新每月 Issue |
 | `zucai/cloud_aliases.py` | 复用 T09/T10 离线身份图，只追加带证据的待审候选 |
-| `zucai/cloud_candidate_review.py` | 手动核验计划与最新归档双哈希校验，复用 T58 处置规则，仅更新队列、审计和清单 |
+| `zucai/cloud_candidate_review.py` | 按计划版本核验最新归档，复用 T58 处置规则，仅更新队列、审计和清单 |
 | `zucai/sources/fd_verify.py` | 离线复核当前赛季与 jc 的身份图、候选时区和覆盖缺口 |
 | `zucai/features/` | `build_features(session, match_ids=None, as_of=None, *, strict_availability=False) -> DataFrame`；43个球队字段，市场/元信息分离 |
 | `zucai/predict/base.py` | `Model` 抽象类：`fit(df)`、`predict_score_matrix(row) -> ndarray[10,10]`、`save/load` |
@@ -1806,8 +1806,8 @@ T56 采用已批准国家队缩写按球队复用方案。仅将已核实的“�
 其他赛事仍限赛事内批准，不做模糊匹配。交叠批准若指向不同规范名则拒绝导入。
 这样可将新观察绑定规范身份1149，保留旧1156和历史外键，不引入退役状态或数据库迁移。
 日报采集状态后只读 `feed_manifest` 已校验的 `state/alias_candidates/jc.json`：
-按待核原名/赛事计数，选择截点前最早 `captured_utc` 的比赛编号，最多列5项，其余计数；
-无待核条目则不显示，不自动批准或修改候选。
+按待核原名/赛事计数，选择截点前最早 `captured_utc` 的比赛编号，逐条列出状态；
+无待核条目时省去待核行。日报只读归档。
 
 T58 `jc_candidate_review` 通过显式计划处置恢复副本的候选队列。只读全部 Team 与 Match，
 固定身份/比赛清单及原队列 SHA256，校验候选原比赛、方向、赛事、时间和精确名称。
@@ -1819,7 +1819,7 @@ T58 `jc_candidate_review` 通过显式计划处置恢复副本的候选队列。
 
 T59 在此基础上增加独立的 `candidate-review` dispatch job，仍由审查者触发。
 `options.plan` 只接受 `data/jc_candidate_reviews/<名称>.json` 中已提交的原字节，
-核验计划内的 `inventory_sha256` / `queue_sha256` 必须与当次恢复的最新归档相符。
+`version=1` 计划内的 `inventory_sha256` / `queue_sha256` 必须与当次恢复的最新归档相符。
 本地等价入口为 `python -m zucai.cloud_candidate_review --archive <副本> --plan <计划> --run-id <新ID>`，
 须在归档外的新工作目录执行，选择记录与失败摘要不写进归档。
 通道恢复临时数据库、调用原 `review_candidates`，再检查数据库字节未变化；
@@ -1870,6 +1870,16 @@ T35 补 provider_home_id、provider_away_id、conflicting_identities 列；`conf
 旧失败证据不等于已生效绑定；已有成功桥接与新桥接相冲突时仍拒绝该行并保留前后证据。
 英冠/巴甲短名在 jc 开售后沿同一500 fixture/球队 ID 桥接补映射，不生成名字相似度规则。
 SFC 失败不撤销已采集竞彩，collection.sfc 标 partial 并保存安全原因，手机摘要也显示该状态。
+
+### T96 待核队列
+
+日常采集完成后复核当前队列。只有项目已批准的接口编号实际在球队行生效，或项目已批准的精确队名对照
+已经完成归并并由原候选场次指到同一行时，才标为 `resolved`。原因、核对时间、运行编号和批准依据随队列归档。
+`cleared` 继续表示人工核对的独立身份。日报按截点和运行编号显示当前待核及当班自动出队。
+
+`jc_candidate_review plan` 从人工核对的草稿生成 `version=2` 计划，为每条决定保存 `scope_sha256`。
+执行时重算当前候选、核对名称和同场冲突涉及的球队行，以及对应比赛证据的哈希，并执行原来的逐条校验。
+旧版全清单双哈希计划及旧审计沿用原规则，归档发布仍使用同一写锁和数据分支检查。
 
 ### T89 澳客备用名单
 
