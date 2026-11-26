@@ -543,7 +543,7 @@ def generate(
             jc_publish_status=jc_publish_status,
         ),
         f"采集状态：{states}。",
-        *pending_name_lines(archive, feed, at),
+        *pending_name_lines(archive, feed, at, run_id=run_id),
         f"采集归档 UTC：{_text(feed.get('created_utc'))}；"
         f"记分板截点 UTC：{_text((summary or {}).get('as_of_utc'))}。",
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",

@@ -119,7 +119,8 @@ def test_review_clears_distinct_but_keeps_suspect_and_database_bytes(case, tmp_p
     before = pending_name_lines(db.parent, feed, "2026-11-12T00:00:00Z")
     now = pending_name_lines(db.parent, feed, datetime.now(UTC).isoformat())
     assert "2 个" in before[0], "A later review must not retroactively erase pending history"
-    assert "1 个" in now[0] and "可疑简称" in now[0] and "新身份" not in now[0]
+    assert "1 个" in now[0]
+    assert "可疑简称" in "\n".join(now) and "新身份" not in "\n".join(now)
 
 
 @pytest.mark.parametrize("mutation", ["duplicate", "observation", "inventory", "queue", "reason"])

@@ -174,6 +174,7 @@ zucai stats ingest-injuries --db data/zucai.db --league 39 --season 2024 --raw-f
 python -m zucai.predict.experiments.injury_command --db data/zucai.db --out work/t38-run --source-commit <数据分支SHA>  # 只读实验；全量归档走 Release
 python -m zucai.history_supplement --plan data/history/international-results-t51-plan.json --source work/history/results.csv --archive work/history/archive --registry data/api_football/nations.json --output work/history/supplement  # T51：固定19场离线校验，只另存3场历史参考；不接入训练
 python -m zucai.jc_candidate_review inspect --db work/review/feeds.db --out work/jc-inspection.json  # T58：只读恢复副本的完整身份与待核证据
+python -m zucai.jc_candidate_review plan --db work/review/feeds.db --decisions work/jc-decisions.json --out work/jc-review-v2.json  # T96：按已核对的逐条决定生成计划
 python -m zucai.jc_candidate_review apply --db work/review/feeds.db --plan work/jc-review-plan.json --audit work/jc-review-evidence  # 显式核验计划；只处置副本队列，不合并球队
 # T59：先进入归档外的新工作目录；本地等价验收只指向副本，不发布
 python -m zucai.cloud_candidate_review --archive /path/to/archive-copy --plan /path/to/FOOTBALL/data/jc_candidate_reviews/2026-11-13-first-five.json --run-id offline-review-1
@@ -442,7 +443,7 @@ T58 提供离线候选处置：先 `inspect` 核对固定库的完整身份和�
 T59 增加正式处置入口，由审查者在 **Actions → Football cloud feeds → Run workflow**
 选择含本通道及计划的已审查代码分支，设置 `operation=candidate-review`、
 `options={"plan":"data/jc_candidate_reviews/2026-11-13-first-five.json"}`，其余输入保持默认。
-计划必须已经提交，运行时文件字节必须等于所选提交；恢复最新归档后再核对队列和完整身份清单哈希。
+计划必须已经提交，运行时文件字节必须等于所选提交。恢复最新归档后按计划版本重新核验。
 本地验收用上方等价命令，在归档外的新工作目录执行；只修改所指向的副本。
 任一哈希变化就停止，须对最新归档重新 `inspect`、核对证据、提交新计划，不照搬旧副本。
 
@@ -454,6 +455,12 @@ T59 增加正式处置入口，由审查者在 **Actions → Football cloud feed
 先看发布步骤结果，不能把“处置准备完成”当作正式发布成功。
 首批计划目标为四个国家队 `cleared`、湘南海洋继续 pending；开发验收与正式运行分记，
 线上处置及下一份日报是否从 5 变为 1 仍须审查者触发后核对。
+
+T96 的新版处置计划逐条记录候选、已核对的球队和比赛证据哈希。
+`plan --decisions` 读取含 `reviewer` 和 `decisions` 的人工草稿，决定字段沿用上文；
+执行时重做原证据检查，涉及的记录变化才需要复核。旧 `version=1` 计划仍以完整清单和队列双哈希核验。
+日常采集后，有所有者批准且库中已生效的接口绑定或已完成的批准队名合并，可把待核条目标为 `resolved` 并留证。
+日报列出全部待核及下一步，当班自动出队列一次。人工核对清除继续为 `cleared`。
 
 T22 权限探测由 Claude 在 **Actions → Football cloud feeds → Run workflow** 选择 PR 分支执行：
 `operation=probe source=apif leagues=3,848 seasons=2021-2026`。
