@@ -18,6 +18,7 @@ from zucai.cloud_feeds import digest, restore_feeds
 from zucai.db import get_engine
 from zucai.forecast_archive import _path, verify_forecasts
 from zucai.models import SfcIssue
+from zucai.pick_nine import DEFAULT_PICK_NINE_MAX_LINES, validate_pick_nine_budget
 from zucai.report.render import _json_bytes, _timestamp, load_batch
 from zucai.report.sfc import build_sfc_report, write_sfc_report
 from zucai.sfc_publication import (
@@ -151,7 +152,8 @@ def _batch(archive, run):
     return combined, sources
 
 
-def publish_reports(archive, *, now=None):
+def publish_reports(archive, *, now=None, pick_nine_max_lines=DEFAULT_PICK_NINE_MAX_LINES):
+    validate_pick_nine_budget(pick_nine_max_lines)
     archive = Path(archive).resolve()
     at = now or datetime.now(UTC)
     at = _timestamp(at.isoformat() if isinstance(at, datetime) else at)
@@ -196,6 +198,7 @@ def publish_reports(archive, *, now=None):
                             batch,
                             generated=at,
                             max_lines=64,
+                            pick_nine_max_lines=pick_nine_max_lines,
                             allow_missing=True,
                             forecast_sha256=hashlib.sha256(_json_bytes(batch)).hexdigest(),
                         )
@@ -219,20 +222,19 @@ def publish_reports(archive, *, now=None):
                         # publication timestamp; never replace one with the other.
                         report["generated_utc"] = (at if now else datetime.now(UTC)).isoformat()
                         report = with_publication(report)
+                        inputs = {
+                            key: report[key] for key in ("rows", "source", "pick_nine_max_lines")
+                        }
                         if any(
                             old.get("run_id") == run["run_id"]
-                            and old["rows"] == report["rows"]
-                            and old["source"] == report["source"]
+                            and all(old.get(key) == value for key, value in inputs.items())
                             for path, old in existing
                             if path.startswith(directory + "/")
                         ):
                             continue
                         if _path(archive, history).exists():
-                            # A newly resolved mapping may use the same frozen
-                            # forecasts. Preserve the first report, add a version.
-                            fingerprint = hashlib.sha256(
-                                _json_bytes(dict(rows=report["rows"], source=report["source"]))
-                            ).hexdigest()[:16]
+                            # Changes to the report inputs get a separate immutable version.
+                            fingerprint = hashlib.sha256(_json_bytes(inputs)).hexdigest()[:16]
                             history += "-mapping-" + fingerprint
                         write_sfc_report(report, stage / issue.issue_no)
                         cutoff = min(
@@ -362,12 +364,18 @@ def main():
     parser.add_argument("--confirm-publication", action="store_true")
     parser.add_argument("--published-ref", default=PUBLISHED_REF)
     parser.add_argument("--summary", type=Path)
+    parser.add_argument(
+        "--pick-nine-max-lines",
+        type=int,
+        default=DEFAULT_PICK_NINE_MAX_LINES,
+        help="新报告的任九复式注数上限，默认 %(default)s",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
     if args.confirm_publication:
         confirm_publication(args.archive, published_ref=args.published_ref, summary=args.summary)
     else:
-        publish_reports(args.archive)
+        publish_reports(args.archive, pick_nine_max_lines=args.pick_nine_max_lines)
         if args.summary:
             write_publication_summary(args.archive, args.summary)
 

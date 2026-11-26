@@ -5,11 +5,19 @@ from collections import Counter
 from statistics import fmean
 
 from zucai.cloud_feeds import digest
+from zucai.digest_context import archived_sfc_issues
 from zucai.forecast_archive import _path
 from zucai.prediction_disclosure import prior_disclosure
-from zucai.report.sfc import disclosed_rows
+from zucai.report.sfc import (
+    disclosed_rows,
+    fixture_lineup,
+    pick_nine_multi_plan,
+    requires_frozen_lineup,
+)
 from zucai.scoreboard.score import instant, outcome, result_reason
+from zucai.sfc_okooo_names import is_okooo
 from zucai.sfc_reports import read_reports
+from zucai.sfc_sequence import known_official, period_windows, verification_at
 
 
 def read_settled(archive, summary):
@@ -91,10 +99,86 @@ def prior_group_text(groups):
     )
 
 
-def settle(archive, results, existing, at):
-    known = {row["issue_no"] for row in existing}
+def _settle_pick_nine(archive, reports, results, at, feed):
+    """Grade only the latest proven timely report and only its nine selected legs."""
+    feed = feed or {"files": {}}
+    issues = {issue["issue_no"]: issue for _, issue in archived_sfc_issues(archive, feed, at)}
+    collection = (feed.get("collection") or {}).get("sfc") or {}
+    windows = period_windows(issues.values(), collection.get("official_schedule", {}), at)
     latest = {}
-    for path, report in read_reports(archive):
+    for path, report in reports:
+        if report.get("sale_state") != "published_before_deadline" or not report.get(
+            "publication_evidence"
+        ):
+            continue
+        number = report["issue_no"]
+        issue = issues.get(number, {})
+        check = verification_at(issue.get("official_verification"), at)
+        if any(
+            diff.get("status") == "conflict" and diff.get("field") in {"seq", "home", "away"}
+            for diff in check.get("differences", ())
+        ) or (issue and is_okooo(issue.get("source_url")) != is_okooo(report["source"].get("url"))):
+            continue
+        end = report["source"]["sale_end_utc"]
+        current_end = known_official(check).get("sale_end_utc") or windows.get(number, {}).get(
+            "sale_end_utc"
+        )
+        if (
+            issue
+            and requires_frozen_lineup(issue, check, current_end or end, at)
+            and (
+                fixture_lineup(issue["snapshot"], include_state=False)
+                != fixture_lineup(report["rows"], include_state=False)
+            )
+        ):
+            continue
+        if not instant(report["published_utc"]) < min(instant(end), instant(current_end or end)):
+            continue
+        if instant(current_end or end) > at:
+            continue
+        version = (instant(report["generated_utc"]), path, report)
+        if number not in latest or version[:2] > latest[number][:2]:
+            latest[number] = version
+
+    settled = {}
+    for number, (generated, path, report) in sorted(latest.items()):
+        if not (plan := pick_nine_multi_plan(report)):
+            continue
+        published = instant(report["published_utc"])
+        rows = {row["seq"]: row for row in report["rows"]}
+        outcomes, observed = [], []
+        for leg in plan["selections"]:
+            row = rows[leg["seq"]]
+            identity = row.get("matched_identity")
+            result = results.get(row["match_id"])
+            if not identity or result_reason({**identity, "generated_utc": generated}, result, at):
+                break
+            kickoff = instant(identity["kickoff_utc"])
+            if (
+                kickoff != instant(row["kickoff_utc"])
+                or max(generated, published) >= kickoff
+                or instant(result["available_utc"]) <= kickoff
+            ):
+                break
+            outcomes.append(outcome(result) in leg["outcomes"])
+            observed.append(result["available_utc"])
+        else:
+            name = path + "/sfc.json"
+            settled[number] = {
+                "all_hit": all(outcomes),
+                "settled_utc": max(observed, key=instant),
+                "report_path": name,
+                "report_sha256": digest(_path(archive, name)),
+                "candidate_path": report["publication_evidence"]["candidate_path"],
+            }
+    return settled
+
+
+def settle(archive, results, existing, at, *, feed=None):
+    known = {row["issue_no"] for row in existing}
+    reports = read_reports(archive)
+    latest = {}
+    for path, report in reports:
         end = report["source"]["sale_end_utc"]
         generated = instant(report["generated_utc"])
         if (
@@ -169,6 +253,8 @@ def settle(archive, results, existing, at):
         "diagnostic": True,
         "bet_allowed": False,
     }
+    if pick_nine := _settle_pick_nine(archive, reports, results, at, feed):
+        summary["pick_nine_multi"] = pick_nine
     return added, summary
 
 

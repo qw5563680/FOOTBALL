@@ -152,7 +152,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     )
     with TemporaryDirectory(prefix="zucai-scoreboard-") as temporary:
         database = Path(temporary) / "data/zucai.db"
-        restore_feeds(archive, database)
+        feed = restore_feeds(archive, database)
         before = digest(database)
         results = read_results(database)
         scored, audit = score_forecasts(selected, results, production_existing, at)
@@ -222,7 +222,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
                 )
     accounts = account_statistics(account_ledger, at)
     audit["paper_publication"] = paper_publication_audit
-    sfc_added, sfc_summary = settle(archive, results, settled, at)
+    sfc_added, sfc_summary = settle(archive, results, settled, at, feed=feed)
     sfc_raw = settled_raw + _jsonl(sfc_added)
     sfc_summary["settled_sha256"] = hashlib.sha256(sfc_raw).hexdigest()
     audit["paper_skips"] = dict(Counter(r["reason"] for r in ledger if r["record_type"] == "skip"))

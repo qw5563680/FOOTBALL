@@ -21,7 +21,7 @@ def _render(monkeypatch, states):
     monkeypatch.setattr(
         digest,
         "_issue_lines",
-        lambda name, issue, reports, settled, now, link: [
+        lambda name, issue, reports, settled, now, link, **kwargs: [
             f"期号：{issue['issue_no']}",
             PICK_NINE,
             "",
