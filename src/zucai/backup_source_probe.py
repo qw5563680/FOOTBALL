@@ -20,15 +20,14 @@ MAX_PROBE_INTERVAL = 60
 POLICY_KEYS = {"allow", "disallow", "crawl-delay", "request-rate", "visit-time"}
 CANDIDATES = (
     (
-        "xinqiu",
-        "新球体育",
+        "zgzcw",
+        "中国足彩网",
         {
-            "sfc": "https://aiplus.titan007.com/ai/pc/zucai",
-            "jc": "https://jc.titan007.com/schedule.aspx",
+            "sfc": "https://cp.zgzcw.com/zgzcw/lottery/",
+            "jc": "https://cp.zgzcw.com/lottery/jczq/index.jsp",
         },
         None,
     ),
-    ("leisu", "雷速体育", {"sfc": None, "jc": None}, "https://www.leisu.com/"),
     ("okooo", "澳客", {"jc": "https://www.okooo.com/jingcai/"}, None),
 )
 PURPOSE_LABELS = {"sfc": "14 场", "jc": "竞彩", "home": "公开首页"}
@@ -278,7 +277,7 @@ def _assessment(purpose, pages):
 
 def _write_report(output, report, samples):
     _save_json(output / "probe.json", report)
-    lines = ["# T90 备用来源探测", "", f"运行时间（UTC） {report['started_utc']}", ""]
+    lines = ["# 备用赛程渠道探测", "", f"运行时间（UTC） {report['started_utc']}", ""]
     for site in report["candidates"]:
         lines += [f"## {site['name']}", "", f"候选结论 **{site['result']}**。", ""]
         for purpose, verdict in site["assessment"].items():
