@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 from zucai.cloud_feeds import digest, restore_feeds
 from zucai.forecast_archive import _path, verify_forecasts
 from zucai.forecast_publication import publication_times
+from zucai.market_blend import prepare_blends
 from zucai.parlay import paper as parlay_paper
 from zucai.parlay.archive import load_documents
 from zucai.publication_history import publication_updates
@@ -151,6 +152,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     has_parlays = bool(parlay_documents) or "parlay_sd" in (previous or {})
     forecasts = load_forecasts(archive, at, publications=publications)
     previous_blend = (previous or {}).get("team_market_blend")
+    current_blend_weight, _ = prepare_blends(at)
     experimental, experiment_file_audit = load_experiments(
         archive, forecast_manifest, at, publications=publications
     )
@@ -218,7 +220,8 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         )
         blend_raw, blend_summary = None, None
         if (
-            previous_blend is not None
+            current_blend_weight is not None
+            or previous_blend is not None
             or (archive / team_market_blend.SCORES).exists()
             or any(team_market_blend.marker(row) for row in forecasts)
         ):
@@ -232,6 +235,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
                     blend_existing,
                     at,
                     replay_days=replay_days,
+                    current_weight=current_blend_weight,
                 )
                 blend_raw = before_blend + _jsonl(added)
                 blend_summary = dict(

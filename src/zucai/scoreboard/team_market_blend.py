@@ -219,25 +219,25 @@ def comparison(rows, *, closing=None):
     )
 
 
-def decision(n, differences):
+def decision(n, differences, *, market_only=False):
     result = dict(team=None, market=None, market_note=None, stop_required=False, stop_reasons=[])
+    if market_only:
+        result["market_note"] = "共同样本全部使用权重 1.00，暂不判断融合是否优于市场参考"
     if n < MIN_COMMON:
         return result
     team, market = [
         (differences[key].get("log_loss") or {}).get("interval") for key in ("team", "market")
     ]
-    result.update(
-        team="市场信息帮到了球队模型" if team and team[1] < 0 else "尚无证据",
-        market="融合比直接看市场有额外好处" if market and market[1] < 0 else "尚无证据",
-        market_note="与市场参考相当，无额外好处"
-        if market and market[0] <= 0 <= market[1]
-        else None,
-    )
+    result["team"] = "市场信息帮到了球队模型" if team and team[1] < 0 else "尚无证据"
+    if not market_only:
+        result["market"] = "融合比直接看市场有额外好处" if market and market[1] < 0 else "尚无证据"
+        if market and market[0] <= 0 <= market[1]:
+            result["market_note"] = "与市场参考相当，无额外好处"
     if n >= STOP_COMMON:
         if team and team[1] >= 0:
             result["team"] = "市场信息没有帮到球队模型"
             result["stop_reasons"].append(result["team"])
-        if market and market[0] > 0:
+        if not market_only and market and market[0] > 0:
             result["stop_reasons"].append("融合明显不如市场")
         result["stop_required"] = bool(result["stop_reasons"])
     return result
@@ -249,7 +249,9 @@ def _checkpoint_document(rows):
     return dict(
         record_ids=[row["record_id"] for row in rows],
         paired=paired_view,
-        decision=decision(len(rows), paired_view),
+        decision=decision(
+            len(rows), paired_view, market_only=all(row.get("market_weight") == 1 for row in rows)
+        ),
     )
 
 
@@ -302,12 +304,15 @@ def read_stop(archive, cutoff, model_version):
     return checkpoint(rows, frozen)["decision"]["stop_required"]
 
 
-def score(forecasts, results, database, previous, existing, at, *, replay_days=None):
+def score(
+    forecasts, results, database, previous, existing, at, *, replay_days=None, current_weight=None
+):
     latest, publication_issues = _latest(forecasts, at)
     issues = Counter()
     missing = {key: Counter() for key in COLUMNS}
     saved = {row["record_id"]: row for row in existing}
     added, active, corrections = [], [], []
+    verified_weights = {}
     total = 0
     for row in latest:
         total += 1
@@ -326,6 +331,8 @@ def score(forecasts, results, database, previous, existing, at, *, replay_days=N
         key = record_key(MODEL, mid, row["batch_id"])
         item = saved.get(key)
         goals = {k: result[k] for k in ("home_goals", "away_goals")}
+        blend = row["experimental_blend"]
+        weight = blend.get("market_weight") if views["fusion"][0] is not None else None
         if item is not None:
             if item["forecast_sha256"] != row["forecast_sha256"]:
                 raise ValueError("融合评分与预测原件 SHA256 不符")
@@ -338,7 +345,6 @@ def score(forecasts, results, database, previous, existing, at, *, replay_days=N
             ):
                 issues["outside_replay_days"] += 1
                 continue
-            blend = row["experimental_blend"]
             item = {
                 **{
                     key: row[key]
@@ -359,6 +365,7 @@ def score(forecasts, results, database, previous, existing, at, *, replay_days=N
                 **goals,
                 **{name: value[0] for name, value in views.items()},
                 "record_id": key,
+                "market_weight": weight,
                 "model_version": blend.get("model_version") if views["fusion"][0] else None,
                 "protocol_sha256": blend.get("protocol_sha256") if views["fusion"][0] else None,
                 "market_snapshot_id": blend.get("market_snapshot_id")
@@ -373,6 +380,7 @@ def score(forecasts, results, database, previous, existing, at, *, replay_days=N
             }
             added.append(item)
         active.append(item)
+        verified_weights[key] = weight
     common = _common(active)
     try:
         closing = read_closing(database, results, {row["match_id"] for row in common}, at)
@@ -383,7 +391,9 @@ def score(forecasts, results, database, previous, existing, at, *, replay_days=N
     report = comparison(active, closing=closing)
     report["closing"]["unavailable_reason"] = closing_unavailable
     point = checkpoint(existing + added, (previous or {}).get("checkpoint_300"), active=active)
-    verdict = decision(len(common), report["paired"])
+    # Legacy rows have no saved weight. Their verified frozen forecast still does.
+    market_only = bool(common) and all(verified_weights[row["record_id"]] == 1 for row in common)
+    verdict = decision(len(common), report["paired"], market_only=market_only)
     # The terminal decision stays latched even as the current cohort grows or changes.
     verdict["stop_required"] = bool(point and point["decision"]["stop_required"])
     verdict["stop_reasons"] = point["decision"]["stop_reasons"] if point else []
@@ -410,6 +420,11 @@ def score(forecasts, results, database, previous, existing, at, *, replay_days=N
         next_weight_review_at=(len(common) // MIN_COMMON + 1) * MIN_COMMON,
         decision=verdict,
     )
+    if current_weight is not None:
+        report["current_weight"] = {
+            "version": current_weight.version,
+            "market_weight": current_weight.value,
+        }
     return added, report
 
 
@@ -440,6 +455,10 @@ def render(summary):
     lines = ["\n## 球队＋市场（实验）同批比较", ""]
     if summary.get("status") == "unavailable":
         return "\n".join(lines + ["融合计分证据未通过核验，等待修复。", ""])
+    weight = summary.get("current_weight", {}).get("market_weight")
+    if weight is not None:
+        equality = "，等于市场参考" if weight == 1 else ""
+        lines.extend([f"当前权重 {weight:.2f}{equality}。", ""])
     lines.extend(["| 口径 | 已发布 | 有结果 | 缺失 | 原因 |", "| --- | ---: | ---: | ---: | --- |"])
     for key in COLUMNS:
         cov = summary["coverage"][key]

@@ -446,19 +446,30 @@ def test_digest_fusion_only_uses_the_new_frozen_experiment_and_marks_directions(
         "status": "generated",
         "probabilities": {"h": 0.3, "d": 0.6, "a": 0.1},
     }
+    market = {"probabilities": experiment["probabilities"]}
     rows = [
-        dict(common, match_id="jc:swap", jc_num="周二001", experimental_blend=experiment),
+        dict(
+            common,
+            match_id="jc:swap",
+            jc_num="周二001",
+            market=market,
+            experimental_blend=dict(experiment, market_weight=1.0),
+        ),
         dict(
             common,
             match_id="jc:unchanged",
             jc_num="周二002",
-            experimental_blend=dict(experiment, probabilities={"h": 0.6, "d": 0.3, "a": 0.1}),
+            market=market,
+            experimental_blend=dict(
+                experiment, market_weight=0.5, probabilities={"h": 0.6, "d": 0.3, "a": 0.1}
+            ),
         ),
         dict(
             common,
             match_id="jc:manual",
             jc_num="周二003",
-            experimental_blend=dict(experiment, model_name="dixon-coles+market"),
+            market=market,
+            experimental_blend=dict(experiment, model_name="dixon-coles+market", market_weight=1.0),
         ),
         dict(
             common,
@@ -472,6 +483,20 @@ def test_digest_fusion_only_uses_the_new_frozen_experiment_and_marks_directions(
                 "reason": "球队模型未生成",
             },
         ),
+        dict(
+            common,
+            match_id="jc:historic",
+            jc_num="周二005",
+            market=market,
+            experimental_blend=experiment,
+        ),
+        dict(
+            common,
+            match_id="jc:conflicting",
+            jc_num="周二006",
+            market={"probabilities": {"h": 0.300001, "d": 0.599999, "a": 0.1}},
+            experimental_blend=dict(experiment, market_weight=1.0),
+        ),
     ]
     batch = {
         "batch_id": "t72-digest",
@@ -482,10 +507,13 @@ def test_digest_fusion_only_uses_the_new_frozen_experiment_and_marks_directions(
         [("2026-11-03", "forecasts/b1/forecast.json", batch)], date(2026, 11, 3), None
     )
     render = [line for line in lines if line.startswith("| 周二")]
-    assert len(render) == 4
+    weight_note = "当前权重 1.00，等于市场参考"
+    assert len(render) == 6
+    assert [line for line in lines if weight_note in line] == [render[0]]
+    assert f"| 30.00% / 60.00% / 10.00% | 30.00% / 60.00% / 10.00%（{weight_note}）" in render[0]
     assert "50.00% / 30.00% / 20.00%" in render[0]
     assert "30.00% / 60.00% / 10.00%" in render[0] and "主胜 → 平" in render[0]
     assert "首选变化" not in render[1]
-    assert FUSION_UNAVAILABLE in render[2] and "30.00% / 60.00% / 10.00%" not in render[2]
+    assert f"| 30.00% / 60.00% / 10.00% | {FUSION_UNAVAILABLE} |" in render[2]
     assert "未生成（球队模型未生成）" in render[3]
-    assert "融合有结果 2 场，首选方向变化 1 场。" in lines
+    assert "融合有结果 4 场，首选方向变化 3 场。" in lines

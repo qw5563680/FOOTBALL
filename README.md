@@ -258,6 +258,9 @@ pytest -q
 融合只用已经冻结的两组概率，独立计分，虚拟账户、纸面串关、胜负彩选择和球队模型沿用原流程。
 旧 `--market-weight` 手动工具沿用原行为，第三栏只承认 T72 模型。
 
+初始市场权重 1.00 已获所有者批准。有融合结果的场次，两栏概率相同，日报和记分板会注明这一点。
+记分板仍比较它与球队模型的表现。[所有者决定](https://github.com/qw5563680/FOOTBALL/pull/259#issuecomment-7194960017)
+
 [事前协议](docs/experiments/T72-team-market-blend-protocol.md) 经 Claude Code 独立审查后，在固定归档副本上离线执行：
 
 ```bash

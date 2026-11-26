@@ -64,6 +64,10 @@ def _fusion_cell(row):
     model, fusion = row["model_probabilities"], blend["probabilities"]
     original, combined = max("hda", key=model.__getitem__), max("hda", key=fusion.__getitem__)
     text = _market_triple(blend)
+    weight = blend.get("market_weight")
+    market = (_market_of(row) or {}).get("probabilities")
+    if type(weight) in (int, float) and weight == 1 and fusion == market:
+        text += "（当前权重 1.00，等于市场参考）"
     changed = original != combined
     if changed:
         names = {"h": "主胜", "d": "平", "a": "客胜"}

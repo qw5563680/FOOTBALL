@@ -88,6 +88,26 @@ def test_log_linear_endpoints_and_stable_normalization():
     }
 
 
+def test_approved_initial_weight_freezes_only_from_recorded_public_approval(batch):
+    before = "2026-11-26T14:32:09+00:00"
+    effective = "2026-11-26T14:32:10+00:00"
+    row = batch["predictions"][0]
+    row["kickoff_utc"] = "2026-11-26T16:00:00+00:00"
+    row["market"].update(snapshot_utc=before, snapshot_id=before, collected_utc=before)
+    batch["as_of_utc"] = before
+    market_blend.freeze_blends(batch)
+    assert row["experimental_blend"]["reason"] == "该版融合权重尚未生效"
+
+    batch["as_of_utc"] = effective
+    market_blend.freeze_blends(batch)
+    blend = row["experimental_blend"]
+    assert blend["market_weight"] == 1.0
+    assert blend["probabilities"] == row["market"]["probabilities"]
+    assert row["model_probabilities"] == TEAM
+    assert blend["paper_eligible"] is False
+    market_blend.validate_frozen_blend(row, effective)
+
+
 def test_clock_and_prices_are_verified_from_exact_t71_reference(batch, tmp_path):
     path = _protocol(tmp_path / "weight.json")
     row = batch["predictions"][0]

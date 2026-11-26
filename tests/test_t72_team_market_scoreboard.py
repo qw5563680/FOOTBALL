@@ -61,6 +61,26 @@ def test_market_failure_alone_stops_after_300_even_when_fusion_improves_team():
     assert blend_board.checkpoint(data, point, active=[]) == point
 
 
+@pytest.mark.parametrize("mixed_weights", [False, True])
+def test_checkpoint_does_not_infer_market_advantage_from_market_only_predictions(mixed_weights):
+    data = list(records(300))
+    for i, row in enumerate(data):
+        row.update(
+            market_weight=0.5 if mixed_weights and i % 2 else 1.0,
+            team={"h": 0.5, "d": 0.25, "a": 0.25},
+            market={"h": 0.6, "d": 0.2, "a": 0.2},
+        )
+        row["fusion"] = (
+            {"h": 0.55, "d": 0.225, "a": 0.225} if row["market_weight"] == 0.5 else row["market"]
+        )
+    point = blend_board.checkpoint(data, None)
+    assert point["decision"]["team"] == "市场信息帮到了球队模型"
+    assert point["decision"]["market"] == ("尚无证据" if mixed_weights else None)
+    assert point["decision"]["stop_required"] is mixed_weights
+    if not mixed_weights:
+        assert point["paired"]["market"]["log_loss"]["difference"] == 0
+
+
 def test_invalid_closing_prices_never_change_the_prematch_compared_population():
     data = list(records(4))
     data[0]["market"] = None
@@ -107,7 +127,7 @@ def test_stop_signal_validates_hashed_independent_score_evidence(tmp_path):
         blend_board.read_stop(tmp_path, "2026-11-26T01:00:00+00:00", "demo-2")
 
 
-def add_blend(archive):
+def add_blend(archive, *, market_weight=0.5):
     """Write typed rows and synthetic receipts to an isolated forecast copy."""
     from hashlib import sha256
     from pathlib import Path
@@ -140,7 +160,7 @@ def add_blend(archive):
                     snapshot_id=stamp,
                     collected_utc=stamp,
                 )
-        weight = market_blend.Weight("demo-1", 0.5, instant(batch["as_of_utc"]), "c" * 64)
+        weight = market_blend.Weight("demo-1", market_weight, instant(batch["as_of_utc"]), "c" * 64)
         market_blend.freeze_blends(batch, deployment=(weight, None))
         with TemporaryDirectory(dir=archive.parent) as staging:
             rendered = Path(staging) / "rendered"
@@ -152,6 +172,58 @@ def add_blend(archive):
                 manifest["files"][path.relative_to(archive).as_posix()] = sha256(data).hexdigest()
     manifest_path.write_text(json.dumps(manifest))
     confirm_fixture(archive)
+
+
+def test_board_discloses_effective_market_weight_even_before_first_match(
+    scoreboard_archive, tmp_path, monkeypatch
+):
+    from test_scoreboard_score import NOW
+    from test_t72_market_blend import _protocol
+    from zucai import market_blend
+    from zucai.scoreboard.command import run
+
+    protocol = _protocol(
+        tmp_path / "weight.json", market_weight=1.0, effective_from_utc=NOW.isoformat()
+    )
+    monkeypatch.setattr(market_blend, "PROTOCOL_PATH", protocol)
+    report = scoreboard_archive / "scoreboard/scoreboard.md"
+    notice = "当前权重 1.00，等于市场参考"
+    before = run(scoreboard_archive, as_of=NOW - timedelta(seconds=1))
+    assert "team_market_blend" not in before
+    assert notice not in report.read_text()
+
+    active = run(scoreboard_archive, as_of=NOW)["team_market_blend"]
+    assert active["common_n"] == 0
+    assert active["current_weight"] == {"version": "v1", "market_weight": 1.0}
+    assert notice in report.read_text()
+
+
+def test_board_reuses_legacy_score_evidence_without_rewriting_rows(scoreboard_archive):
+    from hashlib import sha256
+
+    from test_scoreboard_score import NOW
+    from zucai.scoreboard.command import run
+
+    add_blend(scoreboard_archive, market_weight=1.0)
+    board = run(scoreboard_archive, as_of=NOW)["team_market_blend"]
+    assert board["common_n"] == 3
+    assert board["paired"]["market"]["log_loss"]["difference"] == 0
+    score_path = scoreboard_archive / blend_board.SCORES
+    summary_path = scoreboard_archive / "scoreboard/summary.json"
+    rows = list(map(json.loads, score_path.read_bytes().splitlines()))
+    assert all(row["market_weight"] == 1.0 for row in rows if row["fusion"] is not None)
+    for row in rows:
+        row.pop("market_weight")
+    legacy_bytes = b"".join((json.dumps(row) + "\n").encode() for row in rows)
+    score_path.write_bytes(legacy_bytes)
+    legacy = json.loads(summary_path.read_bytes())
+    legacy["team_market_blend"]["scored_sha256"] = sha256(legacy_bytes).hexdigest()
+    summary_path.write_text(json.dumps(legacy))
+
+    replay = run(scoreboard_archive, as_of=NOW)["team_market_blend"]
+    assert "共同样本全部使用权重 1.00" in replay["decision"]["market_note"]
+    assert replay["paired"]["team"] == board["paired"]["team"]
+    assert score_path.read_bytes() == legacy_bytes
 
 
 def test_board_publishes_separate_scores_and_duplicate_replay_is_idempotent(
