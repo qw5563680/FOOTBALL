@@ -1,6 +1,5 @@
 """Durable UTC daily request budget; reserve before dispatch, including failed GETs."""
 
-import fcntl
 import json
 import os
 from contextlib import contextmanager
@@ -10,6 +9,11 @@ from threading import RLock
 
 from zucai.apif_budget import normalize_quota
 from zucai.sources.base import _atomic_write
+
+try:  # POSIX only. The Windows collection machine imports this module but never spends quota.
+    import fcntl
+except ImportError:  # pragma: no cover - exercised by blocking the module in tests
+    fcntl = None
 
 
 class QuotaExceeded(ValueError):
@@ -43,6 +47,9 @@ class DailyQuota:
             if self._locked:
                 yield
                 return
+            if fcntl is None:
+                # Never spend the paid quota without the cross-process lock.
+                raise RuntimeError("API-Football 日配额锁只支持 Linux 运行器，本机不能发起请求")
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.with_suffix(self.path.suffix + ".lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
