@@ -1,0 +1,23 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/tmp/football-t72/src/zucai/market_blend_backtest.py", line 317, in <module>
+    main()
+  File "/tmp/football-t72/src/zucai/market_blend_backtest.py", line 311, in main
+    report = run(args.archive, args.out, args.review_url)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/football-t72/src/zucai/market_blend_backtest.py", line 284, in run
+    report = evaluate_phases(fetch, output)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/football-t72/src/zucai/market_blend_backtest.py", line 156, in evaluate_phases
+    weight, training_grid = _select(rows)
+                            ^^^^^^^^^^^^^
+  File "/tmp/football-t72/src/zucai/market_blend_backtest.py", line 93, in _select
+    loss = fsum(
+           ^^^^^
+  File "/tmp/football-t72/src/zucai/market_blend_backtest.py", line 94, in <genexpr>
+    _loss(blend_probabilities(row["team"], row["closing"], w), row["actual"])
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/football-t72/src/zucai/market_blend.py", line 74, in blend_probabilities
+    raise ValueError("融合需要两组完整概率和 [0,1] 内的权重")
+ValueError: 融合需要两组完整概率和 [0,1] 内的权重
