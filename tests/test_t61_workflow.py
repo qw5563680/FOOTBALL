@@ -75,8 +75,11 @@ def test_jc_catalogue_never_runs_for_schedule_or_push(event):
     assert "jc-catalogue" not in enabled_jobs("jc-catalogue", **{"github.event_name": event})
 
 
-@pytest.mark.parametrize("kind", ["catalogue", "jc-catalogue", "jc-kickoffs"])
-def test_catalogue_shell_routes_without_legacy_default_scopes(tmp_path, kind):
+@pytest.mark.parametrize(
+    ("kind", "kickoff_leagues"),
+    [("catalogue", ""), ("jc-catalogue", ""), ("jc-kickoffs", ""), ("jc-kickoffs", "3,848")],
+)
+def test_catalogue_shell_routes_without_legacy_default_scopes(tmp_path, kind, kickoff_leagues):
     title = (
         "Restore and enumerate monthly JC catalogue"
         if kind in {"jc-catalogue", "jc-kickoffs"}
@@ -99,6 +102,7 @@ def test_catalogue_shell_routes_without_legacy_default_scopes(tmp_path, kind):
         PROBE_SEASONS="",
         PROBE_PER_SCOPE="1",
         KICKOFF_MAX_REQUESTS="42",
+        KICKOFF_LEAGUES=kickoff_leagues,
     )
     subprocess.run(
         ["/bin/bash", "-eu", "-c", script(collect)], env=env, check=True, capture_output=True
@@ -106,7 +110,12 @@ def test_catalogue_shell_routes_without_legacy_default_scopes(tmp_path, kind):
     argv = capture.read_bytes().decode().split("\0")[:-1]
     assert argv[:3] == ["-m", "zucai.cloud_feeds", "probe"]
     assert argv[argv.index("--probe-kind") + 1] == kind
-    assert "--leagues" not in argv and "--seasons" not in argv and "--per-scope" not in argv
+    assert "--seasons" not in argv and "--per-scope" not in argv
+    if kickoff_leagues:
+        assert "KICKOFF_LEAGUES: ${{ inputs.leagues }}" in collect
+        assert argv[argv.index("--leagues") + 1] == kickoff_leagues
+    else:
+        assert "--leagues" not in argv
     if kind in {"jc-catalogue", "jc-kickoffs"}:
         assert "--source" not in argv
         assert "runs-on: [self-hosted, football-local]" in job
@@ -203,6 +212,10 @@ def test_dispatch_validates_new_options_before_collection(tmp_path, options, val
         ("probe", ["--probe-kind", "jc-catalogue", "--source", "apif"]),
         ("probe", ["--probe-kind", "jc-catalogue", "--per-scope", "2"]),
         ("probe", ["--probe-kind", "jc-kickoffs", "--source", "apif"]),
+        ("probe", ["--probe-kind", "jc-kickoffs", "--leagues", "3,39"]),
+        ("probe", ["--probe-kind", "jc-kickoffs", "--leagues", "3,3"]),
+        ("probe", ["--probe-kind", "jc-kickoffs", "--leagues", ""]),
+        ("probe", ["--probe-kind", "jc-supplement", "--leagues", "3"]),
         ("probe", ["--probe-kind", "jc-kickoffs", "--resume"]),
         ("probe", ["--probe-kind", "jc-kickoffs", "--max-requests", "0"]),
     ],
@@ -321,3 +334,51 @@ def test_catalogue_backfill_cli_preserves_existing_provider_report_contract(tmp_
         provider="fdorg", codes="CL", first="2023", last="2026", max_requests=42, resume=False
     )
     assert json.loads(summary.read_bytes()) == report
+
+
+def test_cup_kickoff_cli_passes_only_the_selected_codes_and_budget(tmp_path, monkeypatch):
+    from zucai import jc_catalogue_kickoffs
+
+    archive = seed_cloud_archive(tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "self-hosted")
+    seen = {}
+
+    def collect(database, run_id, **options):
+        assert database.is_file()
+        seen.update(run_id=run_id, **options)
+        return {"collection": "jc-kickoffs", "status": "complete"}
+
+    monkeypatch.setattr(jc_catalogue_kickoffs, "collect_kickoffs", collect)
+    monkeypatch.setattr(jc_catalogue_kickoffs, "collection_summary", lambda result, _: result)
+    monkeypatch.setattr(jc_catalogue_kickoffs, "write_summary", lambda result: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "feeds",
+            "probe",
+            "--archive",
+            str(archive),
+            "--run-id",
+            "cup-pilot",
+            "--probe-kind",
+            "jc-kickoffs",
+            "--leagues",
+            "3,848",
+            "--max-requests",
+            "3",
+        ],
+    )
+    main()
+    assert seen == {
+        "run_id": "cup-pilot",
+        "cup_codes": ("3", "848"),
+        "archive": archive,
+        "max_requests": 3,
+    }
+    assert archive_info(archive)["collection"]["jc-kickoffs"]["status"] == "complete"

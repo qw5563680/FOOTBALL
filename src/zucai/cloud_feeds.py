@@ -751,7 +751,7 @@ def main():
     parser.add_argument(
         "--cutoff", help="仅 identity-evidence：检查截止时刻（ISO UTC，默认当前时刻）"
     )
-    parser.add_argument("--leagues", help="backfill 的来源赛事代码；probe 的 apif 联赛 ID")
+    parser.add_argument("--leagues", help="来源赛事代码；jc-kickoffs 仅接受欧罗巴 3 和欧协联 848")
     parser.add_argument(
         "--source", choices=("fd", "fdorg", "apif"), help="backfill 默认 fd；probe 仅 apif"
     )
@@ -868,14 +868,26 @@ def main():
         from zucai.cloud_probe import require_probe_actions
 
         require_probe_actions()
+    cup_codes = None
     if args.command == "probe" and args.probe_kind in {
         "catalogue",
         "jc-catalogue",
         "jc-kickoffs",
         "jc-supplement",
     }:
-        if any(value is not None for value in (args.leagues, args.seasons, args.per_scope)):
-            parser.error("目录 probe 不接受 --leagues / --seasons / --per-scope")
+        if (args.leagues is not None and args.probe_kind != "jc-kickoffs") or any(
+            value is not None for value in (args.seasons, args.per_scope)
+        ):
+            parser.error("目录 probe 不接受 --seasons / --per-scope；仅 jc-kickoffs 支持 --leagues")
+        if args.leagues is not None:
+            from zucai.jc_catalogue_kickoffs import LEGACY_CUP_ROUTES
+
+            cup_codes = tuple(code.strip() for code in args.leagues.split(","))
+            if (
+                len(cup_codes) != len(set(cup_codes))
+                or not set(cup_codes) <= LEGACY_CUP_ROUTES.keys()
+            ):
+                parser.error("jc-kickoffs 的 --leagues 只接受不重复的 3、848")
         if args.probe_kind in {"jc-catalogue", "jc-kickoffs", "jc-supplement"}:
             if args.source is not None:
                 parser.error("JC 目录 probe 不接受 --source")
@@ -1298,6 +1310,8 @@ def main():
         if args.probe_kind == "jc-kickoffs":
             options["max_requests"] = args.max_requests if args.max_requests is not None else 5
             options["archive"] = archive
+            if cup_codes is not None:
+                options["cup_codes"] = cup_codes
         if args.probe_kind == "jc-supplement":
             options["max_requests"] = args.max_requests if args.max_requests is not None else 5
         result = collector(target, args.run_id, **options)

@@ -34,6 +34,8 @@ from zucai.sources.teams import normalize_team
 
 LOG = logging.getLogger(__name__)
 REGISTRY = Path(__file__).resolve().parents[2] / "data/league_map.json"
+LEGACY_CONFIG_PATH = "data/api_football/leagues.json"
+LEGACY_CONFIG = REGISTRY.parents[1] / LEGACY_CONFIG_PATH
 GENERIC_IDS = {39, 73, 76}
 CATALOGUE_SOURCE_RUN = "43539673769-1"
 CATALOGUE_WINDOW = (date(2025, 11, 1), date(2026, 10, 31))
@@ -44,10 +46,39 @@ APPROVED_ROUTE_IDS = frozenset(
     "79 80 81 89 90 95 96 99 101 102 104 105 114 115 137 143 235 293 294 307 "
     "480 490 524 526 528 529 531 532 547 556 803 897 960 965 1168 1188 1222 1245".split()
 )
+# T20 admitted these older import routes. The JC IDs and exact abbreviations
+# are from the fixed catalogue's official league dictionary.
+LEGACY_CUP_ROUTES = {"3": ("欧罗巴", 70), "848": ("欧协联", 1033103)}
 
 
 def _sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def cup_identity_route(code: str, route: dict | None) -> bool:
+    """Verify the two explicitly admitted legacy routes against the legacy config."""
+    admitted = LEGACY_CUP_ROUTES.get(code)
+    if (
+        admitted is None
+        or not isinstance(route, dict)
+        or route.get("status") != "verified"
+        or route.get("mode") != "import"
+        or not isinstance(route.get("config"), dict)
+        or route["config"].get("league") != admitted[0]
+        or not isinstance(route.get("evidence"), list)
+    ):
+        return False
+    raw = LEGACY_CONFIG.read_bytes()
+    legacy = json.loads(raw).get(code, {})
+    sha256 = _sha(raw)
+    return legacy.get("league") == admitted[0] and any(
+        isinstance(item, dict)
+        and item.get("kind") == "legacy_config"
+        and item.get("path") == LEGACY_CONFIG_PATH
+        and item.get("pointer") == f"/{code}"
+        and item.get("sha256") == sha256
+        for item in route["evidence"]
+    )
 
 
 def _pair_sha(raw_sha256: str, metadata_sha256: str) -> str:
@@ -501,18 +532,26 @@ def _preserve_evidence(evidence: dict, row: dict, origin: Path, root: Path, fold
         return exc.evidence
 
 
-def plan_kickoffs(archive: Path) -> dict:
+def plan_kickoffs(archive: Path, *, cup_codes: tuple[str, ...] | None = None) -> dict:
     """Freeze the exact selected catalogue IDs, with independent reusable evidence."""
     from zucai.cloud_feeds import _catalogue_files
 
+    cups = tuple(LEGACY_CUP_ROUTES) if cup_codes is None else cup_codes
+    if (
+        not cups
+        or any(code not in LEGACY_CUP_ROUTES for code in cups)
+        or len(set(cups)) != len(cups)
+    ):
+        raise ValueError("JC kickoff leagues must be a unique non-empty subset of 3,848")
     root = Path(archive)
     _catalogue_files(root)
     rows, dictionary, catalogue = _catalogue(root)
     registry_raw = REGISTRY.read_bytes()
-    registry = json.loads(registry_raw)
+    providers = json.loads(registry_raw)["providers"]["apif"]
     routes = {}
-    for code in sorted(APPROVED_ROUTE_IDS, key=int):
-        route = registry["providers"]["apif"].get(code)
+    t68_codes = sorted(APPROVED_ROUTE_IDS, key=int) if cup_codes is None else ()
+    for code in t68_codes:
+        route = providers.get(code)
         if (
             not isinstance(route, dict)
             or route.get("status") != "verified"
@@ -527,10 +566,28 @@ def plan_kickoffs(archive: Path) -> dict:
             raise ValueError(f"JC fixed route {code} lacks PR135 approval evidence")
         routes[code] = route
     names = {route["config"]["league"] for route in routes.values()}
-    official_ids = {league["league_id"] for league in dictionary if league["league_abbr"] in names}
-    official_ids |= GENERIC_IDS
+    t68_ids = {league["league_id"] for league in dictionary if league["league_abbr"] in names}
+    new_route_ids = t68_ids - GENERIC_IDS
+    if cup_codes is None:
+        t68_ids |= GENERIC_IDS
+    cup_names = {}
+    dictionary_names = {league["league_id"]: league["league_abbr"] for league in dictionary}
+    for code in sorted(cups, key=int):
+        if not cup_identity_route(code, providers.get(code)):
+            raise ValueError(f"JC fixed cup route {code} lacks verified legacy config evidence")
+        name, official_id = LEGACY_CUP_ROUTES[code]
+        if official_id in dictionary_names:
+            if dictionary_names[official_id] != name:
+                raise ValueError(f"JC fixed cup route {code} official dictionary mismatch")
+            cup_names[official_id] = name
+    official_ids = t68_ids | cup_names.keys()
     selected = sorted(
-        (row for row in rows if row["league_id"] in official_ids),
+        (
+            row
+            for row in rows
+            if row["league_id"] in t68_ids
+            or (row["league_id"] in cup_names and cup_names[row["league_id"]] == row["league"])
+        ),
         key=lambda row: (row["match_date"], row["match_id"]),
     )
     evidence_paths = defaultdict(list)
@@ -608,6 +665,7 @@ def plan_kickoffs(archive: Path) -> dict:
         registry_sha256=_sha(registry_raw),
         aliases_sha256=_sha(ALIASES_PATH.read_bytes()),
         official_league_ids=sorted(official_ids),
+        cup_codes=sorted(cups, key=int) if cup_codes is not None else None,
         selected=selected,
     )
     fingerprint = _sha(json.dumps(fixed, sort_keys=True, separators=(",", ":")).encode())
@@ -618,7 +676,8 @@ def plan_kickoffs(archive: Path) -> dict:
         new_route_count=len(routes),
         **fixed,
         selected_count=len(selected),
-        new_route_match_count=sum(row["league_id"] not in GENERIC_IDS for row in selected),
+        new_route_match_count=sum(row["league_id"] in new_route_ids for row in selected),
+        legacy_cup_match_count=sum(row["league_id"] in cup_names for row in selected),
         generic_match_count=sum(row["league_id"] in GENERIC_IDS for row in selected),
         pending=pending,
         verified=verified,
@@ -665,7 +724,12 @@ def _pilot_verified(root: Path, plan: dict) -> bool:
 
 
 def collect_kickoffs(
-    database: Path, run_id: str, *, max_requests: int = 5, archive: Path | None = None
+    database: Path,
+    run_id: str,
+    *,
+    max_requests: int = 5,
+    archive: Path | None = None,
+    cup_codes: tuple[str, ...] | None = None,
 ) -> dict:
     """Acquire read-only headers; archive every attempt and reverify every resumed ID."""
     from zucai.cloud_feeds import CATALOGUE_RUN_ID
@@ -677,7 +741,7 @@ def collect_kickoffs(
         raise ValueError("JC kickoff invalid max_requests")
     root = Path(database).parent
     origin = Path(archive) if archive is not None else root
-    plan = plan_kickoffs(origin)
+    plan = plan_kickoffs(origin, cup_codes=cup_codes)
     pilot_before = _pilot_verified(origin, plan)
     if max_requests > 5 and not pilot_before:
         raise ValueError("JC kickoff verified pilot required before full collection")
@@ -829,8 +893,9 @@ def main() -> None:
     plan = sub.add_parser("plan")
     plan.add_argument("--archive", type=Path, required=True)
     plan.add_argument("--out", type=Path, required=True)
+    plan.add_argument("--leagues", nargs="+", choices=sorted(LEGACY_CUP_ROUTES, key=int))
     args = parser.parse_args()
-    result = plan_kickoffs(args.archive)
+    result = plan_kickoffs(args.archive, cup_codes=tuple(args.leagues) if args.leagues else None)
     _write(args.out, result)
     LOG.info("Selected %d JC matches; pending %d", result["selected_count"], len(result["pending"]))
 

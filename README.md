@@ -98,6 +98,14 @@ T68 补开球时刻先离线生成清单：`python -m zucai.jc_catalogue_kickoff
 成功返回会重置连续计数；剩余标为未请求，恢复后仅续取缺项。
 对应命令为 `python -m zucai.cloud_feeds probe --probe-kind jc-kickoffs --max-requests 5 --archive ../cloud-data --run-id <新批次>`。
 此工具只保存官方时间原件，不修改比赛表或批准球队绑定；泛称赛事的关联设计已审，实现在后续B段PR交付。
+T95 为欧罗巴和欧协联补官方开球时刻。审查者在采集机的手动 Actions 选择
+`operation=probe`、`leagues=3,848`、`options={"probe_kind":"jc-kickoffs","max_requests":5}`。
+先跑不超过 5 次的先导，之后保持相同赛事范围，按请求预算续跑。原件和真实捕获时间随既有归档保存。
+用归档副本运行 `python -m zucai.identity_binding --archive <归档> --out <新目录> --leagues 3 848`，
+再用 `python -m zucai.identity_canonical plan --archive <归档> --codes 3,848` 查看新建或关联提案。
+所有者逐队批准后，先执行 `cloud_feeds canonical-apply`，再按获批的带范围别名执行
+`cloud_feeds scoped-reconcile --leagues 3,848`。未给出范围的旧获批别名继续走原合并流程。
+
 T68 当月补充页面由审查者在同一自托管 Actions（沿用 jc-catalogue 的运行器与所有者本机代理）以
 `operation=probe`、`options={"probe_kind":"jc-supplement","max_requests":5}` 触发：
 `python -m zucai.cloud_feeds probe --probe-kind jc-supplement --max-requests 5 --archive ../cloud-data --run-id <新批次>`。
