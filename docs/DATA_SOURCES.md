@@ -1402,6 +1402,12 @@ robots核查：UEFA的公开规则未禁止本次newsfiles/news路径；raw.gith
 
 ### T90 新球体育、雷速体育和澳客竞彩探测
 
-公开索引已确认新球体育的传足、竞彩页面和澳客的竞足赛程入口。雷速首页带有竞彩和传统足彩标签，独立赛程地址仍未确认。三个候选的 robots 规则、静态赛程字段和访问稳定性均待本轮正式采集机实测。此前澳客探测的规则证据对应传统足彩路径。[新球传足](https://aiplus.titan007.com/ai/pc/zucai) · [新球竞彩](https://jc.titan007.com/schedule.aspx) · [雷速首页](https://www.leisu.com/) · [澳客竞彩](https://www.okooo.com/jingcai/)
+2026-11-26 北京时间 13:47 至 13:48，正式采集机实测新球体育、雷速体育和澳客竞彩。新球体育两份 robots.txt 分别返回 HTTP 302 和 404，访问规则无法核实，赛程页请求 0 次。雷速体育的 robots.txt 返回 HTTP 200，对探测标识没有适用的路径限制，静态首页也返回 200，首页未确认专用的 14 场或竞彩赛程链接。澳客 robots.txt 允许 `/jingcai/`，规定 UTC 01:30–18:30 的访问时段。澳客竞彩页这次返回 200，静态正文没有可核对的对阵和开球时间（0 行）。雷速、澳客各只请求 1 次公开页面，稳定性未核实。[T90 运行](https://github.com/qw5563680/FOOTBALL/actions/runs/45763565563) · [回填报告及哈希](../reports/t92-zgzcw-probe/README.md)
 
-T90 通过 `operation=probe` 和 `probe_kind=backup-sources` 生成独立探测附件。按来源域核对 robots，每个品牌最多尝试 3 个公开页面，连续请求至少间隔 3 秒。附件保留 HTTP、原始响应哈希和裁剪证据，赛程样本以白名单字段为限。正式渠道选择等待实测结果和所有者决定。[T90 入口与待核记录](../reports/t90-backup-source-probe/README.md)
+所有者已决定放弃新球体育、雷速体育两个渠道，T92 从探测候选名单移除这两项。澳客竞彩探测页保留为对照。澳客的 14 场页面继续作为 T89 的正式备用名单来源。[所有者决定](https://github.com/qw5563680/FOOTBALL/pull/243#issuecomment-7183868593)
+
+### T92 中国足彩网备用赛程探测
+
+公开索引显示中国足彩网首页有足彩和竞彩足球导航。下方链接是公开索引提供的测试入口，首页的实际导航目标、两页的 HTTP 状态和玩法还待正式采集机核实。[首页](https://www.zgzcw.com/) · [14 场候选页](https://cp.zgzcw.com/zgzcw/lottery/) · [竞彩候选页](https://cp.zgzcw.com/lottery/jczq/index.jsp)
+
+沿用 `operation=probe`、`probe_kind=backup-sources`。先向候选页面所在的 `cp.zgzcw.com` 读取 robots.txt，按适用路径、访问时段和频率判断能否访问。每个候选最多尝试 3 次公开页面请求，间隔至少 3 秒，服从 robots 公布的更长间隔。证据保留 HTTP 状态、观察时间、原始响应 SHA-256 和白名单字段裁片。访问规则、静态对阵和时间、字段覆盖和重复可读性均待实测。中国足彩网本轮仅列入探测，由所有者根据正式证据决定是否另立任务接入。[T92 探测记录](../reports/t92-zgzcw-probe/README.md)

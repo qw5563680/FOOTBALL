@@ -13,6 +13,7 @@ POSIX_ONLY = ("fcntl", "pwd", "grp", "resource", "termios")
 # Modules the Windows jobs reach only inside functions, so a plain import would not show them.
 LAZY = (
     "zucai.cloud_probe",
+    "zucai.backup_source_probe",
     "zucai.cloud_catalogue",
     "zucai.sources.sfc",
     "zucai.sources.okooo_sfc",
