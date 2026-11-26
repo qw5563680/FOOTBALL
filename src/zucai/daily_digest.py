@@ -22,6 +22,7 @@ from zucai.digest_context import (
     latest_catalog_rows,
     pending_tickets,
 )
+from zucai.digest_coverage import sections as coverage_sections
 from zucai.digest_display import (
     _day,
     _instant,
@@ -43,6 +44,7 @@ from zucai.digest_views import (
     review_sections,
 )
 from zucai.forecast_archive import _path, verify_forecasts
+from zucai.forecast_coverage import latest_coverage
 from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.report.render import load_batch
 from zucai.scoreboard.command import read_state
@@ -515,6 +517,12 @@ def generate(
         f"{source}={_text(collection.get(source, {}).get('status'))}"
         for source in ("jc", "fd", "fdorg", "apif")
     )
+    coverage_header, coverage_lines = coverage_sections(
+        latest_coverage(
+            archive, manifest, at, feed=feed, publications=publications, forecast_rows=forecast_rows
+        ),
+        repository,
+    )
     displayed_ids = set()
     lines = [
         DISCLAIMER,
@@ -522,6 +530,7 @@ def generate(
         "",
         f"# 每日摘要 {today}（北京时间）",
         "",
+        *coverage_header,
         f"本日第 {update} 次更新；本次 run ID：{_text(run_id)}；摘要生成 UTC：{at.isoformat()}。",
         *header_lines(
             feed,
@@ -539,6 +548,7 @@ def generate(
         f"记分板截点 UTC：{_text((summary or {}).get('as_of_utc'))}。",
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
+        *coverage_lines,
         *jc_sales_day_section(sales_catalog, skipped, latest, exclusions, today, window=window),
         *_forecast_sections(
             batches,

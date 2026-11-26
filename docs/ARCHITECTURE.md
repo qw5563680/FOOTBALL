@@ -1343,6 +1343,17 @@ CSV/robots 次数分列，少于两次 CSV 请求时最短间隔为 null。
 
 ## T19 前瞻记分板与虚拟账户
 
+T94 在每个预测 run 的第一天目录独立冻结 `coverage.json`。文件随 `forecast_manifest.json`
+校验 SHA-256，复用数据分支发布及独立时间回执。旧 run 可没有该字段，已有冻结文件继续按原格式读取。
+清单使用竞彩销售日原目录、在售 14 场各期和截至预测截点可知的期次排期。逐场保存正式预测覆盖、基准来源、
+没有正式预测的原因与待办，并汇总竞彩中未配置正式模型的联赛。日报与预测 job summary 从同一清单计数。
+日报只有在能核对真实赛前发布时间时才展示概率，后续班可沿用同一比赛已发布的赛前基准。
+`historical-1x2-baseline/v1` 统计严格早于截点已有 captured/published 依据的 90 分钟赛果，排除重复及冲突，
+同联赛缺历史才回退到全库。基准条目不写入正式预测、模型对比、任九、复式、虚拟账户、纸面串关或转正规程。
+独立评分追加到 `scoreboard/baseline.jsonl`，只计入身份可核实且赛前已发布的基准及有效常规时间赛果，
+其 SHA-256 与独立 Log Loss、Brier 写入 `scoreboard/summary.json` 的 `coverage_baseline`。
+同一比赛出现在两个名单只计一次，统计不影响 BET。
+
 T34a 另读 `experimental.json`，实验评分在同一 `scored.jsonl` 追加，以
 `(match_id,batch_id,model_name)` 为键并标 `experimental_unadopted`。原评分键、正式累计与原证据门槛不变；
 `paper.py` 仍仅接收原 `forecast.json`，不传入任何实验行。`probability.model_leagues` 增加正式模型名×联赛，

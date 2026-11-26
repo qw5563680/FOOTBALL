@@ -177,7 +177,13 @@ def _report_header(body):
     markers = re.findall(r"<!-- zucai-daily:[^\n]* -->", body)
     if not body.startswith(DISCLAIMER + "\n") or len(markers) != 1:
         return None
-    return f"{DISCLAIMER}\n{markers[0]}\n"
+    header = f"{DISCLAIMER}\n{markers[0]}\n"
+    generated_header = re.match(
+        r"\n# 每日摘要 [^\n]+\n\n覆盖情况｜[^\n]+\n", body.removeprefix(header)
+    )
+    if generated_header:
+        header += generated_header[0] + "\n"
+    return header
 
 
 def _shortened_body(body, url, limit, notice):

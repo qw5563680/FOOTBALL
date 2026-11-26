@@ -115,6 +115,23 @@ def test_first_section_cannot_fit_but_explanation_is_delivered(tmp_path, mailbox
     assert "超过单条评论上限" in sent and ARCHIVE_URL in sent
 
 
+def test_coverage_counts_survive_when_full_sections_cannot_fit(tmp_path, mailbox):
+    root = tmp_path / "daily"
+    counts = "覆盖情况｜14 场 26171 期：正式预测 13/14，基准 1/14。"
+    first_section = FIRST + "长" * LIMIT + "\n"
+    header = "\n".join(BODY.splitlines()[:2])
+    _, full = render_version(
+        root,
+        "first",
+        body=f"{header}\n\n# 每日摘要 {TODAY}（北京时间）\n\n{counts}\n\n{first_section}",
+    )
+    issue, writes = mailbox
+    assert digest_notify.publish(full, REPO, now=NOW, history_root=root) == (101, 201)
+    ((_, sent),) = writes
+    assert counts in sent and counts in issue["body"]
+    assert ARCHIVE_URL in sent and "完整内容" not in sent
+
+
 @pytest.mark.parametrize("receipt_failed", [False, True])
 def test_redelivery_recovers_short_reply_then_full_shift_edits_it(
     tmp_path, mailbox, monkeypatch, receipt_failed
