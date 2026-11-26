@@ -1,0 +1,34 @@
+name: Football daily watchdog
+on:
+  schedule:
+    - cron: '5 3 * * *'
+    - cron: '35 3 * * *'
+    - cron: '5 8 * * *'
+    - cron: '35 8 * * *'
+    - cron: '5 10 * * *'
+    - cron: '35 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: football-daily-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: /src/zucai/
+          sparse-checkout-cone-mode: false
+      - name: Check the slot and dispatch at most one repair
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WATCHDOG_CRON: ${{ github.event.schedule }}
+        run: PYTHONPATH=src python3 -m zucai.watchdog
