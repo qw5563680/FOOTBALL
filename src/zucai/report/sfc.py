@@ -28,7 +28,7 @@ from zucai.pick_nine import (
     optimize_pick_nine,
     validate_pick_nine_budget,
 )
-from zucai.predict.base import fixture_sources
+from zucai.predict.base import report_fixture_sources
 from zucai.predict.model_definitions import (
     EXPERIMENTAL_LEAGUES,
     FROZEN_DEFINITION_FIELDS,
@@ -143,6 +143,14 @@ def _unmapped_reason(row, mapping_reason):
         reasons.append("队名对照表缺该队")
     if basis == "okooo_exact_names_and_kickoff" and row["mapping_evidence"].get("missing_names"):
         reasons.append("澳客队名缺少可用的获批对应")
+    gaps = (row.get("mapping_evidence") or {}).get("own_fixture_team_gaps", {})
+    for side, label in (("home", "主队"), ("away", "客队")):
+        if gaps.get(side) == "team_missing":
+            reasons.append(f"{label}未对应到库内已有球队")
+        elif gaps.get(side) == "league_history_missing":
+            reasons.append(f"{label}在库内没有该赛事比赛记录")
+    if gaps and basis == "exact_team_names":
+        reasons.append("待场次桥接（竞彩开售状态未核实）")
     if reasons:
         return "；".join(reasons)
     if basis == "national_team_ids_and_exact_kickoff":
@@ -245,11 +253,11 @@ def build_sfc_report(
         raise ValueError("冻结批次包含重复比赛ID")
     as_of, forecast_time = _timestamp(batch["as_of_utc"]), _timestamp(batch["generated_utc"])
     models = {
-        (m["model_version"], source, league): m
+        (m["model_version"], source, league, sfc_only): m
         for m in batch["models"]
-        for source in fixture_sources(m)
+        for sfc_only in (False, True)
+        for source in report_fixture_sources(m, sfc_only=sfc_only)
         for league in model_targets(m)
-        if not m.get("pooled") or source == "jc"
     }
     pending_pairs = load_pending_identities()
     for row in rows:
@@ -324,7 +332,14 @@ def build_sfc_report(
         elif batch["mode"] == "prematch" and forecast_time >= _timestamp(row["kickoff_utc"]):
             row["reason"] = "该预测在开赛后生成，不能算赛前实录"
         else:
-            model = models.get((predicted["model_version"], match.source, match.league))
+            model = models.get(
+                (
+                    predicted["model_version"],
+                    match.source,
+                    match.league,
+                    predicted.get("sfc_only") is True,
+                )
+            )
             if (
                 not model
                 or _timestamp(model["model_as_of_utc"]) > as_of

@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from zucai.predict.base import fixture_sources, model_sources
+from zucai.predict.base import fixture_sources, model_sources, report_fixture_sources
 from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, HAFU_TIER_LABELS
 from zucai.predict.model_definitions import (
     FROZEN_DEFINITION_FIELDS,
@@ -89,6 +89,7 @@ def _validate_frozen_definition(row):
 
 
 def _validate_prediction_definition(prediction, models, *, definition_schema=None):
+    sfc_only = prediction.get("sfc_only") is True
     matching = [
         model
         for model in models
@@ -96,10 +97,15 @@ def _validate_prediction_definition(prediction, models, *, definition_schema=Non
         and prediction.get("league") in model_targets(model)
         and (
             prediction.get("status") == "excluded"
-            or prediction.get("source") in fixture_sources(model)
+            or prediction.get("source") in fixture_sources(model, sfc_only=sfc_only)
         )
     ]
-    compatible = [model for model in models if prediction.get("league") in model_targets(model)]
+    compatible = [
+        model
+        for model in models
+        if prediction.get("league") in model_targets(model)
+        and report_fixture_sources(model, sfc_only=sfc_only)
+    ]
     if "definition_unavailable_reason" in prediction:
         _text(prediction["definition_unavailable_reason"], "模型定义缺失原因")
         if (
@@ -224,6 +230,8 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
         if not isinstance(prediction, dict):
             raise ValueError("predictions 项必须为对象")
         _text(prediction.get("match_id"), "match_id")
+        if "sfc_only" in prediction and type(prediction["sfc_only"]) is not bool:
+            raise ValueError("14 场补充范围标记必须为布尔值")
         _validate_prediction_definition(
             prediction, batch["models"], definition_schema=definition_schema
         )
@@ -244,8 +252,8 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
                 for m in batch["models"]
                 if m["model_version"] == prediction["model_version"]
                 and prediction["league"] in model_targets(m)
-                and prediction["source"] in fixture_sources(m)
-                and (not m.get("pooled") or prediction["source"] == "jc")
+                and prediction["source"]
+                in report_fixture_sources(m, sfc_only=prediction.get("sfc_only") is True)
             ]
             if (
                 len(matched) != 1

@@ -25,6 +25,7 @@ from zucai.predict.base import (
 from zucai.predict.calibration import fit_draw_offset
 from zucai.predict.pooled import select_training_history
 from zucai.predict.pooled_fit import FITTING_METHOD, fit_pooled_engine
+from zucai.result_source_links import _canonical_team
 
 
 class InsufficientHistory(ValueError):
@@ -185,17 +186,24 @@ class DixonColes(Model):
             raise ValueError("请先训练或载入模型")
         if utc(row["kickoff_utc"]) <= self.as_of:
             raise ValueError("模型截点必须早于开球")
+        sfc_only = row.get("sfc_only") is True
         if (
             not getattr(self, "pooled", False) and row.get("league", self.league) != self.league
-        ) or ("source" in row and row["source"] not in fixture_sources(self)):
+        ) or ("source" in row and row["source"] not in fixture_sources(self, sfc_only=sfc_only)):
             raise ValueError("联赛或数据来源与模型不一致")
         home, away = row["home"], row["away"]
-        unknown = home not in self.teams or away not in self.teams
+        # An opaque provider label can have a fit in older artifacts. SFC-only
+        # rows still use the existing prior for that side until its identity is known.
+        force_home = sfc_only and not _canonical_team(home)
+        force_away = sfc_only and not _canonical_team(away)
+        home_unknown = force_home or home not in self.teams
+        away_unknown = force_away or away not in self.teams
+        unknown = home_unknown or away_unknown
         if unknown and not getattr(self, "unknown_team_prior", False):
             raise InsufficientHistory(f"模型缺少球队历史记录：{home} / {away}")
         if home == away:
             raise ValueError("主客队不能相同")
-        raw, guard = self._guarded_grid(home, away)
+        raw, guard = self._guarded_grid(home, away, force_prior=(force_home, force_away))
         if not unknown and not guard["rho_clipped"]:
             # Keep the exact upstream path for unaffected known-team predictions.
             raw = self.engine.predict(home, away, max_goals=15, normalize=False).grid[:10, :10]
@@ -219,8 +227,8 @@ class DixonColes(Model):
                 self, "calibration_skipped_training_rows", 0
             ),
             "unknown_team_prior": unknown,
-            "home_unknown_team": home not in self.teams,
-            "away_unknown_team": away not in self.teams,
+            "home_unknown_team": home_unknown,
+            "away_unknown_team": away_unknown,
             "prior_method": self.prior_parameters["method"] if unknown else None,
             "prior_rho_clipped": unknown and guard["rho_clipped"],
             **guard,
@@ -273,7 +281,7 @@ class DixonColes(Model):
         self.calibration_training_rows = len(probabilities)
         self.calibration_skipped_training_rows = len(eligible) - len(probabilities)
 
-    def team_strengths(self, home, away):
+    def team_strengths(self, home, away, *, sfc_only=False):
         """Both sides' fitted attack and defence against the model's average team.
 
         Index 100 is the average of the fitted teams; a higher number is the stronger side
@@ -288,7 +296,7 @@ class DixonColes(Model):
         mean_defence = float(np.mean([params[f"defence_{team}"] for team in fitted]))
 
         def side(team):
-            known = f"attack_{team}" in params
+            known = f"attack_{team}" in params and (not sfc_only or _canonical_team(team))
             attack = float(params[f"attack_{team}"] if known else prior["attack"])
             defence = float(params[f"defence_{team}"] if known else prior["defence"])
             return attack, defence, known
@@ -326,7 +334,7 @@ class DixonColes(Model):
             raise ValueError("拟合参数未产生有效的进攻/防守强度")
         return values
 
-    def _guarded_grid(self, home, away):
+    def _guarded_grid(self, home, away, *, force_prior=(False, False)):
         """Constrain only this prediction's rho; never mutate fitted parameters.
 
         The four DC multipliers require max(-1/lambda, -1/mu) <= rho <=
@@ -338,13 +346,13 @@ class DixonColes(Model):
         params = self.engine.get_params()
         prior = getattr(self, "prior_parameters", {})
         strengths = tuple(
-            float(params[f"{kind}_{team}"] if f"{kind}_{team}" in params else prior[kind])
-            for kind, team in (
-                ("attack", home),
-                ("attack", away),
-                ("defence", home),
-                ("defence", away),
+            float(
+                params[f"{kind}_{team}"]
+                if not forced and f"{kind}_{team}" in params
+                else prior[kind]
             )
+            for kind in ("attack", "defence")
+            for team, forced in zip((home, away), force_prior, strict=True)
         )
         advantage, original = float(params["home_advantage"]), float(params["rho"])
         if not np.isfinite((*strengths, advantage, original)).all():

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from zucai.models import Match, Odds, Prediction, Team
-from zucai.predict.base import fixture_sources, model_sources, utc
+from zucai.predict.base import model_sources, report_fixture_sources, utc
 from zucai.predict.derive import had, hafu
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 from zucai.predict.model_definitions import (
@@ -27,7 +27,7 @@ from zucai.predict.pooled import model_targets
 from zucai.sources.sporttery import BEIJING
 
 
-def _models(paths, as_of, params_file=None, *, allow_empty=False):
+def _models(paths, as_of, params_file=None, *, allow_empty=False, sfc_only=False):
     registry = {}
     for path in paths:
         path = Path(path)
@@ -38,9 +38,8 @@ def _models(paths, as_of, params_file=None, *, allow_empty=False):
         sources = model_sources(model)
         keys = [
             (source, league)
-            for source in fixture_sources(model)
+            for source in report_fixture_sources(model, sfc_only=sfc_only)
             for league in model_targets(model)
-            if not getattr(model, "pooled", False) or source == "jc"
         ]
         if any(key in registry for key in keys):
             raise ValueError("同一来源/联赛提供了多个模型，请明确选择一个版本")
@@ -182,6 +181,7 @@ def predict_batch(
     replay: bool = False,
     day: date | None = None,
     match_ids: list[str] | None = None,
+    sfc_only_ids=(),
     market_weight: float = 0,
     expected_identities: dict | None = None,
     params_file=None,
@@ -202,9 +202,25 @@ def predict_batch(
         (not match_ids and not allow_empty) or len(set(match_ids)) != len(match_ids)
     ):
         raise ValueError("比赛ID清单不能为空或重复")
+    sfc_only = set(sfc_only_ids)
+    if sfc_only and (match_ids is None or not sfc_only.issubset(match_ids)):
+        raise ValueError("14 场补充范围须属于已请求的显式比赛ID")
     if not math.isfinite(market_weight) or not 0 <= market_weight <= 1:
         raise ValueError("市场实验权重必须在0至1之间")
-    registry = _models(model_files, cutoff, params_file, allow_empty=allow_empty)
+    if sfc_only and market_weight:
+        raise ValueError("14 场补充预测不能用于市场混合实验")
+    registry = _models(
+        model_files, cutoff, params_file, allow_empty=allow_empty, sfc_only=bool(sfc_only)
+    )
+    ordinary_registry = (
+        {
+            key: candidate
+            for key, candidate in registry.items()
+            if key[0] in report_fixture_sources(candidate[0])
+        }
+        if sfc_only
+        else registry
+    )
     entries = read_parameters(params_file)[0]["leagues"]
     if day is not None:
         start = datetime.combine(day, time(), BEIJING)
@@ -240,6 +256,8 @@ def predict_batch(
     }
     for key in keys:
         item = {"match_id": key, "status": "excluded", "reason": None}
+        if key in sfc_only:
+            item["sfc_only"] = True
         batch["predictions"].append(item)
         match = session.get(Match, key)
         if match is None:
@@ -256,13 +274,18 @@ def predict_batch(
                 "kickoff_beijing": utc(match.kickoff_utc).tz_convert(BEIJING).isoformat(),
             }
         )
-        market, market_missing_reason = _market(session, match, cutoff)
+        market, market_missing_reason = (
+            (None, "14 场补充预测不读取市场报价")
+            if key in sfc_only
+            else _market(session, match, cutoff)
+        )
         item["market_reference"] = market
         item["market_missing_reason"] = market_missing_reason
-        scope = registry.get((match.source, match.league))
+        selected_registry = registry if key in sfc_only else ordinary_registry
+        scope = selected_registry.get((match.source, match.league))
         compatible = {
             id(candidate[0]): candidate
-            for candidate in registry.values()
+            for candidate in selected_registry.values()
             if match.league in model_targets(candidate[0])
         }
         attributed = scope or (next(iter(compatible.values())) if len(compatible) == 1 else None)
@@ -327,7 +350,7 @@ def predict_batch(
             continue
         try:
             # Display only: a failure here must not cost the forecast itself.
-            strengths = model.team_strengths(item["home"], item["away"])
+            strengths = model.team_strengths(item["home"], item["away"], sfc_only=key in sfc_only)
         except (AttributeError, KeyError, ValueError):
             strengths = None
         market = item["market_reference"]
