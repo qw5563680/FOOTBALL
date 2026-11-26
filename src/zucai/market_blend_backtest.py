@@ -244,7 +244,9 @@ def _league_rows(database, phase, league, entry):
                     if forecast
                     else None
                 ),
-                closing=dict(zip(OUTCOMES, odds, strict=True)) if odds is not None else None,
+                closing=dict(zip(OUTCOMES, map(float, odds), strict=True))
+                if odds is not None
+                else None,
             )
         )
     return rows, predictions["folds"]

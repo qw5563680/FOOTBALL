@@ -1,9 +1,11 @@
 """The retrospective selector observes only the first time slice before freezing w."""
 
 import json
+from hashlib import sha256
 
 import pytest
 
+from zucai import market_blend_backtest
 from zucai.market_blend_backtest import PHASES, evaluate_phases
 
 
@@ -70,11 +72,59 @@ def test_no_paired_training_never_calls_validation(tmp_path):
     assert not (tmp_path / "weight-selection.json").exists()
 
 
+@pytest.mark.parametrize(
+    "review_url",
+    ["http://github.com/qw5563680/FOOTBALL/pull/259", "https:///pull/259", "https://github.com/"],
+)
+def test_run_rejects_invalid_review_url_before_reading_inputs(tmp_path, monkeypatch, review_url):
+    def unexpected_hash(_):
+        pytest.fail("invalid review URL reached input verification")
+
+    monkeypatch.setattr(market_blend_backtest, "_sha", unexpected_hash)
+    output = tmp_path / "report"
+    with pytest.raises(ValueError, match="审查记录链接"):
+        market_blend_backtest.run(tmp_path / "unused-archive", output, review_url)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("changed", ["manifest", "parameters"])
+def test_run_rejects_mismatched_pinned_input_before_restore(tmp_path, monkeypatch, changed):
+    from zucai import cloud_feeds
+
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    manifest_path = archive / "feed_manifest.json"
+    project = tmp_path / "project"
+    params_path = project / "data/model/params.json"
+    params_path.parent.mkdir(parents=True)
+    manifest = b'{"fixture": "manifest"}'
+    params = b'{"fixture": "parameters"}'
+    manifest_path.write_bytes(manifest + b" " if changed == "manifest" else manifest)
+    params_path.write_bytes(params + b" " if changed == "parameters" else params)
+    monkeypatch.setattr(market_blend_backtest, "ROOT", project)
+    monkeypatch.setattr(
+        market_blend_backtest, "ARCHIVE_MANIFEST_SHA256", sha256(manifest).hexdigest()
+    )
+    monkeypatch.setattr(market_blend_backtest, "PARAMETERS_SHA256", sha256(params).hexdigest())
+
+    def unexpected_restore(*args):
+        pytest.fail("mismatched input reached database restore")
+
+    monkeypatch.setattr(cloud_feeds, "restore_feeds", unexpected_restore)
+    output = tmp_path / "report"
+    review = "https://github.com/qw5563680/FOOTBALL/pull/259#issuecomment-7193832203"
+    with pytest.raises(ValueError, match="归档或参数与协议固定版本不符"):
+        market_blend_backtest.run(archive, output, review)
+    assert not output.exists()
+
+
 def test_actual_rolling_model_is_computed_before_joining_closing(tmp_path, monkeypatch):
     import pandas as pd
+    from sqlalchemy.orm import Session
 
     from zucai.db import get_engine, init_db
-    from zucai.market_blend_backtest import Phase, _league_rows
+    from zucai.market_blend_backtest import Phase, _league_rows, _select
+    from zucai.models import ClosingOdds, Match, Team
     from zucai.predict import backtest
 
     source = []
@@ -98,6 +148,7 @@ def test_actual_rolling_model_is_computed_before_joining_closing(tmp_path, monke
         )
     calls = []
     actual_evaluate = backtest.evaluate
+    actual_closing = backtest.read_closing
 
     def evaluate(frame, market, **kwargs):
         calls.append("predict")
@@ -108,7 +159,7 @@ def test_actual_rolling_model_is_computed_before_joining_closing(tmp_path, monke
     def closing(session, labels):
         calls.append("closing")
         assert len(labels) == 4
-        return {labels.iloc[0].match_id: (0.5, 0.3, 0.2)}
+        return actual_closing(session, labels)
 
     history = pd.DataFrame(source)
     start = "2024-07-01T00:00:00+00:00"
@@ -120,6 +171,24 @@ def test_actual_rolling_model_is_computed_before_joining_closing(tmp_path, monke
     database = tmp_path / "synthetic.sqlite"
     engine = get_engine(database)
     init_db(engine)
+    with Session(engine) as session:
+        first = history.loc[in_period].iloc[0]
+        home, away = Team(name=first.home), Team(name=first.away)
+        session.add_all([home, away])
+        session.flush()
+        session.add(
+            Match(
+                match_id=first.match_id,
+                source="fd",
+                league=first.league,
+                home_team_id=home.id,
+                away_team_id=away.id,
+                kickoff_utc=first.kickoff_utc.to_pydatetime(),
+            )
+        )
+        session.flush()
+        session.add(ClosingOdds(match_id=first.match_id, bookmaker="B365", h=2, d=10 / 3, a=5))
+        session.commit()
     engine.dispose()
     monkeypatch.setattr(backtest, "read_history", lambda session, league, sources: history)
     monkeypatch.setattr(backtest, "evaluate", evaluate)
@@ -147,8 +216,11 @@ def test_actual_rolling_model_is_computed_before_joining_closing(tmp_path, monke
     assert calls == ["predict", "closing"]
     assert all(fold["training_games"] > 100 for fold in folds)
     assert len(rows) == 4 and sum(row["team"] is not None for row in rows) == 3
-    assert rows[0]["closing"] == {"h": 0.5, "d": 0.3, "a": 0.2}
+    assert rows[0]["closing"] == pytest.approx({"h": 0.5, "d": 0.3, "a": 0.2})
     assert rows[-1]["actual"] is None and rows[-1]["team"] is None
     assert all(
         row["team_cutoff_utc"] < row["kickoff_utc"] for row in rows if row["team"] is not None
     )
+
+    weight, grid = _select(rows)
+    assert 0 <= weight <= 1 and len(grid) == 101
