@@ -1683,11 +1683,20 @@ through_beijing/归档生成时间替代。赛程阶段失败提示「赛程更�
 今明每批及复盘逐场读取 `forecast.json` 的 `market.snapshot_utc`，不取数据库当前最大报价时间，
 不借 run/归档时间补全；比该批 feed_snapshot 接口检查早的时间标历史快照。部分更新不代表其他场次更新。
 没有 market 为“未冻结赔率”，有报价但时间缺失/非法为“未知”；来源和概率不变。
+T72 在预测行 `experimental_blend` 冻结 `team-market-blend-v1`。当天的球队模型与 T71 市场参考
+共用真实赛前截点，融合引用市场快照编号和采集时间，记录协议哈希、权重版本和明确的未生成原因。
+融合失败按行记载，球队模型仍正常冻结。旧线性手动工具 `dixon-coles+market` 沿用原格式。
+比分矩阵、模型输入和账本只按各自原流程消费球队模型。融合分流到
+`scoreboard/team_market_blend.jsonl` 独立评分，报告发布过的球队模型、市场参考和融合的覆盖及共同样本成绩，
+按比赛配对比较两组差值。收盘价赛后对照单列。共同样本不足 200 场时只报数，300 场关停条件由协议事先写定。
+前瞻共同样本每满 200 场可以从已核对的计分归档副本生成复估提案，提交已批准的新配置时保存上一版本，
+新版本到生效时刻才启用。提案只写指定的独立输出。
+
 T71 起预测记录的市场对象扩为市场参考并加版本字段：`market`（预测行）与 `market_reference`（未预测行）同构，
 键含 `prices/snapshot_utc/probabilities/type/source/execution_verified`（原有）与
 `method_version/operator/supplier/source_quote_time/collected_utc/snapshot_id/return_rate/first_capture_utc/opening_odds`（新增）；
 未生成时记录 `market_missing_reason`（未开售/报价不完整/采集晚于截点）。日报三栏显示
-「球队模型」「市场参考」「球队＋市场（实验）」，融合栏在 T72 上线前恒为「未生成（融合实验尚未上线）」；
+「球队模型」「市场参考」「球队＋市场（实验）」，融合栏依 T72 冻结结果显示；旧批次保留缺失说明；
 市场信息不进入球队模型的任何输入、先验、校准或选参。
 仅日报调用 `verify_forecasts/load_batch(allow_unknown_odds_time=True)` 兼容旧冻件未知时间，保留原值且仍校验
 全部文件哈希、概率与批次/模型一致性；默认读取、写入冻结报告、记分板等继续严格要求有效报价时间。

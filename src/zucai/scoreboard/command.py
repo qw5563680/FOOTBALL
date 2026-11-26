@@ -16,7 +16,7 @@ from zucai.forecast_publication import publication_times
 from zucai.parlay import paper as parlay_paper
 from zucai.parlay.archive import load_documents
 from zucai.publication_history import publication_updates
-from zucai.scoreboard import baselines
+from zucai.scoreboard import baselines, team_market_blend
 from zucai.scoreboard import paper as paper_accounts
 from zucai.scoreboard.experimental import (
     load_experiments,
@@ -77,7 +77,16 @@ def read_state(archive):
     return scored, ledger, summary, scored_raw
 
 
-def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None, baseline_raw=None, history=None):
+def _publish(
+    archive,
+    contents,
+    *,
+    sfc_raw=None,
+    parlay_raw=None,
+    baseline_raw=None,
+    blend_raw=None,
+    history=None,
+):
     root = _path(archive, "scoreboard")
     paths = {name: _path(root, name) for name in FILES}
     if parlay_raw is not None:
@@ -89,6 +98,9 @@ def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None, baseline_raw=N
     if baseline_raw is not None:
         contents = {**contents, "baseline-scored": baseline_raw}
         paths["baseline-scored"] = _path(archive, baselines.SCORES)
+    if blend_raw is not None:
+        contents = {**contents, "blend-scored": blend_raw}
+        paths["blend-scored"] = _path(archive, team_market_blend.SCORES)
     for index, (path, raw) in enumerate((history or {}).items()):
         key = f"publication-{index}"
         contents = {**contents, key: raw}
@@ -138,6 +150,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     parlay_ledger = parlay_paper.read_ledger(archive, previous)
     has_parlays = bool(parlay_documents) or "parlay_sd" in (previous or {})
     forecasts = load_forecasts(archive, at, publications=publications)
+    previous_blend = (previous or {}).get("team_market_blend")
     experimental, experiment_file_audit = load_experiments(
         archive, forecast_manifest, at, publications=publications
     )
@@ -203,6 +216,33 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         parlay_view, parlay_publication_audit = parlay_paper.publication_view(
             parlay_documents, results, parlay_ledger, at
         )
+        blend_raw, blend_summary = None, None
+        if (
+            previous_blend is not None
+            or (archive / team_market_blend.SCORES).exists()
+            or any(team_market_blend.marker(row) for row in forecasts)
+        ):
+            try:
+                blend_existing, before_blend = team_market_blend.read_scored(archive, previous)
+                added, score_summary = team_market_blend.score(
+                    forecasts,
+                    results,
+                    database,
+                    previous_blend,
+                    blend_existing,
+                    at,
+                    replay_days=replay_days,
+                )
+                blend_raw = before_blend + _jsonl(added)
+                blend_summary = dict(
+                    score_summary,
+                    status="complete",
+                    scored_sha256=hashlib.sha256(blend_raw).hexdigest(),
+                )
+            except Exception:
+                LOG.exception("独立融合计分失败，保留已归档评分证据")
+                blend_raw = None
+                blend_summary = dict(previous_blend or {}, status="unavailable")
         if digest(database) != before:
             raise ValueError("记分板计算改变了恢复库")
     latest = {r["match_id"]: r for r in prematch_rows(forecasts, at)}
@@ -292,6 +332,8 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     parlay_raw = _jsonl(parlay_ledger) if has_parlays else None
     if baseline_summary is not None:
         summary["coverage_baseline"] = baseline_summary
+    if blend_summary is not None:
+        summary["team_market_blend"] = blend_summary
     if has_parlays:
         summary["parlay_sd"] = parlay_paper.summarize(parlay_view, results, at)
         summary["parlay_sd"]["publication_audit"] = parlay_publication_audit
@@ -300,6 +342,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         render_scoreboard(summary)
         + render_diagnostics(summary)
         + baselines.render(baseline_summary)
+        + team_market_blend.render(blend_summary)
         + render_experiments(experiments)
         + parlay_paper.render(summary.get("parlay_sd"))
     )
@@ -320,6 +363,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         sfc_raw=sfc_raw,
         parlay_raw=parlay_raw,
         baseline_raw=baseline_raw if has_baselines else None,
+        blend_raw=blend_raw,
         history=history_updates,
     )
     if os.environ.get("GITHUB_STEP_SUMMARY"):

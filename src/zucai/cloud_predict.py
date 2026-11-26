@@ -24,6 +24,7 @@ from zucai.forecast_coverage import (
     read_coverage,
 )
 from zucai.forecast_publication import publication_times
+from zucai.market_blend import freeze_blends, prepare_blends
 from zucai.models import Match, SfcIssue
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.command import train
@@ -284,6 +285,7 @@ def run(
             load_forecasts(archive, prediction_time, publications=publications) if old else ()
         )
         previous_baselines = published_baselines(archive, old, publications, prediction_time)
+        blend_deployment = prepare_blends(prediction_time, archive=archive)
         result = {
             "run_id": run_id,
             "event_name": os.environ.get("GITHUB_EVENT_NAME") or "local",
@@ -387,6 +389,7 @@ def run(
                             batch["input"]["jc_scope_match_ids"] = sorted(coverage[forecast_day])
                         batch["input"]["kickoff_date_beijing"] = forecast_day.isoformat()
                         batch["batch_id"] = f"{run_id}-{forecast_day}"
+                        freeze_blends(batch, deployment=blend_deployment)
                         completed = _now()
                         batch["generated_utc"] = completed.isoformat()
                         _deadline(batch, completed)

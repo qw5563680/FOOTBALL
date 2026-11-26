@@ -251,6 +251,25 @@ pytest -q
 本次实抓根页有14场、没有精确已结算赛果，详情见 [T12验收](reports/2026-11-02-t12-acceptance/README.md)。
 云端自动归档当前仅调用 jc 官方赛果，无 c500 自动备用查询。
 
+### 球队＋市场融合实验（T72）
+
+球队模型和 T71 的竞彩市场参考在同一赛前截点冻结。融合用协议规定的单一权重做对数线性合并，
+在日报第三栏显示独立结果、缺失原因与首选方向变化。有效权重与启用时点须来自已审查的回溯协议和报告。
+融合只用已经冻结的两组概率，独立计分，虚拟账户、纸面串关、胜负彩选择和球队模型沿用原流程。
+旧 `--market-weight` 手动工具沿用原行为，第三栏只承认 T72 模型。
+
+[事前协议](docs/experiments/T72-team-market-blend-protocol.md) 经 Claude Code 独立审查后，在固定归档副本上离线执行：
+
+```bash
+python -m zucai.market_blend_backtest --archive <归档副本> --out <新报告目录> --review-url <协议审查链接>
+```
+
+前瞻共同样本每满 200 场可离线生成复估提案。第二次起加 `--previous <上次提案>`，由审查和批准流程决定生效。
+
+```bash
+python -m zucai.market_blend_reestimate --archive <计分归档副本> --out <新提案.json> --as-of <复估UTC时刻> --effective-from <未来生效UTC时刻>
+```
+
 ### 云端采集
 
 #### T61 赛事目录与核准下载

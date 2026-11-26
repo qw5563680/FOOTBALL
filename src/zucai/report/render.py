@@ -10,6 +10,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from zucai.market_blend import MODEL_NAME as BLEND_MODEL_NAME
+from zucai.market_blend import validate_frozen_blend
 from zucai.predict.base import fixture_sources, model_sources, report_fixture_sources
 from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, HAFU_TIER_LABELS
 from zucai.predict.model_definitions import (
@@ -235,6 +237,12 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
         _validate_prediction_definition(
             prediction, batch["models"], definition_schema=definition_schema
         )
+        blend = prediction.get("experimental_blend")
+        t72 = isinstance(blend, dict) and blend.get("model_name") == BLEND_MODEL_NAME
+        if t72:
+            if batch["mode"] != "prematch" or batch["input"].get("market_weight", 0) != 0:
+                raise ValueError("融合实验须来自纯球队模型赛前批次")
+            validate_frozen_blend(prediction, batch["as_of_utc"])
         if prediction.get("status") == "excluded":
             _text(prediction.get("reason"), "排除原因")
             if any(
@@ -313,8 +321,7 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
             if market is None:
                 raise ValueError("没有市场快照时 EV 必须为空")
             _triplet(ev, "ev")
-        blend = prediction.get("experimental_blend")
-        if blend is not None:
+        if blend is not None and not t72:
             if not isinstance(blend, dict) or market is None:
                 raise ValueError("实验混合必须为含市场快照的对象")
             _triplet(blend.get("probabilities"), "experimental_blend", probabilities=True)
@@ -523,7 +530,12 @@ def _markdown(batch: dict) -> str:
                 f"（{_md(prediction['match_id'])}）：{probs}；半场进球占比 "
                 f"{half_full['share']:.6g}（{tier}，{half_full['share_ht_matches']} 场）。"
             )
-    blends = [p for p in batch["predictions"] if p.get("experimental_blend") is not None]
+    blends = [
+        p
+        for p in batch["predictions"]
+        if p.get("experimental_blend")
+        and p["experimental_blend"].get("model_name") != BLEND_MODEL_NAME
+    ]
     if blends:
         lines.extend(
             [
@@ -545,6 +557,20 @@ def _markdown(batch: dict) -> str:
                 _percent(blend.get("market_weight")),
             ]
             lines.append("| " + " | ".join(values) + " |")
+    experimental = [
+        (row["match_id"], blend)
+        for row in batch["predictions"]
+        if (blend := row.get("experimental_blend")) and blend.get("model_name") == BLEND_MODEL_NAME
+    ]
+    if experimental:
+        lines.extend(["", "## 球队＋市场（实验）", ""])
+        for match_id, blend in experimental:
+            if blend["status"] == "generated":
+                values = " / ".join(_percent(blend["probabilities"][key]) for key in OUTCOMES)
+                detail = f"{values}，市场权重 {_percent(blend['market_weight'])}"
+            else:
+                detail = f"未生成（{_md(blend['reason'])}）"
+            lines.append(f"- {_md(match_id)}：{detail}。")
     return "\n".join(lines) + "\n"
 
 
@@ -628,6 +654,11 @@ def _csv_bytes(batch: dict) -> bytes:
                 "hafu_share_ht_matches",
             ]
         )
+    if any(
+        (prediction.get("experimental_blend") or {}).get("model_name") == BLEND_MODEL_NAME
+        for prediction in batch["predictions"]
+    ):
+        columns.extend(["experimental_blend_status", "experimental_blend_reason"])
     writer = csv.DictWriter(stream, fieldnames=columns)
     writer.writeheader()
     for prediction in batch["predictions"]:
@@ -656,6 +687,11 @@ def _csv_bytes(batch: dict) -> bytes:
                 "experimental_blend_market_weight": blend.get("market_weight"),
             }
         )
+        if blend.get("model_name") == BLEND_MODEL_NAME:
+            row.update(
+                experimental_blend_status=blend["status"],
+                experimental_blend_reason=blend["reason"],
+            )
         if batch["validation_status"] == "league_gated":
             row.update(
                 p2_ready=prediction.get("p2_ready"),
