@@ -20,7 +20,7 @@ def _table(archive, feed, name):
             yield dict(zip(feed["columns"][name], json.loads(line), strict=True))
 
 
-def archived_matches(archive, feed):
+def archived_matches(archive, feed, *, additional_ids=()):
     teams = {row["id"]: row["name"] for row in _table(archive, feed, "teams")}
     matches = {
         row["match_id"]: {
@@ -29,7 +29,7 @@ def archived_matches(archive, feed):
             "away": teams.get(row["away_team_id"]),
         }
         for row in _table(archive, feed, "matches")
-        if row["source"] == "jc"
+        if row["source"] == "jc" or row["match_id"] in additional_ids
     }
     for row in _table(archive, feed, "results"):
         if row["match_id"] in matches:

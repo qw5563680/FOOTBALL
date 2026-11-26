@@ -47,8 +47,10 @@ from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.report.render import load_batch
 from zucai.scoreboard.command import read_state
 from zucai.scoreboard.score import enrich_prior_disclosures
+from zucai.sfc_digest import published_reports
 from zucai.sfc_digest import section as sfc_section
 from zucai.sources.base import _atomic_write
+from zucai.upset_review import sfc_known_outcomes, sfc_prematch_rows
 
 LOG = logging.getLogger(__name__)
 DISCLAIMER = "非购买建议 · BET 禁用"
@@ -355,7 +357,10 @@ def generate(
                 batch = jc_digest_batch(batch, spillover=day in run.get("jc_extra_dates", []))
                 if batch is not None:
                     batches.append((day, path, batch))
-    matches = archived_matches(archive, feed)
+    sfc_reports = published_reports(archive, at, pending_history=pending_history)
+    sfc_frozen = sfc_prematch_rows(sfc_reports, at)
+    result_matches = archived_matches(archive, feed, additional_ids=sfc_frozen)
+    matches = {key: row for key, row in result_matches.items() if row["source"] == "jc"}
     # No rows known at the cutoff means no evidence, not a checked empty scope.
     # Only scoped_catalog below may produce [] after usable evidence was found.
     sales_catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True)
@@ -442,7 +447,7 @@ def generate(
         summary,
         at,
         lambda path: _link(path, repository),
-        pending_history=pending_history,
+        reports=sfc_reports,
     )
     history_updates = publication_updates(archive, pending_history)
     input_hashes = source_hashes(archive)
@@ -571,6 +576,8 @@ def generate(
             displayed_ids=displayed_ids,
             window=window,
             exclusions=exclusions,
+            sfc_upsets=sfc_known_outcomes(sfc_frozen, result_matches, at),
+            upset_matches=result_matches,
         ),
         *_settlement_sections(
             scored,
