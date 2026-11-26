@@ -120,3 +120,31 @@ def test_experiment_request_deadline_respects_t88_budget(stage_remaining, worker
         check=True,
     )
     assert output.stdout.splitlines() == [str(START + worker_seconds - 125), f"{worker_seconds}s"]
+
+
+def _powershell_scripts():
+    for item in WORKFLOW.read_text(encoding="utf-8").split("      - name:"):
+        if "shell: powershell" not in item or "        run: |\n" not in item:
+            continue
+        lines = []
+        for line in item.split("        run: |\n", 1)[1].split("\n"):
+            if line.strip() and not line.startswith("          "):
+                break
+            lines.append(line)
+        yield item.split("\n", 1)[0].strip(), "\n".join(lines)
+
+
+def test_powershell_step_scripts_are_ascii_only():
+    """Windows PowerShell reads step scripts in the system code page, not UTF-8."""
+    scripts = dict(_powershell_scripts())
+    assert "Summarize GitHub API calls" in scripts
+    assert [name for name, text in scripts.items() if not text.isascii()] == []
+
+
+def test_summary_step_cannot_fail_a_job():
+    for name, job in jobs().items():
+        summary = step("Summarize GitHub API calls", job)
+        assert "        continue-on-error: true\n" in summary, name
+        if "shell: powershell" in summary:
+            assert "ZUCAI_SUMMARY_LINE: 'GitHub 接口调用 0 次" in summary
+            assert "$env:ZUCAI_SUMMARY_LINE | Out-File" in script(summary)

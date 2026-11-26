@@ -103,6 +103,7 @@ jobs:
           python3 app/src/zucai/schedule_gate.py --archive cloud-data --archive-status "$ARCHIVE_STATUS"
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         run: |
           printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
 
@@ -368,6 +369,7 @@ jobs:
           if-no-files-found: ignore
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         run: |
           if [[ -s "${ZUCAI_GITHUB_USAGE_FILE:-}" ]]; then
             python -m zucai.github_api summary
@@ -420,9 +422,12 @@ jobs:
           retention-days: 30
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         shell: powershell
+        env:
+          ZUCAI_SUMMARY_LINE: 'GitHub 接口调用 0 次，余量未知，恢复时间未知。'
         run: |
-          'GitHub 接口调用 0 次，余量未知，恢复时间未知。' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          $env:ZUCAI_SUMMARY_LINE | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
   jc-catalogue:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'probe' && (fromJSON(inputs.options || '{}').probe_kind == 'jc-catalogue' || fromJSON(inputs.options || '{}').probe_kind == 'jc-kickoffs' || fromJSON(inputs.options || '{}').probe_kind == 'jc-supplement') }}
@@ -529,9 +534,12 @@ jobs:
           if-no-files-found: ignore
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         shell: powershell
+        env:
+          ZUCAI_SUMMARY_LINE: 'GitHub 接口调用 0 次，余量未知，恢复时间未知。'
         run: |
-          'GitHub 接口调用 0 次，余量未知，恢复时间未知。' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          $env:ZUCAI_SUMMARY_LINE | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
   stats-backfill:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'stats-backfill' }}
@@ -642,6 +650,7 @@ jobs:
           if-no-files-found: ignore
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         run: |
           if [[ -s "${ZUCAI_GITHUB_USAGE_FILE:-}" ]]; then
             python -m zucai.github_api summary
@@ -704,6 +713,7 @@ jobs:
           if-no-files-found: ignore
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         run: |
           printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
 
@@ -808,6 +818,7 @@ jobs:
           if-no-files-found: ignore
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         run: |
           if [[ -s "${ZUCAI_GITHUB_USAGE_FILE:-}" ]]; then
             python -m zucai.github_api summary
@@ -858,6 +869,7 @@ jobs:
           if-no-files-found: ignore
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         run: |
           printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
 
@@ -935,6 +947,7 @@ jobs:
           if-no-files-found: ignore
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         run: |
           if [[ -s "${ZUCAI_GITHUB_USAGE_FILE:-}" ]]; then
             python -m zucai.github_api summary
@@ -1014,6 +1027,9 @@ jobs:
           if-no-files-found: ignore
       - name: Summarize GitHub API calls
         if: ${{ always() }}
+        continue-on-error: true
         shell: powershell
+        env:
+          ZUCAI_SUMMARY_LINE: 'GitHub 接口调用 0 次，余量未知，恢复时间未知。'
         run: |
-          'GitHub 接口调用 0 次，余量未知，恢复时间未知。' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          $env:ZUCAI_SUMMARY_LINE | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
