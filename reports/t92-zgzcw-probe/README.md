@@ -1,19 +1,36 @@
-# T92 中国足彩网备用赛程探测
+# T92、T97 中国足彩网备用赛程探测
 
-## 中国足彩网待实测
+## T92 第一轮实测
 
-公开搜索索引显示中国足彩网首页有足彩和竞彩足球导航。索引也提供了下列候选页。首页的实际导航目标尚未确认，入口可读性和能否作为备用赛程以正式采集机探测为准。[首页](https://www.zgzcw.com/) · [T92 任务单](../../docs/tasks/T92-backup-source-probe-zgzcw.md)
+2026-11-26 北京时间 21:26:58 至 21:27:10，正式采集机读取了公开索引推测的两个中国足彩网路径和澳客竞彩对照页。探测作业成功，正式采集、预测和日报作业均跳过。[运行 45826832242](https://github.com/qw5563680/FOOTBALL/actions/runs/45826832242) · [附件 backup-sources-45826832242-1](https://github.com/qw5563680/FOOTBALL/actions/runs/45826832242/artifacts/15122555379)
 
-| 用途和候选页 | robots、访问时段和频率 | 静态对阵和开球时间 | 字段覆盖 | 重复读取 |
-| --- | --- | --- | --- | --- |
-| [14 场胜负彩](https://cp.zgzcw.com/zgzcw/lottery/) | 同域 robots 待读，是否允许访问本路径待核 | 待实测 | 待实测 | 待实测 |
-| [竞彩足球](https://cp.zgzcw.com/lottery/jczq/index.jsp) | 同域 robots 待读，是否允许访问本路径待核 | 待实测 | 待实测 | 待实测 |
+| 候选页 | 访问规则 | HTTP 与静态行数 | 字段及稳定性 |
+| --- | --- | --- | --- |
+| 中国足彩网 `cp.zgzcw.com/zgzcw/lottery/` | `cp.zgzcw.com` 的 robots.txt 返回 200，禁止 `/homePage/`，未公布时段 | 200，0 条可核对静态对阵 | 字段为空，重复读取未测 |
+| 中国足彩网 `cp.zgzcw.com/lottery/jczq/index.jsp` | 同域规则允许访问本路径 | 200，0 条可核对静态对阵 | 字段为空，重复读取未测 |
+| 澳客 `www.okooo.com/jingcai/` | robots.txt 返回 200，允许该路径，规定 UTC 01:30–18:30（北京时间 09:30 至次日 02:30） | 200，0 条可核对静态对阵 | 字段为空，重复读取未测 |
 
-核对期号、场序、赛事、主客队、开球时间、停售时间、公开比赛编号，并记录每种用途的实际覆盖。若页面只有通用比赛或栏目导航，保留证据并标为玩法未核实。
+第一轮证据支持访问状态和当时静态解析结果。两条中国足彩网路径是否为相应玩法的对阵页、静态结构为何无法解析均未确认。ZIP 共 5,790 字节，SHA-256 与 GitHub 元数据一致，附件清单的 7 个文件全部通过校验。[ZIP 与文件哈希](SHA256SUMS)
 
-合并后由 DeepSeek 在 `main` 手动运行 **Football cloud feeds**，选择 `operation=probe`，`options` 填 `{"probe_kind":"backup-sources"}`。先读取 `cp.zgzcw.com` 的 robots.txt，按规则分别判断两个路径。每个候选最多尝试 3 次公开页面请求，间隔至少 3 秒，robots 若要求更长间隔则按其要求。中国足彩网在额度内优先走两种用途，再尝试重复读取一个已读到静态赛程的页面。另一个页面若只读一次，稳定性仍待核。[工作流](https://github.com/qw5563680/FOOTBALL/actions/workflows/football-feeds.yml)
+## T97 第二轮验收
 
-验收时从 `backup-sources-<run>-<attempt>` 读取 `probe.json`、`samples/` 和 `SHA256SUMS`。回填 HTTP、访问规则、静态字段和重复结果，附原始响应及裁剪产物的哈希和运行链接。Claude 对照产物核实结论，是否接入由所有者决定。[数据来源](../../docs/DATA_SOURCES.md#t92-中国足彩网备用赛程探测)
+正式运行待合并后执行。DeepSeek 在 `main` 的 **Football cloud feeds** 选择 `operation=probe`，填写 `options={"probe_kind":"backup-sources"}`。探测由首页发现静态入口，逐域读取 robots，按访问时段和请求间隔核对。中国足彩网上限 6 次页面请求，澳客对照上限 3 次，robots 每域 1 次单独计数。[工作流](https://github.com/qw5563680/FOOTBALL/actions/workflows/football-feeds.yml) · [T97 任务单](../../docs/tasks/T97-zgzcw-probe-from-homepage.md)
+
+验收从 `backup-sources-<run>-<attempt>` 读取 `probe.json`、`samples/` 和 `SHA256SUMS`。回填访问规则、是否为静态对阵页、字段覆盖与复读对比，附运行链接、附件名和 SHA-256。证据不足的项目保留「未确认」。[数据来源](../../docs/DATA_SOURCES.md#t97-中国足彩网从首页发现入口)
+
+复核当前清单时，把 T90、T92 的 ZIP 保存为附件同名的 `.zip`，分别解压到同名目录，在共同父目录执行 `sha256sum -c /path/to/reports/t92-zgzcw-probe/SHA256SUMS`。原 HTTP 响应的 SHA-256 在相应样本里。
+
+### T97 离线回放
+
+用合成首页、合成竞彩表格和已归档的澳客裁片作为模拟响应，走正式工作流使用的命令入口。下列行数说明探测能识别样本，真实页面的覆盖仍待第二轮核对。
+
+| 样本 | 回放结果 |
+| --- | --- |
+| 首页给出两个同站子域的入口 | 中国足彩网读 3 份 robots、请求 5/6 次网页。14 场两次各 14 行，8 个字段一致。竞彩两次各 1 行，5 个字段一致。附件清单 12 个文件通过校验 |
+| 首页只有站外对阵链接和玩法介绍 | 中国足彩网读 1 份 robots、只请求首页 1/6 次。保留「竞彩足球对阵」「胜负彩介绍」的可见文字，两个赛程入口均未确认 |
+| 澳客对照返回 405 | 保留 HTTP 405、标题与字节数等诊断证据，赛程覆盖和稳定性未确认 |
+
+自动测试另覆盖 robots 拒绝、访问时段、复读不一致、三类无对阵原因及样本字段过滤。离线样本只读到主客队时也会复读，分开报告对阵行数和带开球时间的行数。[请求回归](../../tests/test_backup_source_probe.py) · [页面回归](../../tests/test_backup_source_pages.py) · [Windows 工具加载](../../tests/test_windows_collection_machine.py)
 
 ## T90 既有实测回填
 

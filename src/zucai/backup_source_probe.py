@@ -5,6 +5,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from html import escape
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -15,19 +16,13 @@ from zucai.okooo_probe import AGENT, _get
 from zucai.sources.base import RateLimiter, _atomic_write
 
 PAGE_LIMIT = 3
+PAGE_LIMITS = {"zgzcw": 6}
+DISCOVERY_DOMAINS = {"zgzcw": "zgzcw.com"}
 MIN_INTERVAL = 3
 MAX_PROBE_INTERVAL = 60
 POLICY_KEYS = {"allow", "disallow", "crawl-delay", "request-rate", "visit-time"}
 CANDIDATES = (
-    (
-        "zgzcw",
-        "中国足彩网",
-        {
-            "sfc": "https://cp.zgzcw.com/zgzcw/lottery/",
-            "jc": "https://cp.zgzcw.com/lottery/jczq/index.jsp",
-        },
-        None,
-    ),
+    ("zgzcw", "中国足彩网", {"sfc": None, "jc": None}, "https://www.zgzcw.com/"),
     ("okooo", "澳客", {"jc": "https://www.okooo.com/jingcai/"}, None),
 )
 PURPOSE_LABELS = {"sfc": "14 场", "jc": "竞彩", "home": "公开首页"}
@@ -112,11 +107,22 @@ def _origin(url):
     return f"https://{urlsplit(url).hostname}"
 
 
-def _safe_link(url, origin):
-    parsed = urlsplit(url)
+def _safe_link(url, origin, site_domain):
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+    except ValueError:
+        return False
+    if not hostname or parsed.netloc != hostname:
+        return False
+    in_scope = (
+        hostname == site_domain or hostname.endswith("." + site_domain)
+        if site_domain
+        else parsed.netloc == urlsplit(origin).netloc
+    )
     return (
         parsed.scheme == "https"
-        and parsed.netloc == urlsplit(origin).netloc
+        and in_scope
         and parsed.path.startswith("/")
         and not parsed.query
         and not parsed.fragment
@@ -151,12 +157,13 @@ class _CandidateProbe:
     def __init__(self, session, limiter, output, code, name):
         self.session, self.limiter, self.output = session, limiter, output
         self.code = code
+        self.site_domain = DISCOVERY_DOMAINS.get(code)
         self.policies = {}
         self.samples = []
         self.result = dict(
             code=code,
             name=name,
-            page_limit=PAGE_LIMIT,
+            page_limit=PAGE_LIMITS.get(code, PAGE_LIMIT),
             page_requests=0,
             robots_requests=0,
             robots=[],
@@ -200,7 +207,7 @@ class _CandidateProbe:
     def page(self, purpose, url):
         row = {**_observation(url), "purpose": purpose}
         self.result["pages"].append(row)
-        if self.result["page_requests"] >= PAGE_LIMIT:
+        if self.result["page_requests"] >= self.result["page_limit"]:
             row.update(status="budget_exhausted", reason="候选请求已达上限")
             return row
         origin = _origin(url)
@@ -221,50 +228,99 @@ class _CandidateProbe:
             return row
         self.result["page_requests"] += 1
         raw = _observe(self.session, row)
-        packet = {}
-        if row["http_status"] == 200:
-            if purpose == "home":
-                row.update(status="discovery", links=discover_pages(raw, origin))
-                if not any(row["links"].values()):
-                    row["reason"] = "静态首页未确认专用足彩或竞彩赛程链接"
-            else:
-                inspection = inspect_page(raw, purpose)
-                row.update({k: v for k, v in inspection.items() if k not in {"sample", "evidence"}})
-                packet = {
-                    "sample": inspection["sample"],
-                    "evidence": inspection.get("evidence", {}),
-                }
         if raw is not None:
-            self._sample(row, packet)
+            success = row["http_status"] == 200
+            inspection = inspect_page(raw, purpose if success else "home")
+            if success and purpose == "home" and inspection["status"] == "discovery":
+                labels = []
+                links = discover_pages(
+                    raw, origin, site_domain=self.site_domain, link_labels=labels
+                )
+                row.update(status="discovery", links=links, link_labels=labels)
+                if not any(links.values()):
+                    row["reason"] = "静态首页未确认专用足彩或竞彩赛程链接"
+            elif success:
+                row.update({k: v for k, v in inspection.items() if k not in {"sample", "evidence"}})
+                row["pair_rows"] = inspection["evidence"]["pair_rows"]
+            self._sample(
+                row,
+                {
+                    "sample": inspection["sample"] if success and purpose != "home" else [],
+                    "evidence": inspection["evidence"],
+                },
+            )
         return row
+
+
+def _has_pairs(page):
+    return page["status"] in {"readable", "unconfirmed"} and bool(page.get("pair_rows"))
+
+
+def _stability(checks):
+    readings = [
+        {
+            "status": page["status"],
+            "row_count": page.get("row_count"),
+            "pair_rows": page.get("pair_rows"),
+            "fields": page.get("fields", []),
+            "complete_fields": page.get("complete_fields", []),
+        }
+        for page in checks
+    ]
+    if (
+        len(checks) != 2
+        or checks[0]["url"] != checks[1]["url"]
+        or not all(_has_pairs(page) for page in checks)
+    ):
+        return dict(
+            status="not_verified", row_count_matches=None, fields_match=None, readings=readings
+        )
+    first, second = readings
+    rows_match = all(first[key] == second[key] for key in ("row_count", "pair_rows"))
+    fields_match = all(set(first[key]) == set(second[key]) for key in ("fields", "complete_fields"))
+    return dict(
+        status="consistent" if rows_match and fields_match else "different",
+        row_count_matches=rows_match,
+        fields_match=fields_match,
+        readings=readings,
+    )
 
 
 def _assessment(purpose, pages):
     checks = [page for page in pages if page["purpose"] == purpose]
+    stability = _stability(checks)
     if not checks:
         reason = pages[0]["reason"] if pages and pages[0]["purpose"] == "home" else None
         return {
             "result": "需所有者决定",
             "reason": "专用公开赛程页未确认" + (f"。首页检查：{reason}" if reason else ""),
             "fields": [],
+            "stability": stability,
         }
     good = [page for page in checks if page["status"] == "readable"]
     fields = sorted({key for page in checks for key in page.get("fields", [])})
     required = {"seq", "league", "home", "away", "kickoff"}
     if purpose == "sfc":
         required |= {"period", "sale_end"}
-    repeated = len(checks) >= 2 and len(good) == len(checks) and len({p["url"] for p in good}) == 1
-    complete = repeated and all(
-        required <= set(p["complete_fields"]) and (purpose != "sfc" or p["sfc_order_complete"])
-        for p in good
+    complete = (
+        len(good) == 2
+        and stability["status"] == "consistent"
+        and all(
+            required <= set(p["complete_fields"]) and (purpose != "sfc" or p["sfc_order_complete"])
+            for p in good
+        )
     )
     if complete:
-        result, reason = "可用", "同页两次读取均有核心赛程字段"
+        result, reason = "可用", "同页两次读取的比赛行数和字段一致，均有核心赛程字段"
     elif all(page["status"] in UNAVAILABLE for page in checks):
         result, reason = (
             "不可用",
             "。".join(dict.fromkeys(p["reason"] or p["status"] for p in checks)),
         )
+    elif stability["status"] == "different":
+        result, reason = "需所有者决定", "同页两次读取的比赛行数或字段不同"
+    elif stability["status"] == "consistent":
+        result, reason = "需所有者决定", "同页复读结果一致，核心赛程字段未齐"
     elif good:
         result, reason = "需所有者决定", "读到静态赛程，完整性或同页稳定性尚未核实"
     else:
@@ -272,7 +328,11 @@ def _assessment(purpose, pages):
             "需所有者决定",
             "。".join(dict.fromkeys(p["reason"] or p["status"] for p in checks)),
         )
-    return {"result": result, "reason": reason, "fields": fields}
+    return {"result": result, "reason": reason, "fields": fields, "stability": stability}
+
+
+def _markdown_text(value):
+    return re.sub(r"([\\`*_\[\]])", r"\\\1", escape(value, quote=False))
 
 
 def _write_report(output, report, samples):
@@ -286,6 +346,22 @@ def _write_report(output, report, samples):
                 f"- {PURPOSE_LABELS[purpose]} {verdict['result']}。{verdict['reason']}。"
                 f"已观察字段 {fields}。"
             )
+            stability = verdict["stability"]
+            if len(stability["readings"]) == 2:
+                descriptions = {
+                    "consistent": "一致",
+                    "different": "存在差异",
+                    "not_verified": "未确认",
+                }
+                lines.append(f"  - 同页复读 {descriptions[stability['status']]}。")
+                for i, reading in enumerate(stability["readings"], 1):
+                    covered = ", ".join(reading["fields"]) or "未取得"
+                    rows = reading["row_count"] if reading["row_count"] is not None else "未取得"
+                    pairs = reading["pair_rows"] if reading["pair_rows"] is not None else "未取得"
+                    lines.append(
+                        f"    - 第 {i} 次 {reading['status']}，主客对阵 {pairs} 行，"
+                        f"有开球时间 {rows} 行，字段 {covered}。"
+                    )
         lines.append("")
         for check in site["robots"]:
             rules = json.dumps(check.get("rules", []), ensure_ascii=False)
@@ -301,9 +377,12 @@ def _write_report(output, report, samples):
                 f"- {PURPOSE_LABELS[page['purpose']]} `{page['url']}` "
                 f"HTTP {page['http_status']}，{page['status']}。{page['reason'] or ''}{evidence}"
             )
+            if page.get("status") == "discovery":
+                labels = "、".join(_markdown_text(label) for label in page["link_labels"])
+                lines.append(f"  - 首页相关链接文字 {labels or '未观察到'}。")
         lines += [
             f"- robots {site['robots_requests']} 次，"
-            f"网页 {site['page_requests']}/{PAGE_LIMIT} 次。",
+            f"网页 {site['page_requests']}/{site['page_limit']} 次。",
             "",
         ]
     _atomic_write(output / "README.md", "\n".join(lines).encode())
@@ -329,13 +408,18 @@ def collect_backup_source_probe(*, output):
                 if target is None:
                     origin = _origin(home)
                     target = next(
-                        (p for p in links.get(purpose, []) if _safe_link(p, origin)), None
+                        (
+                            url
+                            for url in links.get(purpose, [])
+                            if _safe_link(url, origin, probe.site_domain)
+                        ),
+                        None,
                     )
                 if target:
                     checked.append(probe.page(purpose, target))
-            stable_target = next((p for p in checked if p["status"] == "readable"), None)
-            if stable_target and probe.result["page_requests"] < PAGE_LIMIT:
-                probe.page(stable_target["purpose"], stable_target["url"])
+            for page in checked:
+                if _has_pairs(page):
+                    probe.page(page["purpose"], page["url"])
             probe.result["assessment"] = {
                 purpose: _assessment(purpose, probe.result["pages"]) for purpose in targets
             }
