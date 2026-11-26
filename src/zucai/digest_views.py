@@ -16,6 +16,7 @@ from zucai.digest_context import (
 )
 from zucai.digest_display import BEIJING, _instant, _link, _match, _number, _probabilities, _text
 from zucai.digest_odds import batch_odds_lines, collection_lines, odds_time, same_collection_attempt
+from zucai.market_blend import MODEL_NAME as BLEND_MODEL_NAME
 from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, HAFU_TIER_LABELS
 from zucai.prediction_disclosure import prior_footnote, prior_label
 from zucai.scoreboard.score import enrich_prior_disclosures
@@ -52,6 +53,26 @@ def _market_cell(row):
         return _market_triple(market)
     reason = row.get("market_missing_reason")
     return f"市场参考未生成（{_text(reason)}）" if reason else "市场参考未生成"
+
+
+def _fusion_cell(row):
+    blend = row.get("experimental_blend") or {}
+    if blend.get("model_name") != BLEND_MODEL_NAME:
+        return FUSION_UNAVAILABLE, None
+    if blend.get("status") != "generated" or row.get("status") != "predicted":
+        return f"未生成（{_text(blend.get('reason'))}）", None
+    model, fusion = row["model_probabilities"], blend["probabilities"]
+    original, combined = max("hda", key=model.__getitem__), max("hda", key=fusion.__getitem__)
+    text = _market_triple(blend)
+    weight = blend.get("market_weight")
+    market = (_market_of(row) or {}).get("probabilities")
+    if type(weight) in (int, float) and weight == 1 and fusion == market:
+        text += "（当前权重 1.00，等于市场参考）"
+    changed = original != combined
+    if changed:
+        names = {"h": "主胜", "d": "平", "a": "客胜"}
+        text += f"（首选变化 {names[original]} → {names[combined]}）"
+    return text, changed
 
 
 def _market_gap_line(rows):
@@ -176,7 +197,9 @@ def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window)
             if kickoff == "未记录":
                 reasons.append("目录未记录有效开球时间")
             probability, generated = "—", "—"
-            status = "未预测：" + "；".join(reasons)
+            status = (
+                "未预测：" + "；".join(reasons) + "；球队＋市场（实验）未生成（球队模型未生成）"
+            )
             upset = upset_cell({})
         else:
             prediction = predicted[row["match_id"]]
@@ -354,6 +377,7 @@ def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
         ]
     )
     versions = {}
+    fusion_count = fusion_changes = 0
     for row in sorted(rows, key=_order):
         head = (
             f"| {_text(row.get('jc_num'))} | {_local(row['kickoff_utc'])} | "
@@ -362,10 +386,14 @@ def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
         if displayed_ids is not None:
             displayed_ids.add(row["match_id"])
         upset = upset_cell(row)
+        fusion, changed = _fusion_cell(row)
+        if changed is not None:
+            fusion_count += 1
+            fusion_changes += changed
         if row["status"] != "predicted":
             lines.append(
                 f"{head} | 球队模型未生成（{_text(row.get('reason'))}） | "
-                f"{_market_cell(row)} | {FUSION_UNAVAILABLE} | — | — | — | "
+                f"{_market_cell(row)} | {fusion} | — | — | — | "
                 f"{odds_time(row, checked_at=checked_at)} |"
                 + (" — |" if has_half else "")
                 + f" {upset} |"
@@ -398,7 +426,7 @@ def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
                 f"{probs}；占比 {half['share']:.4f}（{tier}，{half['share_ht_matches']} 场）"
             )
         lines.append(
-            f"{head} | {_probabilities(row)} | {_market_cell(row)} | {FUSION_UNAVAILABLE} | "
+            f"{head} | {_probabilities(row)} | {_market_cell(row)} | {fusion} | "
             f"{_text(row['model_name'])} / {reference} | "
             f"{status} | {scores} | "
             f"{odds_time(row, checked_at=checked_at)} |"
@@ -408,6 +436,8 @@ def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
     lines.append("")
     lines.extend(strength_lines(rows))
     lines.extend(_market_gap_line(rows))
+    if fusion_count:
+        lines.extend([f"融合有结果 {fusion_count} 场，首选方向变化 {fusion_changes} 场。", ""])
     if note := prior_footnote(rows):
         lines.extend([_text(note), ""])
     lines.extend(

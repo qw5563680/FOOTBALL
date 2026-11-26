@@ -12,6 +12,7 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from zucai.market_reference import MARKET_OPERATOR, MARKET_REFERENCE_VERSION, MARKET_SUPPLIER
 from zucai.models import Match, Odds, Prediction, Team
 from zucai.predict.base import model_sources, report_fixture_sources, utc
 from zucai.predict.derive import had, hafu
@@ -81,9 +82,6 @@ def _models(paths, as_of, params_file=None, *, allow_empty=False, sfc_only=False
     return registry
 
 
-MARKET_REFERENCE_VERSION = "market-reference-v1"
-MARKET_OPERATOR = "竞彩官方"
-MARKET_SUPPLIER = "中国体育彩票（竞彩官网）"
 MARKET_SOURCE_QUOTE_TIME_MISSING = "来源未提供"
 MARKET_OPENING_MISSING = "来源未提供初盘"
 

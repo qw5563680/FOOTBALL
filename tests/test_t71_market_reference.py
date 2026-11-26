@@ -423,3 +423,97 @@ def test_market_sample_command_reads_production_forecast_manifest(tmp_path, monk
     assert "该批采用的胜平负快照：2026-11-15T15:01:11+00:00" in text
     assert "预测采用" in text
     assert "权限未核实" in text
+
+
+def test_digest_fusion_only_uses_the_new_frozen_experiment_and_marks_directions():
+    from datetime import date
+
+    from zucai.digest_views import FUSION_UNAVAILABLE, forecast_sections
+
+    common = {
+        "status": "predicted",
+        "source": "jc",
+        "kickoff_utc": "2026-11-03T11:00:00+00:00",
+        "league": "L",
+        "home": "A",
+        "away": "B",
+        "model_probabilities": {"h": 0.5, "d": 0.3, "a": 0.2},
+        "model_name": "dixon-coles",
+        "model_version": "pure-v1",
+    }
+    experiment = {
+        "model_name": "team-market-blend-v1",
+        "status": "generated",
+        "probabilities": {"h": 0.3, "d": 0.6, "a": 0.1},
+    }
+    market = {"probabilities": experiment["probabilities"]}
+    rows = [
+        dict(
+            common,
+            match_id="jc:swap",
+            jc_num="周二001",
+            market=market,
+            experimental_blend=dict(experiment, market_weight=1.0),
+        ),
+        dict(
+            common,
+            match_id="jc:unchanged",
+            jc_num="周二002",
+            market=market,
+            experimental_blend=dict(
+                experiment, market_weight=0.5, probabilities={"h": 0.6, "d": 0.3, "a": 0.1}
+            ),
+        ),
+        dict(
+            common,
+            match_id="jc:manual",
+            jc_num="周二003",
+            market=market,
+            experimental_blend=dict(experiment, model_name="dixon-coles+market", market_weight=1.0),
+        ),
+        dict(
+            common,
+            match_id="jc:missing",
+            jc_num="周二004",
+            status="excluded",
+            reason="缺少该联赛模型",
+            experimental_blend={
+                "model_name": "team-market-blend-v1",
+                "status": "not_generated",
+                "reason": "球队模型未生成",
+            },
+        ),
+        dict(
+            common,
+            match_id="jc:historic",
+            jc_num="周二005",
+            market=market,
+            experimental_blend=experiment,
+        ),
+        dict(
+            common,
+            match_id="jc:conflicting",
+            jc_num="周二006",
+            market={"probabilities": {"h": 0.300001, "d": 0.599999, "a": 0.1}},
+            experimental_blend=dict(experiment, market_weight=1.0),
+        ),
+    ]
+    batch = {
+        "batch_id": "t72-digest",
+        "generated_utc": "2026-11-03T00:00:00+00:00",
+        "predictions": rows,
+    }
+    lines = forecast_sections(
+        [("2026-11-03", "forecasts/b1/forecast.json", batch)], date(2026, 11, 3), None
+    )
+    render = [line for line in lines if line.startswith("| 周二")]
+    weight_note = "当前权重 1.00，等于市场参考"
+    assert len(render) == 6
+    assert [line for line in lines if weight_note in line] == [render[0]]
+    assert f"| 30.00% / 60.00% / 10.00% | 30.00% / 60.00% / 10.00%（{weight_note}）" in render[0]
+    assert "50.00% / 30.00% / 20.00%" in render[0]
+    assert "30.00% / 60.00% / 10.00%" in render[0] and "主胜 → 平" in render[0]
+    assert "首选变化" not in render[1]
+    assert f"| 30.00% / 60.00% / 10.00% | {FUSION_UNAVAILABLE} |" in render[2]
+    assert "未生成（球队模型未生成）" in render[3]
+    assert "融合有结果 4 场，首选方向变化 3 场。" in lines
