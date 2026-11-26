@@ -10,9 +10,12 @@ from zucai.report.sfc import (
     OPTIONS,
     _unmapped_reason,
     disclosed_rows,
+    fixture_lineup,
     hit_line,
     own_fixture_note,
     pick_nine_lines,
+    pick_nine_multi_lines,
+    requires_frozen_lineup,
     unconfirmed_mapping_status,
 )
 from zucai.scoreboard.sfc import prior_group_text, read_settled
@@ -138,7 +141,10 @@ def section(archive, feed, summary, now, link, *, pending_history=None, reports=
                 "（来源尚未公布，或本班采集未成功）；抓到后在这里展示。",
                 "",
             ]
-    lines.extend(_issue_lines(name, issue, reports, settled, now, link))
+    pick_nine_settled = (summary or {}).get("sfc", {}).get("pick_nine_multi", {})
+    lines.extend(
+        _issue_lines(name, issue, reports, settled, now, link, pick_nine_settled=pick_nine_settled)
+    )
     return lines
 
 
@@ -211,23 +217,6 @@ def not_yet_note(rows, end, now, *, from_okooo=False):
     return note
 
 
-def _fixture_list(rows):
-    return sorted(
-        (
-            r["seq"],
-            r.get("fixture_id"),
-            r.get("league"),
-            r["home"],
-            r["away"],
-            r.get("provider_home_id"),
-            r.get("provider_away_id"),
-            _timestamp(r.get("source_kickoff_utc") or r["kickoff_utc"]),
-            bool(r.get("source_ended")),
-        )
-        for r in rows
-    )
-
-
 def _conflict_line(difference, official_end, provider_end, provider):
     field = difference.get("field")
     if field == "sale_end_utc":
@@ -248,7 +237,30 @@ def _conflict_line(difference, official_end, provider_end, provider):
     return line + "。"
 
 
-def _issue_lines(name, issue, reports, settled, now, link):
+def _pick_nine_score_line(settled, number, path, report, now, link):
+    visible = {
+        issue: record
+        for issue, record in settled.items()
+        if type(record.get("all_hit")) is bool and _timestamp(record["settled_utc"]) <= now
+    }
+    current = visible.get(number)
+    paths = set()
+    if path and report:
+        paths = {path + "/sfc.json"}
+        if evidence := report.get("publication_evidence"):
+            paths.add(evidence["candidate_path"])
+    if current and paths.intersection((current["report_path"], current.get("candidate_path"))):
+        chosen = number
+    else:
+        chosen = max((issue for issue in visible if issue < number), default=None)
+    if chosen:
+        record = visible[chosen]
+        result = "9 场全中" if record["all_hit"] else "未全中"
+        return f"任九复式复盘 第 {chosen} 期 {result}。来源 {link(record['report_path'])}。"
+    return None
+
+
+def _issue_lines(name, issue, reports, settled, now, link, *, pick_nine_settled=None):
     number = issue["issue_no"]
     check = verification_at(issue.get("official_verification"), now)
     okooo = is_okooo(issue.get("source_url"))
@@ -269,18 +281,11 @@ def _issue_lines(name, issue, reports, settled, now, link):
         for path, report in choices
         if is_okooo((report.get("source") or {}).get("url")) == okooo
     ]
-    if (
-        okooo
-        or check
-        or (
-            end
-            and _timestamp(end) > now
-            and any(r["league"] == "欧国联" for r in issue["snapshot"])
-        )
-    ):
-        current = _fixture_list(issue["snapshot"])
+    source_choices = choices
+    if requires_frozen_lineup(issue, check, end, now):
+        current = fixture_lineup(issue["snapshot"])
         choices = [
-            (path, report) for path, report in choices if _fixture_list(report["rows"]) == current
+            (path, report) for path, report in choices if fixture_lineup(report["rows"]) == current
         ]
     differences = check.get("differences", [])
     conflicts = [d for d in differences if d.get("status") == "conflict"]
@@ -475,6 +480,8 @@ def _issue_lines(name, issue, reports, settled, now, link):
             unavailable_reason=lineup_reason if lineup_conflict else None,
         ),
     ]
+    if eligible:
+        lines.extend(pick_nine_multi_lines(publication))
     previous = [
         r for r in settled if r["issue_no"] < number and _timestamp(r["settled_utc"]) <= now
     ]
@@ -495,6 +502,25 @@ def _issue_lines(name, issue, reports, settled, now, link):
         lines.append(prior_group_text(last.get("prior_groups")))
     else:
         lines += ["上一期命中数：尚无已结算记录。"]
+    score_path, score_report = (path, report) if eligible else (None, None)
+    if not eligible and not lineup_conflict and number in (pick_nine_settled or {}):
+        # An end-of-match flag can hide the forecast without invalidating its settled result.
+        final_lineup = fixture_lineup(issue["snapshot"], include_state=False)
+        score_path, score_report = max(
+            (
+                (path, record)
+                for path, record in source_choices
+                if record["sale_state"] == "published_before_deadline"
+                and deadline_status(end, record.get("published_utc")) == "published_before_deadline"
+                and fixture_lineup(record["rows"], include_state=False) == final_lineup
+            ),
+            key=lambda entry: (_timestamp(entry[1]["generated_utc"]), entry[0]),
+            default=(None, None),
+        )
+    if note := _pick_nine_score_line(
+        pick_nine_settled or {}, number, score_path, score_report, now, link
+    ):
+        lines.append(note)
     return lines + [
         "不估奖金、不设资金账户；3+1+0 全包＝无预测，无模型三选不计作单选命中。"
         if eligible

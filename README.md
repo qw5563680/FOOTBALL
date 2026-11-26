@@ -221,7 +221,7 @@ python -m zucai.scoreboard run --archive ../cloud-data  # 只读已有预测和�
 python -m zucai.daily_digest --archive ../cloud-data --out ../cloud-data/daily  # 只读冻结数字，生成每日摘要
 python -m zucai.schedule_gate --archive ../cloud-data  # 只读期次，判断是否需要15:40提前班
 python -m zucai.sfc_reports --archive ../cloud-data --confirm-publication  # 用已发布的远程提交确认SFC存好时间
-python -m zucai.sfc_reports --archive ../cloud-data  # 只用当日冻结批次生成未截止的14场诊断报告
+python -m zucai.sfc_reports --archive ../cloud-data  # 只读当日冻件，任九复式默认上限64注，可指定 --pick-nine-max-lines
 pytest -q
 ```
 

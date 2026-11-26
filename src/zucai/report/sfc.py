@@ -23,6 +23,11 @@ from zucai.identity_pending import (
     load as load_pending_identities,
 )
 from zucai.models import Match, SfcIssue, Team
+from zucai.pick_nine import (
+    DEFAULT_PICK_NINE_MAX_LINES,
+    optimize_pick_nine,
+    validate_pick_nine_budget,
+)
 from zucai.predict.base import fixture_sources
 from zucai.predict.model_definitions import (
     EXPERIMENTAL_LEAGUES,
@@ -50,13 +55,15 @@ from zucai.report.render import (
     _validate_batch,
     load_batch,
 )
-from zucai.sfc_publication import PUBLICATION_FIELDS, deadline_message
+from zucai.sfc_okooo_names import is_okooo
+from zucai.sfc_publication import PUBLICATION_FIELDS, deadline_message, deadline_status
 from zucai.sfc_sequence import known_official, verification_at
 from zucai.simulate import hit_summary
 from zucai.sources.sfc import refresh_snapshot
 
 LOG = logging.getLogger(__name__)
 OPTIONS = {"h": "3", "d": "1", "a": "0"}
+PICK_NINE_OUTCOMES = {"h": "3 主胜", "d": "1 平", "a": "0 客胜"}
 
 
 def _sfc_primary_context(batch):
@@ -205,9 +212,18 @@ def optimize_cover(probabilities: list[dict], max_lines: int = 64) -> dict:
 
 
 def build_sfc_report(
-    session, issue, batch, *, forecast_sha256, generated, max_lines=64, allow_missing=False
+    session,
+    issue,
+    batch,
+    *,
+    forecast_sha256,
+    generated,
+    max_lines=64,
+    allow_missing=False,
+    pick_nine_max_lines=DEFAULT_PICK_NINE_MAX_LINES,
 ):
     _budget(max_lines)
+    validate_pick_nine_budget(pick_nine_max_lines)
     _validate_batch(batch)
     if not issue.snapshot or len(issue.snapshot) != 14 or not issue.observed_utc:
         raise ValueError("期次缺少完整来源快照，请重新抓取")
@@ -404,6 +420,7 @@ def build_sfc_report(
         rows=rows,
         combo=combo,
         max_lines=max_lines,
+        pick_nine_max_lines=pick_nine_max_lines,
         **(
             {"diagnostic": True, "missing_models": missing, "minimum_lines": minimum_lines}
             if allow_missing
@@ -480,6 +497,52 @@ def unconfirmed_mapping_status(row):
     return "无冻结概率" + ("；" + reason if reason.startswith("未映射：") else "")
 
 
+def fixture_lineup(rows, *, include_state=True):
+    return sorted(
+        (
+            row["seq"],
+            row.get("fixture_id"),
+            row.get("league"),
+            row["home"],
+            row["away"],
+            row.get("provider_home_id"),
+            row.get("provider_away_id"),
+            _timestamp(row.get("source_kickoff_utc") or row["kickoff_utc"]),
+            bool(row.get("source_ended")) if include_state else None,
+        )
+        for row in rows
+    )
+
+
+def requires_frozen_lineup(issue, check, end, now):
+    return bool(
+        is_okooo(issue.get("source_url"))
+        or check
+        or (
+            end
+            and _timestamp(end) > now
+            and any(r["league"] == "欧国联" for r in issue["snapshot"])
+        )
+    )
+
+
+def _pick_nine_eligible(rows, published_utc):
+    return [
+        row
+        for row in rows
+        if row.get("probabilities")
+        and not uses_unknown_team_prior(row)
+        and not identity_pending(row)
+        and row.get("kickoff_basis") != "placeholder"
+        and _timestamp(published_utc) < _timestamp(row["kickoff_utc"])
+    ]
+
+
+def _pick_nine_singles(eligible):
+    ranked = sorted(eligible, key=lambda r: (-max(r["probabilities"].values()), r["seq"]))
+    return sorted(ranked[:9], key=lambda row: row["seq"])
+
+
 def pick_nine_lines(report, *, prior_explained=False, unavailable_reason=None):
     """Render one single-choice ticket from verified, frozen match probabilities."""
     lines = ["### 任九 · 模型单选", ""]
@@ -495,21 +558,11 @@ def pick_nine_lines(report, *, prior_explained=False, unavailable_reason=None):
         return lines + ["未确认报告在截止前发布，本期不展示任九方案。", ""]
     if report.get("mode") != "prematch":
         return lines + ["没有赛前冻结预测，本期不展示任九方案。", ""]
-    eligible = [
-        row
-        for row in rows
-        if row.get("probabilities")
-        and not uses_unknown_team_prior(row)
-        and not identity_pending(row)
-        and row.get("kickoff_basis") != "placeholder"
-        and _timestamp(report["published_utc"]) < _timestamp(row["kickoff_utc"])
-    ]
+    eligible = _pick_nine_eligible(rows, report["published_utc"])
     if len(eligible) < 9:
         return lines + [f"只有 {len(eligible)} 场有可用赛前概率，不足 9 场。", ""]
-    ranked = sorted(eligible, key=lambda r: (-max(r["probabilities"].values()), r["seq"]))
-    chosen = sorted(ranked[:9], key=lambda r: r["seq"])
+    chosen = _pick_nine_singles(eligible)
     lines += ["| 原场号 | 对阵 | 单选 | 模型概率 |", "|---|---|---|---|"]
-    outcomes = {"h": "3 主胜", "d": "1 平", "a": "0 客胜"}
     combined = 1.0
     for row in chosen:
         probs = row["probabilities"]
@@ -517,7 +570,7 @@ def pick_nine_lines(report, *, prior_explained=False, unavailable_reason=None):
         combined *= probs[pick]
         lines.append(
             f"| {row['seq']} | {_md(row['home'])} VS {_md(row['away'])} | "
-            f"{outcomes[pick]} | {_percent(probs[pick])} |"
+            f"{PICK_NINE_OUTCOMES[pick]} | {_percent(probs[pick])} |"
         )
     return lines + [
         "",
@@ -525,6 +578,65 @@ def pick_nine_lines(report, *, prior_explained=False, unavailable_reason=None):
         "这是模型估算，实际命中率待赛后检验。",
         "",
         hit_line(chosen, report, "任九", "九场全中"),
+        "",
+    ]
+
+
+def _pick_nine_multi_candidates(report):
+    source = (report or {}).get("source") or {}
+    check = source.get("official_verification") or {}
+    if any(
+        row.get("status") == "conflict" and row.get("field") in {"seq", "home", "away"}
+        for row in check.get("differences", ())
+    ):
+        provider = "澳客" if is_okooo(source.get("url")) else " 500 网"
+        return [], f"官方公告和{provider}的场序或主客队不一致，本期不展示任九复式。"
+    published = (report or {}).get("published_utc")
+    if (
+        not report
+        or report.get("sale_state") != "published_before_deadline"
+        or deadline_status(source.get("sale_end_utc"), published) != "published_before_deadline"
+        or deadline_status(report.get("sale_end_utc"), published) != "published_before_deadline"
+    ):
+        return [], "未确认报告在截止前发布，本期不展示任九复式。"
+    if report.get("mode") != "prematch":
+        return [], "没有赛前冻结预测，本期不展示任九复式。"
+    if "pick_nine_max_lines" not in report:
+        return [], "这版冻结报告未记录任九复式注数上限。"
+    eligible = _pick_nine_eligible(disclosed_rows(report), published)
+    if len(eligible) < 9:
+        return [], f"只有 {len(eligible)} 场有可用赛前概率，不足 9 场。"
+    return eligible, None
+
+
+def pick_nine_multi_plan(report):
+    """Derive the ticket from the same frozen probabilities and publication as the display."""
+    eligible, reason = _pick_nine_multi_candidates(report)
+    return None if reason else optimize_pick_nine(eligible, report["pick_nine_max_lines"])
+
+
+def pick_nine_multi_lines(report):
+    lines = ["### 任九 · 模型复式", ""]
+    eligible, reason = _pick_nine_multi_candidates(report)
+    if reason:
+        return lines + [reason, ""]
+    plan = optimize_pick_nine(eligible, report["pick_nine_max_lines"])
+    by_seq = {row["seq"]: row for row in eligible}
+    lines += ["| 原场号 | 对阵 | 复式选项 | 本场覆盖概率 |", "|---|---|---|---|"]
+    for selection in plan["selections"]:
+        row = by_seq[selection["seq"]]
+        options = " + ".join(PICK_NINE_OUTCOMES[key] for key in selection["outcomes"])
+        lines.append(
+            f"| {row['seq']} | {_md(row['home'])} VS {_md(row['away'])} | "
+            f"{options} | {_percent(selection['probability'])} |"
+        )
+    single = math.prod(max(row["probabilities"].values()) for row in _pick_nine_singles(eligible))
+    return lines + [
+        "",
+        f"合计 {plan['lines']} 注（上限 {plan['max_lines']} 注），按每注 2 元为 "
+        f"{2 * plan['lines']} 元。",
+        f"按各场相互独立估算，复式九场全中概率 {_percent(plan['coverage_probability'])}，"
+        f"同一期单选九场全中概率 {_percent(single)}。",
         "",
     ]
 
@@ -625,6 +737,8 @@ def _markdown(report):
         "",
     ]
     lines += pick_nine_lines(report, prior_explained=True)
+    if "pick_nine_max_lines" in report and report.get("publication_schema"):
+        lines += pick_nine_multi_lines(report)
     combo = report["combo"]
     if combo:
         lines += [
