@@ -106,6 +106,11 @@ def _run_files(run_id: str, run: dict) -> set[str]:
                 if not re.fullmatch(re.escape(directory) + r"/parlay_sd-[0-9a-f]{64}\.json", name):
                     raise ValueError("复式历史版本路径无效")
                 files.add(name)
+    if "coverage_path" in run:
+        coverage = f"forecasts/{dates[0]}/{run_id}/coverage.json"
+        if run["coverage_path"] != coverage:
+            raise ValueError("覆盖清单路径与预测 run 不符")
+        files.add(coverage)
     files.update(source_version_files(run_id, run))
     return files
 
@@ -151,6 +156,10 @@ def verify_forecasts(archive: Path, *, allow_unknown_odds_time: bool = False) ->
                     raise ValueError("预测批次与清单不符")
                 if {m["league"]: m["model_version"] for m in batch["models"]} != successes:
                     raise ValueError("预测模型与本次训练结果不符")
+            if "coverage_path" in run:
+                from zucai.forecast_coverage import read_coverage
+
+                read_coverage(archive, run)
             if "source_versions" in run:
                 from zucai.source_version_archive import verify_source_versions
 

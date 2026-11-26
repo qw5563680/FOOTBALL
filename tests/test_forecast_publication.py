@@ -96,6 +96,7 @@ def test_no_git_or_missing_published_ref_is_an_infrastructure_error(scoreboard_a
     manifest = _legacy(archive)
     with pytest.raises(ValueError, match="非仓库"):
         publication_times(archive, manifest)
+    assert publication_times(archive, manifest, require_legacy_history=False) == {}
     prepare_remote(archive, "2026-11-01T16:00:00Z")
     git(archive, "update-ref", "-d", REF)
     with pytest.raises(ValueError, match="published_ref"):

@@ -17,6 +17,13 @@ from zucai.cloud_feeds import archive_info, digest, restore_feeds
 from zucai.db import get_engine
 from zucai.digest_context import audit_rows, jc_coverage
 from zucai.forecast_archive import _component, publish_forecasts, verify_forecasts
+from zucai.forecast_coverage import (
+    build_coverage,
+    coverage_summary,
+    published_baselines,
+    read_coverage,
+)
+from zucai.forecast_publication import publication_times
 from zucai.models import Match, SfcIssue
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.command import train
@@ -28,12 +35,13 @@ from zucai.predict.parameters import (
     read_parameters,
     resolve_parameters,
 )
-from zucai.predict.pooled import POOL, SOURCES, model_targets
+from zucai.predict.pooled import CUPS, POOL, SOURCES, model_targets
 from zucai.predict.training_sources import apif_history_sources
 from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
 from zucai.report.render import load_batch, write_report
 from zucai.scoreboard.evidence import read_evidence
+from zucai.scoreboard.score import load_forecasts
 from zucai.sfc_sequence import period_windows, sequence
 from zucai.sources.base import _atomic_write
 from zucai.sources.sfc import refresh_snapshot
@@ -61,6 +69,8 @@ def _json(path, value):
 
 def _summary(archive, run):
     lines = [DISCLAIMER, "", f"### 定时预测：{run['run_id']} · {run['status']}", ""]
+    if coverage := read_coverage(archive, run):
+        lines += [coverage_summary(coverage), ""]
     if run["sporttery_stale"]:
         lines += [
             "竞彩数据非今日：本次竞彩 job 未成功、赛程阶段未完整成功或归档水位不是今日；"
@@ -266,6 +276,14 @@ def run(
             target: name for name, model in fitted.items() for target in model_targets(model)
         }
         day = prediction_time.astimezone(BEIJING).date()
+        configured_leagues = set(config["leagues"])
+        if POOL in configured_leagues:
+            configured_leagues.update(CUPS)
+        publications = publication_times(archive, old, require_legacy_history=False) if old else {}
+        previous_rows = (
+            load_forecasts(archive, prediction_time, publications=publications) if old else ()
+        )
+        previous_baselines = published_baselines(archive, old, publications, prediction_time)
         result = {
             "run_id": run_id,
             "event_name": os.environ.get("GITHUB_EVENT_NAME") or "local",
@@ -393,6 +411,23 @@ def run(
                             "excluded": sum(reasons.values()),
                             "reasons": dict(reasons),
                         }
+                    coverage_document = build_coverage(
+                        session,
+                        run_id=run_id,
+                        as_of=prediction_time,
+                        generated=_now(),
+                        catalog=catalog,
+                        skipped=audit_rows(
+                            archive, feed, "jc_skipped", prediction_time, all_shards=True
+                        ),
+                        schedule=schedule,
+                        batches=batches,
+                        configured_leagues=configured_leagues,
+                        previous_rows=previous_rows,
+                        previous_baselines=previous_baselines,
+                    )
+                    result["coverage_path"] = f"forecasts/{day}/{run_id}/coverage.json"
+                    _json(stage / result["coverage_path"], coverage_document)
         finally:
             engine.dispose()
 

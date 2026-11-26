@@ -24,11 +24,17 @@ LOG = logging.getLogger(__name__)
 
 def candidates(manifest):
     for run in (manifest or {}).get("runs", {}).values():
+        if run.get("coverage_path"):
+            yield run, run["coverage_path"], "coverage_"
         for entry in run["forecasts"].values():
             yield entry, entry["path"] + "/forecast.json", ""
             for prefix in ("experimental_", "parlay_", "source_versions_"):
                 if entry.get(prefix + "path"):
                     yield entry, entry[prefix + "path"], prefix
+
+
+def _requires_receipt(entry, prefix):
+    return entry.get("publication_required") or prefix in {"source_versions_", "coverage_"}
 
 
 def _candidate_generation(archive, entry, path, prefix):
@@ -120,7 +126,13 @@ def git_evidence(archive, paths, *, published_ref=PUBLISHED_REF, repository=None
 
 
 def publication_times(
-    archive, manifest, *, published_ref=PUBLISHED_REF, repository=None, pending=None
+    archive,
+    manifest,
+    *,
+    published_ref=PUBLISHED_REF,
+    repository=None,
+    pending=None,
+    require_legacy_history=True,
 ):
     """New batches require receipts; old batches alone may use commit timestamps."""
     resolved, legacy = {}, {}
@@ -146,19 +158,24 @@ def publication_times(
                 valid = False
             if valid:
                 resolved[path] = receipt
-        elif prefix != "source_versions_" and not entry.get("publication_required"):
+        elif not _requires_receipt(entry, prefix):
             legacy[path] = (manifest["files"][path], entry["generated_utc"])
-    resolved.update(
-        resolve_history(
-            archive,
-            "forecast",
-            legacy,
-            lambda paths: git_evidence(
-                archive, paths, published_ref=published_ref, repository=repository
-            ),
-            pending=pending,
+    try:
+        resolved.update(
+            resolve_history(
+                archive,
+                "forecast",
+                legacy,
+                lambda paths: git_evidence(
+                    archive, paths, published_ref=published_ref, repository=repository
+                ),
+                pending=pending,
+            )
         )
-    )
+    except PublicationHistoryError:
+        if require_legacy_history:
+            raise
+        LOG.warning("旧预测 Git 发布历史不可用，覆盖清单只沿用带有效回执的预测")
     return resolved
 
 
@@ -173,8 +190,7 @@ def confirm_publication(archive, *, published_ref=PUBLISHED_REF, clock=None):
     pending = [
         (entry, path, prefix)
         for entry, path, prefix in candidates(manifest)
-        if (entry.get("publication_required") or prefix == "source_versions_")
-        and not entry.get(prefix + "publication_evidence")
+        if _requires_receipt(entry, prefix) and not entry.get(prefix + "publication_evidence")
     ]
     evidence = git_evidence(
         archive,

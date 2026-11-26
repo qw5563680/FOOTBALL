@@ -16,6 +16,7 @@ from zucai.forecast_publication import publication_times
 from zucai.parlay import paper as parlay_paper
 from zucai.parlay.archive import load_documents
 from zucai.publication_history import publication_updates
+from zucai.scoreboard import baselines
 from zucai.scoreboard import paper as paper_accounts
 from zucai.scoreboard.experimental import (
     load_experiments,
@@ -76,7 +77,7 @@ def read_state(archive):
     return scored, ledger, summary, scored_raw
 
 
-def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None, history=None):
+def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None, baseline_raw=None, history=None):
     root = _path(archive, "scoreboard")
     paths = {name: _path(root, name) for name in FILES}
     if parlay_raw is not None:
@@ -85,6 +86,9 @@ def _publish(archive, contents, *, sfc_raw=None, parlay_raw=None, history=None):
     if sfc_raw is not None:
         contents = {**contents, "sfc-settled": sfc_raw}
         paths["sfc-settled"] = _path(archive, "sfc/settled.jsonl")
+    if baseline_raw is not None:
+        contents = {**contents, "baseline-scored": baseline_raw}
+        paths["baseline-scored"] = _path(archive, baselines.SCORES)
     for index, (path, raw) in enumerate((history or {}).items()):
         key = f"publication-{index}"
         contents = {**contents, key: raw}
@@ -120,9 +124,14 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         raise ValueError("--replay-days 必须在 1–366 之间")
     existing, ledger, previous, scored_raw = read_state(archive)
     settled, settled_raw = read_settled(archive, previous)
+    baseline_existing, baseline_raw = baselines.read_scored(archive, previous)
     if previous and instant(previous["as_of_utc"]) > at:
         raise ValueError("不能倒退已有记分板的截点，请用独立归档副本回放")
     forecast_manifest = verify_forecasts(archive)
+    has_baselines = "coverage_baseline" in (previous or {}) or any(
+        run_info.get("coverage_path")
+        for run_info in (forecast_manifest or {}).get("runs", {}).values()
+    )
     pending_history = {}
     publications = publication_times(archive, forecast_manifest, pending=pending_history)
     parlay_documents = load_documents(archive, forecast_manifest, at, publications=publications)
@@ -155,6 +164,19 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         feed = restore_feeds(archive, database)
         before = digest(database)
         results = read_results(database)
+        baseline_summary = None
+        if has_baselines:
+            baseline_added, baseline_summary = baselines.score(
+                archive,
+                forecast_manifest,
+                publications,
+                results,
+                baseline_existing,
+                at,
+                replay_days=replay_days,
+            )
+            baseline_raw += _jsonl(baseline_added)
+            baseline_summary["scored_sha256"] = hashlib.sha256(baseline_raw).hexdigest()
         scored, audit = score_forecasts(selected, results, production_existing, at)
         experiment_selected = experimental
         if replay_days is not None:
@@ -268,6 +290,8 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         },
     }
     parlay_raw = _jsonl(parlay_ledger) if has_parlays else None
+    if baseline_summary is not None:
+        summary["coverage_baseline"] = baseline_summary
     if has_parlays:
         summary["parlay_sd"] = parlay_paper.summarize(parlay_view, results, at)
         summary["parlay_sd"]["publication_audit"] = parlay_publication_audit
@@ -275,6 +299,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     markdown = (
         render_scoreboard(summary)
         + render_diagnostics(summary)
+        + baselines.render(baseline_summary)
         + render_experiments(experiments)
         + parlay_paper.render(summary.get("parlay_sd"))
     )
@@ -294,6 +319,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         contents,
         sfc_raw=sfc_raw,
         parlay_raw=parlay_raw,
+        baseline_raw=baseline_raw if has_baselines else None,
         history=history_updates,
     )
     if os.environ.get("GITHUB_STEP_SUMMARY"):
