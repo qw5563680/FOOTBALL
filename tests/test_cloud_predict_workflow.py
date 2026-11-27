@@ -60,7 +60,7 @@ def test_prediction_job_runs_after_every_schedule_or_explicit_dispatch(
     assert (
         "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
         "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, "
-        "candidate-review, daily]" in text
+        "candidate-review, web-research, daily]" in text
     )
 
 
@@ -98,7 +98,7 @@ def test_backfill_is_dispatch_only_apis_job_with_existing_publish_and_artifact(o
     assert (
         "options: [apis, sync, verify, predict, backfill, scoreboard, probe, "
         "identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, "
-        "candidate-review, daily]" in text
+        "candidate-review, web-research, daily]" in text
     )
     jobs = dict(
         re.findall(r"^  (apis|sporttery|predict):\n(.*?)(?=^  \w+:\n|\Z)", text, re.M | re.S)
@@ -387,7 +387,8 @@ def test_production_publication_is_complete_before_optional_experiments():
     assert "publish-football-experiments.sh" in optional
     scoreboard = text.split("  scoreboard:\n", 1)[1].split("  digest:\n", 1)[0]
     digest = text.split("  digest:\n", 1)[1].split("  sporttery:\n", 1)[0]
-    assert "needs: [schedule-gate, predict]" in scoreboard and "!cancelled()" in scoreboard
+    assert "needs: [schedule-gate, predict, web-research]" in scoreboard
+    assert "!cancelled()" in scoreboard
     assert "needs: [schedule-gate, scoreboard, sporttery]" in digest and "!cancelled()" in digest
     assert "needs.predict.result" not in scoreboard and "needs.scoreboard.result" not in digest
 

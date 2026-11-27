@@ -9,7 +9,7 @@ on:
       operation:
         description: 'daily 整条每日链，apis 日常采集，sync 竞彩，verify 校验，predict 预测，backfill 历史回填，scoreboard 记分板，digest 每日摘要推送，probe 权限探测，identity 身份核验，reconcile 合并已核验存量身份，relink-fdorg 补 fd/fdorg 链接，relink-jc 补后到竞彩链接，stats-backfill 技术数据回填'
         type: choice
-        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, candidate-review, daily]
+        options: [apis, sync, verify, predict, backfill, scoreboard, probe, identity, reconcile, relink-fdorg, relink-jc, digest, stats-backfill, candidate-review, web-research, daily]
         default: verify
       source:
         description: 'backfill 来源；probe / identity 固定使用 apif'
@@ -25,7 +25,7 @@ on:
         type: string
         default: ''
       options:
-        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue/jc-kickoffs/jc-supplement/okooo-sfc/backup-sources/team-countries；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、max_requests（jc-kickoffs 默认5，先导后可扩量）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）、canonical_approvals（reconcile 且 leagues 为空时应用批准创建）、identity_evidence（reconcile 且 leagues 为赛事编号时离线生成开启证据并跑开启检查）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
+        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue/jc-kickoffs/jc-supplement/okooo-sfc/backup-sources/team-countries；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、max_requests（jc-kickoffs 默认5，先导后可扩量）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）、canonical_approvals（reconcile 且 leagues 为空时应用批准创建）、identity_evidence（reconcile 且 leagues 为赛事编号时离线生成开启证据并跑开启检查）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}；web-research 单场试跑使用 web_research_max_cost'
         type: string
         default: '{}'
       endpoints:
@@ -109,7 +109,7 @@ jobs:
 
   apis:
     needs: [schedule-gate]
-    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (inputs.operation != 'probe' || fromJSON(inputs.options || '{}').probe_kind != 'jc-catalogue' && fromJSON(inputs.options || '{}').probe_kind != 'jc-kickoffs' && fromJSON(inputs.options || '{}').probe_kind != 'jc-supplement' && fromJSON(inputs.options || '{}').probe_kind != 'okooo-sfc' && fromJSON(inputs.options || '{}').probe_kind != 'backup-sources') && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && inputs.operation != 'web-research' && (inputs.operation != 'probe' || fromJSON(inputs.options || '{}').probe_kind != 'jc-catalogue' && fromJSON(inputs.options || '{}').probe_kind != 'jc-kickoffs' && fromJSON(inputs.options || '{}').probe_kind != 'jc-supplement' && fromJSON(inputs.options || '{}').probe_kind != 'okooo-sfc' && fromJSON(inputs.options || '{}').probe_kind != 'backup-sources') && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name != 'schedule' || github.event.schedule != '40 7 * * *') && (github.event_name == 'schedule' || inputs.operation == 'apis' || inputs.operation == 'verify' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'backfill' || inputs.operation == 'probe' || inputs.operation == 'identity' || inputs.operation == 'reconcile' || inputs.operation == 'relink-fdorg' || inputs.operation == 'relink-jc')) || (inputs.operation != 'stats-backfill' && inputs.operation != 'scoreboard' && inputs.operation != 'digest' && startsWith(github.ref_name, 'football-ingest-verify-'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -780,6 +780,8 @@ jobs:
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && needs.apis.result != 'failure' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 130
+    outputs:
+      publication_confirmed: ${{ steps.publish_confirmed_forecasts.outcome }}
     env:
       ZUCAI_GITHUB_RESERVE: '25'
       WORK_DIR: work-predict-${{ github.run_id }}-${{ github.run_attempt }}
@@ -884,8 +886,65 @@ jobs:
             printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  web-research:
+    needs: [predict]
+    if: ${{ !cancelled() && github.ref_name == 'main' && github.ref_type == 'branch' && ((github.event_name == 'workflow_dispatch' && inputs.operation == 'web-research') || (vars.FOOTBALL_WEB_RESEARCH_ENABLED == 'true' && needs.predict.result == 'success' && needs.predict.outputs.publication_confirmed == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily')))) }}
+    continue-on-error: ${{ inputs.operation != 'web-research' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: data/football-feeds
+          path: cloud-data
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project for the independent research job
+        run: python -m pip install -e ./app
+      - name: Run independent prematch research
+        timeout-minutes: 9
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          WEB_RESEARCH_TRIAL_COST: ${{ inputs.operation == 'web-research' && fromJSON(inputs.options || '{}').web_research_max_cost || '' }}
+          WEB_RESEARCH_DAILY_COST: ${{ vars.FOOTBALL_WEB_RESEARCH_MAX_COST }}
+          WEB_RESEARCH_DAILY_MATCHES: ${{ vars.FOOTBALL_WEB_RESEARCH_MAX_MATCHES || '5' }}
+        run: |
+          args=(--archive cloud-data --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")
+          if [[ "$ZUCAI_OPERATION" == web-research ]]; then
+            args+=(--max-matches 1)
+            args+=(--max-cost "$WEB_RESEARCH_TRIAL_COST")
+          else
+            args+=(--forecast-run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")
+            args+=(--max-matches "$WEB_RESEARCH_DAILY_MATCHES" --max-cost "$WEB_RESEARCH_DAILY_COST")
+          fi
+          python -m zucai.web_research "${args[@]}"
+      - name: Publish frozen research evidence
+        working-directory: cloud-data
+        run: bash ../app/scripts/publish-football-feeds.sh
+      - name: Keep independent research evidence even on publish conflict
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-research-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            cloud-data/web_research/runs/${{ github.run_id }}-${{ github.run_attempt }}
+            cloud-data/forecasts/*/*/web_research/${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 90
+          if-no-files-found: ignore
+      - name: Summarize GitHub API calls
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          printf '%s\n' 'GitHub 接口调用 0 次，余量未知，恢复时间未知。' >> "$GITHUB_STEP_SUMMARY"
+
   scoreboard:
-    needs: [schedule-gate, predict]
+    needs: [schedule-gate, predict, web-research]
     # A skipped/failed prediction must not prevent settlement of earlier frozen batches.
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict' || inputs.operation == 'scoreboard'))) }}
     runs-on: ubuntu-latest
@@ -1017,7 +1076,7 @@ jobs:
     outputs:
       publish_status: ${{ steps.publish_jc.outcome }}
     needs: [schedule-gate, apis]
-    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
+    if: ${{ !cancelled() && inputs.operation != 'candidate-review' && inputs.operation != 'web-research' && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && inputs.operation != 'stats-backfill' && inputs.operation != 'backfill' && inputs.operation != 'digest' && inputs.operation != 'scoreboard' && inputs.operation != 'probe' && inputs.operation != 'identity' && inputs.operation != 'reconcile' && inputs.operation != 'relink-fdorg' && inputs.operation != 'relink-jc' && vars.FOOTBALL_FEEDS_RUNNER != '' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'daily') || inputs.operation == 'sync' || startsWith(github.ref_name, 'football-ingest-run-')) }}
     runs-on: ${{ vars.FOOTBALL_FEEDS_RUNNER }}
     timeout-minutes: 60
     env:

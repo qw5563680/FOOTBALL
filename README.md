@@ -88,6 +88,8 @@ T34a 起 strict 按真实捕获时刻判断，已在截点前抓到的回填可�
 
 ## 快速开始
 
+T70 联网研究线由审查者在 `main` 的 Football cloud feeds 选择 `operation=web-research`，在 `options` 填入 `web_research_max_cost`（本次获批的估算上限）做单场试跑。每日默认关闭，配置与证据见[运行说明](docs/ARCHITECTURE.md#t70-联网研究线)。
+
 澳客足彩只读探测在 Football cloud feeds 中选择本分支、`operation=probe`，选项填 `{"probe_kind":"okooo-sfc","issues":"26169,26170"}`。运行后打开 `okooo-public-*` 附件逐场核对。
 
 T61 只读目录由审查者在 Actions 运行：`python -m zucai.cloud_feeds probe --probe-kind catalogue --archive ../cloud-data --run-id <批次>`；

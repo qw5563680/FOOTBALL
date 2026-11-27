@@ -28,8 +28,13 @@ if [[ -z "${PUBLISH_EXPECTED_BASE:-}" && -d sfc ]]; then
     printf '\n%s\n' 'sfc/** -text whitespace=cr-at-eol' >> .gitattributes
   fi
 fi
+if [[ -z "${PUBLISH_EXPECTED_BASE:-}" && -d web_research ]]; then
+  if ! sed 's/\r$//' .gitattributes 2>/dev/null | grep -Fxq -- 'web_research/** -text'; then
+    printf '\n%s\n' 'web_research/** -text' >> .gitattributes
+  fi
+fi
 git add -- state matches feed_manifest.json
-for path in .gitattributes models forecasts forecast_manifest.json scoreboard daily sfc; do
+for path in .gitattributes models forecasts forecast_manifest.json scoreboard daily sfc web_research; do
   if [[ -e "$path" ]]; then
     git add -- "$path"
   fi

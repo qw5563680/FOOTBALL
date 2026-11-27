@@ -52,8 +52,12 @@ def evaluate(expression, **overrides):
         "inputs.gate": False,
         "fromJSON(inputs.options || '{}').probe_kind": "",
         "github.ref_name": "main",
+        "github.ref_type": "branch",
         "vars.FOOTBALL_FEEDS_RUNNER": "configured",
+        "vars.FOOTBALL_WEB_RESEARCH_ENABLED": "",
         "needs.apis.result": "success",
+        "needs.predict.outputs.publication_confirmed": "",
+        "needs.predict.result": "skipped",
         "needs.schedule-gate.outputs.run_early": "",
         "needs.schedule-gate.result": "skipped",
         "env.FEED_MODE": "apis",
@@ -122,6 +126,7 @@ def test_all_dispatch_operation_job_conditions(operation):
         "jc-catalogue": False,
         "okooo-public-probe": False,
         "backup-source-probe": False,
+        "web-research": False,
     }
     assert {
         name: bool(evaluate(condition(job), **{"inputs.operation": operation}))

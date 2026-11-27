@@ -382,6 +382,12 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         blend_raw=blend_raw,
         history=history_updates,
     )
+    try:
+        from zucai.web_research_score import update as update_web_research
+
+        update_web_research(archive, results, at)
+    except ImportError:
+        LOG.warning("联网研究独立计分不可用，保留已有评分证据")
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
             output.write("\n".join(markdown.splitlines()[:60]) + "\n")

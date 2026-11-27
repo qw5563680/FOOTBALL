@@ -127,5 +127,6 @@ def test_scoreboard_runs_both_schedules_and_manual_score_or_predict(
         .replace("||", " or ")
     )
     assert eval(expr, {"__builtins__": {}}, {}) is expected
-    assert "needs: [schedule-gate, predict]" in job and "runs-on: ubuntu-latest" in job
+    assert "needs: [schedule-gate, predict, web-research]" in job
+    assert "runs-on: ubuntu-latest" in job
     assert "zucai.scoreboard run" in job and "publish-football-feeds.sh" in job
