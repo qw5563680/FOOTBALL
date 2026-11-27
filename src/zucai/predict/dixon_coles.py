@@ -16,8 +16,8 @@ from penaltyblog.models.probabilities import compute_dixon_coles_probabilities
 
 from zucai.predict.base import (
     Model,
+    allows_fixture_source,
     availability_sources,
-    fixture_sources,
     model_sources,
     reject_cross_source_overlaps,
     utc,
@@ -213,7 +213,9 @@ class DixonColes(Model):
             raise ValueError(f"该赛事不在{self.league}的目标赛事内")
         if (
             not getattr(self, "pooled", False) and row.get("league", self.league) != self.league
-        ) or ("source" in row and row["source"] not in fixture_sources(self, sfc_only=sfc_only)):
+        ) or (
+            "source" in row and not allows_fixture_source(self, row["source"], sfc_only=sfc_only)
+        ):
             raise ValueError("联赛或数据来源与模型不一致")
         home, away = row["home"], row["away"]
         # An opaque provider label can have a fit in older artifacts. SFC-only
