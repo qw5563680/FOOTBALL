@@ -625,6 +625,16 @@ HTTP 200 且 `errors.plan` 明确提示仅允许 2022–2024。年份用赛季�
 窗口随账户和运行日期改变，不能把本轮日期当作永久权限规则；未来实际 API 错误仍中止，不能当空成功。
 配置及逐请求 SHA256、核验 UTC 见 `data/api_football/leagues.json`。
 
+### T99 欧战球队列表
+
+`/teams` 的 `league` 和 `season` 参数仅用于欧罗巴 3、欧协联 848 当前赛季。
+两次请求须经所有者批准，由 DeepSeek 从 GitHub 托管 Actions 执行。原始响应和元数据归档在
+`state/catalogue/<运行编号>/apif-team-countries/`，运行摘要记录请求数及哈希。
+北京时间 2026-11-27 的正式探测共发两次请求，欧罗巴返回 76 行，欧协联返回 165 行，均为 HTTP 200 且单页完整。
+国家字段为 `response[].team.country`，以 `team.id` 对应接口球队编号，`team.national=false` 表示俱乐部。
+两份真实原件裁片、采集时刻、原件及裁片哈希见 [T99 样本来源](../data/fixtures/t99/teams-real-provenance.json)。
+[正式 Actions 运行](https://github.com/qw5563680/FOOTBALL/actions/runs/45976356364)
+
 ### T60 韩职、澳超历史训练的离线核对（2026-11-14 UTC）
 
 固定数据分支 `1657093073ea0e231cef476e1eac4e9ac58ebcb8`，manifest run `43529278648-1`，

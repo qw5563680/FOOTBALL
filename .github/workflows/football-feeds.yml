@@ -25,7 +25,7 @@ on:
         type: string
         default: ''
       options:
-        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue/jc-kickoffs/jc-supplement/okooo-sfc/backup-sources；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、max_requests（jc-kickoffs 默认5，先导后可扩量）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）、canonical_approvals（reconcile 且 leagues 为空时应用批准创建）、identity_evidence（reconcile 且 leagues 为赛事编号时离线生成开启证据并跑开启检查）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
+        description: 'JSON 选项：from_season、to_season、probe_kind（seasons/leagues/stats/catalogue/jc-catalogue/jc-kickoffs/jc-supplement/okooo-sfc/backup-sources/team-countries；默认 seasons）、catalogue（backfill 按目录赛季，默认 false）、max_requests（jc-kickoffs 默认5，先导后可扩量）、per_scope（默认 1）、slot（默认 auto；daily 固定 auto）、canonical_approvals（reconcile 且 leagues 为空时应用批准创建）、identity_evidence（reconcile 且 leagues 为赛事编号时离线生成开启证据并跑开启检查）；candidate-review 仅接受 {"plan":"data/jc_candidate_reviews/<file>.json"}'
         type: string
         default: '{}'
       endpoints:
@@ -155,8 +155,10 @@ jobs:
           allowed = {"from_season", "to_season", "probe_kind", "per_scope", "slot", "catalogue", "max_requests", "canonical_approvals", "identity_evidence"}
           if not isinstance(options, dict) or set(options) - allowed:
               raise SystemExit("options must be an object containing only from_season, to_season, probe_kind, per_scope, slot, catalogue, max_requests, canonical_approvals, identity_evidence")
-          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs", "jc-supplement"}:
+          if options.get("probe_kind", "seasons") not in {"seasons", "leagues", "stats", "catalogue", "jc-catalogue", "jc-kickoffs", "jc-supplement", "team-countries"}:
               raise SystemExit("invalid probe_kind")
+          if options.get("probe_kind") == "team-countries" and set(options) != {"probe_kind"}:
+              raise SystemExit("team-countries only accepts probe_kind")
           budget = options.get("max_requests", 5)
           if type(budget) is not int or not 1 <= budget <= 7000:
               raise SystemExit("max_requests must be an integer in 1..7000")
@@ -257,6 +259,12 @@ jobs:
             if [[ -n "$PROBE_LEAGUES" ]]; then args+=(--leagues "$PROBE_LEAGUES"); fi
             if [[ -n "$PROBE_SEASONS" ]]; then args+=(--seasons "$PROBE_SEASONS"); fi
             if [[ -n "${PROBE_PER_SCOPE:-}" ]]; then args+=(--per-scope "$PROBE_PER_SCOPE"); fi
+          elif [[ "$PROBE_KIND" == team-countries ]]; then
+            if [[ -n "$PROBE_LEAGUES" || -n "$PROBE_SEASONS" ]]; then
+              echo "team-countries uses the current season of leagues 3 and 848"
+              exit 1
+            fi
+            args=(--probe-kind team-countries)
           elif [[ "$PROBE_KIND" == leagues ]]; then
             PROBE_LEAGUES=${PROBE_LEAGUES:-39,140,135,78,61,88,94}
             args=(--probe-kind leagues --leagues "$PROBE_LEAGUES")
