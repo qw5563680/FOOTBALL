@@ -1558,6 +1558,8 @@ def main():
                     "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
                 )
                 for provider, result in collection.items():
+                    if provider == "jc_backup":
+                        continue
                     calls = (
                         result.get("downloaded_files", 0)
                         if provider == "fd"
@@ -1596,6 +1598,16 @@ def main():
                 summary.write(
                     "\n欧战表仅计各来源入库行；链接竞彩计入上表链接数，不覆盖竞彩赛果。\n"
                 )
+                if backup := collection.get("jc_backup"):
+                    summary.write(
+                        "\n### 竞彩备用赛程\n\n"
+                        f"补入 {backup['inserted']} 场；"
+                        f"仍使用备用 {backup['active']} 场；"
+                        f"待核 {len(backup['gaps'])} 场；"
+                        f"收到官方记录 {len(backup['reconciled'])} 场。\n"
+                    )
+                    if reason := backup.get("reason"):
+                        summary.write(f"\n{html.escape(reason)}。\n")
 
 
 if __name__ == "__main__":

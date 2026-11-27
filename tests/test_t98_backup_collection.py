@@ -138,7 +138,15 @@ def mock_sync_sources(monkeypatch, now):
 
     def collect_sfc(_, *, jc_root, **kw):
         jc_root.snapshot()
-        return dict(status="complete", issue_no=None, requests=2, errors=[])
+        return dict(
+            status="complete",
+            issue_no=None,
+            inserted=0,
+            linked_existing=0,
+            rejected_rows=0,
+            requests=2,
+            errors=[],
+        )
 
     monkeypatch.setattr(cloud_feeds, "datetime", Clock)
     monkeypatch.setattr(cloud_feeds, "fetch_results", lambda *args: None)
@@ -203,11 +211,18 @@ def test_archived_root_sync_and_authoritative_official_recovery(
 
     monkeypatch.setattr(cloud_feeds, "fetch_schedule", unavailable)
     calls = offline_root(monkeypatch)
+    step_summary = tmp_path / "backup-step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(step_summary))
     run_cloud_sync(monkeypatch, tmp_path / "first", archive, DAY.isoformat())
     manifest = cloud_feeds.archive_info(archive)
     collection = manifest["collection"]["jc_backup"]
     assert collection["official_schedule_status"] == "failed"
     assert collection["inserted"] == collection["active"] == 1
+    summary = step_summary.read_text(encoding="utf-8")
+    assert "| 来源 | 状态 | 入库 | 链接 | 拒绝 |" in summary
+    assert "| jc | partial |" in summary and "| sfc | complete |" in summary
+    assert "### 竞彩备用赛程" in summary
+    assert "补入 1 场" in summary and f"待核 {len(collection['gaps'])} 场" in summary
     assert manifest["counts"]["odds"] == 0 and manifest["counts"]["teams"] == 4
     assert len(calls) == 1
     state = read_state(archive)
