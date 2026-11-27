@@ -681,7 +681,9 @@ def generate(
         ),
         *_account_sections(ledger, summary, today - timedelta(days=1), repository),
         *pending_sections(pending, ledger, previous, at),
-        *render_experiments((summary or {}).get("experiments")).splitlines(),
+        *render_experiments(
+            (summary or {}).get("experiments"), include_comparison=False
+        ).splitlines(),
         *_anomaly_sections(feed, summary, quota, repository, coverage),
     ]
     text = "\n".join(lines)

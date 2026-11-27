@@ -11,9 +11,10 @@ from test_cloud_predict import NOW, scheduled_archive  # noqa: F401
 from test_stats_rows import LocalRelease
 from zucai import cloud_predict, experimental_archive
 from zucai.forecast_archive import verify_forecasts
+from zucai.predict.experiments.global_rating_contract import RATING_NAME
 
 
-@pytest.mark.parametrize("failure", [None, "fit", "upload", "restore"])
+@pytest.mark.parametrize("failure", [None, "fit", "upload", "restore", "rating_fit"])
 def test_production_freezes_even_when_experiment_fails(
     scheduled_archive, tmp_path, monkeypatch, failure
 ):
@@ -31,6 +32,10 @@ def test_production_freezes_even_when_experiment_fails(
         monkeypatch.setattr(release, "upload", fail)
     elif failure == "restore":
         monkeypatch.setattr(experimental_archive, "restore_rows", fail)
+    elif failure == "rating_fit":
+        from zucai.predict.experiments import global_rating_runtime
+
+        monkeypatch.setattr(global_rating_runtime, "fit_and_forecast", fail)
     monkeypatch.setattr(
         experimental_archive,
         "freeze_parallel",
@@ -47,14 +52,19 @@ def test_production_freezes_even_when_experiment_fails(
         doc = json.loads(raw)
         assert doc["training_availability_mode"] == "backfill_replay"
         assert doc["target_availability_mode"] == "strict_capture_time"
-        assert all(
-            r["p2_ready"] is False and r["model_probabilities"] is None for r in doc["predictions"]
-        )
-        assert all(r["fallback_reason"] for r in doc["predictions"])
-        if failure:
+        (rating,) = [r for r in doc["predictions"] if r["model_name"] == RATING_NAME]
+        technical = [r for r in doc["predictions"] if r["model_name"] != RATING_NAME]
+        assert all(r["p2_ready"] is False and r["model_probabilities"] is None for r in technical)
+        assert all(r["fallback_reason"] for r in technical)
+        assert rating["p2_ready"] is rating["bet_allowed"] is rating["paper_eligible"] is False
+        if failure is None:
+            assert rating["status"] == "predicted"
+        else:
+            assert rating["model_probabilities"] is None and "failed" in rating["fallback_reason"]
+        if failure in ("fit", "upload", "restore"):
             assert all(
                 r["fallback_reason"] == "already_started" or "failed" in r["fallback_reason"]
-                for r in doc["predictions"]
+                for r in technical
             )
         frozen[day] = raw
         parlay_path = entry["parlay_path"]
@@ -63,11 +73,12 @@ def test_production_freezes_even_when_experiment_fails(
         parlay = json.loads(parlay_raw)
         assert parlay["groups"] == []  # Fixture has no usable injury snapshot; never invent it.
         assert parlay["bet_allowed"] is False
-    if failure is None:
+    if failure in (None, "rating_fit"):
         asset = result["experimental_release"]["asset"]
         assert asset["tag"] == "experiments-202611"
         with zipfile.ZipFile(release.root / asset["tag"] / asset["name"]) as bundle:
             assert "training.json" in bundle.namelist()
+            assert (RATING_NAME in bundle.read("training.json").decode()) == (failure is None)
             for day, raw in frozen.items():
                 assert bundle.read(day + "/experimental.json") == raw
     else:

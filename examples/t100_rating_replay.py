@@ -8,7 +8,7 @@ import re
 import subprocess
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -20,15 +20,14 @@ from urllib.parse import urlsplit
 
 import pandas as pd
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from zucai.db import get_engine
 from zucai.models import Match
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.backtest import evaluate, read_archive_evidence, read_history
 from zucai.predict.base import utc
 from zucai.predict.dixon_coles import InsufficientHistory
-from zucai.predict.experiments.global_rating import RatingResult, candidate_parameters, fit_ratings
+from zucai.predict.experiments.global_rating import candidate_parameters, fit_ratings
+from zucai.predict.experiments.global_rating_runtime import rating_history, score_session
 from zucai.predict.experiments.metrics import losses, paired
 from zucai.predict.parameters import read_parameters, resolve_parameters
 from zucai.predict.pooled import (
@@ -36,8 +35,6 @@ from zucai.predict.pooled import (
     configuration,
     default_scope,
     evaluation_history,
-    select_training_history,
-    source_eligible_history,
 )
 from zucai.predict.seasons import season_bounds, season_for
 
@@ -418,35 +415,6 @@ def run_phases(load, output, *, workers=1):
     )
 
 
-@contextmanager
-def score_session(database, end):
-    """Even eager history validation sees only physically eligible labels for this phase."""
-    upper = end.to_pydatetime()
-
-    def could_know(available, kickoff):
-        if available is None:
-            return False
-        return datetime.fromisoformat(kickoff) < datetime.fromisoformat(available) < upper
-
-    engine = get_engine(database)
-    try:
-        with engine.connect() as connection:
-            connection.connection.driver_connection.create_function(
-                "t100_could_know", 2, could_know
-            )
-            connection.exec_driver_sql("""
-                CREATE TEMP VIEW results AS
-                SELECT result.* FROM main.results AS result
-                JOIN main.matches AS match ON match.match_id = result.match_id
-                WHERE t100_could_know(result.available_utc, match.kickoff_utc)
-            """)
-            connection.exec_driver_sql("PRAGMA query_only=ON")
-            with Session(bind=connection) as session:
-                yield session
-    finally:
-        engine.dispose()
-
-
 def _prior_parameters(league, entry):
     halves, calibration = {}, {}
     for window in entry.get("evaluation_windows", ()):
@@ -599,26 +567,13 @@ def _rating_history_at(database, cutoff, leagues, diagnostics):
         # Workers reuse only proof inputs independent of the result cutoff view.
         if database not in _ARCHIVE_EVIDENCE:
             _ARCHIVE_EVIDENCE[database] = read_archive_evidence(session)
-        for league in leagues:
-            try:
-                games = read_history(
-                    session,
-                    source=",".join(SOURCES),
-                    training_leagues=[league],
-                    source_selection="cutoff",
-                    archive_evidence=_ARCHIVE_EVIDENCE[database],
-                )
-                known = source_eligible_history(games)["available_utc"]
-                training = select_training_history(games.loc[known.index[known < cutoff]], cutoff)
-            except InsufficientHistory:
-                continue
-            except ValueError as exc:
-                diagnostics["rating_scope_failures"].append(
-                    dict(league=league, cutoff_utc=cutoff.isoformat(), reason=str(exc))
-                )
-                continue
-            for row in training.to_dict("records"):
-                yield RatingResult.from_row(row)
+        yield from rating_history(
+            session,
+            cutoff,
+            leagues,
+            diagnostics["rating_scope_failures"],
+            archive_evidence=_ARCHIVE_EVIDENCE[database],
+        )
 
 
 def _load_phase(database, phase, entries, *, workers=1):
