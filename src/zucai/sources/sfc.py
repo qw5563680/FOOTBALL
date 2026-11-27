@@ -969,23 +969,27 @@ def _capture_okooo(number, audit, provider_windows, official_schedule):
         source.session.close()
 
 
-def _collect_500_bridge(source):
+def _collect_500_bridge(source, *, jc_root=None):
     # The 500-only identity bridge shares the session and at-least-one-second limiter.
     bridge_source = C500FixtureBridge(store=source.store, session=source.session)
     bridge_source.limiter = source.limiter
-    path = bridge_source.fetch_raw()
-    raw, meta = source.store.load(path), source.store.load_metadata(path)
+    if jc_root is None:
+        path = bridge_source.fetch_raw()
+        raw, meta = source.store.load(path), source.store.load_metadata(path)
+    else:
+        raw, meta = jc_root.snapshot(bridge_source)
     bridges = bridge_source.parse(raw)
+    raw_sha256 = meta.get("raw_sha256") or hashlib.sha256(raw).hexdigest()
     for bridge in bridges:
         bridge["provenance"] = dict(
             url=meta["url"],
             observed_utc=meta["fetched_at_utc"],
-            raw_sha256=hashlib.sha256(raw).hexdigest(),
+            raw_sha256=raw_sha256,
         )
     return bridges, _sequence_time(meta)
 
 
-def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
+def collect_current_sfc(db, *, previous_schedule=None, previous_pending=(), jc_root=None):
     """Read current SFC and JC root pages without changing match identities."""
     import json
 
@@ -1017,6 +1021,8 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
     temporary = audit.with_suffix(".tmp")
     try:
         source = C500Sfc()
+        if jc_root is not None:
+            source.limiter = jc_root.limiter
         engine = get_engine(db)
         init_db(engine)
         source_error = None
@@ -1114,9 +1120,12 @@ def collect_current_sfc(db, *, previous_schedule=None, previous_pending=()):
             raise root_error
         bridges, bridge_observed = (), observed
         if root:
-            result["requests"] += 1
+            result["requests"] += int(jc_root is None or not jc_root.attempted)
             try:
-                bridges, bridge_observed = _collect_500_bridge(source)
+                if jc_root is None:
+                    bridges, bridge_observed = _collect_500_bridge(source)
+                else:
+                    bridges, bridge_observed = _collect_500_bridge(source, jc_root=jc_root)
             except _SOURCE_ERRORS as exc:
                 if not backup:
                     raise

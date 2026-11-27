@@ -1,17 +1,20 @@
 """500 根页的近期备用赛果。只取已结算精确选项，不支持历史查询。"""
 
+import hashlib
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from lxml import html
 from lxml.etree import ParserError
+from requests.adapters import HTTPAdapter
 
 from zucai.sources.base import RateLimiter, RawStore, Source, make_session
 from zucai.sources.results import VOID, GameResult, score
-from zucai.sources.sporttery import BEIJING, beijing_kickoff
+from zucai.sources.sporttery import BEIJING, beijing_kickoff, utc_stamp
 
 URL = "https://trade.500.com/jczq/"
 LOGGER = logging.getLogger(__name__)
@@ -341,3 +344,136 @@ class C500FixtureBridge(Source[dict]):
                 "比赛ID对照跳过%d场无球队ID的场次：%s", len(unbridged), "、".join(unbridged)
             )
         return out
+
+
+@dataclass(frozen=True)
+class C500JcFixture:
+    match_id: str
+    provider_fixture_id: str
+    jc_num: str
+    sales_date: date | None
+    league: str
+    home: str
+    away: str
+    home_id: str
+    away_id: str
+    kickoff_utc: datetime | None
+    problem: str | None = None
+
+
+def parse_jc_fixtures(raw: bytes) -> list[C500JcFixture]:
+    """Read the current JC root's schedule attributes, with no market cells."""
+    try:
+        doc = html.fromstring(raw.decode("gb18030", errors="replace"))
+    except ParserError as exc:
+        raise ValueError("500竞彩根页为空或无法解析") from exc
+    if not doc.xpath('//*[@id="betTbThead"]'):
+        raise ValueError("500竞彩根页缺少可识别的比赛表")
+    result = []
+    rows = doc.xpath('//tr[@data-id and @data-isend="0"]')
+    official_ids = [row.get("data-id", "").strip() for row in rows]
+    duplicates = {key for key, count in Counter(official_ids).items() if count > 1}
+    for row, official_id in zip(rows, official_ids, strict=True):
+        if not re.fullmatch(r"[1-9][0-9]*", official_id):
+            continue
+        code = row.get("data-matchnum", "").strip()
+        date_text = row.get("data-processdate", "").strip()
+        kickoff_text = (
+            row.get("data-matchdate", "").strip() + " " + row.get("data-matchtime", "").strip()
+        )
+        try:
+            sales_date = (
+                date.fromisoformat(date_text)
+                if re.fullmatch(r"\d{4}-\d\d-\d\d", date_text)
+                else None
+            )
+        except ValueError:
+            sales_date = None
+        try:
+            kickoff = (
+                beijing_kickoff(kickoff_text)
+                if re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?", kickoff_text)
+                else None
+            )
+        except ValueError:
+            kickoff = None
+        problem = None
+        if official_id in duplicates:
+            problem = "500 网根页体彩比赛编号重复"
+        elif sales_date is None or not re.fullmatch(
+            f"周{'一二三四五六日'[sales_date.weekday()]}[0-9]{{3}}", code
+        ):
+            problem = "500 网根页竞彩编号或销售日无法核实"
+        elif kickoff is not None and kickoff.astimezone(BEIJING).date() < sales_date:
+            problem = "500 网根页开球日期早于编号日"
+        result.append(
+            C500JcFixture(
+                match_id=f"jc:{official_id}",
+                provider_fixture_id=row.get("data-fixtureid", "").strip(),
+                jc_num=code,
+                sales_date=sales_date,
+                league=row.get("data-simpleleague", "").strip(),
+                home=row.get("data-homesxname", "").strip(),
+                away=row.get("data-awaysxname", "").strip(),
+                home_id=row.get("data-homeid", "").strip(),
+                away_id=row.get("data-awayid", "").strip(),
+                kickoff_utc=kickoff,
+                problem=problem,
+            )
+        )
+    return result
+
+
+class C500JcRoot:
+    """One collection run's JC root response, including a cached failed attempt."""
+
+    def __init__(self):
+        self.limiter = RateLimiter(1)
+        self._snapshot = None
+        self._error = None
+
+    @property
+    def attempted(self) -> bool:
+        return self._snapshot is not None or self._error is not None
+
+    def snapshot(self, bridge_source: C500FixtureBridge | None = None) -> tuple[bytes, dict]:
+        if self._error is not None:
+            raise self._error
+        if self._snapshot is None:
+            try:
+                self._snapshot = self._read(bridge_source)
+            except Exception as exc:
+                self._error = exc
+                raise
+        return self._snapshot
+
+    def _read(self, bridge_source):
+        if bridge_source is not None:
+            path = bridge_source.fetch_raw()
+            raw = bridge_source.store.load(path)
+            meta = bridge_source.store.load_metadata(path)
+        else:
+            # The standalone backup holds the original response only in memory.
+            with make_session() as session:
+                session.mount("https://", HTTPAdapter(max_retries=0))
+                self.limiter.wait()
+                response = session.get(URL, allow_redirects=False)
+                if 300 <= response.status_code < 400:
+                    raise ValueError("500竞彩根页发生重定向，拒绝跟随未核实的路径")
+                response.raise_for_status()
+                raw = response.content
+                meta = dict(
+                    url=response.url,
+                    fetched_at_utc=utc_stamp(datetime.now(UTC)),
+                    status_code=response.status_code,
+                )
+        sha = hashlib.sha256(raw).hexdigest()
+        if meta.get("url") != URL or meta.get("status_code") not in (None, 200):
+            raise ValueError("500竞彩根页原件来源或响应状态不符")
+        if meta.get("sha256", sha) != sha:
+            raise ValueError("500竞彩根页原件哈希不符")
+        return raw, {**meta, "raw_sha256": sha}
+
+    def fixtures(self) -> list[C500JcFixture]:
+        raw, _ = self.snapshot()
+        return parse_jc_fixtures(raw)

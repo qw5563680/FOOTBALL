@@ -24,6 +24,12 @@ ALLOW = "User-agent: *\nAllow: /\n"
 @pytest.fixture
 def replay(monkeypatch):
     instant = [0.0]
+    # Preserve the T97 offline replay after T98 retired ZGZCW from live probes.
+    monkeypatch.setattr(
+        probe,
+        "CANDIDATES",
+        (("zgzcw", "中国足彩网", {"sfc": None, "jc": None}, HOME), *probe.CANDIDATES),
+    )
 
     class Clock:
         @staticmethod
@@ -63,10 +69,7 @@ def sample(root, observation):
 
 
 def test_only_the_owner_selected_candidates_are_probed():
-    assert probe.CANDIDATES == (
-        ("zgzcw", "中国足彩网", {"sfc": None, "jc": None}, HOME),
-        ("okooo", "澳客", {"jc": OKOOO}, None),
-    )
+    assert probe.CANDIDATES == (("okooo", "澳客", {"jc": OKOOO}, None),)
 
 
 @pytest.mark.parametrize(("status", "expected"), [(405, "http_error"), (200, "requires_js")])

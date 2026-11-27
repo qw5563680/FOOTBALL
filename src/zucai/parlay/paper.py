@@ -8,7 +8,12 @@ from zucai.cloud_feeds import digest
 from zucai.forecast_archive import _path
 from zucai.parlay import dedup
 from zucai.parlay.single_double import RULE, SUPPORTED_RULES
-from zucai.scoreboard.paper import decision_digest, paper_context_allowed, paper_version_allowed
+from zucai.scoreboard.paper import (
+    decision_digest,
+    paper_context_allowed,
+    paper_fixture_allowed,
+    paper_version_allowed,
+)
 from zucai.scoreboard.score import instant, outcome, record_key, result_reason
 
 LEDGER = "scoreboard/parlay_sd_ledger.jsonl"
@@ -84,6 +89,14 @@ def _settle_groups(ledger):
         )
 
 
+def _official_fixture_group(document, group):
+    parent_backup_ids = document.get("parent_jc_backup_ids", ())
+    return paper_fixture_allowed(group) and all(
+        paper_fixture_allowed(leg) and leg["match_id"] not in parent_backup_ids
+        for leg in (group["single"], group["double"])
+    )
+
+
 def advance_ledger(documents, results, existing, at):
     ledger = deepcopy(existing)
     keys = {r["record_id"] for r in ledger}
@@ -112,6 +125,7 @@ def advance_ledger(documents, results, existing, at):
             legs = [frozen["single"], frozen["double"]]
             if (
                 not paper_context_allowed(doc)
+                or not _official_fixture_group(doc, frozen)
                 or not paper_version_allowed(frozen)
                 or not all(
                     paper_version_allowed(leg, required="model_definition_schema" in doc)
@@ -387,6 +401,7 @@ def publication_view(documents, results, ledger, at):
         for doc in documents
         for group in doc["groups"]
         if instant(doc["published_utc"]) <= instant(at)
+        and _official_fixture_group(doc, group)
         and all(
             instant(leg["kickoff_utc"]) > instant(doc["published_utc"])
             for leg in (group["single"], group["double"])

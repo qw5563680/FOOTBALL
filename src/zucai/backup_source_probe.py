@@ -21,10 +21,7 @@ DISCOVERY_DOMAINS = {"zgzcw": "zgzcw.com"}
 MIN_INTERVAL = 3
 MAX_PROBE_INTERVAL = 60
 POLICY_KEYS = {"allow", "disallow", "crawl-delay", "request-rate", "visit-time"}
-CANDIDATES = (
-    ("zgzcw", "中国足彩网", {"sfc": None, "jc": None}, "https://www.zgzcw.com/"),
-    ("okooo", "澳客", {"jc": "https://www.okooo.com/jingcai/"}, None),
-)
+CANDIDATES = (("okooo", "澳客", {"jc": "https://www.okooo.com/jingcai/"}, None),)
 PURPOSE_LABELS = {"sfc": "14 场", "jc": "竞彩", "home": "公开首页"}
 UNAVAILABLE = {"robots_denied", "http_error", "requires_js", "blocked"}
 

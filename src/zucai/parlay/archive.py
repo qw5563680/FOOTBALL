@@ -16,6 +16,7 @@ from zucai.forecast_publication import publication_times
 from zucai.models import Match, Team
 from zucai.parlay.single_double import RULE, SUPPORTED_RULES, Config, build
 from zucai.report.render import load_batch
+from zucai.scoreboard.paper import paper_fixture_allowed
 from zucai.scoreboard.score import instant
 from zucai.sources.base import _atomic_write
 
@@ -109,9 +110,15 @@ def load_documents(archive, manifest, as_of, *, publications=None):
             # Attach the parent batch scope only in memory. Older F documents
             # remain available to the publication view of saved ledger entries.
             batch = json.loads(_path(archive, forecast_path).read_bytes())
+            backup_ids = [
+                row["match_id"]
+                for row in batch.get("predictions", ())
+                if not paper_fixture_allowed(row)
+            ]
             documents.append(
                 {
                     **doc,
+                    **({"parent_jc_backup_ids": backup_ids} if backup_ids else {}),
                     "batch_scope": "jc_spillover" if _is_spillover(run, day, batch) else None,
                     "path": name,
                     "sha256": manifest["files"][name],

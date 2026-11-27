@@ -71,6 +71,26 @@ def _has_definition(row):
     return any(key in row for key in FROZEN_DEFINITION_FIELDS)
 
 
+def _validate_backup_fixture(row, as_of):
+    if "jc_backup" not in row:
+        return
+    evidence = row["jc_backup"]
+    if (
+        not isinstance(evidence, dict)
+        or row.get("source") != "jc"
+        or not re.fullmatch(r"jc:[0-9]+", row["match_id"])
+        or evidence.get("url") != "https://trade.500.com/jczq/"
+        or not re.fullmatch(r"[a-f0-9]{64}", str(evidence.get("raw_sha256")))
+        or _timestamp(evidence.get("observed_utc")) > _timestamp(as_of)
+        or _timestamp(evidence.get("observed_utc")) >= _timestamp(row.get("kickoff_utc"))
+        or _timestamp(evidence.get("kickoff_utc")) != _timestamp(row.get("kickoff_utc"))
+        or evidence.get("jc_num") != row.get("jc_num")
+        or any(row.get(key) is not None for key in ("market", "market_reference", "ev"))
+    ):
+        raise ValueError("竞彩备用赛程冻结证据无效或含市场报价")
+    _text(row.get("market_missing_reason"), "竞彩备用赛程缺少市场报价原因")
+
+
 def _validate_frozen_definition(row):
     if not all(key in row for key in FROZEN_DEFINITION_FIELDS):
         raise ValueError("冻结模型定义及纸面资格标记必须完整")
@@ -234,6 +254,7 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
         _text(prediction.get("match_id"), "match_id")
         if "sfc_only" in prediction and type(prediction["sfc_only"]) is not bool:
             raise ValueError("14 场补充范围标记必须为布尔值")
+        _validate_backup_fixture(prediction, batch["as_of_utc"])
         _validate_prediction_definition(
             prediction, batch["models"], definition_schema=definition_schema
         )

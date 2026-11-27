@@ -17,6 +17,8 @@ LAZY = (
     "zucai.cloud_catalogue",
     "zucai.jc_candidate_queue",
     "zucai.jc_catalogue_kickoffs",
+    "zucai.jc_fixture_backup",
+    "zucai.jc_backup_identity",
     "zucai.sources.sfc",
     "zucai.sources.okooo_sfc",
 )

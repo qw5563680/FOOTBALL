@@ -32,6 +32,18 @@ SKIP_REASONS = {
 }
 
 FUSION_UNAVAILABLE = "未生成（融合实验尚未上线）"
+JC_BACKUP_LABEL = "赛程来自 500 网（备用）"
+JC_RECONCILED_FIELDS = {
+    "home": "主队",
+    "away": "客队",
+    "league": "赛事",
+    "kickoff_utc": "开球（北京时间）",
+    "jc_num": "竞彩编号",
+    "sales_date": "销售日",
+    "sale_status": "销售状态",
+    "sell_status": "销售状态",
+    "status": "比赛状态",
+}
 
 
 def _market_of(row):
@@ -145,7 +157,9 @@ def _local(value):
     )
 
 
-def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window):
+def jc_sales_day_section(
+    catalog, skipped, latest, exclusions, today, *, window, backup_replacement_reasons=None
+):
     """The archived sales-day list sets the denominator, even after kickoff."""
     lines = [f"## 竞彩销售日 {today}（北京时间）", ""]
     rows = sorted(
@@ -166,6 +180,8 @@ def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window)
     }
     gaps = catalog_gaps(rows, skipped, predicted, {}, exclusions=exclusions)
     by_number = {r["jc_num"]: r for r in gaps}
+    if any(row.get("jc_backup") or row.get("jc_backup_gap") for row in rows):
+        lines.append("名单含 500 网备用赛程，以下仅按截点前已知名单核对。")
     lines += [f"应有 {len(rows)} 场、已预测 {len(rows) - len(gaps)} 场、缺 {len(gaps)} 场。"]
     if gaps:
         lines += ["缺失编号：" + "、".join(map(_text, sorted(by_number))) + "。"]
@@ -192,6 +208,10 @@ def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window)
                     f"冻结批次 {_text(frozen['batch_id'])}：{_text(frozen['reason'])}"
                     f"（截点 {_local(frozen['as_of_utc'])}）"
                 )
+            if row.get("jc_backup_gap"):
+                reasons.append(f"500 网备用赛程：{_text(row['jc_backup_gap']['reason'])}")
+            if replaced := (backup_replacement_reasons or {}).get(row["match_id"]):
+                reasons.append(replaced)
             if not reasons:
                 reasons.append("原因未查明（无同期跳过或冻结原因记录）")
             if kickoff == "未记录":
@@ -209,6 +229,10 @@ def jc_sales_day_section(catalog, skipped, latest, exclusions, today, *, window)
             if note := prior_label(prediction):
                 status += f"；{_text(note)}"
             upset = upset_cell(prediction)
+        if row.get("jc_backup"):
+            status += f"；{JC_BACKUP_LABEL}"
+        elif (predicted.get(row["match_id"]) or {}).get("jc_backup"):
+            status += f"；冻结预测所用{JC_BACKUP_LABEL}"
         lines.append(
             f"| {_text(row['jc_num'])} | {kickoff} | {_match(row)} | "
             f"{probability} | {generated} | {status} | {upset} |"
@@ -383,6 +407,8 @@ def _batch_section(path, batch, repository, now, matches, displayed_ids, runs):
             f"| {_text(row.get('jc_num'))} | {_local(row['kickoff_utc'])} | "
             f"{_text(row.get('league'))} / {_match(row)}"
         )
+        if row.get("jc_backup"):
+            head += f"；{JC_BACKUP_LABEL}"
         if displayed_ids is not None:
             displayed_ids.add(row["match_id"])
         upset = upset_cell(row)
@@ -790,6 +816,69 @@ def review_sections(
     return lines + [""]
 
 
+def _backup_header_lines(
+    backup, jc, now, *, run_id, jc_sync_status, jc_sync_run_id, jc_publish_status
+):
+    if not backup or not backup.get("observed_utc"):
+        return []
+    if _instant(backup["observed_utc"]) > now:
+        return []
+    backup_run = backup.get("run_id")
+    current = (
+        jc_sync_status != "skipped"
+        and jc_publish_status == "success"
+        and same_collection_attempt(backup_run, run_id, jc_sync_run_id)
+    )
+    label = "本次" if current else "归档最近一次"
+    if backup_run == jc.get("run_id") and jc:
+        official = (
+            "failed" if "schedule" in (jc.get("failed_stages") or []) else jc.get("schedule_status")
+        )
+    else:
+        official = backup.get("official_schedule_status")
+    lines = []
+    if backup["status"] != "reconciled":
+        gaps = len(backup.get("gaps") or [])
+        status = {
+            "failed": "采集失败",
+            "complete": "采集成功，名单有缺位",
+        }.get(official, "采集状态未确认")
+        missing = (
+            "缺口数未确认"
+            if not gaps and (backup["status"] == "unavailable" or backup.get("reason"))
+            else f"仍缺 {gaps} 场"
+        )
+        lines.append(
+            f"{label}竞彩官方赛程{status}；500 网备用名单补入 {backup['inserted']} 场，{missing}。"
+        )
+        if backup.get("active"):
+            lines.append(f"该次归档有 {backup['active']} 场使用 500 网备用赛程。")
+    reconciled = backup.get("reconciled") or []
+    if reconciled:
+        corrected = []
+        for row in reconciled:
+            changes = []
+            for field, name in JC_RECONCILED_FIELDS.items():
+                if not (change := row["changes"].get(field)):
+                    continue
+                previous, official = change["backup"], change["official"]
+                if previous == official:
+                    continue
+                if field == "kickoff_utc":
+                    previous = _local(previous) if previous else "未记录"
+                    official = _local(official) if official else "未记录"
+                changes.append(f"{name} {_text(previous)} → {_text(official)}")
+            if changes:
+                corrected.append(f"- {_text(row['match_id'])}：{'；'.join(changes)}。")
+        lines.extend(
+            [
+                f"{label}有 {len(reconciled)} 场已恢复官方赛程，{len(corrected)} 场字段有变更。",
+                *corrected,
+            ]
+        )
+    return lines
+
+
 def header_lines(
     feed,
     latest,
@@ -801,7 +890,8 @@ def header_lines(
     jc_sync_run_id=None,
     jc_publish_status=None,
 ):
-    jc = feed.get("collection", {}).get("jc", {})
+    collection = feed.get("collection", {})
+    jc = collection.get("jc", {})
     lines = [
         f"竞彩接口最近成功检查：{_local(jc.get('schedule_updated_utc'))}（北京时间）。",
         f"赛果更新至：{_local(jc.get('results_updated_utc'))}（北京时间）。",
@@ -820,15 +910,26 @@ def header_lines(
     schedule_failed = jc.get("schedule_status") == "failed" or "schedule" in failed_stages
     results_failed = jc.get("results_status") == "failed" or "results" in failed_stages
     run = jc.get("run_id")
+    backup = collection.get("jc_backup") or {}
+    backup_lines = _backup_header_lines(
+        backup,
+        jc,
+        now,
+        run_id=run_id,
+        jc_sync_status=jc_sync_status,
+        jc_sync_run_id=jc_sync_run_id,
+        jc_publish_status=jc_publish_status,
+    )
     pending = sum(
         week_start(now) <= _instant(row["kickoff_utc"]) <= now
         and not observed_result(matches.get(key, {}), now)
         for key, row in latest.items()
     )
-    if schedule_failed:
+    if schedule_failed and (not backup_lines or backup.get("run_id") != run):
         lines.append(
             f"赛程更新失败（run {_text(run)}）。成功时刻保留上次值，现有赛程与赔率未确认更新。"
         )
+    lines.extend(backup_lines)
     if results_failed or jc.get("results_status") == "partial":
         if results_failed:
             lines.append(

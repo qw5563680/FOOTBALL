@@ -379,6 +379,8 @@ def save_schedule(
     *,
     aliases=None,
     alias_candidates=None,
+    backup_fixtures=None,
+    backup_reconciled=None,
 ) -> tuple[int, int]:
     aliases = load_aliases() if aliases is None else aliases
     matches = quotes = 0
@@ -402,7 +404,17 @@ def save_schedule(
             home, away = resolve_teams(
                 session, item, captured, aliases=aliases, candidates=alias_candidates
             )
-            if current and (home.id, away.id) != (current.home_team_id, current.away_team_id):
+            proof = (backup_fixtures or {}).get(item.match_id)
+            replace_backup = False
+            if proof is not None:
+                from zucai.jc_fixture_backup import matches_proof, reconciliation
+
+                replace_backup = matches_proof(current, proof, captured)
+            if (
+                current
+                and (home.id, away.id) != (current.home_team_id, current.away_team_id)
+                and not replace_backup
+            ):
                 raise ValueError(f"{item.match_id} 在售场次与原有主客队身份不符")
             upsert_match(
                 session,
@@ -416,6 +428,25 @@ def save_schedule(
                 status="scheduled",
                 **({"result_checked_utc": captured} if rescheduled else {}),
             )
+            if replace_backup and backup_reconciled is not None:
+                backup_reconciled.append(
+                    reconciliation(
+                        item.match_id,
+                        proof,
+                        captured,
+                        dict(
+                            home=home.name,
+                            away=away.name,
+                            league=item.league,
+                            kickoff_utc=utc_stamp(item.kickoff_utc),
+                            jc_num=item.jc_num,
+                            sales_date=item.business_date.isoformat(),
+                            sale_status="Selling/1",
+                        ),
+                        identity_changed=(home.id, away.id, item.league)
+                        != (proof["home_team_id"], proof["away_team_id"], proof["league"]),
+                    )
+                )
         for _, group in groupby(item.odds, key=lambda q: (q.pool, q.line)):
             quotes += append_market(session, item.match_id, list(group), captured)
         matches += 1
@@ -423,7 +454,7 @@ def save_schedule(
 
 
 def fetch_schedule(
-    number_date: date | None = None, *, metadata: dict | None = None
+    number_date: date | None = None, *, metadata: dict | None = None, backup_fixtures=None
 ) -> tuple[int, int]:
     feed = SportteryCalculator()
     try:
@@ -435,14 +466,34 @@ def fetch_schedule(
     if number_date is not None:
         games = [g for g in games if g.business_date == number_date]
     engine = get_engine()
+    reconciled = []
     try:
         save_schedule_audit(Path(engine.url.database).parent / "state/audit", feed)
         init_db(engine)
         with candidate_transaction(engine) as (session, candidates):
-            matches, quotes = save_schedule(session, games, captured, alias_candidates=candidates)
+            if backup_fixtures:
+                matches, quotes = save_schedule(
+                    session,
+                    games,
+                    captured,
+                    alias_candidates=candidates,
+                    backup_fixtures=backup_fixtures,
+                    backup_reconciled=reconciled,
+                )
+                from zucai.jc_fixture_backup import reconcile_excluded
+
+                reconciled.extend(
+                    reconcile_excluded(session, feed.catalog, backup_fixtures, captured)
+                )
+            else:
+                matches, quotes = save_schedule(
+                    session, games, captured, alias_candidates=candidates
+                )
     finally:
         engine.dispose()
     if metadata is not None:
         metadata["captured_utc"] = utc_stamp(captured)
+        if reconciled:
+            metadata["backup_reconciliations"] = reconciled
     LOGGER.info("赛程 %d 场，新增报价 %d 项，快照 %s", matches, quotes, path)
     return matches, quotes

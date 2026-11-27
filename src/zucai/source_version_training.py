@@ -107,6 +107,7 @@ def predict_candidates(session, *, primary, outcomes, fitted, params_path, clock
     """Use the primary target IDs and cutoff; late generation is an explicit exclusion."""
     originals = [row for row in primary["predictions"] if row.get("league") in outcomes]
     cutoff = utc(primary["as_of_utc"])
+    backup = {row["match_id"]: row["jc_backup"] for row in originals if row.get("jc_backup")}
     batch = predict_batch(
         session,
         model_files=list(fitted.values()),
@@ -117,6 +118,7 @@ def predict_candidates(session, *, primary, outcomes, fitted, params_path, clock
         market_weight=0,
         persist=False,
         allow_empty=True,
+        **({"jc_backup": backup} if backup else {}),
     )
     batch.update(
         batch_id=primary["batch_id"],

@@ -283,7 +283,7 @@ def test_schedule_and_results_success_times_are_separate_and_failed_attempt_keep
             raise ConnectionError("fixture results unavailable")
         return {"finished": 0, "cancelled": 0, "assumed": 0, "unchanged": 0}
 
-    def sfc(_, *, previous_schedule=None, previous_pending=()):
+    def sfc(_, *, previous_schedule=None, previous_pending=(), jc_root=None):
         now["utc"] = observed_time
         return dict(
             status="complete",
@@ -298,6 +298,11 @@ def test_schedule_and_results_success_times_are_separate_and_failed_attempt_keep
     monkeypatch.setattr(cloud_feeds, "fetch_schedule", schedule)
     monkeypatch.setattr(cloud_feeds, "fetch_results", results)
     monkeypatch.setattr("zucai.sources.sfc.collect_current_sfc", sfc)
+
+    def missing_root(_bridge):
+        raise ValueError("fixture root unavailable")
+
+    monkeypatch.setattr("zucai.sources.c500.C500JcRoot._read", staticmethod(missing_root))
     run_cloud_sync(monkeypatch, tmp_path / "run", archive, "2026-11-02")
     meta = cloud_feeds.archive_info(archive)
     jc = meta["collection"]["jc"]
