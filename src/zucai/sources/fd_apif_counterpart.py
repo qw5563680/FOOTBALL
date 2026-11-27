@@ -249,22 +249,53 @@ def check_linked_observation(session, existing, game, pair):
     return fd
 
 
-def verified_training_links(session, match_ids):
+def _training_claims(session):
+    return session.scalars(
+        select(Match).where(Match.source == "apif", Match.counterpart_id.like("fd:%"))
+    )
+
+
+def _verify_training_claim(session, api):
+    fd = session.get(Match, api.counterpart_id)
+    if fd is None or fd.source != "fd":
+        raise CounterpartConflict("apif→fd 链接目标不存在或来源错误", [api.match_id])
+    candidate = apif_candidate(session, fd)
+    if candidate is None or candidate.match_id != api.match_id:
+        raise CounterpartConflict("apif→fd 链接无法唯一复核", [api.match_id])
+    return fd.match_id
+
+
+def read_archive_training_claims(session):
+    """Verify immutable claims once, retaining conflicts for each relevant later fold."""
+    claims = []
+    for api in _training_claims(session):
+        try:
+            _verify_training_claim(session, api)
+        except CounterpartConflict as exc:
+            failure = (str(exc), tuple(exc.candidates))
+        else:
+            failure = None
+        claims.append((api.match_id, api.counterpart_id, failure))
+    return tuple(claims)
+
+
+def verified_training_links(session, match_ids, *, archive_claims=None):
     """Validate relevant explicit links before a finished/source filter hides anchors."""
     present = set(match_ids)
+    if archive_claims is not None:
+        pairs = []
+        for api, fd, failure in archive_claims:
+            if api not in present:
+                continue
+            if failure is not None:
+                raise CounterpartConflict(*failure)
+            pairs.append((api, fd))
+        return sorted(pairs)
     pairs = set()
-    for api in session.scalars(
-        select(Match).where(Match.source == "apif", Match.counterpart_id.like("fd:%"))
-    ):
+    for api in _training_claims(session):
         if api.match_id not in present:
             continue
-        fd = session.get(Match, api.counterpart_id)
-        if fd is None or fd.source != "fd":
-            raise CounterpartConflict("apif→fd 链接目标不存在或来源错误", [api.match_id])
-        candidate = apif_candidate(session, fd)
-        if candidate is None or candidate.match_id != api.match_id:
-            raise CounterpartConflict("apif→fd 链接无法唯一复核", [api.match_id])
-        pairs.add((api.match_id, fd.match_id))
+        pairs.add((api.match_id, _verify_training_claim(session, api)))
     return sorted(pairs)
 
 

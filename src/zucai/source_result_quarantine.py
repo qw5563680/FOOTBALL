@@ -2,6 +2,8 @@
 
 from collections import defaultdict
 from datetime import timedelta
+from itertools import chain
+from types import MappingProxyType
 
 from sqlalchemy import select
 
@@ -83,14 +85,15 @@ def _legacy_fd_identity_overlaps(session, frame, identities, links):
     return sorted(pending, key=lambda row: row["match_id"])
 
 
-def _validate_bridge_components(matches, teams, links, bridge_nodes):
+def _validate_bridge_components(matches, teams, links, bridge_nodes, *, pointers=None):
     """Inspect all claims before accepting any old-source bridge in a component."""
     neighbors = defaultdict(set)
-    pointers = [
-        (row.match_id, row.counterpart_id)
-        for row in matches.values()
-        if row.counterpart_id is not None
-    ]
+    if pointers is None:
+        pointers = (
+            (row.match_id, row.counterpart_id)
+            for row in matches.values()
+            if row.counterpart_id is not None
+        )
     for edge in [*links, *pointers]:
         left, right = edge[:2]
         neighbors[left].add(right)
@@ -133,7 +136,39 @@ def _validate_bridge_components(matches, teams, links, bridge_nodes):
                     pending.append(target)
 
 
-def complete_old_source_links(session, frame, links):
+def read_archive_bridge_graph(session):
+    """Index only static match claims and names from a verified, fixed archive."""
+    matches = {}
+    candidates = defaultdict(list)
+    pointers = []
+    query = select(
+        Match.match_id,
+        Match.source,
+        Match.league,
+        Match.home_team_id,
+        Match.away_team_id,
+        Match.kickoff_utc,
+        Match.counterpart_id,
+    )
+    for index, row in enumerate(session.execute(query)):
+        matches[row.match_id] = row
+        if row.source in {"jc", "fd"} and row.counterpart_id is not None:
+            candidates[row.league].append((index, row))
+        if row.counterpart_id is not None:
+            pointers.append((row.match_id, row.counterpart_id))
+    return MappingProxyType(
+        dict(
+            matches=MappingProxyType(matches),
+            teams=MappingProxyType(dict(session.execute(select(Team.id, Team.name)).all())),
+            candidates=MappingProxyType(
+                {league: tuple(rows) for league, rows in candidates.items()}
+            ),
+            pointers=tuple(pointers),
+        )
+    )
+
+
+def complete_old_source_links(session, frame, links, *, archive_bridge_graph=None):
     """Retain old JC/FD bridges only after checking their complete claim graph.
 
     All incoming/outgoing claims, including unselected, non-result, cross-league
@@ -146,10 +181,21 @@ def complete_old_source_links(session, frame, links):
     scope = set(frame.league) & actual_result_leagues()
     if not scope:
         return links
-    matches = {row.match_id: row for row in session.scalars(select(Match))}
-    teams = {team.id: team.name for team in session.scalars(select(Team))}
+    if archive_bridge_graph is None:
+        matches = {row.match_id: row for row in session.scalars(select(Match))}
+        teams = {team.id: team.name for team in session.scalars(select(Team))}
+        candidates = matches.values()
+        pointers = None
+    else:
+        matches = archive_bridge_graph["matches"]
+        teams = archive_bridge_graph["teams"]
+        indexed = archive_bridge_graph["candidates"]
+        candidates = (
+            row for _, row in sorted(chain.from_iterable(indexed.get(k, ()) for k in scope))
+        )
+        pointers = archive_bridge_graph["pointers"]
     old_links = []
-    for row in matches.values():
+    for row in candidates:
         if row.league not in scope or row.source not in {"jc", "fd"}:
             continue
         other = matches.get(row.counterpart_id)
@@ -168,7 +214,7 @@ def complete_old_source_links(session, frame, links):
     related = related_result_links(frame, [*links, *old_links])
     included = {tuple(edge) for edge in related}
     bridge_nodes = {key for edge in old_links if edge in included for key in edge}
-    _validate_bridge_components(matches, teams, links, bridge_nodes)
+    _validate_bridge_components(matches, teams, links, bridge_nodes, pointers=pointers)
     return related
 
 

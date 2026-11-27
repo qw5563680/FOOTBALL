@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from zucai.db import get_engine
 from zucai.models import Match
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
-from zucai.predict.backtest import evaluate, read_history
+from zucai.predict.backtest import evaluate, read_archive_evidence, read_history
 from zucai.predict.base import utc
 from zucai.predict.dixon_coles import InsufficientHistory
 from zucai.predict.experiments.global_rating import RatingResult, candidate_parameters, fit_ratings
@@ -52,6 +52,7 @@ PARAMETERS = ROOT / "data/model/params.json"
 APIF_POLICY = ROOT / "data/model/apif_history_training.json"
 PARAMETERS_SHA256 = "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888"
 APIF_POLICY_SHA256 = "2ee1b02a6434884d164347af45b21469f861e7594688f40d785a9441c75c46fb"
+_ARCHIVE_EVIDENCE = {}
 
 
 @dataclass(frozen=True)
@@ -595,6 +596,9 @@ def _team_targets(session, phase, entries, diagnostics, *, workers=1):
 def _rating_history_at(database, cutoff, leagues, diagnostics):
     """Select and quarantine each physical league independently at this exact cutoff."""
     with score_session(database, cutoff) as session:
+        # Workers reuse only proof inputs independent of the result cutoff view.
+        if database not in _ARCHIVE_EVIDENCE:
+            _ARCHIVE_EVIDENCE[database] = read_archive_evidence(session)
         for league in leagues:
             try:
                 games = read_history(
@@ -602,6 +606,7 @@ def _rating_history_at(database, cutoff, leagues, diagnostics):
                     source=",".join(SOURCES),
                     training_leagues=[league],
                     source_selection="cutoff",
+                    archive_evidence=_ARCHIVE_EVIDENCE[database],
                 )
                 known = source_eligible_history(games)["available_utc"]
                 training = select_training_history(games.loc[known.index[known < cutoff]], cutoff)
