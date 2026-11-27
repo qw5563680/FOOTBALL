@@ -283,7 +283,7 @@ def test_schedule_and_results_success_times_are_separate_and_failed_attempt_keep
             raise ConnectionError("fixture results unavailable")
         return {"finished": 0, "cancelled": 0, "assumed": 0, "unchanged": 0}
 
-    def sfc(_, *, previous_schedule=None, previous_pending=()):
+    def sfc(_, *, previous_schedule=None, previous_pending=(), jc_root=None):
         now["utc"] = observed_time
         return dict(
             status="complete",
@@ -298,6 +298,13 @@ def test_schedule_and_results_success_times_are_separate_and_failed_attempt_keep
     monkeypatch.setattr(cloud_feeds, "fetch_schedule", schedule)
     monkeypatch.setattr(cloud_feeds, "fetch_results", results)
     monkeypatch.setattr("zucai.sources.sfc.collect_current_sfc", sfc)
+
+    def missing_root(_bridge):
+        raise ValueError("fixture root unavailable")
+
+    monkeypatch.setattr("zucai.sources.c500.C500JcRoot._read", staticmethod(missing_root))
+    step_summary = tmp_path / "collection-step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(step_summary))
     run_cloud_sync(monkeypatch, tmp_path / "run", archive, "2026-11-02")
     meta = cloud_feeds.archive_info(archive)
     jc = meta["collection"]["jc"]
@@ -313,6 +320,16 @@ def test_schedule_and_results_success_times_are_separate_and_failed_attempt_keep
     assert meta["through_beijing"] == ("2026-11-01" if failed_stage == "results" else "2026-11-02")
     if failed_stage:
         assert any("ConnectionError" in error for error in jc["errors"])
+    summary = step_summary.read_text(encoding="utf-8")
+    assert "| 来源 | 状态 | 入库 | 链接 | 拒绝 |" in summary
+    assert f"| jc | {jc['status']} |" in summary and "| sfc | complete |" in summary
+    if failed_stage == "schedule":
+        assert meta["collection"]["jc_backup"]["status"] == "unavailable"
+        assert "### 竞彩备用赛程" in summary
+        assert "补入 0 场" in summary and "待核 0 场" in summary
+        assert "500 网竞彩根页未取得可核实赛程" in summary
+    else:
+        assert "### 竞彩备用赛程" not in summary
 
 
 def test_conflict_at_same_observation_stays_pending_until_a_later_verified_result(tmp_path):

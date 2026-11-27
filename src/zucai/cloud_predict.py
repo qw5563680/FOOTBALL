@@ -22,6 +22,7 @@ from zucai.forecast_coverage import (
     coverage_summary,
     published_baselines,
     read_coverage,
+    with_backup_catalog,
 )
 from zucai.forecast_publication import publication_times
 from zucai.market_blend import freeze_blends, prepare_blends
@@ -179,6 +180,9 @@ def run(
     production_state: Path | None = None,
 ) -> dict:
     """Freeze production, optionally retaining its exact database for later experiments."""
+    from zucai.jc_fixture_backup import officially_excluded, visible_at
+    from zucai.jc_fixture_backup import read_state as read_backup_state
+
     archive, params = Path(archive).resolve(), parameters_path(params)
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", run_id):
         raise ValueError("无效 run ID")
@@ -212,6 +216,8 @@ def run(
         stage = Path(temporary)
         database = (production_state or stage / "work/data") / "zucai.db"
         feed = restore_feeds(archive, database)
+        backup_state = read_backup_state(database.parent)
+        jc_backup = backup_state["active"]
         database_sha = digest(database)
         models = stage / "models" / run_id
         models.mkdir(parents=True)
@@ -268,6 +274,12 @@ def run(
                 _json(stage / train_path, result)
             outcomes[league] = result
         prediction_time = _now()
+        active_backup = {
+            key: evidence
+            for key, evidence in jc_backup.items()
+            if visible_at(evidence, prediction_time)
+        }
+        unavailable_backup = jc_backup.keys() - active_backup.keys()
         prospective_evidence = read_evidence(archive, prediction_time)
         for league, model in fitted.items():
             outcomes[league].update(
@@ -340,6 +352,13 @@ def run(
                     catalog = audit_rows(
                         archive, feed, "jc_catalog", prediction_time, all_shards=True
                     )
+                    official_clock = (
+                        feed.get("collection", {}).get("jc", {}).get("schedule_updated_utc")
+                    )
+                    unavailable_backup |= officially_excluded(
+                        backup_state, catalog, official_clock, prediction_time
+                    )
+                    catalog = with_backup_catalog(catalog, active_backup, (), prediction_time)
                     coverage = jc_coverage(prediction_time, catalog)
                     result["jc_extra_dates"] = sorted(
                         d.isoformat() for d, ids in coverage.items() if ids is not None
@@ -368,6 +387,9 @@ def run(
                             keys = [key for key in keys if key in coverage[forecast_day]]
                         sfc_only = national.get(forecast_day, set()).difference(keys)
                         keys.extend(sorted(sfc_only))
+                        if unavailable_backup:
+                            keys = [key for key in keys if key not in unavailable_backup]
+                            sfc_only -= unavailable_backup
                         batch = predict_batch(
                             session,
                             model_files=[stage / outcomes[k]["model_path"] for k in fitted],
@@ -381,6 +403,7 @@ def run(
                             allow_empty=True,
                             prospective_evidence=prospective_evidence,
                             half_share_hints=half_share_hints,
+                            **({"jc_backup": active_backup} if active_backup else {}),
                         )
                         if forecast_day not in coverage:
                             batch["input"]["scope"] = "sfc_only"
@@ -414,12 +437,21 @@ def run(
                             "excluded": sum(reasons.values()),
                             "reasons": dict(reasons),
                         }
+                    backup_info = feed.get("collection", {}).get("jc_backup", {})
+                    backup_gaps = [
+                        {
+                            **gap,
+                            "observed_utc": gap.get("observed_utc")
+                            or backup_info.get("observed_utc"),
+                        }
+                        for gap in backup_info.get("gaps", ())
+                    ]
                     coverage_document = build_coverage(
                         session,
                         run_id=run_id,
                         as_of=prediction_time,
                         generated=_now(),
-                        catalog=catalog,
+                        catalog=with_backup_catalog(catalog, {}, backup_gaps, prediction_time),
                         skipped=audit_rows(
                             archive, feed, "jc_skipped", prediction_time, all_shards=True
                         ),

@@ -300,6 +300,56 @@ def _anomaly_sections(feed, summary, quota, repository, coverage=None):
     return lines
 
 
+def _sales_catalog_with_backup(archive, feed, catalog, forecast_rows, at):
+    from zucai.forecast_coverage import with_backup_catalog
+    from zucai.jc_fixture_backup import STATE_FILE, visible_at
+    from zucai.jc_fixture_backup import read_state as read_backup_state
+
+    state = read_backup_state(archive) if STATE_FILE in feed["files"] else {}
+    reconciled = [row for row in state.get("reconciled", []) if _instant(row["observed_utc"]) <= at]
+    restored = {row["match_id"] for row in reconciled}
+    replacement_reasons = {
+        row["match_id"]: "官方赛程未确认在售，备用预测已退出当前展示"
+        for row in reconciled
+        if row.get("retained") is False
+    }
+    replacement_reasons.update(
+        {
+            row["match_id"]: "官方更正主客队或赛事后暂无一致的冻结预测"
+            for row in reconciled
+            if row.get("identity_changed") is True
+        }
+    )
+    observed = [
+        row
+        for row in forecast_rows
+        if row.get("jc_backup")
+        and _instant(row["generated_utc"]) <= at
+        and row["match_id"] not in restored
+    ]
+    historical = {
+        row["match_id"]: row["jc_backup"]
+        for row in sorted(observed, key=lambda row: _instant(row["generated_utc"]))
+    }
+    active = {
+        **historical,
+        **{
+            match_id: row
+            for match_id, row in state.get("active", {}).items()
+            if visible_at(row, at)
+        },
+    }
+    backup = feed.get("collection", {}).get("jc_backup") or {}
+    gaps = (
+        backup.get("gaps", [])
+        if backup.get("observed_utc") and _instant(backup["observed_utc"]) <= at
+        else []
+    )
+    if active or gaps:
+        catalog = with_backup_catalog(catalog, active, gaps, at)
+    return catalog, replacement_reasons
+
+
 def generate(
     archive,
     out,
@@ -366,6 +416,30 @@ def generate(
     # No rows known at the cutoff means no evidence, not a checked empty scope.
     # Only scoped_catalog below may produce [] after usable evidence was found.
     sales_catalog = audit_rows(archive, feed, "jc_catalog", at, all_shards=True)
+    sales_catalog, backup_replacement_reasons = _sales_catalog_with_backup(
+        archive, feed, sales_catalog, forecast_rows, at
+    )
+    display_batches = batches
+    if backup_replacement_reasons:
+        # Official identity corrections affect display after they become known.
+        # The original prediction, even if no longer applicable, remains frozen.
+        display_batches = [
+            (
+                day,
+                path,
+                dict(
+                    batch,
+                    predictions=[
+                        row
+                        for row in batch["predictions"]
+                        if not (
+                            row.get("jc_backup") and row["match_id"] in backup_replacement_reasons
+                        )
+                    ],
+                ),
+            )
+            for day, path, batch in batches
+        ]
     catalog = sales_catalog or None
     skipped = audit_rows(archive, feed, "jc_skipped", at, all_shards=True)
     kickoffs = {
@@ -373,9 +447,9 @@ def generate(
         for row in sorted(
             latest_catalog_rows(sales_catalog), key=lambda r: _instant(r["captured_utc"])
         )
-        if kickoff_day(row) is not None
+        if not row.get("jc_backup_gap") and kickoff_day(row) is not None
     }
-    exclusions = frozen_exclusions(batches, at, kickoffs=kickoffs)
+    exclusions = frozen_exclusions(display_batches, at, kickoffs=kickoffs)
     if catalog is not None:
         from zucai.digest_context import scoped_catalog
 
@@ -385,7 +459,7 @@ def generate(
             if row["match_id"] in matches:
                 matches[row["match_id"]].setdefault("business_date", row["business_date"])
     latest, observations = frozen_rows(
-        batches,
+        display_batches,
         matches,
         at,
         forecast_hashes=(manifest or {}).get("files", {}),
@@ -549,9 +623,17 @@ def generate(
         "缺失状态不推断为成功；以下均为已归档快照，不代表实时信息。",
         "",
         *coverage_lines,
-        *jc_sales_day_section(sales_catalog, skipped, latest, exclusions, today, window=window),
+        *jc_sales_day_section(
+            sales_catalog,
+            skipped,
+            latest,
+            exclusions,
+            today,
+            window=window,
+            backup_replacement_reasons=backup_replacement_reasons,
+        ),
         *_forecast_sections(
-            batches,
+            display_batches,
             today,
             repository,
             now=at,

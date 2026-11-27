@@ -27,6 +27,7 @@ LEVEL = {
     "market_reference": "市场参考",
 }
 REASONS = {
+    "jc_backup_without_official_sale": "500 网备用赛程尚无官方销售状态",
     "single_top_tied": "无法确定唯一最高项",
     "research_invalidated": "有截点前具体证据使原研究前提失效，等待重新评估",
     "single_direction_fragile": "单选方向差距不足",

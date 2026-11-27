@@ -27,6 +27,8 @@ from zucai.predict.parameters import model_readiness, read_parameters
 from zucai.predict.pooled import model_targets
 from zucai.sources.sporttery import BEIJING
 
+BACKUP_NO_MARKET = "500 网备用赛程没有官方报价"
+
 
 def _models(paths, as_of, params_file=None, *, allow_empty=False, sfc_only=False):
     registry = {}
@@ -187,6 +189,7 @@ def predict_batch(
     allow_empty: bool = False,
     prospective_evidence: dict | None = None,
     half_share_hints: dict | None = None,
+    jc_backup: dict | None = None,
 ) -> dict:
     """Freeze probabilities; scheduled jobs may opt into read-only or empty batches."""
     cutoff, created = utc(as_of), utc(generated)
@@ -272,11 +275,14 @@ def predict_batch(
                 "kickoff_beijing": utc(match.kickoff_utc).tz_convert(BEIJING).isoformat(),
             }
         )
-        market, market_missing_reason = (
-            (None, "14 场补充预测不读取市场报价")
-            if key in sfc_only
-            else _market(session, match, cutoff)
-        )
+        backup = (jc_backup or {}).get(key)
+        if backup:
+            item["jc_backup"] = backup
+            market, market_missing_reason = None, BACKUP_NO_MARKET
+        elif key in sfc_only:
+            market, market_missing_reason = None, "14 场补充预测不读取市场报价"
+        else:
+            market, market_missing_reason = _market(session, match, cutoff)
         item["market_reference"] = market
         item["market_missing_reason"] = market_missing_reason
         selected_registry = registry if key in sfc_only else ordinary_registry
@@ -328,7 +334,8 @@ def predict_batch(
         if utc(match.kickoff_utc) <= cutoff:
             item["reason"] = "预测截点时已开赛"
             item["market_reference"] = None
-            item["market_missing_reason"] = "预测截点时已开赛"
+            if not backup:
+                item["market_missing_reason"] = "预测截点时已开赛"
             continue
         if match.status == "cancelled" or (match.status != "scheduled" and not replay):
             item["reason"] = "当前场次状态不适用于赛前预测"

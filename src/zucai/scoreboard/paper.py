@@ -35,6 +35,11 @@ PAPER_VERSION_FIELDS = (
 )
 
 
+def paper_fixture_allowed(row):
+    """Use the original frozen schedule provenance for paper eligibility."""
+    return "jc_backup" not in row
+
+
 def paper_version_allowed(row, *, required=False):
     """Old freezes remain compatible; any new marker requires complete qualification."""
     if "model_definition_schema" in row:
@@ -200,7 +205,9 @@ def advance_ledger(forecasts, results, existing, as_of):
     paper_forecasts = [
         row
         for row in forecasts
-        if not row.get("sfc_only") and row.get("batch_scope") != "jc_spillover"
+        if paper_fixture_allowed(row)
+        and not row.get("sfc_only")
+        and row.get("batch_scope") != "jc_spillover"
     ]
     for row in prematch_rows(paper_forecasts, as_of):
         batches[instant(row["generated_utc"]), row["batch_id"]].append(row)
@@ -369,7 +376,11 @@ def advance_ledger(forecasts, results, existing, as_of):
 
 def publication_view(forecasts, results, ledger, as_of):
     """Exclude only ineligible frozen tickets; never recreate decisions or settlements."""
-    eligible = {(r["match_id"], r["batch_id"]) for r in prematch_rows(forecasts, as_of)}
+    eligible = {
+        (r["match_id"], r["batch_id"])
+        for r in prematch_rows(forecasts, as_of)
+        if paper_fixture_allowed(r)
+    }
     excluded = {
         r["record_id"]
         for r in ledger

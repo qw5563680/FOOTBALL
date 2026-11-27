@@ -110,7 +110,7 @@ CATALOGUE_FILE = (
     rf"supplement/(?:summary\.json|(?:jc|superseded/{CATALOGUE_RUN_ID}/jc)/{MONTH}/{CATALOGUE_DATE}-p[1-9][0-9]*\.json(?:\.meta\.json)?))"
 )
 STATE_FILE = (
-    r"state/(?:(?:api_football_quota|nations_league|fd_collection|t68_cross_day_receipts)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
+    r"state/(?:(?:api_football_quota|nations_league|fd_collection|t68_cross_day_receipts|jc_fixture_backup)\.json|stats_(?:rows_manifest|coverage|backfill_cursor)\.json|"
     rf"audit/jc_(?:catalog|skipped)/{MONTH}\.csv|"
     r"audit/(?:jc|fd|fdorg|apif|sfc|stats|injuries)_[a-z_]+\.csv|"
     r"alias_candidates/(?:fdorg|apif|jc)\.json|publication/(?:forecast|sfc)_history\.json)"
@@ -517,6 +517,10 @@ def archive_info(archive: Path) -> dict:
         read_receipts(archive / RECEIPT_FILE)
     validate_result_links_manifest(meta)
     validate_result_identities_manifest(meta)
+    if "state/jc_fixture_backup.json" in meta["files"]:
+        from zucai.jc_fixture_backup import read_state
+
+        read_state(archive)
 
     if FD_COLLECTION_FILE in meta["files"]:
         read_fd_success(archive / FD_COLLECTION_FILE, latest=meta.get("created_utc"))
@@ -584,6 +588,7 @@ def restore_feeds(archive: Path, dest: Path) -> dict:
             "state/audit/jc_catalog.csv",
             "state/audit/jc_skipped.csv",
             "state/alias_candidates/jc.json",
+            "state/jc_fixture_backup.json",
             "state/audit/jc_identity_merges.csv",
             "state/audit/stats_ingest_audit.csv",
             "state/audit/injuries_ingest_audit.csv",
@@ -663,8 +668,16 @@ def collect_jc(database: Path, previous: dict, today: date, days: int) -> tuple[
     )
     metadata = {}
     try:
-        result["schedule_matches"], result["odds_snapshots"] = fetch_schedule(metadata=metadata)
+        from zucai.jc_fixture_backup import read_state
+
+        active_backups = read_state(database.parent)["active"]
+        options = {"backup_fixtures": active_backups} if active_backups else {}
+        result["schedule_matches"], result["odds_snapshots"] = fetch_schedule(
+            metadata=metadata, **options
+        )
         result["schedule_updated_utc"] = metadata["captured_utc"]
+        if metadata.get("backup_reconciliations"):
+            result["_backup_reconciliations"] = metadata["backup_reconciliations"]
     except (RequestException, ValueError, KeyError, TypeError) as exc:
         result["schedule_status"] = "failed"
         result["failed_stages"].append("schedule")
@@ -1358,9 +1371,12 @@ def main():
         collection = {summary_collection: result}
         day = date.fromisoformat(meta["through_beijing"])
     if args.command == "sync":
+        from zucai.jc_fixture_backup import collect_backup
+        from zucai.sources.c500 import C500JcRoot
         from zucai.sources.sfc import collect_current_sfc
 
         jc, windows_complete = collect_jc(target, meta, day, args.days)
+        jc_root = C500JcRoot()
         previous_sfc = meta.get("collection", {}).get("sfc", {})
         collection = {
             "jc": jc,
@@ -1368,8 +1384,11 @@ def main():
                 target,
                 previous_schedule=previous_sfc.get("official_schedule"),
                 previous_pending=previous_sfc.get("pending_amendments", ()),
+                jc_root=jc_root,
             ),
         }
+        if backup := collect_backup(target, jc, jc_root, at=datetime.now(UTC)):
+            collection["jc_backup"] = backup
         if not windows_complete:
             day = date.fromisoformat(meta["through_beijing"])
     published_collection = collection
@@ -1399,7 +1418,7 @@ def main():
         previous = {
             name: result
             for name, result in separate_backfill_collection(meta.get("collection", {})).items()
-            if name != "jc-kickoffs"
+            if name != "jc-kickoffs" and not (args.command == "sync" and name == "jc_backup")
         }
         published_collection = {**previous, **collection}
         status_collection = daily_collection(published_collection)
@@ -1539,6 +1558,8 @@ def main():
                     "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
                 )
                 for provider, result in collection.items():
+                    if provider == "jc_backup":
+                        continue
                     calls = (
                         result.get("downloaded_files", 0)
                         if provider == "fd"
@@ -1577,6 +1598,16 @@ def main():
                 summary.write(
                     "\n欧战表仅计各来源入库行；链接竞彩计入上表链接数，不覆盖竞彩赛果。\n"
                 )
+                if backup := collection.get("jc_backup"):
+                    summary.write(
+                        "\n### 竞彩备用赛程\n\n"
+                        f"补入 {backup['inserted']} 场；"
+                        f"仍使用备用 {backup['active']} 场；"
+                        f"待核 {len(backup['gaps'])} 场；"
+                        f"收到官方记录 {len(backup['reconciled'])} 场。\n"
+                    )
+                    if reason := backup.get("reason"):
+                        summary.write(f"\n{html.escape(reason)}。\n")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Frozen catalogue coverage and a non-operational historical baseline."""
 
 from collections import Counter, defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from math import isclose
 
 from sqlalchemy import select
@@ -35,6 +35,68 @@ def _time(value):
 def _sale_days(now):
     today = instant(now).astimezone(BEIJING).date()
     return today.isoformat(), (today + timedelta(days=1)).isoformat()
+
+
+def with_backup_catalog(catalog, active, gaps, as_of):
+    """Supplement observed sales-day slots without replacing official catalogue evidence."""
+    if not active and not gaps:
+        return catalog
+    rows = list(catalog or ())
+    as_of = instant(as_of)
+    known = {
+        (row["business_date"], row["jc_num"]): row
+        for row in latest_catalog_rows(_seen(rows, as_of))
+    }
+    by_id = {row["match_id"]: slot for slot, row in known.items() if row.get("match_id")}
+    sources = [(key, evidence, "jc_backup", evidence) for key, evidence in active.items()] + [
+        (gap.get("match_id"), gap, "jc_backup_gap", {"reason": gap.get("reason")}) for gap in gaps
+    ]
+    for key, evidence, marker, proof in sources:
+        seen = _time(evidence.get("observed_utc"))
+        number = evidence.get("jc_num")
+        try:
+            day = date.fromisoformat(evidence.get("sales_date")).isoformat()
+        except (TypeError, ValueError):
+            continue
+        if (
+            not key
+            or not number
+            or not seen
+            or seen > as_of
+            or (marker == "jc_backup_gap" and not proof["reason"])
+        ):
+            continue
+        slot = (day, number)
+        known_slot = by_id.get(key)
+        previous = known.get(slot)
+        if (previous is not None and previous.get("match_id") != key) or (
+            known_slot is not None and known_slot != slot
+        ):
+            continue
+        if previous is not None:
+            if instant(previous["captured_utc"]) >= seen or any(
+                name in previous for name in ("jc_backup", "jc_backup_gap")
+            ):
+                continue
+            row = {**previous, marker: proof}
+            rows[rows.index(previous)] = row
+        else:
+            row = {
+                "match_id": key,
+                "business_date": day,
+                "jc_num": number,
+                "captured_utc": seen.isoformat(),
+                **{
+                    field: evidence.get(field)
+                    for field in ("home", "away", "league", "kickoff_utc")
+                },
+                marker: proof,
+            }
+            rows.append(row)
+        if marker == "jc_backup_gap" and evidence.get("code") == "kickoff_placeholder":
+            row["kickoff_basis"] = "placeholder"
+        by_id[key], known[slot] = slot, row
+    return rows if rows else catalog
 
 
 def _open_windows(issues, schedule, now):
@@ -162,7 +224,8 @@ def _missing_reason(row, match, identity, skipped, exclusion, configured_leagues
 
 def _row(session, source, scope, candidates, skipped, configured, generated, history):
     match_id = source.get("match_id") or None
-    match = session.get(Match, match_id) if match_id else None
+    gap = source.get("jc_backup_gap")
+    match = session.get(Match, match_id) if match_id and not gap else None
     identity = _identity(session, match)
     if scope == "sfc" and (
         source.get("mapping") != "matched" or source.get("matched_identity") != identity
@@ -195,6 +258,16 @@ def _row(session, source, scope, candidates, skipped, configured, generated, his
         "action": None,
         "baseline": None,
     }
+    if backup := source.get("jc_backup"):
+        row["jc_backup"] = backup
+    if gap:
+        row.update(
+            jc_backup_gap=gap,
+            reason=gap["reason"],
+            action="采集维护人核对备用赛程证据，需新增对应关系时交所有者批准",
+            baseline_unavailable="备用赛程尚未核实",
+        )
+        return row
     if formal:
         row["formal_forecast_path"] = formal.get("forecast_path")
         row["formal_kickoff_utc"] = formal["kickoff_utc"]
@@ -367,7 +440,7 @@ def build_coverage(
     for scope, groups in (("jc", jc), ("sfc", sfc)):
         for group, rows in groups.items():
             for row in rows:
-                if row["formal"] or row["baseline"]:
+                if row["formal"] or row["baseline"] or row.get("jc_backup_gap"):
                     continue
                 prior = (previous_baselines or {}).get(_baseline_key(scope, group, row))
                 if prior and prior[0] <= as_of and prior[0] < instant(row["kickoff_utc"]):

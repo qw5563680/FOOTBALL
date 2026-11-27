@@ -13,6 +13,7 @@ from zucai.prediction_disclosure import prior_disclosure, prior_label, uses_unkn
 from zucai.scoreboard.paper import (
     PAPER_VERSION_FIELDS,
     paper_context_allowed,
+    paper_fixture_allowed,
     paper_version_allowed,
     paper_version_matches,
 )
@@ -490,6 +491,8 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
         for row in experimental.get("predictions", []):
             if (
                 row.get("status") == "predicted"
+                and paper_fixture_allowed(row)
+                and paper_fixture_allowed(originals.get(row.get("match_id"), {}))
                 and _paper_prediction_allowed(row, experimental)
                 and row.get("model_name")
                 and row.get("model_version")
@@ -506,6 +509,9 @@ def build(batch, identities, injuries, catalog, frozen_utc, *, experimental=None
     tiers, experiment_matches, market_matches, diagnostics = {k: [] for k in LEVELS}, {}, [], []
     for row in sorted(source_rows, key=lambda r: r["match_id"]):
         mid = row["match_id"]
+        if not paper_fixture_allowed(row):
+            diagnostics.append(dict(match_id=mid, reasons=["jc_backup_without_official_sale"]))
+            continue
         if row.get("source") != "jc" or not row.get("kickoff_utc"):
             diagnostics.append(dict(match_id=mid, reasons=["not_jc_or_missing_kickoff"]))
             continue
