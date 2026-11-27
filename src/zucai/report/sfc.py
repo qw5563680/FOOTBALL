@@ -25,6 +25,8 @@ from zucai.identity_pending import (
 from zucai.models import Match, SfcIssue, Team
 from zucai.pick_nine import (
     DEFAULT_PICK_NINE_MAX_LINES,
+    PICK_NINE_RULE_VERSION,
+    optimize_match_coverage,
     optimize_pick_nine,
     validate_pick_nine_budget,
 )
@@ -51,7 +53,6 @@ from zucai.report.render import (
     _md,
     _percent,
     _timestamp,
-    _triplet,
     _validate_batch,
     load_batch,
 )
@@ -191,29 +192,11 @@ def optimize_cover(probabilities: list[dict], max_lines: int = 64) -> dict:
     _budget(max_lines)
     if not 1 <= len(probabilities) <= 14:
         raise ValueError("须提供1至14场概率")
-    states = {1: (0.0, [])}
-    for probs in probabilities:
-        _triplet(probs, "球队模型", probabilities=True)
-        order = sorted("hda", key=lambda key: -probs[key])
-        updated = {}
-        for count, (logp, picks) in states.items():
-            for size in (1, 2, 3):
-                total = count * size
-                if total > max_lines:
-                    continue
-                options = order[:size]
-                covered = min(1.0, sum(probs[k] for k in options))
-                candidate = logp + math.log(covered)
-                if total not in updated or candidate > updated[total][0]:
-                    updated[total] = (candidate, [*picks, options])
-        states = updated
-    lines, (logp, picks) = max(states.items(), key=lambda item: (item[1][0], -item[0]))
+    rows = [{"seq": seq, "probabilities": p} for seq, p in enumerate(probabilities, 1)]
+    plan = optimize_match_coverage(rows, len(rows), max_lines)
     return {
-        "lines": lines,
-        "max_lines": max_lines,
-        "coverage_probability": math.exp(logp),
-        "selections": picks,
-        "assumption": "cross_match_independence",
+        **plan,
+        "selections": [leg["outcomes"] for leg in plan["selections"]],
         "scope": "rectangular_full_cover",
         "covers": "all_14_results",
     }
@@ -436,6 +419,7 @@ def build_sfc_report(
         combo=combo,
         max_lines=max_lines,
         pick_nine_max_lines=pick_nine_max_lines,
+        pick_nine_rule=PICK_NINE_RULE_VERSION,
         **(
             {"diagnostic": True, "missing_models": missing, "minimum_lines": minimum_lines}
             if allow_missing
@@ -627,7 +611,13 @@ def _pick_nine_multi_candidates(report):
 def pick_nine_multi_plan(report):
     """Derive the ticket from the same frozen probabilities and publication as the display."""
     eligible, reason = _pick_nine_multi_candidates(report)
-    return None if reason else optimize_pick_nine(eligible, report["pick_nine_max_lines"])
+    return (
+        None
+        if reason
+        else optimize_pick_nine(
+            eligible, report["pick_nine_max_lines"], rule_version=report.get("pick_nine_rule", 1)
+        )
+    )
 
 
 def pick_nine_multi_lines(report):
@@ -635,7 +625,8 @@ def pick_nine_multi_lines(report):
     eligible, reason = _pick_nine_multi_candidates(report)
     if reason:
         return lines + [reason, ""]
-    plan = optimize_pick_nine(eligible, report["pick_nine_max_lines"])
+    rule_version = report.get("pick_nine_rule", 1)
+    plan = optimize_pick_nine(eligible, report["pick_nine_max_lines"], rule_version=rule_version)
     by_seq = {row["seq"]: row for row in eligible}
     lines += ["| 原场号 | 对阵 | 复式选项 | 本场覆盖概率 |", "|---|---|---|---|"]
     for selection in plan["selections"]:
@@ -645,15 +636,27 @@ def pick_nine_multi_lines(report):
             f"| {row['seq']} | {_md(row['home'])} VS {_md(row['away'])} | "
             f"{options} | {_percent(selection['probability'])} |"
         )
-    single = math.prod(max(row["probabilities"].values()) for row in _pick_nine_singles(eligible))
-    return lines + [
+    if rule_version == PICK_NINE_RULE_VERSION:
+        single = optimize_pick_nine(eligible, 1)["coverage_probability"]
+        single_label = "按相同精度计算的一注方案"
+    else:
+        single = math.prod(
+            max(row["probabilities"].values()) for row in _pick_nine_singles(eligible)
+        )
+        single_label = "同一期单选"
+    lines += [
         "",
         f"合计 {plan['lines']} 注（上限 {plan['max_lines']} 注），按每注 2 元为 "
         f"{2 * plan['lines']} 元。",
         f"按各场相互独立估算，复式九场全中概率 {_percent(plan['coverage_probability'])}，"
-        f"同一期单选九场全中概率 {_percent(single)}。",
-        "",
+        f"{single_label}九场全中概率 {_percent(single)}。",
     ]
+    if rule_version == PICK_NINE_RULE_VERSION:
+        lines.append(
+            "概率取六位小数。全中概率和注数相同时，全包优先放在最没把握的场次上，"
+            "双选同理，仍并列时按原场号。"
+        )
+    return lines + [""]
 
 
 def hit_line(rows, report, label, all_label):
