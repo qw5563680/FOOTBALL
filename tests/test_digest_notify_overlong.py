@@ -115,7 +115,16 @@ def test_first_section_cannot_fit_but_explanation_is_delivered(tmp_path, mailbox
     assert "超过单条评论上限" in sent and ARCHIVE_URL in sent
 
 
-def test_coverage_counts_survive_when_full_sections_cannot_fit(tmp_path, mailbox):
+@pytest.mark.parametrize(
+    "watchdog",
+    [
+        "",
+        "自动保险检查：北京时间 2026-11-03 18:05:00，采集机闹钟触发。\n\n",
+        "本档自动保险检查没有运行。\n\n",
+        "自动保险检查：未能读取 Actions 运行记录。\n\n",
+    ],
+)
+def test_watchdog_and_coverage_survive_when_sections_cannot_fit(tmp_path, mailbox, watchdog):
     root = tmp_path / "daily"
     counts = "覆盖情况｜14 场 26171 期：正式预测 13/14，基准 1/14。"
     first_section = FIRST + "长" * LIMIT + "\n"
@@ -123,12 +132,13 @@ def test_coverage_counts_survive_when_full_sections_cannot_fit(tmp_path, mailbox
     _, full = render_version(
         root,
         "first",
-        body=f"{header}\n\n# 每日摘要 {TODAY}（北京时间）\n\n{counts}\n\n{first_section}",
+        body=f"{header}\n\n# 每日摘要 {TODAY}（北京时间）\n\n{watchdog}{counts}\n\n{first_section}",
     )
     issue, writes = mailbox
     assert digest_notify.publish(full, REPO, now=NOW, history_root=root) == (101, 201)
     ((_, sent),) = writes
     assert counts in sent and counts in issue["body"]
+    assert watchdog in sent and watchdog in issue["body"]
     assert ARCHIVE_URL in sent and "完整内容" not in sent
 
 

@@ -1,4 +1,5 @@
 name: Football daily watchdog
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.source == 'collection-machine-alarm' && 'Football daily watchdog [collection-machine-alarm]' || 'Football daily watchdog' }}
 on:
   schedule:
     - cron: '5 3 * * *'
@@ -8,6 +9,11 @@ on:
     - cron: '5 10 * * *'
     - cron: '35 10 * * *'
   workflow_dispatch:
+    inputs:
+      source:
+        description: Reserved for the collection-machine alarm
+        type: string
+        required: false
 
 permissions:
   actions: write

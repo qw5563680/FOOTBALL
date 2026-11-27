@@ -43,6 +43,8 @@ from zucai.digest_views import (
     pending_sections,
     review_sections,
 )
+from zucai.digest_watchdog import header_line as watchdog_line
+from zucai.digest_watchdog import read as read_watchdog
 from zucai.forecast_archive import _path, verify_forecasts
 from zucai.forecast_coverage import latest_coverage
 from zucai.prediction_disclosure import prior_footnote, prior_label
@@ -361,6 +363,7 @@ def generate(
     jc_sync_run_id=None,
     jc_publish_status=None,
     require_notified_history=False,
+    watchdog_token=None,
 ):
     """Return dated Markdown path; the only permitted in-archive output is daily/."""
     archive, out = Path(archive).absolute(), Path(out).absolute()
@@ -527,6 +530,7 @@ def generate(
     )
     history_updates = publication_updates(archive, pending_history)
     input_hashes = source_hashes(archive)
+    watchdog = read_watchdog(at, repository, watchdog_token)
     if archive / "feed_manifest.json" in history_updates:
         input_hashes["feed_manifest.json"] = hashlib.sha256(
             history_updates[archive / "feed_manifest.json"]
@@ -538,6 +542,7 @@ def generate(
         "jc_publish_status": jc_publish_status,
         "repository": repository,
         "require_notified_history": require_notified_history,
+        "watchdog": watchdog,
     }
     previous, update, version_id = version_context(
         archive, out, today, at, run_id, inputs, require_notified=require_notified_history
@@ -603,6 +608,8 @@ def generate(
         f"<!-- zucai-daily:{today} -->",
         "",
         f"# 每日摘要 {today}（北京时间）",
+        "",
+        watchdog_line(watchdog),
         "",
         *coverage_header,
         f"本日第 {update} 次更新；本次 run ID：{_text(run_id)}；摘要生成 UTC：{at.isoformat()}。",
@@ -764,6 +771,9 @@ def main(argv=None):
             jc_sync_run_id=args.jc_sync_run_id,
             jc_publish_status=args.jc_publish_status,
             require_notified_history=args.require_notified_history,
+            watchdog_token=os.environ.get("GITHUB_TOKEN")
+            if os.environ.get("GITHUB_ACTIONS") == "true"
+            else None,
         )
     except (OSError, ValueError, KeyError, TypeError) as exc:
         LOG.error("摘要未生成：%s", exc)

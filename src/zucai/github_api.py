@@ -167,8 +167,10 @@ def _usage_path():
 class GitHubApi:
     """Retry only a known rejected operation, using the time its step can spare."""
 
-    def __init__(self):
-        self.deadline = _epoch(_integer(os.environ.get("ZUCAI_GITHUB_DEADLINE")))
+    def __init__(self, *, wait_for_quota=True):
+        self.deadline = (
+            _epoch(_integer(os.environ.get("ZUCAI_GITHUB_DEADLINE"))) if wait_for_quota else None
+        )
         self.reserve = _integer(os.environ.get("ZUCAI_GITHUB_RESERVE")) or 0
         self.usage = _usage_path()
         _, self.quota = _read_usage(self.usage)

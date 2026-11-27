@@ -927,6 +927,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      actions: read
     needs: [schedule-gate, scoreboard, sporttery]
     # Report the available frozen state even if upstream work failed; never rescore here.
     if: ${{ !cancelled() && (needs.schedule-gate.result != 'success' || needs.schedule-gate.outputs.run_early != 'false') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'daily' || inputs.operation == 'predict' || inputs.operation == 'scoreboard' || inputs.operation == 'digest'))) }}
@@ -963,6 +964,7 @@ jobs:
       - name: Render daily digest from frozen archives
         if: ${{ !env.DIGEST_DATE && !env.DIGEST_VERSION }}
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           SPORTTERY_STATUS: ${{ needs.sporttery.result }}
           SPORTTERY_PUBLISH_STATUS: ${{ needs.sporttery.outputs.publish_status }}
         run: python -m zucai.daily_digest --archive cloud-data --out cloud-data/daily --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --jc-sync-status "$SPORTTERY_STATUS" --jc-sync-run-id "$GITHUB_RUN_ID" --require-notified-history

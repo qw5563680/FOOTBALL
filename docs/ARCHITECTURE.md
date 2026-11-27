@@ -399,6 +399,12 @@ GitHub 的运行列表没有原定 cron，02:40 和 09:40 的跨档迟到按创�
 已有手动预测则等待。接口不可用或证据读不到时，摘要记录原因并留待下一次检查。
 合并后由 Claude 连续观察三天，每档核对至少一次检查，遇到缺档时核对补跑及整条链的运行结果。
 
+T101 在采集机上使用当前 Windows 用户的计划任务补充六个固定检查时间。闹钟只读并触发 `football-watchdog.yml`，
+近 20 分钟有检查时跳过，每个北京日最多发送六次触发请求。GitHub 细粒度令牌由该账号本地输入并加密保存，
+按原计划任务方式登录运行。闹钟传入 `collection-machine-alarm`，运行记录标题携带这一标记。
+日报读取 Actions 的本仓库检查记录并按档展示 GitHub 定时、采集机闹钟或手动触发，读取失败与本档无运行分别显示。
+补发已有日报时沿用冻结版本中的内容。
+
 ## 模块
 
 ### T51 国家队历史参考资料
@@ -1758,7 +1764,8 @@ T46 在范围筛选之前区分证据是否可得：截点前没有任何可用�
 `digest` job 依赖 schedule-gate、scoreboard、sporttery，定时、手动 predict/scoreboard/digest 时运行，取消时停止；上游失败时仍可
 展示最后归档的状态。手动 digest 时其他四个 job 均跳过（包括从旧采集标签发起），不采集、不训练、不结算。
 沿用工作流全局写锁和发布脚本；显式暂存 daily/，设置 `daily/** -text`，发布成功才通知，artifact 保存 90 天。
-工作流顶层仅保留 `contents: write`；`issues: write` 仅在 digest job 声明（连同该 job 发布数据需要的 contents）。
+工作流顶层保留 `contents: write`。digest job 用 `issues: write` 发布日报、`contents: write` 归档，
+用 `actions: read` 查询当前档次的保险检查记录。
 只有通知步骤得到显式 GITHUB_TOKEN 环境变量，源码仓库 checkout 不持久化凭证。
 
 `digest_notify` 需要 Actions 的 schedule 或 workflow_dispatch 运行环境及 `GITHUB_TOKEN`。

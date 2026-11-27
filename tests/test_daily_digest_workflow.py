@@ -11,6 +11,26 @@ WORKFLOW = Path(__file__).parents[1] / ".github/workflows/football-feeds.yml"
 
 
 @pytest.mark.parametrize(
+    "event, source, title",
+    [
+        ("schedule", "", "Football daily watchdog"),
+        ("workflow_dispatch", "", "Football daily watchdog"),
+        (
+            "workflow_dispatch",
+            "collection-machine-alarm",
+            "Football daily watchdog [collection-machine-alarm]",
+        ),
+    ],
+)
+def test_watchdog_run_title_preserves_dispatch_source(event, source, title):
+    from test_stats_workflow import evaluate
+
+    workflow = WORKFLOW.with_name("football-watchdog.yml").read_text()
+    expression = re.search(r"^run-name: \$\{\{ (.*?) \}\}$", workflow, re.M).group(1)
+    assert evaluate(expression, **{"github.event_name": event, "inputs.source": source}) == title
+
+
+@pytest.mark.parametrize(
     "event,operation,expected",
     [
         ("schedule", "", True),
@@ -53,7 +73,12 @@ def test_digest_follows_scoreboard_or_explicit_dispatch(event, operation, expect
         ("contents", "write"),
     }
 
-    assert "permissions:\n      contents: write\n      issues: write" in job
+    job_permissions = re.search(r"^    permissions:\n((?:      .*\n)+)", job, re.M).group(1)
+    assert set(re.findall(r"^      (\S+): (\S+)", job_permissions, re.M)) == {
+        ("actions", "read"),
+        ("contents", "write"),
+        ("issues", "write"),
+    }
     assert text.count("issues: write") == 1
 
 
@@ -96,6 +121,7 @@ def test_notification_receipt_publish_runs_after_comment_success_even_if_cleanup
     notify = step("Update monthly report Issue", job)
     receipt = step("Publish successful notification receipts", job)
     assert "--require-notified-history" in render
+    assert "GITHUB_TOKEN: ${{ github.token }}" in render
     assert "--history-root cloud-data/daily" in notify and "id: notify_digest" in notify
     assert job.index(render) < job.index(notify) < job.index(receipt)
     expression = condition(receipt).replace("!cancelled()", repr(not cancelled))
