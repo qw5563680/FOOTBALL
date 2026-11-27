@@ -48,8 +48,9 @@ def test_verified_frozen_report_replays_nine_choices_cost_and_probability(sfc_ar
     assert f"合计 {plan['lines']} 注（上限 64 注）" in section
     assert f"按每注 2 元为 {2 * plan['lines']} 元" in section
     assert f"复式九场全中概率 {plan['coverage_probability']:.2%}" in section
-    assert f"同一期单选九场全中概率 {0.5**9:.2%}" in section
+    assert f"按相同精度计算的一注方案九场全中概率 {0.5**9:.2%}" in section
     assert "各场相互独立" in section
+    assert "全包优先放在最没把握的场次上" in section
     assert COLUMNS in (archive / path / "report.md").read_text()
     print(f"任九复式 {plan['lines']} 注，全中估算 {plan['coverage_probability']:.2%}")
 
