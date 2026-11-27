@@ -179,10 +179,13 @@ def _report_header(body):
         return None
     header = f"{DISCLAIMER}\n{markers[0]}\n"
     generated_header = re.match(
-        r"\n# 每日摘要 [^\n]+\n\n覆盖情况｜[^\n]+\n", body.removeprefix(header)
+        r"\n# 每日摘要 [^\n]+\n\n"
+        r"(?P<watchdog>(?:自动保险检查：[^\n]+|本档自动保险检查没有运行。)\n\n)?"
+        r"(?P<coverage>覆盖情况｜[^\n]+\n)?",
+        body.removeprefix(header),
     )
-    if generated_header:
-        header += generated_header[0] + "\n"
+    if generated_header and (generated_header["watchdog"] or generated_header["coverage"]):
+        header += generated_header[0].rstrip("\n") + "\n\n"
     return header
 
 

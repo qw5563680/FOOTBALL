@@ -2,11 +2,13 @@
 
 import hashlib
 import json
+import time
 from copy import deepcopy
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+import responses
 
 from zucai.cloud_feeds import export_feeds
 from zucai.db import get_engine, init_db
@@ -15,6 +17,10 @@ from zucai.report.render import write_report
 
 FIXTURES = Path(__file__).parents[1] / "data/fixtures/t25"
 NOW = datetime(2026, 11, 3, 10, tzinfo=UTC)
+WATCHDOG_RUNS = json.loads((FIXTURES.parent / "t101/watchdog_runs.json").read_bytes())
+WATCHDOG_LIST = (
+    "https://api.github.com/repos/example/football/actions/workflows/football-watchdog.yml/runs"
+)
 
 
 def snapshot(root):
@@ -204,6 +210,126 @@ def test_unknown_collection_is_not_complete(digest_archive, tmp_path):
     assert "配额剩余：未记录" in output
 
 
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("schedule", "自动保险检查：北京时间 2026-11-03 18:05:00，GitHub 定时触发。"),
+        ("alarm", "自动保险检查：北京时间 2026-11-03 18:35:00，采集机闹钟触发。"),
+        ("manual", "自动保险检查：北京时间 2026-11-03 18:36:00，手动触发。"),
+        (None, "本档自动保险检查没有运行。"),
+    ],
+)
+@responses.activate
+def test_digest_reports_latest_watchdog_run_in_current_slot(
+    digest_archive, tmp_path, source, expected
+):
+    from zucai.daily_digest import generate
+
+    candidates = [
+        dict(WATCHDOG_RUNS["manual"], id=104, created_at="2026-11-03T09:29:59Z"),
+        dict(WATCHDOG_RUNS["manual"], id=105, created_at="2026-11-03T10:40:01Z"),
+        dict(WATCHDOG_RUNS["manual"], id=106, created_at="2026-11-02T10:35:00Z"),
+        dict(WATCHDOG_RUNS["manual"], id=107, head_branch="other"),
+    ]
+    if source in {"alarm", "manual"}:
+        candidates.append(WATCHDOG_RUNS["schedule"])
+    if source == "manual":
+        candidates.append(WATCHDOG_RUNS["alarm"])
+    if source:
+        candidates.append(WATCHDOG_RUNS[source])
+    responses.get(
+        WATCHDOG_LIST,
+        json={"total_count": len(candidates), "workflow_runs": candidates},
+        match=[
+            responses.matchers.query_param_matcher(
+                {
+                    "branch": "main",
+                    "created": "2026-11-03T09:30:00Z..2026-11-03T10:40:00Z",
+                    "per_page": "100",
+                }
+            )
+        ],
+    )
+    out = tmp_path / "daily"
+    markdown = generate(
+        digest_archive,
+        out,
+        now=NOW.replace(minute=40),
+        repository="example/football",
+        watchdog_token="offline-token",
+    ).read_text()
+    assert expected in markdown.split("## 竞彩销售日", 1)[0].splitlines()
+    assert len(responses.calls) == 1
+    assert responses.calls[0].request.headers["Authorization"] == "Bearer offline-token"
+    if source:
+        receipt = json.loads((out / "2026-11-03/local.json").read_text())
+        assert receipt["inputs"]["watchdog"]["run_id"] == WATCHDOG_RUNS[source]["id"]
+        assert "offline-token" not in json.dumps(receipt)
+
+
+@pytest.mark.parametrize("failure", ["unauthorized", "limit", "timeout", "malformed", "incomplete"])
+@responses.activate
+def test_watchdog_read_failure_still_renders_frozen_digest(
+    digest_archive, tmp_path, monkeypatch, failure
+):
+    import requests
+
+    from zucai.daily_digest import generate
+
+    epoch = int(time.time())
+    monkeypatch.setenv("ZUCAI_GITHUB_DEADLINE", str(epoch + 300))
+    monkeypatch.setattr(time, "sleep", lambda _: pytest.fail("watchdog read waited for quota"))
+    if failure == "unauthorized":
+        responses.get(WATCHDOG_LIST, status=401, json={"message": "offline-token"})
+    elif failure == "limit":
+        responses.get(WATCHDOG_LIST, status=429, headers={"Retry-After": "30"})
+    elif failure == "timeout":
+        responses.get(WATCHDOG_LIST, body=requests.Timeout("offline-token"))
+    elif failure == "malformed":
+        responses.get(WATCHDOG_LIST, json={"total_count": 1, "workflow_runs": [{}]})
+    else:
+        responses.get(WATCHDOG_LIST, json={"total_count": 101, "workflow_runs": []})
+    markdown = generate(
+        digest_archive,
+        tmp_path / "daily",
+        now=NOW,
+        repository="example/football",
+        watchdog_token="offline-token",
+    ).read_text()
+    assert "自动保险检查：未能读取 Actions 运行记录。" in markdown
+    assert "本档自动保险检查没有运行" not in markdown
+    assert "offline-token" not in markdown
+    assert "## 今日与明日预测" in markdown
+    assert len(responses.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "clock, slot_start",
+    [("02:40", "02:30"), ("07:40", "07:30"), ("09:40", "09:30"), ("16:00", None)],
+)
+@responses.activate
+def test_watchdog_slot_changes_at_the_daily_boundary(clock, slot_start):
+    from zucai.digest_watchdog import read
+
+    at = datetime.fromisoformat(f"2026-11-03T{clock}:00Z")
+    if slot_start:
+        responses.get(
+            WATCHDOG_LIST,
+            json={"total_count": 0, "workflow_runs": []},
+            match=[
+                responses.matchers.query_param_matcher(
+                    {
+                        "branch": "main",
+                        "per_page": "100",
+                        "created": f"2026-11-03T{slot_start}:00Z..2026-11-03T{clock}:00Z",
+                    }
+                )
+            ],
+        )
+    assert read(at, "example/football", "offline-token") == {"status": "missing"}
+    assert len(responses.calls) == bool(slot_start)
+
+
 def test_missing_archives_are_explicit_not_zero(digest_archive, tmp_path):
     import shutil
 
@@ -229,11 +355,13 @@ def test_newer_future_batch_does_not_replace_current_day(digest_archive, tmp_pat
     assert "1:1 6.00%" in text and "1:2 6.00%" not in text  # Exactly frozen first five.
 
 
+@responses.activate
 def test_cli_read_only_and_absolute_links(digest_archive, monkeypatch):
     from zucai.daily_digest import main
 
     before = snapshot(digest_archive)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "offline-token")
     assert (
         main(
             [
@@ -250,6 +378,8 @@ def test_cli_read_only_and_absolute_links(digest_archive, monkeypatch):
         == 0
     )
     text = (digest_archive / "daily/latest.md").read_text()
+    assert "自动保险检查：未能读取 Actions 运行记录。" in text
+    assert not responses.calls
     assert (
         "https://github.com/qw5563680/FOOTBALL/blob/data/football-feeds/scoreboard/summary.json"
         in text

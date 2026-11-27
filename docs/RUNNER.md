@@ -92,3 +92,85 @@ Remove-Variable runnerRegistrationToken
 
 两条任务通过工作流共用 concurrency 串行写入 `data/football-feeds`。写回 rebase 冲突时不强推；
 原始响应和审计状态保留为 90 天 Actions artifact，先核查远端变更再重跑。
+
+## 采集机闹钟（T101）
+
+采集机开机、联网并以当前运行器的 Windows 账号登录时，闹钟每天在北京时间 **11:05、11:35、16:05、16:35、18:05、18:35** 检查一次。
+它只叫醒 `football-watchdog.yml`，由保险检查判断是否补跑每日链路。遇到仍在排队或运行的保险检查，或最近 20 分钟内刚结束的保险检查，闹钟会跳过。
+按北京时间每天最多尝试发送 6 次触发请求，失败也占一次。关机、注销或睡眠期间错过的闹钟跳过，恢复后等下一次计划时间。
+
+### 安装
+
+1. T101 合并后，在采集机以现有运行器的 Windows 账号登录。在同一台电脑打开 GitHub，进入个人 **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**。
+2. `Resource owner` 选 `qw5563680`，仓库访问范围选 **Only select repositories**，只选 **FOOTBALL**。在 **Repository permissions** 里仅把 **Actions** 设为 **Read and write**，保留 GitHub 自动附带的 **Metadata: Read-only**。有效期由你选，建议不超过一年。
+3. 在采集机打开普通的 **Windows PowerShell**。进入已经更新到 `main` 的 `FOOTBALL` 仓库目录。如果还没有自己的副本，用现有的 Git 取一份：
+
+   ```powershell
+   git clone --depth 1 --branch main https://github.com/qw5563680/FOOTBALL.git "$env:USERPROFILE\FOOTBALL-alarm"
+   Set-Location "$env:USERPROFILE\FOOTBALL-alarm"
+   ```
+
+   在该目录运行安装命令。
+
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\install-football-collection-alarm.ps1
+   ```
+
+4. 看到 `Paste the fine-grained GitHub token (input hidden)` 时，直接在采集机上粘贴令牌并回车。令牌输入会隐藏。只在此处输入令牌，勿粘贴到命令行参数、仓库、日志、PR 或任何 AI 会话。
+5. 看到 `Football Collection Alarm installed` 即装好。计划任务名为 **Football Collection Alarm**，安装目录为 `%LOCALAPPDATA%\FootballCollectionAlarm`。令牌由 Windows DPAPI 按当前用户加密保存在 `token.dpapi`，绑定该 Windows 账号和采集机。
+
+### 检查
+
+在普通 Windows PowerShell 确认任务状态和六个触发时间。触发边界带 `Z`，表示 UTC，任务计划程序会按本机时区显示。
+
+```powershell
+$task = Get-ScheduledTask -TaskName 'Football Collection Alarm' -TaskPath '\'
+$task | Select-Object TaskName, State
+$task.Triggers | Select-Object StartBoundary
+Get-ScheduledTaskInfo -TaskName 'Football Collection Alarm' -TaskPath '\' |
+    Select-Object LastRunTime, NextRunTime, LastTaskResult
+```
+
+等下一个计划时间过后，查看本机日志的最后几行。日志只记录 UTC 时间、结果和 HTTP 状态码，超过 16 KiB 会截断。
+
+```powershell
+Get-Content -LiteralPath (Join-Path $env:LOCALAPPDATA 'FootballCollectionAlarm\alarm.log') -Tail 10
+```
+
+- `dispatched 204` 表示 GitHub 接收了触发请求。仓库 **Actions → Football daily watchdog** 可见运行标题 `Football daily watchdog [collection-machine-alarm]`，日报标为「采集机闹钟」。
+- `recent_run 200` 表示已有保险检查，查看 Actions 里的对应运行。`daily_limit -` 表示当天已尝试 6 次。
+- `missing_token -`、`unreadable_token -` 或 `request_failed 401` 时，按下节更换令牌。`request_failed 403` 时核对令牌的仓库范围和 Actions 权限。`request_failed -` 表示请求未取得 HTTP 状态码，可检查本机网络。失败后闹钟等到下一次计划时间。
+
+### 更换令牌或更新脚本
+
+在采集机创建新令牌，按安装步骤再运行一次安装命令。在隐藏提示里粘贴新令牌。安装会替换任务和本机脚本副本，保留当天的次数记录及日志。
+下次看到新令牌触发成功后，在 GitHub 的 **Fine-grained tokens** 页面撤销旧令牌。仓库里的脚本有更新时，在本地 `main` 分支运行 `git pull --ff-only`，再运行安装命令，由你决定何时应用。
+
+### 停用和恢复
+
+停用后保留安装文件。若停用时任务正在运行，可在任务计划程序中选中 **Football Collection Alarm** 后点「结束」。
+
+```powershell
+Disable-ScheduledTask -TaskName 'Football Collection Alarm' -TaskPath '\'
+```
+
+恢复运行时执行以下命令，等下一个计划时间。
+
+```powershell
+Enable-ScheduledTask -TaskName 'Football Collection Alarm' -TaskPath '\'
+```
+
+### 卸载
+
+用安装时的 Windows 账号，在 `FOOTBALL` 仓库目录执行。命令会停用并删除闹钟任务，同时删除本机脚本、令牌、日志和次数记录。
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\install-football-collection-alarm.ps1 -Uninstall
+```
+
+见到 `Football Collection Alarm removed` 后，执行以下两条命令。第一条应无任务记录，第二条应显示 `False`。最后在 GitHub 撤销这枚细粒度令牌。
+
+```powershell
+Get-ScheduledTask -TaskName 'Football Collection Alarm' -TaskPath '\' -ErrorAction SilentlyContinue
+Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'FootballCollectionAlarm')
+```
