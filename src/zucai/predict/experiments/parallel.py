@@ -10,11 +10,13 @@ from sqlalchemy import select
 from zucai.features.stats import intensity_inputs
 from zucai.models import Result
 from zucai.predict.base import utc
+from zucai.predict.experiments.global_rating_contract import RATING_NAME, RATING_VERSION
 from zucai.predict.experiments.history import unified_history
 
 SOT_LEAGUES = ("英超", "英冠", "西甲", "意甲", "德甲", "法甲", "法乙", "荷甲", "葡超")
 XG_WINDOWS = {"英超": 10, "西甲": 10, "意甲": 10, "德甲": 5}
-NAMES = ("dc-sot-v1", "dc-xg-v1")
+TECHNICAL_NAMES = ("dc-sot-v1", "dc-xg-v1")
+NAMES = (*TECHNICAL_NAMES, RATING_NAME)
 VERSION = "t34a-strict-v1"
 AVAILABILITY_MODES = {
     "training_availability_mode": "backfill_replay",
@@ -46,7 +48,7 @@ def empty_row(target, name, cutoff, reason):
             for key in ("match_id", "source", "league", "home", "away", "kickoff_utc")
         },
         "model_name": name,
-        "model_version": VERSION,
+        "model_version": RATING_VERSION if name == RATING_NAME else VERSION,
         "model_type": "TEAM",
         "p2_ready": False,
         "p2_label": "P2 实验",
@@ -63,11 +65,14 @@ def empty_row(target, name, cutoff, reason):
         "missing_details": [],
         "features": None,
         "coefficients_sha256": None,
+        **({"paper_eligible": False} if name == RATING_NAME else {}),
     }
 
 
-def unavailable(targets, cutoff, reason):
-    return [empty_row(target, name, cutoff, reason) for target in targets for name in NAMES]
+def unavailable(targets, cutoff, reason, *, rating_targets=()):
+    return [
+        empty_row(target, name, cutoff, reason) for target in targets for name in TECHNICAL_NAMES
+    ] + [empty_row(target, RATING_NAME, cutoff, reason) for target in rating_targets]
 
 
 def compute(session, targets, *, cutoff):

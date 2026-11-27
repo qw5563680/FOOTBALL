@@ -14,6 +14,7 @@ from zucai import cloud_predict, experimental_archive
 from zucai.cloud_feeds import digest
 from zucai.daily_digest import generate
 from zucai.forecast_archive import REPORT_FILES, verify_forecasts
+from zucai.predict.experiments.global_rating_contract import RATING_NAME
 from zucai.scoreboard.command import run as settle
 
 RUN_ID = "t88-offline"
@@ -126,9 +127,16 @@ def test_unavailable_experiments_keep_published_forecasts_and_allow_settlement_a
         document = json.loads((archive / entry["experimental_path"]).read_bytes())
         main = json.loads((archive / entry["path"] / "forecast.json").read_bytes())
         expected = {row["match_id"] for row in main["predictions"]}
+        expected_technical = {(key, name) for key in expected for name in ("dc-sot-v1", "dc-xg-v1")}
+        expected_rating = {
+            (row["match_id"], RATING_NAME)
+            for row in main["predictions"]
+            if row["status"] == "predicted" and row["model_name"] == "dixon-coles"
+        }
+        frozen_attempts = [(row["match_id"], row["model_name"]) for row in document["predictions"]]
         assert document["generated_utc"] == EXPERIMENT_AT.isoformat()
-        assert len(document["predictions"]) == 2 * len(expected)
-        assert {row["match_id"] for row in document["predictions"]} == expected
+        assert len(frozen_attempts) == len(expected_technical) + len(expected_rating)
+        assert set(frozen_attempts) == expected_technical | expected_rating
         assert all(
             row["status"] == "missing" and row["model_probabilities"] is None
             for row in document["predictions"]
@@ -150,6 +158,11 @@ def test_unavailable_experiments_keep_published_forecasts_and_allow_settlement_a
     )
     assert english_sot["today"]["predicted"] == 0
     assert english_sot["today"]["reasons"] == {want_reason: 1}
+    global_rating = next(
+        g for g in summary["experiments"]["groups"] if g["model_name"] == RATING_NAME
+    )
+    assert global_rating["today"]["predicted"] == 0
+    assert global_rating["today"]["reasons"] == {want_reason: 1}
     report = generate(archive, tmp_path / "digest", now=EXPERIMENT_AT).read_text()
     assert "## 实验模型" in report and "jc:t17-today" in report
     experimental_section = report.split("## 实验模型\n", 1)[1].split("\n## ", 1)[0]

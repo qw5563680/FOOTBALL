@@ -30,6 +30,7 @@ from zucai.models import Match, SfcIssue
 from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.command import train
 from zucai.predict.dixon_coles import DixonColes
+from zucai.predict.experiments.global_rating_contract import RATING_RUN_KEY, RATING_VERSION
 from zucai.predict.model_definitions import LEGACY_LEAGUES, T63_LEAGUES, entry_definition_metadata
 from zucai.predict.parameters import (
     model_readiness,
@@ -302,6 +303,7 @@ def run(
             "event_name": os.environ.get("GITHUB_EVENT_NAME") or "local",
             "operation": os.environ.get("ZUCAI_OPERATION") or None,
             "experimental_protocol": "t34a-strict-v1",
+            RATING_RUN_KEY: RATING_VERSION,
             "training_cutoff_utc": cutoff.isoformat(),
             "database_sha256": database_sha,
             "params_sha256": params_sha,

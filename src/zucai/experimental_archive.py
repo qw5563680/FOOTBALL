@@ -11,6 +11,11 @@ from sqlalchemy.orm import Session
 
 from zucai.db import get_engine
 from zucai.forecast_archive import attach_experiments
+from zucai.predict.experiments.global_rating_contract import (
+    RATING_RUN_KEY,
+    RATING_VERSION,
+    is_rating_target,
+)
 from zucai.predict.experiments.parallel import (
     AVAILABILITY_MODES,
     compute,
@@ -24,14 +29,53 @@ from zucai.stats_release import ReleaseStore, upload_checksums, upload_verified
 from zucai.stats_rows import restore_rows
 
 LOG = logging.getLogger(__name__)
+TARGET_FIELDS = ("match_id", "source", "league", "home", "away", "kickoff_utc")
 
 
 def _targets(batches):
     return [
-        {key: row[key] for key in ("match_id", "source", "league", "home", "away", "kickoff_utc")}
+        {key: row[key] for key in TARGET_FIELDS}
         for batch in batches
         for row in batch["predictions"]
     ]
+
+
+def _rating_targets(batches, run):
+    if run.get(RATING_RUN_KEY) != RATING_VERSION:
+        return []
+    targets = []
+    for batch in batches:
+        if batch["mode"] != "prematch":
+            continue
+        model_cutoffs = {
+            model["model_version"]: model.get("model_as_of_utc") for model in batch["models"]
+        }
+        for row in batch["predictions"]:
+            if is_rating_target(row):
+                targets.append(
+                    {
+                        **{key: row[key] for key in TARGET_FIELDS},
+                        "formal_model_version": row["model_version"],
+                        "formal_model_cutoff_utc": model_cutoffs.get(row["model_version"]),
+                        "target_cutoff_utc": batch["as_of_utc"],
+                    }
+                )
+    return targets
+
+
+def _rating_rows(database, targets, cutoff):
+    if not targets:
+        return [], []
+    from zucai.predict.experiments.global_rating_runtime import fit_and_forecast
+
+    try:
+        updates, fit = fit_and_forecast(database, targets, cutoff=cutoff)
+    except Exception as exc:
+        LOG.exception("跨联赛评分计算失败；原有并行实验继续冻结")
+        reason = "rating_fit_failed:" + type(exc).__name__
+        return unavailable([], cutoff, reason, rating_targets=targets), []
+    rows = unavailable([], cutoff, "missing_team_rating", rating_targets=targets)
+    return [dict(row, **updates[row["match_id"]]) for row in rows], [fit]
 
 
 def _documents(batches, rows, cutoff, generated):
@@ -57,7 +101,9 @@ def _documents(batches, rows, cutoff, generated):
 def freeze_unavailable(archive, batches, run, *, reason, clock):
     """Attach the normal experiment rows with an explicit absence and no probabilities."""
     cutoff = run["training_cutoff_utc"]
-    rows = unavailable(_targets(batches), cutoff, reason)
+    rows = unavailable(
+        _targets(batches), cutoff, reason, rating_targets=_rating_targets(batches, run)
+    )
     docs = _documents(batches, rows, cutoff, clock().isoformat())
     return attach_experiments(Path(archive), docs, run["run_id"], clock=clock)
 
@@ -77,6 +123,7 @@ def freeze_parallel(
     clock = clock or (lambda: datetime.now(UTC))
     cutoff = run["training_cutoff_utc"]
     targets = _targets(batches)
+    rating_targets = _rating_targets(batches, run)
     release, receipt, rows, fits, error = None, None, None, [], None
     with TemporaryDirectory(prefix="zucai-experiments-") as temporary:
         root = Path(temporary)
@@ -101,10 +148,13 @@ def freeze_parallel(
                         rows, fits = compute(session, targets, cutoff=cutoff)
             finally:
                 engine.dispose()
+            rating_rows, rating_fits = _rating_rows(working, rating_targets, cutoff)
+            rows.extend(rating_rows)
+            fits.extend(rating_fits)
         except Exception as exc:
             LOG.exception("实验数据恢复或计算失败；正式预测已保留")
             error = "experiment_failed:" + type(exc).__name__
-            rows = unavailable(targets, cutoff, error)
+            rows = unavailable(targets, cutoff, error, rating_targets=rating_targets)
 
         generated = clock().isoformat()
         for row in rows:

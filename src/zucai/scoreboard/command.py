@@ -16,6 +16,7 @@ from zucai.forecast_publication import publication_times
 from zucai.market_blend import prepare_blends
 from zucai.parlay import paper as parlay_paper
 from zucai.parlay.archive import load_documents
+from zucai.predict.experiments.global_rating_contract import RATING_RUN_KEY, RATING_VERSION
 from zucai.publication_history import publication_updates
 from zucai.scoreboard import baselines, team_market_blend
 from zucai.scoreboard import paper as paper_accounts
@@ -254,10 +255,16 @@ def run(archive: Path, *, as_of=None, replay_days=None):
     probability = summarize_scores(
         scored, at, active_keys=audit["active_keys"], forecast_rows=forecasts
     )
+    runs = (forecast_manifest or {}).get("runs", {}).values()
     starts = [
         instant(r["training_cutoff_utc"])
-        for r in (forecast_manifest or {}).get("runs", {}).values()
+        for r in runs
         if r.get("experimental_protocol") == "t34a-strict-v1"
+    ]
+    rating_runs = [
+        r
+        for r in runs
+        if r.get(RATING_RUN_KEY) == RATING_VERSION and instant(r["generated_utc"]) <= at
     ]
     experiments = summarize_experiments(
         experimental,
@@ -266,6 +273,11 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         audit["active_keys"],
         at,
         activated=min(starts) if starts else None,
+        rating_batches={
+            forecast["batch_id"] for r in rating_runs for forecast in r["forecasts"].values()
+        }
+        if rating_runs
+        else None,
     )
     # Include zero-sample leagues, including models whose batch had no fixtures.
     empty = summarize_scores([], at)["total"]
@@ -347,7 +359,7 @@ def run(archive: Path, *, as_of=None, replay_days=None):
         + render_diagnostics(summary)
         + baselines.render(baseline_summary)
         + team_market_blend.render(blend_summary)
-        + render_experiments(experiments)
+        + render_experiments(experiments, include_comparison=True)
         + parlay_paper.render(summary.get("parlay_sd"))
     )
     contents = {

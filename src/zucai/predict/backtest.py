@@ -4,6 +4,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 from datetime import datetime
+from types import MappingProxyType
 
 import numpy as np
 import pandas as pd
@@ -39,6 +40,27 @@ from zucai.predict.training_sources import apif_history_sources
 LOG = logging.getLogger(__name__)
 
 
+def read_archive_evidence(session: Session):
+    """Read static source facts for reuse with this same immutable archive only.
+
+    Independent of the visible result view. Result rows, conflict quarantine,
+    and evidence applicability must still be computed for each cutoff.
+    """
+    from zucai.result_source_identity import load_result_identities
+    from zucai.result_source_links import load_result_links
+    from zucai.source_result_quarantine import read_archive_bridge_graph
+    from zucai.sources.fd_apif_counterpart import read_archive_training_claims
+
+    return MappingProxyType(
+        dict(
+            links=tuple(load_result_links(session)),
+            identities=MappingProxyType(load_result_identities(session)),
+            bridge_graph=read_archive_bridge_graph(session),
+            training_claims=read_archive_training_claims(session),
+        )
+    )
+
+
 def read_history(
     session: Session,
     league=None,
@@ -47,6 +69,7 @@ def read_history(
     replay_known_after=None,
     training_leagues=None,
     source_selection=None,
+    archive_evidence=None,
 ) -> pd.DataFrame:
     if source_selection not in (None, "legacy", "cutoff"):
         raise ValueError("未知赛果来源选择协议")
@@ -110,7 +133,11 @@ def read_history(
     from zucai.predict.training_sources import actual_result_leagues
     from zucai.sources.fd_apif_counterpart import verified_training_links
 
-    frame.attrs["verified_apif_fd_links"] = verified_training_links(session, frame.match_id)
+    frame.attrs["verified_apif_fd_links"] = verified_training_links(
+        session,
+        frame.match_id,
+        archive_claims=None if archive_evidence is None else archive_evidence["training_claims"],
+    )
     legacy = source_selection == "legacy" or (
         source_selection is None
         and (
@@ -135,7 +162,12 @@ def read_history(
         if training_leagues is not None:
             from zucai.result_source_links import load_result_links
 
-            proofs = related_result_links(frame, load_result_links(session))
+            links = (
+                load_result_links(session)
+                if archive_evidence is None
+                else archive_evidence["links"]
+            )
+            proofs = related_result_links(frame, links)
             frame = legacy_linked_representatives(frame, retain_links=bool(proofs))
             frame.attrs["training_leagues"] = sorted(training_leagues)
         if proofs:
@@ -156,7 +188,11 @@ def read_history(
         )
     from zucai.result_source_identity import load_result_identities
 
-    identities = load_result_identities(session)
+    identities = (
+        load_result_identities(session)
+        if archive_evidence is None
+        else archive_evidence["identities"]
+    )
     frame["identity_verified_utc"] = frame.match_id.map(identities)
     frame["provider_identity_verified"] = [
         all(
@@ -195,7 +231,10 @@ def read_history(
         ]
         from zucai.result_source_links import load_result_links
 
-        frame.attrs["verified_result_links"].extend(load_result_links(session))
+        links = (
+            load_result_links(session) if archive_evidence is None else archive_evidence["links"]
+        )
+        frame.attrs["verified_result_links"].extend(links)
         from zucai.cross_day_decisions import load_decisions
         from zucai.source_result_quarantine import (
             complete_old_source_links,
@@ -203,7 +242,12 @@ def read_history(
         )
 
         frame.attrs["verified_result_links"] = complete_old_source_links(
-            session, frame, frame.attrs["verified_result_links"]
+            session,
+            frame,
+            frame.attrs["verified_result_links"],
+            archive_bridge_graph=None
+            if archive_evidence is None
+            else archive_evidence["bridge_graph"],
         )
         frame.attrs["cross_day_decisions"] = load_decisions(session)
 
@@ -484,6 +528,7 @@ def evaluate(
     calibration_by_season=None,
     target_leagues=None,
     hafu_market=None,
+    target_match_ids=None,
 ):
     if fold not in ("weekly", "monthly"):
         raise ValueError("fold 须为weekly或monthly")
@@ -524,6 +569,9 @@ def evaluate(
     period["season"] = [season_for(k, league) for k in period.kickoff_utc]
     if selected:
         period = period.loc[period.season.isin(selected)]
+    if target_match_ids is not None:
+        # Evaluation shards share the full training history and the same label horizon.
+        period = period.loc[period.match_id.isin(target_match_ids)]
     evaluation = period.loc[
         (period.available_utc < end) & (period.available_utc > period.kickoff_utc)
     ].copy()

@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -145,6 +146,23 @@ def test_training_contains_domestic_but_scoring_only_cups_and_missing_market_is_
     assert sum(report["by_league"][league]["2324"]["model"]["n"] for league in CUPS) == len(
         expected
     )
+
+
+def test_t100_parallel_cup_replay_preserves_formal_predictions_and_folds(history, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "examples"))
+    runner = import_module("t100_rating_replay")
+    phase = runner.Phase(
+        "validation", pd.Timestamp("2024-02-01T00:00Z"), pd.Timestamp("2024-03-01T00:00Z")
+    )
+    eligible = history.loc[
+        history.league.isin(CUPS)
+        & history.kickoff_utc.between(phase.start, phase.end, inclusive="left")
+    ]
+    options = dict(since=phase.start, as_of=phase.end, fold="weekly", target_leagues=list(CUPS))
+    serial = runner._official_predictions(history, eligible, options, POOL, phase, workers=1)
+    parallel = runner._official_predictions(history, eligible, options, POOL, phase, workers=2)
+    assert len(serial[1]) > 1 and serial[0]
+    assert serial == parallel
 
 
 def test_only_jc_latest_complete_strictly_prekickoff_quote_is_comparison(database, history):
