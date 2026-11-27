@@ -14,7 +14,7 @@ from zucai.predict.model_definitions import (
     definition_metadata,
     legacy_definition_compatible,
 )
-from zucai.predict.pooled import CUPS, POOL, POOL_FITTING_METHOD, configuration
+from zucai.predict.pooled import CUPS, POOL, POOL_FITTING_METHOD, configured_targets
 from zucai.predict.seasons import latest_complete_seasons
 
 PARAMS_PATH = Path(__file__).resolve().parents[3] / "data/model/params.json"
@@ -140,14 +140,14 @@ def _validate_entry(league, entry):
         },
         required=required,
     )
-    if league == POOL:
-        configuration(league, entry)
-        if entry.get("p2_ready") and not all(
+    if (
+        league == POOL
+        and entry.get("p2_ready")
+        and not all(
             entry.get(key) for key in ("pooled", "leagues", "training_leagues", "fitting_method")
-        ):
-            raise ValueError(
-                "欧战 P2 条目须绑定 pooled、leagues、training_leagues 与 fitting_method"
-            )
+        )
+    ):
+        raise ValueError("欧战 P2 条目须绑定 pooled、leagues、training_leagues 与 fitting_method")
     if "training_policy" in entry:
         validators = {
             "history_scope": _text,
@@ -210,6 +210,7 @@ def read_parameters(path=None):
         raise ValueError("params.json 格式无效")
     for league, entry in doc["leagues"].items():
         _validate_entry(league, entry)
+    configured_targets(doc["leagues"])
     return doc, hashlib.sha256(raw).hexdigest()
 
 
@@ -259,6 +260,14 @@ def write_parameters(league, entry, path=None):
 def p2_gate(report, *, league, as_of):
     if league == POOL:
         return _cups_p2_gate(report, as_of=as_of)
+    if report.get("pool_name") == league:
+        return dict(
+            p2_ready=False,
+            reasons=["requires_pool_specific_evidence"],
+            group=league,
+            as_of_utc=utc(as_of).isoformat(),
+            bet_allowed=False,
+        )
     seasons = latest_complete_seasons(as_of, league)
     rows = [report.get("seasons", {}).get(season) for season in seasons]
     reasons = []
@@ -440,10 +449,9 @@ def model_readiness(model, *, as_of, params_file=None):
             == entry.get("unknown_team_prior")
             and getattr(model, "draw_calibration", False) == entry.get("draw_calibration", False)
         )
-    if model.league == POOL or getattr(model, "pooled", False):
+    if model.league == POOL:
         ready = ready and (
-            model.league == POOL
-            and getattr(model, "pooled", False)
+            getattr(model, "pooled", False)
             and entry.get("pooled") is True
             and getattr(model, "fitting_method", None)
             == entry.get("fitting_method")
@@ -461,8 +469,12 @@ def model_readiness(model, *, as_of, params_file=None):
             and sorted(evidence.get("training_leagues", []))
             == sorted(entry.get("training_leagues", []))
         )
+    elif getattr(model, "pooled", False):
+        ready = False
     if model.league in T63_LEAGUES:
-        ready = _legacy_policy_ready(model, entry, definition, as_of)
+        ready = not getattr(model, "pooled", False) and _legacy_policy_ready(
+            model, entry, definition, as_of
+        )
         label = "可用（旧规，考核中）" if ready else "实验"
         paper_eligible = bool(ready)
     else:

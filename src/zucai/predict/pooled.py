@@ -1,5 +1,6 @@
-"""European corpus configuration; no source ingestion or identity changes."""
+"""Pooled corpus configuration and result selection."""
 
+from collections import defaultdict
 from datetime import timedelta
 
 import pandas as pd
@@ -13,20 +14,53 @@ SOURCES = ("jc", "fd", "fdorg", "apif")
 POOL_FITTING_METHOD = "pooled_dc_full_gradient_al_slsqp_v1"
 
 
+def _league_names(value):
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(label, str) and label.strip() for label in value)
+        and len(set(value)) == len(value)
+    )
+
+
+def _validate_scope(name, targets, scope):
+    if not _league_names(targets) or not _league_names(scope) or not set(targets) <= set(scope):
+        raise ValueError(f"{name} 池的训练范围须包含目标赛事，且赛事名称须明确且不重复")
+
+
 def configuration(league, entry):
-    if league != POOL:
+    if league != POOL and entry.get("pooled") is not True:
         return None
-    targets = entry.get("leagues", list(CUPS))
     scope = entry.get("training_leagues")
-    if sorted(targets) != sorted(CUPS) or (scope is not None and not set(targets) <= set(scope)):
-        raise ValueError("欧战须覆盖三项目标赛事，训练范围须包含目标赛事")
+    targets = entry.get("leagues")
+    if league == POOL:
+        # Older Europe-only parameter files may omit either field.
+        targets = entry.get("leagues", list(CUPS))
+        if sorted(targets) != sorted(CUPS) or (
+            scope is not None and not set(targets) <= set(scope)
+        ):
+            raise ValueError("欧战须覆盖三项目标赛事，训练范围须包含目标赛事")
+    else:
+        _validate_scope(league, targets, scope)
     return dict(leagues=sorted(targets), training_leagues=sorted(scope) if scope else None)
 
 
-def default_scope(session, domestic, *, as_of):
+def configured_targets(entries):
+    """One production model per target, regardless of shared training leagues."""
+    routes = {}
+    for name, entry in entries.items():
+        pool = configuration(name, entry)
+        for target in pool["leagues"] if pool else [name]:
+            if target in routes:
+                raise ValueError(f"{target} 同时配置了模型 {routes[target]} 和 {name}")
+            routes[target] = name
+    return routes
+
+
+def default_scope(session, domestic, *, as_of, targets=CUPS):
     cup_rows = session.execute(
         select(Match.home_team_id, Match.away_team_id).where(
-            Match.league.in_(CUPS), Match.kickoff_utc < as_of
+            Match.league.in_(targets), Match.kickoff_utc < as_of
         )
     ).all()
     teams = {team for row in cup_rows for team in row}
@@ -39,7 +73,22 @@ def default_scope(session, domestic, *, as_of):
         )
         .distinct()
     )
-    return sorted(set(leagues) | set(CUPS))
+    return sorted(set(leagues) | set(targets))
+
+
+def connected_history(history):
+    """All fitted teams must be connected by cutoff-eligible played fixtures."""
+    opponents = defaultdict(set)
+    for home, away in zip(history.home, history.away, strict=True):
+        opponents[home].add(away)
+        opponents[away].add(home)
+    pending = [next(iter(opponents))] if opponents else []
+    reached = set(pending)
+    while pending:
+        for team in opponents[pending.pop()] - reached:
+            reached.add(team)
+            pending.append(team)
+    return len(reached) == len(opponents)
 
 
 def _linked_groups(frame, *, as_of=None):
@@ -313,6 +362,14 @@ def model_targets(model):
         targets = getattr(model, "prediction_leagues", None)
     if not pooled:
         return [league]
-    if league != POOL or not isinstance(targets, list) or sorted(targets) != sorted(CUPS):
-        raise ValueError("欧战模型目标赛事元数据无效")
+    if league == POOL:
+        if not isinstance(targets, list) or sorted(targets) != sorted(CUPS):
+            raise ValueError("欧战模型目标赛事元数据无效")
+    else:
+        scope = (
+            model.get("training_league_scope")
+            if isinstance(model, dict)
+            else getattr(model, "training_league_scope", None)
+        )
+        _validate_scope(league, targets, scope)
     return targets

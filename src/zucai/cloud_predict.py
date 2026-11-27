@@ -37,7 +37,7 @@ from zucai.predict.parameters import (
     read_parameters,
     resolve_parameters,
 )
-from zucai.predict.pooled import CUPS, POOL, SOURCES, model_targets
+from zucai.predict.pooled import SOURCES, configuration, configured_targets, model_targets
 from zucai.predict.training_sources import apif_history_sources
 from zucai.report.batch import predict_batch
 from zucai.report.command import _deadline
@@ -96,10 +96,10 @@ def _summary(archive, run):
             f"{result['half_life_days']:g} 天 / {result['parameter_source']} | "
             f"{result['p2_label']} | {result['predicted']} |"
         )
-    for result in run["leagues"].values():
+    for league, result in run["leagues"].items():
         if result.get("training_leagues"):
             lines.append(
-                "\n欧战训练语料："
+                f"\n{league}训练语料："
                 + "、".join(f"{name} {n} 场" for name, n in result["training_leagues"].items())
                 + "。\n"
             )
@@ -197,15 +197,16 @@ def run(
     apif_domestic = apif_history_sources()
     for league, entry in config["leagues"].items():
         _component(league)
-        allowed = set(SOURCES) if league == POOL else {"jc", "fd"}
-        if league == NATIONS_LEAGUE:
+        pool = configuration(league, entry)
+        allowed = set(SOURCES) if pool else {"jc", "fd"}
+        if not pool and league == NATIONS_LEAGUE:
             allowed = {"jc", "apif"}
-        if league in apif_domestic:
+        if not pool and league in apif_domestic:
             allowed = apif_domestic[league]
         if not entry.get("sources") or not set(entry["sources"]) <= allowed:
             raise ValueError(f"{league} 的训练来源必须显式配置且仅限 {' / '.join(sorted(allowed))}")
-        if league == POOL and "jc" not in entry["sources"]:
-            raise ValueError("欧战每日预测的训练来源须包含 jc，才能注册三项竞彩赛事")
+        if pool and "jc" not in entry["sources"]:
+            raise ValueError(f"{league}每日预测的训练来源须包含 jc，才能注册竞彩目标赛事")
         if league in LEGACY_LEAGUES and set(entry["sources"]) != {"fd", "jc"}:
             raise ValueError("七个旧规联赛的主模型须保留 fd,jc；新来源走独立候选冻结")
     if production_state is not None:
@@ -289,9 +290,7 @@ def run(
             target: name for name, model in fitted.items() for target in model_targets(model)
         }
         day = prediction_time.astimezone(BEIJING).date()
-        configured_leagues = set(config["leagues"])
-        if POOL in configured_leagues:
-            configured_leagues.update(CUPS)
+        configured_leagues = set(configured_targets(config["leagues"]))
         publications = publication_times(archive, old, require_legacy_history=False) if old else {}
         previous_rows = (
             load_forecasts(archive, prediction_time, publications=publications) if old else ()

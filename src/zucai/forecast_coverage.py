@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from math import isclose
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import aliased
 
 from zucai.coverage_baseline import MODEL_NAME, MODEL_VERSION, historical_baseline
@@ -15,14 +15,13 @@ from zucai.digest_context import (
     skip_is_evidence,
 )
 from zucai.forecast_archive import _path, _read
-from zucai.models import Match, SfcIssue, Team
+from zucai.models import Match, Result, SfcIssue, Team
 from zucai.report.sfc import _unmapped_reason
+from zucai.result_source_identity import _binding, _owners
 from zucai.scoreboard.score import instant
 from zucai.sfc_sequence import period_windows, sequence
 from zucai.sources.sfc import _league_key, refresh_snapshot
 from zucai.sources.sporttery import BEIJING
-
-NO_MODEL = "该联赛没有配置正式模型"
 
 
 def _time(value):
@@ -185,7 +184,72 @@ def _skip_action(reason):
     }[reason]
 
 
-def _missing_reason(row, match, identity, skipped, exclusion, configured_leagues, scope):
+def _api_history(session, cutoff, configured_leagues):
+    """Find already archived API results, including those with temporary identities."""
+    sources = defaultdict(set)
+    for league, provider in session.execute(
+        select(Match.league, Match.source)
+        .join(Result, Result.match_id == Match.match_id)
+        .where(
+            Match.league.not_in(configured_leagues),
+            Match.source.in_(("apif", "fdorg")),
+            Match.status == "finished",
+            Result.available_utc > Match.kickoff_utc,
+            Result.available_utc < cutoff,
+            or_(
+                Result.available_source.in_(("captured", "published")),
+                and_(
+                    Result.available_source == "assumed",
+                    Match.result_checked_utc >= Result.available_utc,
+                    Match.result_checked_utc < cutoff,
+                ),
+            ),
+        )
+        .distinct()
+    ):
+        sources[league].add(provider)
+    teams = (
+        {
+            row["id"]: row
+            for row in session.execute(select(Team.id, Team.name, Team.aliases)).mappings()
+        }
+        if sources
+        else {}
+    )
+    return sources, _owners(teams)
+
+
+def _has_provider_binding(team, league, sources, owners):
+    for provider in sources:
+        try:
+            binding = _binding({"name": team.name, "aliases": team.aliases}, provider, league)
+        except ValueError:
+            continue
+        if owners.get(binding.casefold()) == {team.id}:
+            return True
+    return False
+
+
+def _unconfigured_reason(session, league, identified_match, api):
+    by_league, owners = api
+    sources = by_league.get(league)
+    if not sources:
+        return (
+            "本次归档没有该赛事的接口历史赛果",
+            "采集维护人核对该赛事的接口赛果与历史归档",
+        )
+    if not identified_match or not all(
+        _has_provider_binding(session.get(Team, team_id), league, sources, owners)
+        for team_id in (identified_match.home_team_id, identified_match.away_team_id)
+    ):
+        return (
+            "球队尚未核实与接口历史的身份绑定",
+            "资料审核人核对球队身份，交所有者批准后补齐绑定",
+        )
+    return "该赛事尚未配置模型或模型池", "所有者决定是否安排建模"
+
+
+def _missing_reason(session, row, match, identity, skipped, exclusion, configured, scope, api):
     league = row.get("league")
     reason = None
     if scope == "sfc":
@@ -195,7 +259,7 @@ def _missing_reason(row, match, identity, skipped, exclusion, configured_leagues
         elif not identity:
             reason = _unmapped_reason(row, row.get("reason") or row.get("mapping"))
             action = "资料审核人核对比赛和队名，需新增简称时交所有者批准"
-            if league in configured_leagues and any(
+            if league in configured and any(
                 side
                 for side in (row.get("mapping_evidence") or {}).get("own_fixture_team_gaps", {})
             ):
@@ -207,10 +271,13 @@ def _missing_reason(row, match, identity, skipped, exclusion, configured_leagues
             "球队仅有占位编号，尚未建立正式球队身份",
             "资料审核人核实球队名称并提交身份批准",
         )
-    if league and league not in configured_leagues:
+    if league and league not in configured:
+        missing, next_action = _unconfigured_reason(
+            session, league, match if identity else None, api
+        )
         if reason:
-            return f"{NO_MODEL}；{reason}", f"所有者决定是否立项建模；{action}"
-        return NO_MODEL, "所有者决定是否立项建模"
+            return f"{missing}；{reason}", f"{next_action}；{action}"
+        return missing, next_action
     if reason:
         return reason, action
     if match is None:
@@ -222,7 +289,7 @@ def _missing_reason(row, match, identity, skipped, exclusion, configured_leagues
     return "本班没有对应的有效正式预测", "模型维护人核对模型路由与批次时序"
 
 
-def _row(session, source, scope, candidates, skipped, configured, generated, history):
+def _row(session, source, scope, candidates, skipped, configured, generated, history, api):
     match_id = source.get("match_id") or None
     gap = source.get("jc_backup_gap")
     match = session.get(Match, match_id) if match_id and not gap else None
@@ -276,7 +343,15 @@ def _row(session, source, scope, candidates, skipped, configured, generated, his
         (p["reason"] for p in rows if p.get("status") == "excluded" and p.get("reason")), None
     )
     row["reason"], row["action"] = _missing_reason(
-        {**source, "league": league}, match, identity, skipped, exclusion, configured, scope
+        session,
+        {**source, "league": league},
+        match,
+        identity,
+        skipped,
+        exclusion,
+        configured,
+        scope,
+        api,
     )
     if scope == "sfc" and not identity and row.get("league"):
         if candidate := _placeholder_candidate(session, source):
@@ -394,6 +469,7 @@ def build_coverage(
     for row in previous_rows:
         candidates[row["match_id"]].append(row)
     history = historical_baseline(session, as_of)
+    api = _api_history(session, as_of, configured_leagues)
     skipped = {
         (r["business_date"], r["jc_num"], r["match_id"], instant(r["captured_utc"])): r
         for r in _seen(skipped, as_of)
@@ -408,7 +484,7 @@ def build_coverage(
             continue
         skip = skipped.get((day, row["jc_num"], row["match_id"], instant(row["captured_utc"])))
         jc[day].append(
-            _row(session, row, "jc", candidates, skip, configured_leagues, generated, history)
+            _row(session, row, "jc", candidates, skip, configured_leagues, generated, history, api)
         )
 
     issues = {
@@ -434,6 +510,7 @@ def build_coverage(
                 configured_leagues,
                 generated,
                 history,
+                api,
             )
             for seq in range(1, 15)
         ]

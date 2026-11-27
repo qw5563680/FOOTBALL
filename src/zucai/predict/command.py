@@ -62,8 +62,13 @@ def load_corpus(
                 if pool:
                     scope = pool["training_leagues"] or default_scope(
                         session,
-                        [name for name in config["leagues"] if name != POOL],
+                        [
+                            name
+                            for name, candidate in config["leagues"].items()
+                            if configuration(name, candidate) is None
+                        ],
                         as_of=utc(as_of if as_of is not None else datetime.now(UTC)),
+                        targets=pool["leagues"],
                     )
                 games = read_history(
                     session,
@@ -71,11 +76,14 @@ def load_corpus(
                     source,
                     replay_known_after=replay_known_after,
                     training_leagues=scope,
+                    source_selection="cutoff" if pool and league != POOL else None,
                 )
                 market = read_market(session, games, jc_only=bool(pool))
                 closing = {} if pool else read_closing(session, games)
                 if pool:
                     games.attrs["prediction_leagues"] = pool["leagues"]
+                    if league != POOL:
+                        games.attrs["pool_name"] = league
     finally:
         engine.dispose()
     if hashlib.sha256(database.read_bytes()).hexdigest() != digest:
@@ -118,8 +126,8 @@ def train(
         params_file=params_file,
         as_of=cutoff,
     )
-    pool = league == POOL
-    league = POOL if pool else games.league.iloc[0]
+    pool = "prediction_leagues" in games.attrs
+    league = league if pool else games.league.iloc[0]
     parameters = resolve_parameters(
         league, as_of=cutoff, params_file=params_file, half_life_days=half_life_days
     )

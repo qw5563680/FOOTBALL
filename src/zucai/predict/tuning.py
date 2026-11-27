@@ -8,7 +8,7 @@ from zucai.predict import parameters
 from zucai.predict.backtest import evaluate
 from zucai.predict.base import utc
 from zucai.predict.parameters import TRAINING_POLICY, p2_gate, write_parameters
-from zucai.predict.pooled import POOL, POOL_FITTING_METHOD
+from zucai.predict.pooled import POOL, POOL_FITTING_METHOD, configuration
 from zucai.predict.seasons import (
     latest_complete_seasons,
     next_season,
@@ -35,7 +35,11 @@ def rolling_origin(
     grid = sorted(set(float(value) for value in grid))
     if not grid or any(not math.isfinite(value) or value <= 0 for value in grid):
         raise ValueError("grid须为正数半衰期列表")
-    league = POOL if target_leagues is not None else history.league.iloc[0]
+    league = (
+        history.attrs.get("pool_name", POOL)
+        if target_leagues is not None
+        else history.league.iloc[0]
+    )
     pool_options = {"target_leagues": target_leagues} if target_leagues is not None else {}
     end = utc(as_of)
     selected = parse_seasons(seasons, league)
@@ -158,15 +162,17 @@ def tune(
     ):
         raise ValueError("参数输出与数据库路径相同")
     cutoff = utc(as_of if as_of is not None else datetime.now(UTC))
-    if source is None and league != POOL:
+    entries = parameters.read_parameters(params_file)[0]["leagues"]
+    pool = configuration(league, entries.get(league, {}))
+    if source is None and not pool:
         source = "jc,fd"
     history, market, closing, digest = load_corpus(
         db,
         league,
         source,
-        **({"params_file": params_file, "as_of": cutoff} if league == POOL else {}),
+        **({"params_file": params_file, "as_of": cutoff} if pool else {}),
     )
-    pool_options = {"target_leagues": history.attrs["prediction_leagues"]} if league == POOL else {}
+    pool_options = {"target_leagues": history.attrs["prediction_leagues"]} if pool else {}
     result = rolling_origin(
         history,
         closing,
@@ -175,7 +181,7 @@ def tune(
         as_of=cutoff,
         draw_calibration=draw_calibration,
         **pool_options,
-        **({"market": market} if league == POOL else {}),
+        **({"market": market} if pool else {}),
     )
     result["database_sha256"] = digest
     result["as_of_utc"] = cutoff.isoformat()
@@ -183,7 +189,7 @@ def tune(
     calibration_mapping = {w["validation_season"]: w["draw_calibration"] for w in result["windows"]}
     weekly = evaluate(
         history,
-        market if league == POOL else {},
+        market if pool else {},
         closing=closing,
         seasons=list(mapping),
         as_of=cutoff,
@@ -219,12 +225,14 @@ def tune(
         database_sha256=digest,
         training_policy=TRAINING_POLICY,
         sources=history.attrs["sources"],
-        unknown_team_prior="weakest_quartile_half_shrinkage",
+        unknown_team_prior=(
+            "none" if pool and league != POOL else "weakest_quartile_half_shrinkage"
+        ),
         draw_calibration=result["windows"][-1]["draw_calibration"],
         p2_ready=gate["p2_ready"],
         p2_evidence=gate,
     )
-    if league == POOL:
+    if pool:
         entry.update(
             pooled=True,
             fitting_method=POOL_FITTING_METHOD,
