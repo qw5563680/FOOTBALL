@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from zucai.market_reference import MARKET_OPERATOR, MARKET_REFERENCE_VERSION, MARKET_SUPPLIER
 from zucai.models import Match, Odds, Prediction, Team
-from zucai.predict.base import model_sources, report_fixture_sources, utc
+from zucai.predict.base import allows_fixture_source, model_sources, report_fixture_sources, utc
 from zucai.predict.derive import had, hafu
 from zucai.predict.dixon_coles import DixonColes, InsufficientHistory
 from zucai.predict.model_definitions import (
@@ -293,6 +293,13 @@ def predict_batch(
             if match.league in model_targets(candidate[0])
         }
         attributed = scope or (next(iter(compatible.values())) if len(compatible) == 1 else None)
+        if (
+            scope is None
+            and key in sfc_only
+            and attributed is not None
+            and allows_fixture_source(attributed[0], match.source, sfc_only=True)
+        ):
+            scope = attributed
         if attributed is not None:
             provenance = attributed[1]
             item.update(
