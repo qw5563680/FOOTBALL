@@ -101,6 +101,7 @@ CATALOGUE_DATE = rf"{MONTH}-(?:0[1-9]|[12][0-9]|3[01])"
 CATALOGUE_FILE = (
     rf"state/catalogue/(?:(?:latest|backfill-checkpoint)\.json|{CATALOGUE_RUN_ID}/(?:"
     r"(?:apif(?:-raw|-meta)?|fdorg(?:-raw|-meta)?|fd|jc(?:-leagues|-kickoff-plan|-kickoffs)?|summary|backfill)\.json|"
+    r"apif-team-countries/(?:index\.json|(?:3|848)\.json(?:\.meta\.json)?)|"
     r"jc-heads/(?:[1-9][0-9]*|conflicts/[1-9][0-9]*-[0-9a-f]{64})\.json(?:\.meta\.json)?|"
     r"jc-schedules/[0-9a-f]{64}\.json(?:\.meta\.json)?|"
     r"jc-db-(?:aliases\.json|(?:matches|teams)\.jsonl|manifests/[0-9a-f]{64}\.json)|"
@@ -527,6 +528,64 @@ def archive_info(archive: Path) -> dict:
     return meta
 
 
+def _archive_team_country_probe(archive, target, run_id):
+    from zucai.cloud_team_country_probe import collect_team_country_probe, write_summary
+    from zucai.sources.base import _atomic_write
+
+    if not re.fullmatch(CATALOGUE_RUN_ID, run_id):
+        raise ValueError("球队国家探测的运行编号无效")
+    meta = archive_info(archive)
+    prefix = f"state/catalogue/{run_id}/apif-team-countries"
+    destination = archive / prefix
+    if destination.exists():
+        raise ValueError("球队国家探测档案已存在，须使用新运行编号")
+    quota_key = "state/api_football_quota.json"
+    previous_quota = None
+    if quota_key in meta["files"]:
+        previous_quota = (archive / quota_key).read_bytes()
+        quota = target.parent / quota_key
+        quota.parent.mkdir(parents=True, exist_ok=True)
+        quota.write_bytes(previous_quota)
+
+    report = collect_team_country_probe(target, run_id)
+    evidence = {}
+    for path in _catalogue_files(target.parent):
+        key = path.relative_to(target.parent).as_posix()
+        if key.startswith(prefix + "/") and re.fullmatch(CATALOGUE_FILE, key):
+            evidence[key] = path.read_bytes()
+    if (
+        report["evidence_index"] != f"{prefix}/index.json"
+        or report["evidence_index"] not in evidence
+    ):
+        raise ValueError("球队国家探测缺少归档索引")
+    quota = target.parent / quota_key
+    new_quota = quota.read_bytes() if quota.exists() else None
+    versioned_files = dict(meta["files"])
+    quota_written = False
+    destination.mkdir(parents=True)
+    try:
+        for key, raw in evidence.items():
+            _atomic_write(archive / key, raw)
+            versioned_files[key] = hashlib.sha256(raw).hexdigest()
+        if new_quota is not None and new_quota != previous_quota:
+            _atomic_write(archive / quota_key, new_quota)
+            quota_written = True
+            versioned_files[quota_key] = hashlib.sha256(new_quota).hexdigest()
+        meta["files"] = dict(sorted(versioned_files.items()))
+        _atomic_write(
+            archive / MANIFEST,
+            (json.dumps(meta, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+        )
+    except (OSError, ValueError):
+        shutil.rmtree(destination)
+        if quota_written and previous_quota is None:
+            (archive / quota_key).unlink()
+        elif quota_written:
+            _atomic_write(archive / quota_key, previous_quota)
+        raise
+    write_summary(report)
+
+
 def restore_feeds(archive: Path, dest: Path) -> dict:
     meta = archive_info(archive)
     previous_reviews = _candidate_review_files(dest.parent)
@@ -779,8 +838,9 @@ def main():
             "jc-catalogue",
             "jc-kickoffs",
             "jc-supplement",
+            "team-countries",
         ),
-        help="仅 probe：赛季权限、桥接元数据或技术数据",
+        help="仅 probe：赛季权限、桥接元数据、球队资料或技术数据",
     )
     parser.add_argument("--per-scope", type=int, help="仅 stats probe：每联赛季最多抽样场数")
     parser.add_argument("--from", dest="first", help="仅 backfill：起始年或赛季，如 2021 / 2122")
@@ -916,6 +976,18 @@ def main():
                 or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"
             ):
                 raise ValueError("API catalogue 仅允许 github-hosted Actions workflow_dispatch")
+    elif args.command == "probe" and args.probe_kind == "team-countries":
+        from zucai.cloud_probe import require_probe_actions
+
+        require_probe_actions()
+        if os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
+            raise ValueError("球队国家探测仅支持 GitHub 托管运行器")
+        if (
+            args.source not in (None, "apif")
+            or args.leagues is not None
+            or args.seasons is not None
+        ):
+            parser.error("球队国家探测仅支持 APIF 的欧罗巴、欧协联当前赛季，无需指定范围")
     elif args.command in {"probe", "identity"}:
         from zucai.cloud_probe import probe_scopes, require_probe_actions
 
@@ -971,6 +1043,11 @@ def main():
     logging.basicConfig(level=logging.INFO)
     target = args.db.resolve()
     archive = args.archive.resolve()
+    if args.command == "probe" and args.probe_kind == "team-countries":
+        if target.exists() or target.parent != Path("data").resolve():
+            parser.error("球队国家探测须在全新隔离目录中运行")
+        _archive_team_country_probe(archive, target, args.run_id)
+        return
     day = args.through or datetime.now(BEIJING).date()
     collection = None
     summary_collection = "apif"

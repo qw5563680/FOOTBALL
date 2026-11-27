@@ -223,11 +223,16 @@ def _registered_fdorg_placeholders():
 
 def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_code):
     """Leagues whose stored, unbound, fd/fdorg-only teams share the candidate's country."""
-    candidate_country = countries.get(str(candidate_code))
-    if not candidate_country or candidate_country in INTERNATIONAL_COUNTRIES:
-        international = True
-    else:
-        international = False
+    blockers = _fd_only_teams_in_country(
+        tables, facts, configs, countries, countries.get(str(candidate_code))
+    )
+    return sorted({row["league"] for row in blockers})
+
+
+def _fd_only_teams_in_country(
+    tables, facts, configs, countries, candidate_country, *, keep_international_placeholders=False
+):
+    international = not candidate_country or candidate_country in INTERNATIONAL_COUNTRIES
     league_codes = {config.get("league"): code for code, config in configs.items()}
     teams_sources = defaultdict(set)
     teams_leagues = defaultdict(set)
@@ -262,24 +267,101 @@ def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_cod
         for other_key, other in facts["teams"].items()
         if other_key.startswith("project-team:")
     }
-    leagues = set()
-    for tid in unbound:
+    blockers = []
+    for tid in sorted(unbound):
         sources = teams_sources.get(tid, set())
         if not sources or not sources <= {"fd", "fdorg"}:
             continue
-        for league in teams_leagues.get(tid, set()):
-            if (league, names.get(tid)) in placeholders:
+        name = names[tid]
+        for league in sorted(teams_leagues.get(tid, set())):
+            if (league, name) in placeholders:
                 continue
             # An undetermined league country counts as same-country: when in
             # doubt the verdict must stay 待核, never fall through to 新建.
             country = countries.get(str(league_codes.get(league) or ""))
-            if international or country is None or country == candidate_country:
-                leagues.add(league)
-    return sorted(leagues)
+            is_international_placeholder = (
+                keep_international_placeholders
+                and country in INTERNATIONAL_COUNTRIES
+                and re.fullmatch(r"fdorg:team:[1-9][0-9]*", name)
+            )
+            if (
+                international
+                or country is None
+                or country == candidate_country
+                or is_international_placeholder
+            ):
+                blockers.append(
+                    dict(project_team_id=tid, name=name, league=league, country=country)
+                )
+    return blockers
+
+
+def _country_creation_verdict(tables, facts, configs, countries, provider_id, country_proofs):
+    """Evaluate already authenticated, normalized country proof for one witnessed provider ID."""
+    evidence = sorted(country_proofs.get(provider_id, ()), key=_json)
+    observed = set()
+    for proof in evidence:
+        value = proof.get("country")
+        country = value.strip() if isinstance(value, str) else ""
+        path, digest = proof.get("path"), proof.get("sha256")
+        if (
+            not country
+            or country in INTERNATIONAL_COUNTRIES
+            or not isinstance(path, str)
+            or not path
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+        ):
+            observed.add(None)
+        else:
+            observed.add(country)
+    country = next(iter(observed)) if len(observed) == 1 else None
+    blockers = _fd_only_teams_in_country(
+        tables, facts, configs, countries, country, keep_international_placeholders=True
+    )
+    details = dict(
+        provider_team_id=provider_id,
+        provider_team_country=dict(country=country, evidence=evidence),
+        blocking_teams=blockers,
+    )
+    missing = []
+    if country is None:
+        missing.append("接口球队资料中的国家缺失、为空或不一致，仍按所有国家核对。")
+    missing.extend(
+        f"{row['league']} 的 {row['name']}（库内球队 {row['project_team_id']}）尚无获批接口编号。"
+        for row in blockers
+    )
+    if missing:
+        return dict(
+            status="pending_review",
+            basis=(
+                "provider_team_country_unverified"
+                if country is None
+                else "unverified_same_country_fd_teams"
+            ),
+            missing=missing,
+            **details,
+        )
+    return dict(
+        status="new",
+        basis="unique_witnessed_provider_team_without_existing_indication",
+        说明=f"接口球队编号 {provider_id} 的国家为 {country}，无未核验的库内球队阻塞创建。",
+        **details,
+    )
 
 
 def _existing_team_verdict(
-    facts, tables, team, key, *, configs, countries, index, code=None, witness=None
+    facts,
+    tables,
+    team,
+    key,
+    *,
+    configs,
+    countries,
+    index,
+    code=None,
+    witness=None,
+    country_proofs=None,
 ):
     """三结论之一：「新建」「关联库内既有球队」「待核」（T68 第八节第 7 项，2026-11-16 更正版）。
 
@@ -355,6 +437,12 @@ def _existing_team_verdict(
                 f"库内已有同名中文球队 {name}（竞彩同步时建立、尚无官方编号证据），"
                 "关联并补编号证据，不是新建。"
             ),
+        )
+    # None retains the established rule until the archive reader can verify the actual source.
+    # An explicit empty index means the source was checked and has no usable country proof.
+    if country_proofs is not None and countries.get(str(code)) in INTERNATIONAL_COUNTRIES:
+        return _country_creation_verdict(
+            tables, facts, configs, countries, provider_id, country_proofs
         )
     leagues = _fd_only_leagues_in_country(tables, facts, configs, countries, code)
     if leagues:
