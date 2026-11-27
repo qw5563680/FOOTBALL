@@ -12,13 +12,28 @@
 
 第一轮证据支持访问状态和当时静态解析结果。两条中国足彩网路径是否为相应玩法的对阵页、静态结构为何无法解析均未确认。ZIP 共 5,790 字节，SHA-256 与 GitHub 元数据一致，附件清单的 7 个文件全部通过校验。[ZIP 与文件哈希](SHA256SUMS)
 
-## T97 第二轮验收
+## T97 第二轮实测
 
-正式运行待合并后执行。DeepSeek 在 `main` 的 **Football cloud feeds** 选择 `operation=probe`，填写 `options={"probe_kind":"backup-sources"}`。探测由首页发现静态入口，逐域读取 robots，按访问时段和请求间隔核对。中国足彩网上限 6 次页面请求，澳客对照上限 3 次，robots 每域 1 次单独计数。[工作流](https://github.com/qw5563680/FOOTBALL/actions/workflows/football-feeds.yml) · [T97 任务单](../../docs/tasks/T97-zgzcw-probe-from-homepage.md)
+2026-11-27 北京时间 01:08:41 至 01:09:02，正式采集机从中国足彩网首页找入口再探测，澳客竞彩页作对照。探测作业成功，正式采集、预测和日报作业均跳过。[运行 45863141357](https://github.com/qw5563680/FOOTBALL/actions/runs/45863141357) · 附件 `backup-sources-45863141357-1`
 
-验收从 `backup-sources-<run>-<attempt>` 读取 `probe.json`、`samples/` 和 `SHA256SUMS`。回填访问规则、是否为静态对阵页、字段覆盖与复读对比，附运行链接、附件名和 SHA-256。证据不足的项目保留「未确认」。[数据来源](../../docs/DATA_SOURCES.md#t97-中国足彩网从首页发现入口)
+| 页面 | 访问规则 | HTTP 与静态行数 | 结论 |
+| --- | --- | --- | --- |
+| 首页 `www.zgzcw.com/` | `www.zgzcw.com` 的 robots.txt 返回 200，未禁止首页，未公布时段 | 200，正文 163,377 字节，静态表格 2 个、脚本 34 个 | 普通网页。找到 14 场入口两个、竞彩入口一个，都在本站子域 |
+| 14 场 `cp.zgzcw.com/zgzcw/lottery/14csfc/index.jsp` | `cp.zgzcw.com` 的 robots.txt 返回 200，只禁止 `/homePage/` | 302，探测不跟随跳转，正文 0 字节 | 不可用。跳转去向没有记录 |
+| 竞彩 `news.zgzcw.com/jczq/index.shtml` | `news.zgzcw.com` 的 robots.txt 返回 200，允许该路径 | 200，正文 71,691 字节，静态表格 0 个，0 条可核对对阵 | 不是对阵页，标题是「足彩推荐分析 - 竞彩足球专家预测 - 足彩网」 |
+| 澳客 `www.okooo.com/jingcai/` | robots.txt 返回 200，允许该路径 | 200，正文 248,776 字节，静态表格 0 个，0 条可核对对阵 | 是普通网页但结构未识别 |
 
-复核当前清单时，把 T90、T92 的 ZIP 保存为附件同名的 `.zip`，分别解压到同名目录，在共同父目录执行 `sha256sum -c /path/to/reports/t92-zgzcw-probe/SHA256SUMS`。原 HTTP 响应的 SHA-256 在相应样本里。
+中国足彩网读了 3 份 robots.txt，页面请求 3/6 次；首页找到的另一个 14 场入口 `news.zgzcw.com/zc/index.shtml` 没有请求。没有读到任何对阵，所以稳定性没有可比的内容，记为未验证。
+四个问题的答案：访问规则三个子域都已读到，没有请求被禁止的路径；首页是普通网页；首页给出的 14 场入口会跳转、竞彩入口是推荐文章栏目，都读不到期号、场序、赛事、主客队和开球时间；稳定性未验证。
+ZIP 共 10,305 字节，附件清单的 10 个文件全部通过校验，哈希已追加到 [SHA256SUMS](SHA256SUMS)。
+
+**所有者决定。** Claude 把两轮结果和两个选项（放弃，或再探一轮跟随那一次跳转）讲给所有者，所有者 2026-11-27 约 02:30 UTC（北京时间 10:30）在 Claude 的聊天窗口回答：
+
+> 放弃中国足彩网，写500网竞彩页的任务单
+
+中国足彩网不再作为备用渠道候选，不接入。竞彩的备用来源改看 500 网的竞彩根页，见任务单 T98。
+
+复核当前清单时，把 T90、T92、T97 三次运行的 ZIP 保存为附件同名的 `.zip`，分别解压到同名目录，在共同父目录执行 `sha256sum -c /path/to/reports/t92-zgzcw-probe/SHA256SUMS`。原 HTTP 响应的 SHA-256 在相应样本里。
 
 ### T97 离线回放
 

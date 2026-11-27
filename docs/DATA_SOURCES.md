@@ -1420,4 +1420,9 @@ robots核查：UEFA的公开规则未禁止本次newsfiles/news路径；raw.gith
 
 第二轮沿用 `operation=probe`、`probe_kind=backup-sources`，先核验 `www.zgzcw.com` 的 robots，再从静态首页找 14 场和竞彩足球入口。只接受 `zgzcw.com` 与其子域的链接，每个访问域各核验自己的 robots。找不到明确入口时记录首页相关链接文字。中国足彩网页面请求上限为 6 次，澳客竞彩对照为 3 次，robots 每域一次单独计数。两次请求至少间隔 3 秒，并遵守适用规则的更长间隔和访问时段。`www.zgzcw.com` 的正式访问规则待第二轮核验。[T97 任务单](tasks/T97-zgzcw-probe-from-homepage.md)
 
-证据含标题、响应字节数、表格与脚本数、关键字计数及按赛程字段裁剪的表格文字。未读到对阵时，区分「不是对阵页」「需要执行脚本」「是普通网页但结构未识别」，证据不足时注明未确认。读到静态对阵的页面在预算内复读，逐次比较有效行数与字段覆盖。探测只输出证据，保留澳客竞彩作为对照。正式结果由 DeepSeek 合并后在采集机验证，并由 Claude 回填。[回填报告](../reports/t92-zgzcw-probe/README.md#t97-第二轮验收)
+证据含标题、响应字节数、表格与脚本数、关键字计数及按赛程字段裁剪的表格文字。未读到对阵时，区分「不是对阵页」「需要执行脚本」「是普通网页但结构未识别」，证据不足时注明未确认。读到静态对阵的页面在预算内复读，逐次比较有效行数与字段覆盖。探测只输出证据，保留澳客竞彩作为对照。正式结果由 DeepSeek 合并后在采集机验证，并由 Claude 回填。[回填报告](../reports/t92-zgzcw-probe/README.md#t97-第二轮实测)
+
+2026-11-27 北京时间 01:08 至 01:09 的第二轮实测（[运行 45863141357](https://github.com/qw5563680/FOOTBALL/actions/runs/45863141357)）：`www.zgzcw.com`、`cp.zgzcw.com`、`news.zgzcw.com` 三份 robots.txt 都返回 HTTP 200，没有请求被禁止的路径。
+首页是普通网页，给出的 14 场入口 `cp.zgzcw.com/zgzcw/lottery/14csfc/index.jsp` 返回 HTTP 302（探测不跟随跳转，去向未记录），竞彩入口 `news.zgzcw.com/jczq/index.shtml` 是推荐文章栏目，不是对阵页。两轮都没有读到期号、场序、主客队和开球时间，稳定性未验证。
+
+所有者 2026-11-27 决定放弃中国足彩网，不接入；竞彩备用来源改看本文件第 2 节已在使用的 500 网竞彩根页（任务单 T98）。逐页证据与哈希见 [探测报告](../reports/t92-zgzcw-probe/README.md)。
