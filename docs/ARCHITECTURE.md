@@ -2208,10 +2208,22 @@ summary.experiments.rules 固定：每联赛前瞻共同n≥200；实验−正�
 首行“实验 · 不下注”；原昨日结算均值先过滤实验评分，原累计和账户统计不混入实验。
 真实验证包括首次晚班、captured积累一周及至少14天并行，由Claude执行，本地离线测试不冒充这些结果。
 
+### T70 联网研究线
+
+`web-research` 是独立的第五条实验线，使用当前已核验的竞彩在售目录。只读取已发布、身份与当期目录一致、仍未开赛的球队预测。每日启用时仅取本班已确认发布的预测。研究原文及其结构化结果各走一个 DeepSeek 请求。提示词由 `data/prompts/web_research_v1.md` 提供，运行记录保存版本和原字节 SHA-256。
+
+`DEEPSEEK_API_KEY` 只注入运行研究的 Actions 步骤。手动 `operation=web-research` 只在 `main` 单独执行，上限一场，`options` 的 `web_research_max_cost` 需要填本次获批的估算限额。对应命令由工作流运行 `python -m zucai.web_research --archive cloud-data --run-id RUN-ATTEMPT --max-matches 1 --max-cost LIMIT`。
+
+默认每日停用。所有者根据首场实际费用决定是否设置仓库变量 `FOOTBALL_WEB_RESEARCH_ENABLED=true`、`FOOTBALL_WEB_RESEARCH_MAX_COST` 和 `FOOTBALL_WEB_RESEARCH_MAX_MATCHES`。启用时估算费用上限必填，场数默认 5。超时和返回异常由独立作业记录，正式预测先发布，记分与日报随后可照常运行。
+
+研究的独立清单 `web_research/runs/<研究批次>/manifest.json` 记录请求用量及归档哈希。对应原预测目录下的 `forecasts/<北京日>/<预测批次>/web_research/<研究批次>/` 另存 `web_research.json`、逐场原报告及响应证据。冻结检查原预测哈希、发布回执和真实开球时刻，旧预测清单和报表保持原字节。模型、复式和账本沿用原输入。提供方引用和信息发布时间来自原始响应与报告，核对仅以库内资料、报价和出处证据为准。
+
+新日报可单列「联网研究线（实验）」。`scoreboard/web_research.json` 与 `scoreboard/web-research.md` 单列成绩及比赛编号配对的分母。覆盖率的分母是发起过研究且已核实常规时间赛果的比赛，分子是有明确判断的比赛。首项命中与概率评分分别计算。同一批有完整比较条件的比赛上报告球队模型、赔率基准和研究概率的 Log Loss、三项求和 Brier。全联赛合在一起评价，分联赛数字作描述。无可靠倾向不计命中和失误。正式记分板继续使用原文件。
+
 ### T100 跨联赛球队评分
 
-四条实验线包括两条技术统计实验、T72 球队与市场融合和 T100 跨联赛评分。`elo-global-v1` 在正式批次稳定后计算，
-读取归档已有球队 ID、比赛时刻和常规时间赛果。按原来源、身份与可知时点规则选择赛果。比赛开球前记录预期，赛果达到
+`elo-global-v1` 跨联赛评分是正式批次稳定后运行的预测实验，与两条技术统计实验和 T72 球队与市场融合一起计分。
+它读取归档已有球队 ID、比赛时刻和常规时间赛果。按原来源、身份与可知时点规则选择赛果。比赛开球前记录预期，赛果达到
 可知时刻后按预期误差更新评分。模型版本绑定已登记协议和回溯选定的参数，训练与目标分别标 `backfill_replay`、
 `strict_capture_time`。同批正式 Dixon–Coles 已生成的场次进入实验，缺评分留空并附原因。原身份行按固定归档保留。
 回溯的身份缺口、分组比较和证据地址见 [T100 报告](../reports/t100-cross-league-rating/README.md)。

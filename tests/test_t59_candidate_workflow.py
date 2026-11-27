@@ -99,7 +99,7 @@ def test_review_uses_existing_input_budget_and_an_independent_secret_free_job():
     workflow = WORKFLOW.read_text()
     inputs = workflow.split("    inputs:\n", 1)[1].split("  push:", 1)[0]
     assert len(re.findall(r"^      (\w+):", inputs, re.M)) == 10
-    assert "stats-backfill, candidate-review, daily]" in inputs
+    assert "stats-backfill, candidate-review, web-research, daily]" in inputs
     assert "candidate-review" in inputs.split("      options:\n", 1)[1]
     job = jobs()["candidate-review"]
     assert "needs:" not in job and "secrets." not in job

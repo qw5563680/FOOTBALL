@@ -55,6 +55,7 @@ from zucai.sfc_digest import published_reports
 from zucai.sfc_digest import section as sfc_section
 from zucai.sources.base import _atomic_write
 from zucai.upset_review import sfc_known_outcomes, sfc_prematch_rows
+from zucai.web_research_digest import section as web_research_section
 
 LOG = logging.getLogger(__name__)
 DISCLAIMER = "非购买建议 · BET 禁用"
@@ -520,6 +521,7 @@ def generate(
     window = prediction_window(batches, at, catalog)
     from zucai.publication_history import publication_updates
 
+    research_lines, research_hashes = web_research_section(archive, at, kickoffs=kickoffs)
     sfc_lines = sfc_section(
         archive,
         feed,
@@ -537,6 +539,7 @@ def generate(
         ).hexdigest()
     inputs = {
         **input_hashes,
+        **({"web_research": research_hashes} if research_hashes else {}),
         "jc_sync_status": jc_sync_status,
         "jc_sync_run_id": jc_sync_run_id,
         "jc_publish_status": jc_publish_status,
@@ -661,6 +664,7 @@ def generate(
                 for row in batch.get("predictions", [])
             ]
         ),
+        *research_lines,
         *sfc_lines,
         *parlay_lines,
         *review_sections(
