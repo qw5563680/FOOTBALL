@@ -484,6 +484,7 @@ def evaluate(
     calibration_by_season=None,
     target_leagues=None,
     hafu_market=None,
+    target_match_ids=None,
 ):
     if fold not in ("weekly", "monthly"):
         raise ValueError("fold 须为weekly或monthly")
@@ -524,6 +525,9 @@ def evaluate(
     period["season"] = [season_for(k, league) for k in period.kickoff_utc]
     if selected:
         period = period.loc[period.season.isin(selected)]
+    if target_match_ids is not None:
+        # Evaluation shards share the full training history and the same label horizon.
+        period = period.loc[period.match_id.isin(target_match_ids)]
     evaluation = period.loc[
         (period.available_utc < end) & (period.available_utc > period.kickoff_utc)
     ].copy()

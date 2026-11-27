@@ -427,6 +427,21 @@ def test_week_crossing_season_boundary_and_jc_subset(seasons_history):
     assert report["seasons"]["2526"]["complete"] is False
 
 
+def test_target_subset_keeps_the_full_training_history_and_label_horizon(seasons_history):
+    history = seasons_history.copy()
+    first = history.index[history.kickoff_utc >= pd.Timestamp("2025-07-01T00:00Z")][0]
+    history.loc[first, "available_utc"] = pd.Timestamp("2025-07-27T12:00Z")
+    kwargs = dict(since="2025-07-01T00:00Z", as_of="2025-08-01T00:00Z", fold="weekly")
+    whole = backtest.evaluate(history, {}, **kwargs)
+    match_id = history.loc[first, "match_id"]
+    shard = backtest.evaluate(history, {}, target_match_ids={match_id}, **kwargs)
+    assert len(whole["folds"]) > 1
+    assert shard["predictions"] == [r for r in whole["predictions"] if r["match_id"] == match_id]
+    assert len(shard["predictions"]) == 1
+    assert shard["folds"][0]["cutoff_utc"] == whole["folds"][0]["cutoff_utc"]
+    assert shard["folds"][0]["training_games"] == whole["folds"][0]["training_games"]
+
+
 def test_gate_rejects_unavailable_or_unreconciled_outcomes():
     from zucai.predict.parameters import p2_gate
 

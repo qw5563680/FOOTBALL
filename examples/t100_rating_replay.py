@@ -3,13 +3,17 @@
 import argparse
 import hashlib
 import json
+import logging
 import re
 import subprocess
 from collections import Counter, defaultdict
-from contextlib import contextmanager
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from functools import partial
 from math import fsum, inf, isfinite, log
+from multiprocessing import get_context
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
@@ -20,11 +24,12 @@ from sqlalchemy.orm import Session
 
 from zucai.db import get_engine
 from zucai.models import Match
+from zucai.nations import LEAGUE as NATIONS_LEAGUE
 from zucai.predict.backtest import evaluate, read_history
 from zucai.predict.base import utc
 from zucai.predict.dixon_coles import InsufficientHistory
 from zucai.predict.experiments.global_rating import RatingResult, candidate_parameters, fit_ratings
-from zucai.predict.experiments.metrics import losses
+from zucai.predict.experiments.metrics import losses, paired
 from zucai.predict.parameters import read_parameters, resolve_parameters
 from zucai.predict.pooled import (
     SOURCES,
@@ -37,9 +42,10 @@ from zucai.predict.pooled import (
 from zucai.predict.seasons import season_bounds, season_for
 
 ROOT = Path(__file__).resolve().parents[1]
+LOG = logging.getLogger(__name__)
 PROTOCOL = Path("docs/experiments/T100-cross-league-rating-protocol.md")
-PROTOCOL_COMMIT = "76f90f66fa80358ebd31f6cd6317d11992893af8"
-PROTOCOL_SHA256 = "ff5bb0dcc3beb23415949203b84379541b6503070842bbd00059bbdd2cf99e6c"
+PROTOCOL_COMMIT = "ea031f3daa29fc8e09fea893484be002e34fae9a"
+PROTOCOL_SHA256 = "77e20057f4c9c081904c736092fc05cb6fab30eb5e7b25a10402bf8645ec366e"
 ARCHIVE_COMMIT = "f87ae9232653add8d5da2f23138a028ca6896697"
 ARCHIVE_SHA256 = "50e8e92726edab749c2592fc334e6208bbfdab4dea99c6c99f3050ad5b6aeb7e"
 PARAMETERS = ROOT / "data/model/params.json"
@@ -130,7 +136,70 @@ def _exclusion(row, *, tuning):
     return None
 
 
-def _phase_rows(load, phase, parameters):
+def _rating_fold(history_at, tuning, parameters, cutoff, fold):
+    rows = []
+    unconfigured = Counter(total=0, both_rated=0, cutoff_before_parameter_freeze=0)
+    snapshots = (
+        fit_ratings(history_at(cutoff), as_of=cutoff, parameters=parameters)
+        if any(
+            (cutoff >= TRAINING.end if row.count_only else _exclusion(row, tuning=tuning) is None)
+            for row in fold
+        )
+        else ()
+    )
+    for row in sorted(fold, key=lambda target: target.match_id):
+        if row.count_only:
+            unconfigured["total"] += 1
+            if cutoff < TRAINING.end:
+                unconfigured["cutoff_before_parameter_freeze"] += 1
+            elif row.home_id in snapshots[0].ratings and row.away_id in snapshots[0].ratings:
+                unconfigured["both_rated"] += 1
+            continue
+        reason = _exclusion(row, tuning=tuning)
+        probabilities, missing = [], []
+        if reason is None:
+            for snapshot in snapshots:
+                result = snapshot.predict(row.home_id, row.away_id, kickoff_utc=row.kickoff)
+                if result.probabilities is None:
+                    missing = list(result.missing_team_ids)
+                    reason = "rating_unavailable"
+                    break
+                probabilities.append(result.probabilities)
+        rows.append(
+            dict(
+                match_id=row.match_id,
+                league=row.league,
+                kickoff_utc=row.kickoff.isoformat(),
+                cutoff_utc=cutoff.isoformat(),
+                actual=row.actual,
+                official=row.official,
+                default_strength=row.default_strength,
+                excluded=reason,
+                missing_team_ids=missing,
+                rating_candidates=probabilities if reason is None else [],
+            )
+        )
+    return rows, unconfigured
+
+
+@dataclass(frozen=True)
+class _ArchiveRatingHistory:
+    database: Path
+    leagues: tuple[str, ...]
+    diagnostics: dict
+
+    def __call__(self, cutoff):
+        return _rating_history_at(self.database, cutoff, self.leagues, self.diagnostics)
+
+
+def _database_fold(database, leagues, tuning, parameters, cutoff, fold):
+    diagnostics = {"rating_scope_failures": []}
+    history = _ArchiveRatingHistory(database, leagues, diagnostics)
+    rows, unconfigured = _rating_fold(history, tuning, parameters, cutoff, fold)
+    return rows, unconfigured, diagnostics["rating_scope_failures"]
+
+
+def _phase_rows(load, phase, parameters, workers=1):
     matches, history_at, evidence = load(phase)
     tuning = phase is TRAINING
     ids, groups = set(), defaultdict(list)
@@ -141,53 +210,36 @@ def _phase_rows(load, phase, parameters):
             raise ValueError("回溯目标的赛果类别或截点无效")
         ids.add(row.match_id)
         groups[row.cutoff].append(row)
+    cutoffs = sorted(groups)
+    worker_count = max(1, min(workers, len(cutoffs)))
+    evidence["rating_schedule"] = dict(workers=worker_count, folds=len(cutoffs))
+    LOG.info("%s：%d 个评分截点，%d 个进程", phase.name, len(cutoffs), worker_count)
     rows = []
     unconfigured = Counter(total=0, both_rated=0, cutoff_before_parameter_freeze=0)
-    for cutoff, fold in sorted(groups.items()):
-        snapshots = (
-            fit_ratings(history_at(cutoff), as_of=cutoff, parameters=parameters)
-            if any(
-                (
-                    cutoff >= TRAINING.end
-                    if row.count_only
-                    else _exclusion(row, tuning=tuning) is None
-                )
-                for row in fold
+    scheduler = (
+        ProcessPoolExecutor(max_workers=worker_count, mp_context=get_context("spawn"))
+        if worker_count > 1
+        else nullcontext()
+    )
+    with scheduler as executor:
+        if executor is None:
+            results = (
+                (*_rating_fold(history_at, tuning, parameters, cutoff, groups[cutoff]), ())
+                for cutoff in cutoffs
             )
-            else ()
-        )
-        for row in sorted(fold, key=lambda target: target.match_id):
-            if row.count_only:
-                unconfigured["total"] += 1
-                if cutoff < TRAINING.end:
-                    unconfigured["cutoff_before_parameter_freeze"] += 1
-                elif row.home_id in snapshots[0].ratings and row.away_id in snapshots[0].ratings:
-                    unconfigured["both_rated"] += 1
-                continue
-            reason = _exclusion(row, tuning=tuning)
-            probabilities, missing = [], []
-            if reason is None:
-                for snapshot in snapshots:
-                    result = snapshot.predict(row.home_id, row.away_id, kickoff_utc=row.kickoff)
-                    if result.probabilities is None:
-                        missing = list(result.missing_team_ids)
-                        reason = "rating_unavailable"
-                        break
-                    probabilities.append(result.probabilities)
-            rows.append(
-                dict(
-                    match_id=row.match_id,
-                    league=row.league,
-                    kickoff_utc=row.kickoff.isoformat(),
-                    cutoff_utc=cutoff.isoformat(),
-                    actual=row.actual,
-                    official=row.official,
-                    default_strength=row.default_strength,
-                    excluded=reason,
-                    missing_team_ids=missing,
-                    rating_candidates=probabilities if reason is None else [],
-                )
+        else:
+            if not isinstance(history_at, _ArchiveRatingHistory):
+                raise ValueError("并行评分仅支持只读归档回放")
+            job = partial(
+                _database_fold, history_at.database, history_at.leagues, tuning, parameters
             )
+            results = executor.map(job, cutoffs, (groups[cutoff] for cutoff in cutoffs))
+        for done, (fold_rows, counts, failures) in enumerate(results, start=1):
+            rows.extend(fold_rows)
+            unconfigured.update(counts)
+            if failures:
+                evidence["rating_scope_failures"].extend(failures)
+            LOG.info("%s 评分 %d/%d，截点 %s", phase.name, done, len(cutoffs), cutoffs[done - 1])
     if not tuning:
         evidence["unconfigured_jc"] = dict(unconfigured)
     return rows, evidence
@@ -253,6 +305,29 @@ def _comparison(rows):
     )
 
 
+def _log_loss_bootstrap(rows):
+    observations = [
+        dict(
+            kickoff_utc=row["kickoff_utc"],
+            actual=row["actual"],
+            variants={name: {"probabilities": row[name]} for name in ("rating", "official")},
+        )
+        for row in rows
+        if row["excluded"] is None
+    ]
+    result = paired(observations, "rating", "official")
+    loss = result["log_loss"]
+    return dict(
+        n=result["n"],
+        blocks=result["blocks"],
+        unit=result["unit"],
+        seed=result["seed"],
+        replicates=result["replicates"],
+        interval=None if loss is None else loss["interval"],
+        reason=result["reason"] if loss is None else loss["reason"],
+    )
+
+
 def _validation(rows, evidence, output):
     for row in rows:
         candidates = row.pop("rating_candidates")
@@ -266,7 +341,8 @@ def _validation(rows, evidence, output):
         gate = "unresolved"
     else:
         gate = "stop" if diff > 0.015 else "within_retrospective_limit"
-    leagues = sorted({row["league"] for row in rows})
+    overall["log_loss_bootstrap"] = _log_loss_bootstrap(rows)
+    leagues = sorted({row["league"] for row in rows} | {NATIONS_LEAGUE})
     return dict(
         overall=overall,
         by_league={
@@ -281,10 +357,23 @@ def _validation(rows, evidence, output):
     )
 
 
-def run_phases(load, output):
+def _grid_edges(parameters, selected):
+    edges = {}
+    for field, value in asdict(selected).items():
+        candidates = [getattr(parameter, field) for parameter in parameters]
+        if value == min(candidates):
+            edges[field] = "min"
+        elif value == max(candidates):
+            edges[field] = "max"
+    return edges
+
+
+def run_phases(load, output, *, workers=1):
     """Read tuning and validation separately, after persisting the chosen grid point."""
+    if workers < 1:
+        raise ValueError("回放进程数须为正整数")
     parameters = candidate_parameters()
-    training, diagnostic = _phase_rows(load, TRAINING, parameters)
+    training, diagnostic = _phase_rows(load, TRAINING, parameters, workers=workers)
     paired = [row for row in training if row["excluded"] is None]
     if not paired:
         raise ValueError("选参段没有共同有效比赛")
@@ -292,10 +381,16 @@ def run_phases(load, output):
         fsum(_log_loss(row["rating_candidates"][i], row["actual"]) for row in paired) / len(paired)
         for i in range(len(parameters))
     ]
-    best = min(range(len(parameters)), key=losses.__getitem__)
+    best = min(range(len(parameters)), key=lambda index: (losses[index], parameters[index]))
     if not isfinite(losses[best]):
         raise ValueError("没有有限的网格 Log Loss")
     selection = output / "parameter-selection.json"
+    selected = parameters[best]
+    parameter_selection = dict(
+        selected=asdict(selected),
+        selected_draw_threshold=selected.draw_threshold,
+        grid_edges=_grid_edges(parameters, selected),
+    )
     _write_json(
         selection,
         dict(
@@ -306,7 +401,7 @@ def run_phases(load, output):
                 dict(parameters=asdict(parameter), log_loss=loss if isfinite(loss) else "Infinity")
                 for parameter, loss in zip(parameters, losses, strict=True)
             ],
-            selected=asdict(parameters[best]),
+            **parameter_selection,
             total=len(training),
             common=len(paired),
             excluded=dict(Counter(row["excluded"] for row in training if row["excluded"])),
@@ -314,9 +409,10 @@ def run_phases(load, output):
             rows=_write_rows(output / "tuning.jsonl", training),
         ),
     )
-    validation, diagnostic = _phase_rows(load, VALIDATION, (parameters[best],))
+    validation, diagnostic = _phase_rows(load, VALIDATION, (selected,), workers=workers)
     return dict(
         selection_sha256=_sha(selection),
+        parameter_selection=parameter_selection,
         validation=_validation(validation, diagnostic, output),
     )
 
@@ -362,7 +458,30 @@ def _prior_parameters(league, entry):
     return halves, calibration
 
 
-def _team_targets(session, phase, entries, diagnostics):
+def _evaluate_shard(games, options, target_ids):
+    report = evaluate(games, {}, **options, target_match_ids=target_ids)
+    return report["predictions"], report["folds"]
+
+
+def _official_predictions(games, eligible, options, league, phase, workers):
+    if workers == 1 or not options["target_leagues"]:
+        return _evaluate_shard(games, options, None)
+    folds = defaultdict(set)
+    for row in eligible.itertuples():
+        if row.kickoff_utc < row.available_utc < phase.end:
+            folds[evaluation_cutoff(row.kickoff_utc, league)].add(row.match_id)
+    if len(folds) < 2:
+        return _evaluate_shard(games, options, None)
+    predictions, diagnostics = [], []
+    solve = partial(_evaluate_shard, games, options)
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
+        for rows, details in pool.map(solve, [folds[cutoff] for cutoff in sorted(folds)]):
+            predictions.extend(rows)
+            diagnostics.extend(details)
+    return predictions, diagnostics
+
+
+def _team_targets(session, phase, entries, diagnostics, *, workers=1):
     targets = []
     for league, entry in entries.items():
         pool = configuration(league, entry)
@@ -396,12 +515,15 @@ def _team_targets(session, phase, entries, diagnostics):
                 archive_match_ids=sorted(row.match_id for row in archived),
             )
             continue
+        eligible = labels.loc[
+            labels.league.isin(leagues)
+            & (labels.kickoff_utc >= phase.start)
+            & (labels.kickoff_utc < phase.end)
+        ]
         forecasts, fitted_folds = {}, set()
         if phase is VALIDATION:
             halves, calibration = _prior_parameters(league, entry)
-            baseline = evaluate(
-                games,
-                {},
+            options = dict(
                 since=phase.start,
                 as_of=phase.end,
                 fold="weekly",
@@ -409,27 +531,23 @@ def _team_targets(session, phase, entries, diagnostics):
                     resolve_parameters(league, as_of=phase.end, params_file=PARAMETERS)[
                         "half_life_days"
                     ]
-                    if league == "欧国联"
+                    if league == NATIONS_LEAGUE
                     else 90
                 ),
-                unknown_team_prior=league != "欧国联",
+                unknown_team_prior=league != NATIONS_LEAGUE,
                 parameters_by_season=halves,
                 calibration_by_season=calibration,
                 target_leagues=pool["leagues"] if pool else None,
             )
-            fitted_folds = {
-                utc(fold["cutoff_utc"]) for fold in baseline["folds"] if fold["status"] == "fitted"
-            }
-            forecasts = {row["match_id"]: row for row in baseline["predictions"]}
+            predictions, folds = _official_predictions(
+                games, eligible, options, league, phase, workers
+            )
+            fitted_folds = {utc(fold["cutoff_utc"]) for fold in folds if fold["status"] == "fitted"}
+            forecasts = {row["match_id"]: row for row in predictions}
             diagnostics["official_folds"][league] = [
                 {key: fold[key] for key in ("cutoff_utc", "status", "eligible", "skipped")}
-                for fold in baseline["folds"]
+                for fold in folds
             ]
-        eligible = labels.loc[
-            labels.league.isin(leagues)
-            & (labels.kickoff_utc >= phase.start)
-            & (labels.kickoff_utc < phase.end)
-        ]
         for row in eligible.itertuples():
             cutoff = evaluation_cutoff(row.kickoff_utc, league)
             actual = None
@@ -498,7 +616,7 @@ def _rating_history_at(database, cutoff, leagues, diagnostics):
                 yield RatingResult.from_row(row)
 
 
-def _load_phase(database, phase, entries):
+def _load_phase(database, phase, entries, *, workers=1):
     diagnostics = dict(
         official_scope_failures={},
         official_folds={},
@@ -506,7 +624,7 @@ def _load_phase(database, phase, entries):
         rating_scope_failures=[],
     )
     with score_session(database, phase.end) as session:
-        matches = _team_targets(session, phase, entries, diagnostics)
+        matches = _team_targets(session, phase, entries, diagnostics, workers=workers)
         if phase is VALIDATION:
             targets = {
                 target
@@ -549,7 +667,7 @@ def _load_phase(database, phase, entries):
         )
     return (
         matches,
-        lambda cutoff: _rating_history_at(database, cutoff, leagues, diagnostics),
+        _ArchiveRatingHistory(database, leagues, diagnostics),
         diagnostics,
     )
 
@@ -575,10 +693,12 @@ def _check_inputs(archive, review_url, started):
     return recorded
 
 
-def run(archive, output, review_url):
+def run(archive, output, review_url, *, workers=1):
     from zucai.cloud_feeds import restore_feeds
 
     started = datetime.now(UTC)
+    if workers < 1:
+        raise ValueError("回放进程数须为正整数")
     protocol_committed = _check_inputs(archive, review_url, started)
     if output.resolve().is_relative_to(archive.resolve()):
         raise ValueError("回溯输出须放在归档副本以外的新目录")
@@ -595,12 +715,17 @@ def run(archive, output, review_url):
         reviewed_protocol_url=review_url,
         run_commit=_git("rev-parse", "HEAD").decode().strip(),
         started_utc=started.isoformat(),
+        workers=workers,
     )
     with TemporaryDirectory(prefix="t100-score-replay-") as working:
         database = Path(working) / "scores.db"
         restore_feeds(archive, database)
         provenance["database_sha256"] = _sha(database)
-        replay = run_phases(lambda phase: _load_phase(database, phase, entries), output)
+        replay = run_phases(
+            lambda phase: _load_phase(database, phase, entries, workers=workers),
+            output,
+            workers=workers,
+        )
         if _sha(database) != provenance["database_sha256"]:
             raise ValueError("回溯期间只读库发生变化")
     report = {**provenance, **replay, "finished_utc": datetime.now(UTC).isoformat()}
@@ -613,8 +738,10 @@ def main():
     parser.add_argument("--archive", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--review-url", required=True)
+    parser.add_argument("--workers", type=int, default=1, help="并行运行只读的回放截点")
     args = parser.parse_args()
-    run(args.archive, args.out, args.review_url)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    run(args.archive, args.out, args.review_url, workers=args.workers)
 
 
 if __name__ == "__main__":

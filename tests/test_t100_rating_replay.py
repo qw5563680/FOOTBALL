@@ -1,7 +1,9 @@
 import json
 import runpy
 from datetime import date, timedelta
+from importlib import import_module
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -11,7 +13,7 @@ from zucai.cloud_feeds import export_feeds, restore_feeds
 from zucai.db import get_engine, init_db
 from zucai.models import Match, Result, Team
 from zucai.predict.base import utc
-from zucai.predict.experiments.global_rating import RatingResult
+from zucai.predict.experiments.global_rating import RatingResult, candidate_parameters
 
 _RUNNER = runpy.run_path(Path(__file__).resolve().parents[1] / "examples/t100_rating_replay.py")
 TRAINING, VALIDATION = _RUNNER["TRAINING"], _RUNNER["VALIDATION"]
@@ -105,7 +107,7 @@ def test_tuning_is_frozen_before_holdout_and_common_cases_are_counted(tmp_path):
             return [_row("jc:training", "2025-02-02T12:00Z")], lambda _: history, {}
         assert phase is VALIDATION
         freeze = json.loads((tmp_path / "parameter-selection.json").read_text())
-        assert len(freeze["grid"]) == 36
+        assert len(freeze["grid"]) == 54
         assert freeze["common"] == 1
         return (
             [
@@ -122,7 +124,8 @@ def test_tuning_is_frozen_before_holdout_and_common_cases_are_counted(tmp_path):
     assert loaded == [TRAINING, VALIDATION]
     assert report["validation"]["overall"]["common"] == 2
     assert report["validation"]["default_strength"]["common"] == 1
-    assert set(report["validation"]["by_league"]) == {"英冠", "英超"}
+    assert set(report["validation"]["by_league"]) == {"英冠", "英超", "欧国联"}
+    assert report["validation"]["by_league"]["欧国联"]["common"] == 0
     assert report["validation"]["excluded"] == {
         "cutoff_before_parameter_freeze": 1,
         "rating_unavailable": 1,
@@ -134,7 +137,75 @@ def test_tuning_is_frozen_before_holdout_and_common_cases_are_counted(tmp_path):
     assert all("blend" not in row for row in rows)
 
 
-def test_restored_archive_replays_official_model_and_counts_unconfigured_only(tmp_path):
+def test_tied_candidates_follow_parameter_order_and_record_edges(tmp_path, monkeypatch):
+    def load_phase(phase):
+        if phase is TRAINING:
+            return [_row("jc:tuning", "2025-02-02T12:00Z")], lambda _: (), {}
+        return [], lambda _: (), {}
+
+    def equal_fits(_history, *, as_of, parameters):
+        snapshot = SimpleNamespace(
+            predict=lambda *_args, **_kwargs: SimpleNamespace(probabilities=(0.3, 0.4, 0.3)),
+        )
+        return (snapshot,) * len(parameters)
+
+    monkeypatch.setitem(
+        run_phases.__globals__, "candidate_parameters", lambda: candidate_parameters()[::-1]
+    )
+    monkeypatch.setitem(run_phases.__globals__, "fit_ratings", equal_fits)
+    report = run_phases(load_phase, tmp_path)
+    freeze = json.loads((tmp_path / "parameter-selection.json").read_text())
+    assert freeze["selected"] == {
+        "update_scale": 16,
+        "home_advantage": 35,
+        "logistic_scale": 150,
+        "draw_ratio": 0.5,
+    }
+    assert freeze["selected_draw_threshold"] == 75
+    assert freeze["grid_edges"] == {
+        "update_scale": "min",
+        "home_advantage": "min",
+        "logistic_scale": "min",
+        "draw_ratio": "min",
+    }
+    assert report["parameter_selection"]["grid_edges"] == freeze["grid_edges"]
+
+
+def test_whole_week_interval_is_descriptive_and_league_stays_separate(tmp_path):
+    rows = [
+        dict(
+            kickoff_utc="2026-07-06T12:00Z",
+            league="英超",
+            actual=0,
+            official=(0.8, 0.1, 0.1),
+            rating_candidates=[(0.4, 0.3, 0.3)],
+            excluded=None,
+            default_strength=False,
+        ),
+        dict(
+            kickoff_utc="2026-07-14T12:00Z",
+            league="欧国联",
+            actual=0,
+            official=(0.6, 0.2, 0.2),
+            rating_candidates=[(0.8, 0.1, 0.1)],
+            excluded=None,
+            default_strength=False,
+        ),
+    ]
+    report = _RUNNER["_validation"](rows, {}, tmp_path)
+    difference = report["overall"]["log_loss_difference"]
+    interval = report["overall"]["log_loss_bootstrap"]
+    assert interval["blocks"] == 2 and interval["replicates"] == 2000 and interval["seed"] == 3301
+    assert interval["interval"][0] < 0 < interval["interval"][1]
+    assert difference > 0.015 and report["gate"] == "stop"
+    assert report["by_league"]["欧国联"]["common"] == 1
+
+
+def test_restored_archive_replays_official_model_and_counts_unconfigured_only(
+    tmp_path, monkeypatch
+):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    runner = import_module("examples.t100_rating_replay")
     source = tmp_path / "source/scores.db"
     archive = tmp_path / "archive"
     archive.mkdir()
@@ -153,6 +224,7 @@ def test_restored_archive_replays_official_model_and_counts_unconfigured_only(tm
         fixtures.extend(
             [
                 ("jc:tuning", "英超", utc("2025-03-05T12:00Z")),
+                ("jc:tuning-next", "英超", utc("2025-03-12T12:00Z")),
                 ("jc:validation", "英超", utc("2026-07-15T12:00Z")),
                 ("jc:count-only", "英足总杯", utc("2026-07-15T12:00Z")),
             ]
@@ -184,7 +256,7 @@ def test_restored_archive_replays_official_model_and_counts_unconfigured_only(tm
     export_feeds(source, archive, date(2026, 11, 27), "fixture")
     restore_feeds(archive, restored)
     entries = {"英超": {"sources": ["jc"]}}
-    report = run_phases(lambda phase: _RUNNER["_load_phase"](restored, phase, entries), result)
+    report = runner.run_phases(lambda phase: runner._load_phase(restored, phase, entries), result)
     validation = report["validation"]
     assert validation["overall"]["common"] == 1
     assert validation["diagnostics"]["unconfigured_jc"] == {
@@ -194,6 +266,17 @@ def test_restored_archive_replays_official_model_and_counts_unconfigured_only(tm
     }
     row = json.loads((result / "validation.jsonl").read_text())
     assert row["match_id"] == "jc:validation"
-    assert row["actual"] == 1
+    assert row["actual"] == 0
     assert row["cutoff_utc"] == "2026-07-12T23:59:59.999999+00:00"
     assert row["official"] and row["rating"]
+    parallel = tmp_path / "parallel"
+    parallel.mkdir()
+    comparison = runner.run_phases(
+        lambda phase: runner._load_phase(restored, phase, entries, workers=2), parallel, workers=2
+    )
+    for name in ("tuning.jsonl", "validation.jsonl"):
+        assert (parallel / name).read_bytes() == (result / name).read_bytes()
+    assert comparison["parameter_selection"] == report["parameter_selection"]
+    assert comparison["validation"]["overall"] == validation["overall"]
+    tuning = json.loads((parallel / "parameter-selection.json").read_text())
+    assert tuning["diagnostics"]["rating_schedule"] == {"workers": 2, "folds": 2}

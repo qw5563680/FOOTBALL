@@ -1,5 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
+from itertools import product
+from math import tanh
 
 import pytest
 
@@ -7,12 +9,13 @@ from zucai.predict.experiments.global_rating import (
     RESULT_INPUT_FIELDS,
     RatingParameters,
     RatingResult,
+    RatingSnapshot,
     candidate_parameters,
     fit_ratings,
 )
 
 START = datetime(2025, 1, 1, tzinfo=UTC)
-PARAMETERS = RatingParameters(32, 0, 150, 55)
+PARAMETERS = RatingParameters(32, 0, 150, 0.5)
 
 
 def _game(match_id, home, away, *, league="英冠", score=(1, 0), starts=0, known=3):
@@ -144,13 +147,31 @@ def test_explicit_whitelist_and_candidate_grid_are_deterministic():
         "away_goals",
     }
     grid = candidate_parameters()
-    assert len(grid) == len(set(grid)) == 36
-    assert all(p.home_advantage > 0 for p in grid)
+    assert len(grid) == len(set(grid)) == 54
+    assert [
+        (p.update_scale, p.home_advantage, p.logistic_scale, p.draw_ratio) for p in grid
+    ] == list(product((16, 24, 32), (35, 65, 95), (150, 200), (0.5, 0.6, 0.7)))
     cutoff = START + timedelta(days=1)
     snapshots = fit_ratings([game], as_of=cutoff, parameters=grid)
     for params, snapshot in zip(grid, snapshots, strict=True):
         (single,) = fit_ratings([game], as_of=cutoff, parameters=(params,))
         assert _bytes(snapshot) == _bytes(single)
+
+
+@pytest.mark.parametrize("scale", [150, 200])
+@pytest.mark.parametrize("ratio", [0.5, 0.6, 0.7])
+def test_draw_probability_peaks_at_zero_home_adjusted_rating_gap(scale, ratio):
+    params = RatingParameters(24, 65, scale, draw_ratio=ratio)
+    snapshot = RatingSnapshot(params, START, {1: 1435, 2: 1500, 3: 1475, 4: 1525}, 0, None)
+    kickoff = START + timedelta(hours=1)
+    expected_draw = tanh(ratio / 2)
+    expected_win = (1 - expected_draw) / 2
+    assert params.draw_threshold == pytest.approx(ratio * scale)
+    assert snapshot.as_dict()["parameters"]["draw_ratio"] == ratio
+    balanced = snapshot.predict(1, 2, kickoff_utc=kickoff).probabilities
+    assert balanced == pytest.approx((expected_win, expected_draw, expected_win))
+    for away in (3, 4):
+        assert snapshot.predict(1, away, kickoff_utc=kickoff).probabilities[1] < expected_draw
 
 
 def test_repeated_result_id_is_not_counted_twice():

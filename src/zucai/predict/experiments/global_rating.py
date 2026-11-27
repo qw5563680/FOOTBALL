@@ -37,22 +37,27 @@ class RatingParameters:
     update_scale: float
     home_advantage: float
     logistic_scale: float
-    draw_threshold: float
+    draw_ratio: float
 
     def __post_init__(self):
         if (
             not all(isfinite(value) for value in asdict(self).values())
-            or min(self.update_scale, self.logistic_scale, self.draw_threshold) <= 0
+            or min(self.update_scale, self.logistic_scale, self.draw_ratio) <= 0
+            or not isfinite(self.draw_threshold)
             or self.home_advantage < 0
         ):
-            raise ValueError("跨联赛评分参数须为有限值，更新幅度、斜率尺度与平局区间须为正数")
+            raise ValueError("跨联赛评分参数须为有限值，更新幅度、斜率尺度与平局比例须为正数")
+
+    @property
+    def draw_threshold(self) -> float:
+        return self.draw_ratio * self.logistic_scale
 
 
 def candidate_parameters() -> tuple[RatingParameters, ...]:
-    """Return the preregistered grid in (K, H, S, D) tie-break order."""
+    """Return the preregistered grid in (K, H, S, r) tie-break order."""
     return tuple(
         RatingParameters(*values)
-        for values in product((16, 24, 32), (35, 65, 95), (150, 200), (55, 90))
+        for values in product((16, 24, 32), (35, 65, 95), (150, 200), (0.5, 0.6, 0.7))
     )
 
 
