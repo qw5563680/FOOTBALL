@@ -23,7 +23,7 @@ from zucai.predict.base import (
     utc,
 )
 from zucai.predict.calibration import fit_draw_offset
-from zucai.predict.pooled import select_training_history
+from zucai.predict.pooled import POOL, configuration, connected_history, select_training_history
 from zucai.predict.pooled_fit import FITTING_METHOD, fit_pooled_engine
 from zucai.result_source_links import _canonical_team
 
@@ -53,7 +53,10 @@ class DixonColes(Model):
 
     def fit(self, history: pd.DataFrame, *, as_of: datetime) -> Self:
         cutoff = utc(as_of)
-        if not getattr(self, "pooled", False) and history.league.nunique() > 1:
+        pooled = getattr(self, "pooled", False)
+        pool_name = history.attrs.get("pool_name", POOL) if pooled else None
+        configured_pool = pooled and pool_name != POOL
+        if not pooled and history.league.nunique() > 1:
             raise ValueError("每个模型须指定一个联赛，不能混合多个联赛")
         sources = model_sources(
             {"sources": history.attrs.get("sources", sorted(history.source.unique()))}
@@ -63,7 +66,7 @@ class DixonColes(Model):
         if not history.attrs.get("linked_source_selection"):
             reject_cross_source_overlaps(history)
         eligible = select_training_history(history, cutoff)
-        if getattr(self, "pooled", False) and "training_leagues" in history.attrs:
+        if pooled and "training_leagues" in history.attrs:
             declared = history.attrs["training_leagues"]
             if (
                 not isinstance(declared, (list, tuple, set))
@@ -71,6 +74,17 @@ class DixonColes(Model):
                 or not set(eligible.league).issubset(declared)
             ):
                 raise ValueError("可用训练联赛超出声明的训练联赛范围")
+        if configured_pool:
+            pool = configuration(
+                pool_name,
+                dict(
+                    pooled=True,
+                    leagues=history.attrs.get("prediction_leagues"),
+                    training_leagues=history.attrs.get("training_leagues"),
+                ),
+            )
+            if not connected_history(eligible):
+                raise InsufficientHistory(f"{pool_name} 的已知实际对阵不连通，无法评估球队间实力")
         teams = set(eligible.home) | set(eligible.away)
         if len(teams) < 2 or len(eligible) < 2 * len(teams) + 1:
             raise InsufficientHistory("截点前可用赛果不足以拟合球队参数")
@@ -148,6 +162,10 @@ class DixonColes(Model):
         )
         self.latest_available = eligible.available_utc.max()
         self.league = "欧战" if getattr(self, "pooled", False) else eligible.league.iloc[0]
+        if configured_pool:
+            self.league = pool_name
+            self.prediction_leagues = pool["leagues"]
+            self.unknown_team_prior = False
         if getattr(self, "pooled", False):
             self.training_leagues = {
                 league: int(count)
@@ -188,6 +206,12 @@ class DixonColes(Model):
             raise ValueError("模型截点必须早于开球")
         sfc_only = row.get("sfc_only") is True
         if (
+            getattr(self, "pooled", False)
+            and self.league != POOL
+            and row.get("league") not in self.prediction_leagues
+        ):
+            raise ValueError(f"该赛事不在{self.league}的目标赛事内")
+        if (
             not getattr(self, "pooled", False) and row.get("league", self.league) != self.league
         ) or ("source" in row and row["source"] not in fixture_sources(self, sfc_only=sfc_only)):
             raise ValueError("联赛或数据来源与模型不一致")
@@ -199,6 +223,8 @@ class DixonColes(Model):
         home_unknown = force_home or home not in self.teams
         away_unknown = force_away or away not in self.teams
         unknown = home_unknown or away_unknown
+        if unknown and getattr(self, "pooled", False) and self.league != POOL:
+            raise InsufficientHistory(f"{self.league} 缺少球队已核实的对阵连接：{home} / {away}")
         if unknown and not getattr(self, "unknown_team_prior", False):
             raise InsufficientHistory(f"模型缺少球队历史记录：{home} / {away}")
         if home == away:

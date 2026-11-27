@@ -27,7 +27,7 @@ from zucai.predict.hafu_share import (
     ht_outcome_from_scores,
     share_from_rows,
 )
-from zucai.predict.pooled import POOL_FITTING_METHOD, select_training_history
+from zucai.predict.pooled import POOL, POOL_FITTING_METHOD, select_training_history
 from zucai.predict.seasons import (
     parse_seasons,
     season_bounds,
@@ -490,7 +490,7 @@ def evaluate(
     pooled = target_leagues is not None
     if history.empty or (not pooled and history.league.nunique() != 1):
         raise ValueError("评估须指定有历史的单一联赛")
-    league = "欧战" if pooled else history.league.iloc[0]
+    league = history.attrs.get("pool_name", POOL) if pooled else history.league.iloc[0]
     selected = parse_seasons(seasons, league)
     start = (
         utc(since)
@@ -595,7 +595,8 @@ def evaluate(
                 solver_diagnostics=model.solver_diagnostics,
             )
             LOG.info(
-                "欧战 %s %s：训练 %d 场，评估 %d 场，半衰期 %s",
+                "%s %s %s：训练 %d 场，评估 %d 场，半衰期 %s",
+                league,
                 season,
                 boundary,
                 model.training_rows,
@@ -790,4 +791,6 @@ def evaluate(
                 for name in target_leagues
             },
         )
+        if "pool_name" in history.attrs:
+            result["pool_name"] = league
     return result
