@@ -9,7 +9,7 @@ def _country(country, *, path="illustrative-evidence-a", sha256="1" * 64):
     return {"country": country, "path": path, "sha256": sha256}
 
 
-def _verdict(teams, country_proofs, *, competition="3"):
+def _verdict(teams, country_proofs, *, competition="3", category=None):
     facts = {
         "teams": {
             f"project-team:{tid}": dict(
@@ -29,7 +29,7 @@ def _verdict(teams, country_proofs, *, competition="3"):
     return _existing_team_verdict(
         facts,
         tables,
-        {"official_team_id": "508", "name": "候选球队"},
+        {"official_team_id": "508", "name": "候选球队", "category": category},
         "jc-team:508",
         configs={
             code: {"league": league}
@@ -118,8 +118,19 @@ def test_domestic_verdict_ignores_team_country_and_keeps_existing_output(teams, 
     assert _verdict(teams, {"102": [_country("Spain")]}, competition="39") == existing
 
 
-def test_production_default_retains_existing_world_scope_before_data_activation():
-    verdict = _verdict([(8, "异国队", "西甲")], None)
-    assert verdict["status"] == "pending_review"
-    assert verdict["basis"] == "unverified_same_country_fd_teams"
-    assert "provider_team_country" not in verdict
+def test_national_candidate_retains_previous_international_competition_verdict():
+    teams = [(8, "异国队", "西甲")]
+    category = "national/men/senior/standard"
+    previous = _verdict(teams, None, category=category)
+    assert previous["status"] == "pending_review"
+    assert _verdict(teams, {}, category=category) == previous
+    assert _verdict(teams, {"102": [_country("Spain")]}, category=category) == previous
+
+
+def test_hyphenated_and_spaced_spellings_are_one_country():
+    verdict = _verdict(
+        [],
+        {"102": [_country("Czech-Republic"), _country("Czech Republic", path="source-b")]},
+    )
+    assert verdict["status"] == "new"
+    assert len(verdict["provider_team_country"]["evidence"]) == 2

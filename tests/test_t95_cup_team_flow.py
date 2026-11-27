@@ -11,6 +11,7 @@ import pytest
 
 from test_t68_identity_archive_entry import CAPTURED, raw
 from test_t68_jc_kickoffs import catalogue, save_json
+from test_t99_country_evidence import seal_country_crops
 from zucai import cloud_feeds, identity_binding_archive, identity_canonical
 from zucai import jc_catalogue_kickoffs as kickoffs
 from zucai.db import get_engine, init_db
@@ -28,7 +29,7 @@ OWNER = {
 }
 TEAM_LABELS = ("合成新甲", "合成新乙", "合成既有甲", "合成既有乙")
 JC_TEAM_IDS = (991001, 991002, 991003, 991004)
-PROVIDER_IDS = (992001, 992002, 992003, 992004)
+PROVIDER_IDS = (254, 397, 992003, 992004)
 
 
 def _season_original(root, code, fixtures):
@@ -213,6 +214,8 @@ def test_verified_cup_archive_can_apply_approvals_and_merge_stock(
 
     _official_heads(seed.parent, ids, fixtures)
     cloud_feeds.export_feeds(seed, archive, DAY, "with-clocks")
+    # T99 requires authenticated country proof before creating a cross-border identity.
+    seal_country_crops(archive)
     plan = tmp_path / "plan.json"
     identity_canonical.main(
         ["plan", "--archive", str(archive), "--codes", code, "--out", str(plan)]

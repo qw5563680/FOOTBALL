@@ -229,6 +229,10 @@ def _fd_only_leagues_in_country(tables, facts, configs, countries, candidate_cod
     return sorted({row["league"] for row in blockers})
 
 
+def _country_key(country):
+    return " ".join(country.casefold().replace("-", " ").split()) if country else ""
+
+
 def _fd_only_teams_in_country(
     tables, facts, configs, countries, candidate_country, *, keep_international_placeholders=False
 ):
@@ -284,12 +288,12 @@ def _fd_only_teams_in_country(
                 and country in INTERNATIONAL_COUNTRIES
                 and re.fullmatch(r"fdorg:team:[1-9][0-9]*", name)
             )
-            if (
-                international
-                or country is None
-                or country == candidate_country
-                or is_international_placeholder
-            ):
+            same_country = (
+                _country_key(country) == _country_key(candidate_country)
+                if keep_international_placeholders
+                else country == candidate_country
+            )
+            if international or not country or same_country or is_international_placeholder:
                 blockers.append(
                     dict(project_team_id=tid, name=name, league=league, country=country)
                 )
@@ -299,23 +303,24 @@ def _fd_only_teams_in_country(
 def _country_creation_verdict(tables, facts, configs, countries, provider_id, country_proofs):
     """Evaluate already authenticated, normalized country proof for one witnessed provider ID."""
     evidence = sorted(country_proofs.get(provider_id, ()), key=_json)
-    observed = set()
+    observed = {}
     for proof in evidence:
         value = proof.get("country")
         country = value.strip() if isinstance(value, str) else ""
         path, digest = proof.get("path"), proof.get("sha256")
+        key = _country_key(country)
         if (
-            not country
-            or country in INTERNATIONAL_COUNTRIES
+            not key
+            or key in {"world", "international", "europe"}
             or not isinstance(path, str)
             or not path
             or not isinstance(digest, str)
             or not re.fullmatch(r"[0-9a-f]{64}", digest)
         ):
-            observed.add(None)
+            observed[None] = None
         else:
-            observed.add(country)
-    country = next(iter(observed)) if len(observed) == 1 else None
+            observed.setdefault(key, country)
+    country = next(iter(observed.values())) if len(observed) == 1 else None
     blockers = _fd_only_teams_in_country(
         tables, facts, configs, countries, country, keep_international_placeholders=True
     )
@@ -438,9 +443,12 @@ def _existing_team_verdict(
                 "关联并补编号证据，不是新建。"
             ),
         )
-    # None retains the established rule until the archive reader can verify the actual source.
-    # An explicit empty index means the source was checked and has no usable country proof.
-    if country_proofs is not None and countries.get(str(code)) in INTERNATIONAL_COUNTRIES:
+    # The /teams probe concerns clubs. Existing national teams retain their competition rule.
+    if (
+        country_proofs is not None
+        and countries.get(str(code)) in INTERNATIONAL_COUNTRIES
+        and not (team.get("category") or "").startswith("national/")
+    ):
         return _country_creation_verdict(
             tables, facts, configs, countries, provider_id, country_proofs
         )
@@ -466,11 +474,21 @@ def _existing_team_verdict(
     )
 
 
-def _verdict_context(facts, tables, registry):
-    configs = _import_configs(registry)
+def _verdict_context(facts, registry, archive, codes):
+    from zucai.identity_team_countries import load_team_countries
+
     countries = _country_by_code(registry)
-    index = _binding_index(facts)
-    return configs, countries, index, official_witness(facts)
+    return dict(
+        configs=_import_configs(registry),
+        countries=countries,
+        index=_binding_index(facts),
+        witness=official_witness(facts),
+        country_proofs=(
+            load_team_countries(archive)
+            if any(countries.get(code) in INTERNATIONAL_COUNTRIES for code in codes)
+            else None
+        ),
+    )
 
 
 def propose(archive, *, codes=None):
@@ -484,7 +502,7 @@ def propose(archive, *, codes=None):
         raise ValueError("Creation proposals require verified catalogue routes")
     facts = load_archive(archive, leagues=codes)
     tables, _ = _tables(archive)
-    configs, countries, index, witness = _verdict_context(facts, tables, registry)
+    context = _verdict_context(facts, registry, archive, codes)
     rows = [
         (key, team)
         for key, team in sorted(facts["teams"].items())
@@ -496,10 +514,7 @@ def propose(archive, *, codes=None):
             tables,
             team,
             key,
-            configs=configs,
-            countries=countries,
-            index=index,
-            witness=witness,
+            **context,
         )
         for key, team in rows
     }
@@ -516,10 +531,7 @@ def propose(archive, *, codes=None):
                 tables,
                 team,
                 key,
-                configs=configs,
-                countries=countries,
-                index=index,
-                witness=witness,
+                **context,
             )
         if verdict.get("basis") == SAME_CLUB_BASIS and str(verdict["project_team_id"]) != str(
             team.get("project_team_id") or ""
@@ -776,9 +788,7 @@ def apply_approvals(database, archive, approvals):
     if not isinstance(codes, list) or not codes or not set(codes) <= allowed:
         raise ValueError("Creation decision route scope invalid")
     facts = load_archive(archive, leagues=codes)
-    verdict_configs, verdict_countries, verdict_index, verdict_witness = _verdict_context(
-        facts, tables, registry
-    )
+    context = _verdict_context(facts, registry, archive, codes)
     verdicts = {}
     for key, team in facts["teams"].items():
         if key.startswith("jc-team:") and team.get("official_team_id"):
@@ -787,10 +797,7 @@ def apply_approvals(database, archive, approvals):
                 tables,
                 team,
                 key,
-                configs=verdict_configs,
-                countries=verdict_countries,
-                index=verdict_index,
-                witness=verdict_witness,
+                **context,
             )
     audit = database.parent / RECEIPTS
     before = audit.read_bytes() if audit.exists() else None
@@ -828,10 +835,7 @@ def apply_approvals(database, archive, approvals):
                 tables,
                 team,
                 "jc-team:" + decision["official_team_id"],
-                configs=verdict_configs,
-                countries=verdict_countries,
-                index=verdict_index,
-                witness=verdict_witness,
+                **context,
             )
         if verdict["status"] != "new":
             raise ValueError(

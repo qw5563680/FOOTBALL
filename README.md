@@ -110,7 +110,8 @@ T99 的欧战球队列表探测由所有者批准后交 DeepSeek。在 Football 
 `operation=probe`，填 `options={"probe_kind":"team-countries"}`，`leagues` 和 `seasons` 留空。
 `python -m zucai.cloud_feeds probe --probe-kind team-countries --archive ../cloud-data --run-id RUN_ID`
 只读取欧罗巴、欧协联当前赛季的球队列表，各尝试一次。运行摘要列实际请求数、原件路径和 SHA-256。
-国家字段待正式原件核实，建档继续使用现有规则。
+建档计划和批准执行都按接口球队编号核对已归档的国家字段。缺失或不一致时保持待核。
+11 支球队的回放和仍需确认的欧冠占位球队见 [T99 核对结果](reports/t99-cup-team-creation/README.md)。
 
 T68 当月补充页面由审查者在同一自托管 Actions（沿用 jc-catalogue 的运行器与所有者本机代理）以
 `operation=probe`、`options={"probe_kind":"jc-supplement","max_requests":5}` 触发：
