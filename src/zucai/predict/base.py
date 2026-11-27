@@ -49,7 +49,7 @@ def _is_pooled(model) -> bool:
 
 
 def fixture_sources(model, *, sfc_only=False) -> list[str]:
-    """Sources whose fixtures a model may forecast.
+    """Fixed sources whose fixtures a model may forecast.
 
     Its training sources and the lottery list's own fixtures for a single-league
     model or an explicitly scoped SFC row. The latter are never training inputs.
@@ -61,11 +61,19 @@ def fixture_sources(model, *, sfc_only=False) -> list[str]:
 
 
 def report_fixture_sources(model, *, sfc_only=False) -> list[str]:
-    """Keep the ordinary pooled report scope while registering all eligible SFC sources."""
+    """Register the model's fixed fixture sources for each report scope."""
     sources = fixture_sources(model, sfc_only=sfc_only)
     if not sfc_only and _is_pooled(model):
         return [source for source in sources if source == "jc"]
     return sources
+
+
+def allows_fixture_source(model, source, *, sfc_only=False, for_report=False) -> bool:
+    """Check an actual fixture source, including rows mapped from the SFC list."""
+    registered_sources = report_fixture_sources if for_report else fixture_sources
+    return source in registered_sources(model, sfc_only=sfc_only) or (
+        sfc_only and not _is_pooled(model) and isinstance(source, str) and bool(source.strip())
+    )
 
 
 def reject_cross_source_overlaps(frame: pd.DataFrame) -> None:

@@ -28,7 +28,7 @@ from zucai.pick_nine import (
     optimize_pick_nine,
     validate_pick_nine_budget,
 )
-from zucai.predict.base import report_fixture_sources
+from zucai.predict.base import allows_fixture_source
 from zucai.predict.model_definitions import (
     EXPERIMENTAL_LEAGUES,
     FROZEN_DEFINITION_FIELDS,
@@ -252,13 +252,6 @@ def build_sfc_report(
     if len(predictions) != len(batch["predictions"]):
         raise ValueError("冻结批次包含重复比赛ID")
     as_of, forecast_time = _timestamp(batch["as_of_utc"]), _timestamp(batch["generated_utc"])
-    models = {
-        (m["model_version"], source, league, sfc_only): m
-        for m in batch["models"]
-        for sfc_only in (False, True)
-        for source in report_fixture_sources(m, sfc_only=sfc_only)
-        for league in model_targets(m)
-    }
     pending_pairs = load_pending_identities()
     for row in rows:
         mapping_reason = row.get("reason") or row.get("mapping", "unmatched")
@@ -332,13 +325,20 @@ def build_sfc_report(
         elif batch["mode"] == "prematch" and forecast_time >= _timestamp(row["kickoff_utc"]):
             row["reason"] = "该预测在开赛后生成，不能算赛前实录"
         else:
-            model = models.get(
+            model = next(
                 (
-                    predicted["model_version"],
-                    match.source,
-                    match.league,
-                    predicted.get("sfc_only") is True,
-                )
+                    model
+                    for model in reversed(batch["models"])
+                    if model["model_version"] == predicted["model_version"]
+                    and match.league in model_targets(model)
+                    and allows_fixture_source(
+                        model,
+                        match.source,
+                        sfc_only=predicted.get("sfc_only") is True,
+                        for_report=True,
+                    )
+                ),
+                None,
             )
             if (
                 not model

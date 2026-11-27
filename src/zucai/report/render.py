@@ -12,7 +12,7 @@ from pathlib import Path
 
 from zucai.market_blend import MODEL_NAME as BLEND_MODEL_NAME
 from zucai.market_blend import validate_frozen_blend
-from zucai.predict.base import fixture_sources, model_sources, report_fixture_sources
+from zucai.predict.base import allows_fixture_source, model_sources, report_fixture_sources
 from zucai.predict.hafu_share import HAFU_LABELS, HAFU_SELECTIONS, HAFU_TIER_LABELS
 from zucai.predict.model_definitions import (
     FROZEN_DEFINITION_FIELDS,
@@ -119,7 +119,7 @@ def _validate_prediction_definition(prediction, models, *, definition_schema=Non
         and prediction.get("league") in model_targets(model)
         and (
             prediction.get("status") == "excluded"
-            or prediction.get("source") in fixture_sources(model, sfc_only=sfc_only)
+            or allows_fixture_source(model, prediction.get("source"), sfc_only=sfc_only)
         )
     ]
     compatible = [
@@ -281,8 +281,12 @@ def _validate_batch(batch: object, *, allow_unknown_odds_time: bool = False) -> 
                 for m in batch["models"]
                 if m["model_version"] == prediction["model_version"]
                 and prediction["league"] in model_targets(m)
-                and prediction["source"]
-                in report_fixture_sources(m, sfc_only=prediction.get("sfc_only") is True)
+                and allows_fixture_source(
+                    m,
+                    prediction["source"],
+                    sfc_only=prediction.get("sfc_only") is True,
+                    for_report=True,
+                )
             ]
             if (
                 len(matched) != 1
