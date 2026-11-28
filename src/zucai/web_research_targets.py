@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -10,14 +11,22 @@ from zucai.digest_context import _table, audit_rows, jc_digest_batch
 from zucai.forecast_archive import _path, verify_forecasts
 from zucai.forecast_publication import publication_times
 from zucai.report.render import load_batch
+from zucai.result_source_links import RESULT_LINK_FILE, _validate_claims
 from zucai.scoreboard.score import frozen_market, instant
+from zucai.sources.football_data import CONFIG_ROOT, read_json
 from zucai.sources.sporttery import BEIJING
-from zucai.sources.sporttery_aliases import approved_canonical, load_aliases
-from zucai.sources.teams import normalize_team
+from zucai.sources.sporttery_aliases import (
+    NATIONAL_TEAM_COMPETITIONS,
+    approved_canonical,
+    load_aliases,
+)
+from zucai.web_research_identity import exact_name, squad_markers
 
 SIDES = ("home", "away")
 OUTCOMES = frozenset("hda")
 SOURCE_ORDER = {"jc": 0, "fd": 1, "fdorg": 2, "apif": 3, "c500": 4}
+ARCHIVED_BINDING = re.compile(r"(?:(jc):team:|(apif|fdorg):([^:]+):team:)([1-9][0-9]*)")
+MATCH_PROOF_FIELDS = ("league", "home_team_id", "away_team_id")
 
 
 def _selling(archive, feed, now):
@@ -51,9 +60,9 @@ def _name_matches(row, side, team, aliases):
     if not raw.strip():
         return False
     wanted = approved_canonical(aliases, row["league"], raw) or raw
-    expected = normalize_team(wanted).casefold()
+    expected = exact_name(wanted)
     return any(
-        normalize_team(name).casefold() == expected
+        exact_name(name) == expected
         for name in [team["name"], *json.loads(team["aliases"] or "[]")]
     )
 
@@ -227,6 +236,198 @@ def _odds(archive, feed, identities, now):
     return found
 
 
+def _identity_alias_config():
+    paths = {
+        "apif": "api_football.json",
+        "fd": "football_data_co_uk.json",
+        "fdorg": "football_data_org.json",
+    }
+    return {
+        "jc": load_aliases(),
+        **{
+            source: read_json(CONFIG_ROOT / "team_aliases" / name) for source, name in paths.items()
+        },
+    }
+
+
+def _scope_matches_squad(label, team_name, scope):
+    if category := scope.get("category"):
+        _, sex, age, squad = category.split("/")
+        for name in (label, team_name):
+            women, youth, reserve = squad_markers(name)
+            if (
+                (women and sex != "women")
+                or (youth and (age == "senior" or youth not in {"youth", age.removeprefix("U")}))
+                or (reserve and squad != "reserve")
+            ):
+                return False
+        return True
+    return squad_markers(label) == squad_markers(team_name)
+
+
+def _known_alias(entry, now, archived):
+    if approval := entry.get("approved_utc"):
+        return instant(approval) <= now
+    if archived or entry["status"] != "auto_verified":
+        return archived
+    witnessed = [
+        instant(row[field])
+        for row in entry.get("evidence", ())
+        if isinstance(row, dict)
+        for field in ("fetched_at_utc", "seen_utc", "created_utc")
+        if row.get(field)
+    ]
+    return bool(witnessed) and min(witnessed) <= now
+
+
+def _verified_fixture_groups(archive, feed, matches, now):
+    if RESULT_LINK_FILE not in feed["files"]:
+        return {}
+    columns = feed["result_source_links"]["columns"]
+    links = []
+    with _path(archive, RESULT_LINK_FILE).open(encoding="utf-8") as stream:
+        for line in stream:
+            proof = dict(zip(columns, json.loads(line), strict=True))
+            if instant(proof["verified_utc"]) > now:
+                continue
+            left, right = proof["provider_match_id"], proof["counterpart_id"]
+            # Keep only still-current identity and kickoff observations, as in load_result_links.
+            if any(
+                key not in matches
+                or any(matches[key][field] != proof[field] for field in MATCH_PROOF_FIELDS)
+                or instant(matches[key]["kickoff_utc"]) != instant(proof[stamp])
+                for key, stamp in (
+                    (left, "provider_kickoff_utc"),
+                    (right, "counterpart_kickoff_utc"),
+                )
+            ):
+                continue
+            links.append((left, right))
+    _validate_claims(links)
+    groups = {}
+    for left, right in links:
+        members = groups.get(left, {left}) | groups.get(right, {right})
+        for key in members:
+            groups[key] = members
+    return groups
+
+
+def _identity_context(
+    match,
+    history,
+    teams,
+    matches,
+    league_teams,
+    groups,
+    config,
+    snapshot,
+    now,
+    pair_fixtures,
+    hashes,
+):
+    def fixture(key):
+        current = matches[key]
+        return {
+            "id": key,
+            **{field: current[field] for field in MATCH_PROOF_FIELDS},
+            "kickoff_utc": instant(current["kickoff_utc"]).isoformat(),
+            "fixture_ids": sorted(groups.get(key, {key})),
+        }
+
+    target = {field: match[field] for field in ("match_id", "kickoff_utc", *MATCH_PROOF_FIELDS)}
+    keys = {match["match_id"], *(r["match_id"] for rows in history.values() for r in rows)}
+    if snapshot is not None:
+        keys.update(pair_fixtures)
+    fixtures = [fixture(key) for key in sorted(keys)]
+    leagues = {row["league"] for row in fixtures}
+    memberships = defaultdict(set)
+    if snapshot is not None:
+        for league in leagues:
+            for team_id in league_teams[league]:
+                memberships[team_id].add(league)
+    else:
+        for row in fixtures:
+            for side in SIDES:
+                memberships[row[f"{side}_team_id"]].add(row["league"])
+
+    registry = []
+    for source, competitions in config.items():
+        for league, entries in competitions.items():
+            for key, entry in entries.items():
+                label = key if source in {"fd", "jc"} else entry.get("name")
+                provider_id = (
+                    key
+                    if source in {"apif", "fdorg"} and re.fullmatch(r"[1-9][0-9]*", key)
+                    else None
+                )
+                registry.append((source, league, label, provider_id, entry))
+    scoped_names = {exact_name(label) for _, _, label, _, _ in registry if label}
+    scoped_ids = {(source, league, value) for source, league, _, value, _ in registry if value}
+    canonical = defaultdict(list)
+    for row in teams.values():
+        canonical[exact_name(row["name"])].append(row["id"])
+    by_team = defaultdict(list)
+    for source, league, label, provider_id, entry in registry:
+        if entry.get("status") not in {"approved", "auto_verified"}:
+            continue
+        owners = canonical.get(exact_name(entry["canonical"]) if entry.get("canonical") else "")
+        if owners and len(owners) == 1 and owners[0] in memberships:
+            by_team[owners[0]].append((source, league, label, provider_id, entry))
+
+    identities = []
+    for team_id, competitions in sorted(memberships.items()):
+        team = teams[team_id]
+        raw_aliases = set(json.loads(team["aliases"] or "[]")) if snapshot is not None else set()
+        aliases, provider_ids = [], []
+        for name in sorted(raw_aliases):
+            binding = ARCHIVED_BINDING.fullmatch(name)
+            if binding:
+                jc, provider, league, identifier = binding.groups()
+                for scope in sorted(competitions if jc else competitions & {league}):
+                    if (provider or "jc", scope, identifier) not in scoped_ids:
+                        provider_ids.append(
+                            dict(id=identifier, league=scope, source=jc or provider)
+                        )
+            elif (
+                ":team:" not in name
+                and exact_name(name) not in scoped_names
+                and _scope_matches_squad(name, team["name"], {})
+            ):
+                aliases.extend(
+                    dict(name=name, league=league, source=None) for league in sorted(competitions)
+                )
+        for source, league, label, provider_id, entry in by_team[team_id]:
+            scope = entry.get("binding_scope", {})
+            if provider_id and scope and league not in scope["leagues"]:
+                continue
+            permitted = set(scope.get("leagues", (league,)))
+            if source == "jc" and entry.get("scope") == "national_team":
+                permitted = NATIONAL_TEAM_COMPETITIONS
+            binding = f"{source}:{league}:team:{provider_id}"
+            if not _known_alias(entry, now, label in raw_aliases or binding in raw_aliases):
+                continue
+            if label and not _scope_matches_squad(label, team["name"], scope):
+                continue
+            dates = {key: scope[key] for key in ("start_utc", "end_utc") if key in scope}
+            for competition in sorted(competitions & permitted):
+                if label:
+                    aliases.append(dict(name=label, source=source, league=competition, **dates))
+                if provider_id:
+                    provider_ids.append(
+                        dict(id=provider_id, source=source, league=competition, **dates)
+                    )
+        identities.append(
+            dict(id=team_id, name=team["name"], aliases=aliases, provider_ids=provider_ids)
+        )
+    return {
+        "target": target,
+        "teams": identities,
+        "fixtures": fixtures,
+        "snapshot_utc": snapshot,
+        "snapshot_hashes": hashes if snapshot else {},
+    }
+
+
 def select(archive, now, *, forecast_run_id=None):
     """Find officially selling, unstarted JC fixtures with a valid published TEAM prediction."""
     archive, now = Path(archive), instant(now)
@@ -247,6 +448,26 @@ def select(archive, now, *, forecast_run_id=None):
     team_ids = {match[f"{side}_team_id"] for match in identities.values() for side in SIDES}
     history = _recent(archive, feed, matches, team_ids, teams, now)
     odds = _odds(archive, feed, identities, now)
+    snapshot = feed.get("created_utc")
+    if not snapshot or instant(snapshot) > now:
+        snapshot = None
+    league_teams = defaultdict(set)
+    pair_fixtures = defaultdict(list)
+    target_pairs = {
+        frozenset(row[f"{side}_team_id"] for side in SIDES) for row in identities.values()
+    }
+    for row in matches.values():
+        pair = frozenset(row[f"{side}_team_id"] for side in SIDES)
+        league_teams[row["league"]].update(pair)
+        if pair in target_pairs and row["status"] != "cancelled":
+            pair_fixtures[pair].append(row["match_id"])
+    hashes = {
+        key: feed["files"][key]
+        for key in ("state/teams.jsonl", "state/matches.jsonl", RESULT_LINK_FILE)
+        if key in feed["files"]
+    }
+    groups = _verified_fixture_groups(archive, feed, matches, now) if snapshot else {}
+    config = _identity_alias_config()
     targets = []
     for key, match in sorted(
         identities.items(), key=lambda item: (instant(item[1]["kickoff_utc"]), item[0])
@@ -276,6 +497,19 @@ def select(archive, now, *, forecast_run_id=None):
                 **evidence,
                 "material": material,
                 "verification_recent": team_history,
+                "identity_context": _identity_context(
+                    match,
+                    team_history,
+                    teams,
+                    matches,
+                    league_teams,
+                    groups,
+                    config,
+                    snapshot,
+                    now,
+                    pair_fixtures[frozenset(match[f"{side}_team_id"] for side in SIDES)],
+                    hashes,
+                ),
                 "model_probabilities": prediction["model_probabilities"],
                 "market_probabilities": market["probabilities"] if market else None,
             }

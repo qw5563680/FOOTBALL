@@ -11,7 +11,15 @@ from zucai.web_research_provider import DeepSeek, ProviderError
 FIXTURES = Path(__file__).resolve().parents[1] / "data" / "fixtures" / "t70"
 URL = "https://api.deepseek.com/chat/completions"
 TEST_KEY = "synthetic-credential-not-production"
-MATERIAL = {"match_id": "jc:1", "jc_num": "周五001", "home": "主队", "away": "客队", "recent": []}
+MATERIAL = {
+    "match_id": "jc:1",
+    "jc_num": "周五001",
+    "league": "测试联赛",
+    "home": "主队",
+    "away": "客队",
+    "kickoff_beijing": "2026-11-27T19:00:00+08:00",
+    "recent": [{"match_id": "jc:2"}],
+}
 
 
 def fixture(stage):
@@ -32,7 +40,15 @@ def test_two_distinct_request_stages_preserve_response_evidence(provider):
     prompt = "提示词原文。"
 
     first = provider.research(prompt, MATERIAL)
-    second = provider.structure(first.text, MATERIAL)
+    structure_material = {
+        **MATERIAL,
+        "kickoff_utc": "2026-11-27T11:00:00Z",
+        "odds": {"h": 1.6, "d": 3.5, "a": 5.2},
+        "odds_snapshot_utc": "2026-11-27T09:00:00Z",
+        "home_team_id": 99,
+        "identity_evidence": {"aliases": ["临时队名"]},
+    }
+    second = provider.structure(first.text, structure_material)
 
     assert len(responses.calls) == 2
     first_request, second_request = (call.request for call in responses.calls)
@@ -63,7 +79,14 @@ def test_two_distinct_request_stages_preserve_response_evidence(provider):
     assert "逐字沿用" in instructions and "不得自行扩充俱乐部全称" in instructions
     assert json.loads(second_params["messages"][1]["content"]) == {
         "report": first.text,
-        "target_numbers": {"match_id": "jc:1", "jc_num": "周五001"},
+        "target_identity": {
+            "match_id": "jc:1",
+            "jc_num": "周五001",
+            "league": "测试联赛",
+            "home": "主队",
+            "away": "客队",
+            "kickoff_beijing": "2026-11-27T19:00:00+08:00",
+        },
     }
     assert first_params["max_tokens"] > 0 and second_params["max_tokens"] > 0
 
@@ -75,7 +98,10 @@ def test_two_distinct_request_stages_preserve_response_evidence(provider):
     assert first.estimated_cost == Decimal("0.0007011")
     assert second.estimated_cost == Decimal("0.0000942")
     assert provider.research_reserve(prompt, MATERIAL) > first.estimated_cost
-    assert provider.structure_reserve(first.text, MATERIAL) > second.estimated_cost
+    assert provider.structure_reserve(first.text, structure_material) > second.estimated_cost
+    assert provider.structure_reserve(first.text, structure_material) == provider.structure_reserve(
+        first.text, MATERIAL
+    )
 
 
 @responses.activate
