@@ -20,16 +20,18 @@ _OUTSIDE_IDENTITY = re.compile(
 _SIDE = re.compile(r"^(主队|客队|home(?: team)?|away(?: team)?)\s*[:=]\s*", re.I)
 _LEAGUE = re.compile(r"^(?:赛事|联赛|比赛赛事)\s*:\s*")
 _KICKOFF = re.compile(
-    r"^(?:本场)?(?:北京时间|北京(?:时间)?开球时间|开球时间|比赛日期|开赛时间)\s*:\s*"
+    r"^(?:本场)?(?:北京时间|北京(?:时间)?开球时间|开球时间|比赛日期|开赛时间)"
+    r"\s*(?::\s*|(?=20\d{2}[-/.年]))"
 )
 _BEIJING_TAG = re.compile(r"北京时间|北京开球时间|\b(?:BJT|Beijing time)\b", re.I)
 _KICKOFF_PREFIX = re.compile(r"^(?:本场)?(?:北京时间|北京开球时间|UTC|BJT)\s*[:=]?\s*$", re.I)
 _ROUND = re.compile(r"\s*第\s*\d+\s*(?:轮|回合)$")
-_COMPETITION = re.compile(r"^[\w ·-]{1,50}(?:联赛|超|冠|甲|乙|杯)$")
+_COMPETITION = re.compile(r"^[\w ·-]{1,50}(?:联赛|超|冠|甲|乙|杯赛|杯)$")
+_LEAGUE_AND_PAIR = re.compile(r"^一致[。,]\s*([\w ·-]{1,50}),\s*([^。,;]+)")
 _MATCH_ID = re.compile(r"^(?:比赛|赛程|来源比赛)(?:编号|ID)\s*:\s*([a-z][\w-]*:[\w-]+)$", re.I)
 _JC_NUMBER = re.compile(r"^(?:竞彩|竞彩比赛)编号\s*:\s*(周[一二三四五六日]\d{3})$")
 _SOURCE = re.compile(r"^(?:来源|出处)\s*:")
-_VERSUS = re.compile(r"(?<![A-Za-z])vs\.?(?![A-Za-z])|对阵", re.I)
+_VERSUS = re.compile(r"((?<![A-Za-z])vs\.?(?![A-Za-z])|[主客]场对(?:阵)?|对阵)", re.I)
 _DATE = re.compile(
     r"(?<!\d)(?P<year>20\d\d)(?:[-/.]|年)(?P<month>\d\d?)(?:[-/.]|月)(?P<day>\d\d?)日?"
     r"(?:[ T]+(?P<hour>\d\d?):(?P<minute>\d\d)(?::(?P<second>\d\d))?"
@@ -57,17 +59,44 @@ def _name(text):
     return text.strip(" \t:。'\"‘’“”「」『』")
 
 
+def league_wording(name, target, known_leagues):
+    """Allow a competition suffix to be spelled out; retain its tier or cup identity."""
+
+    def key(label):
+        for suffix, short in (
+            ("超级联赛", "超"),
+            ("甲级联赛", "甲"),
+            ("乙级联赛", "乙"),
+            ("冠军联赛", "冠"),
+            ("杯赛", "杯"),
+        ):
+            if label.endswith(suffix):
+                return label.removesuffix(suffix) + short
+        if label.endswith(("超联赛", "甲联赛", "乙联赛", "冠联赛")):
+            return label.removesuffix("联赛")
+        return label
+
+    if name == target or name in known_leagues or key(name) != key(target):
+        return name
+    if any(league != target and key(league) == key(target) for league in known_leagues):
+        return name
+    return target
+
+
 def _pair(text):
     text = re.sub(r"^(?:本场(?:比赛|对阵|交锋)?(?:为|是)?|对阵)[:\s]*", "", text)
     if match := _DATE.search(text):
         text = re.sub(r"\s*(?:于\s*)?(?:北京时间)?\s*$", "", text[: match.start()])
     # This form belongs to the report's ordered fixture statement, not a history section.
     parts = _VERSUS.split(text)
-    if len(parts) != 2:
+    if len(parts) != 3:
         return None
-    home = _name(_SIDE.sub("", parts[0].strip()))
-    away = _name(_SIDE.sub("", parts[1].strip()))
-    return (home, away) if 0 < len(home) <= 120 and 0 < len(away) <= 120 else None
+    left, separator, right = parts
+    first = _name(_SIDE.sub("", left.strip()))
+    second = _name(_SIDE.sub("", right.strip()))
+    if not (0 < len(first) <= 120 and 0 < len(second) <= 120):
+        return None
+    return (second, first) if separator.startswith("客场对") else (first, second)
 
 
 def _ordered_pair(text):
@@ -96,11 +125,15 @@ def _kickoff(text):
         )
         zone = pieces["zone"]
         if zone:
+            if text[match.end() :].lstrip().startswith(("+", "-")):
+                return day.date().isoformat(), None
             stamp = (
                 clock.replace(tzinfo=UTC)
                 if zone.upper() in {"Z", "UTC"}
                 else datetime.fromisoformat(clock.isoformat() + zone)
             )
+            if _BEIJING_TAG.search(text) and stamp.utcoffset() != _BEIJING.utcoffset(None):
+                return day.date().isoformat(), None
         elif _BEIJING_TAG.search(text):
             stamp = clock.replace(tzinfo=_BEIJING)
         elif re.search(r"\bUTC\b", text, re.I):
@@ -189,6 +222,12 @@ def _links(report, citations, spans):
 
 def _observations(report, citations, block):
     pairs, dates, sides, side_spans, metadata = [], [], {}, {}, {}
+    # In the agreed one-line format the competition precedes the ordered pair. Preserve
+    # even an unfamiliar name in that slot so the identity check can reject it.
+    header = _SECTION.sub("", _clean(block[0][0]))
+    position = _LEAGUE_AND_PAIR.match(header)
+    if position and _ordered_pair(position[2]):
+        metadata["league"] = _ROUND.sub("", position[1]).strip()
     spans = []
     for clause, start, end in _clauses(block):
         spans.append((start, end))

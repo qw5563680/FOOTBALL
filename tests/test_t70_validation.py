@@ -35,6 +35,91 @@ def check(case, *, odds_threshold=0.05):
     )
 
 
+@pytest.mark.parametrize(
+    "reported, matched",
+    [("英冠联赛", True), ("英甲联赛", False), ("英冠杯", False), ("英", False)],
+)
+def test_league_wording_keeps_tier_and_cup_identity(case, reported, matched):
+    case["material"]["identity"]["league"] = case["structure"]["identity"]["league"] = "英冠"
+    case["report"] = (
+        f"比赛身份核对：一致。{reported}，南城客场对北城，开球时间 2026-11-27 14:05 UTC。"
+    )
+    context = identity_context(case)
+    context["fixtures"].append({**context["fixtures"][0], "id": "jc:7001", "league": "英甲联赛"})
+    status, _, checks = check(case)
+    assert (status == "ok") is matched
+    if matched:
+        (obs,) = checks["identity_evidence"]["observations"]
+        assert obs["reported_league"] == reported and obs["league"] == "英冠"
+    else:
+        # An explicit different competition cannot turn into a match by trimming its suffix.
+        assert checks["identity_evidence"]["result"] != "matched"
+
+
+def test_source_report_scores_are_checked_even_if_extractor_sent_empty_placeholders(case):
+    # The third trial returned a complete research report and two date-only score rows.
+    material = case["material"]
+    material["recent"]["home"] = [material["recent"]["home"][1]]
+    material["recent"]["away"] = [material["recent"]["away"][0]]
+    original = material["recent"]["home"][0]
+    assert (original["home"], original["away"]) == ("北城", "东城")
+    case["report"] += "\n4. 北城最近一场主场 2-0 胜东城，状态回升；南城最近一场主场 3-0 胜北城。"
+    empty = dict(
+        date_beijing=None,
+        home=None,
+        away=None,
+        home_goals=None,
+        away_goals=None,
+        urls=[],
+        published_utc=None,
+    )
+    case["structure"]["recent"] = [dict(empty, date_beijing="2026-11-20"), dict(empty)]
+    status, row, checks = check(case)
+    assert status == "ok" and row["recent"] == []
+    assert [r["field"] for r in checks["unsupported"] if r["reason"] == "empty_score_row"] == [
+        "recent[0]",
+        "recent[1]",
+    ]
+    assert checks["warning_count"] >= 2
+    assert [r["match_id"] for r in checks["recent"]["matched"]] == ["fdorg:4700"]
+    (mismatch,) = checks["recent"]["mismatched"]
+    assert mismatch["match_id"] == "jc:4800" and mismatch["reason"] == "score_mismatch"
+    assert mismatch["claims"][0]["home_goals"] == 3
+    assert mismatch["claims"][0]["date_beijing"] == "2026-11-21"
+    assert mismatch["claims"][0]["date_basis"] == "latest_archived_fixture"
+
+
+def test_partial_score_is_not_silently_dropped_and_nonlatest_claim_is_flagged(case):
+    case["structure"]["recent"][0]["home_goals"] = None
+    status, _, checks = check(case)
+    assert (status, checks["reason"]) == ("unparsed", "invalid_structure")
+    case["structure"]["recent"] = []
+    case["report"] += "\n北城最近一场主场 3-0 胜西城。"
+    status, _, checks = check(case)
+    assert status == "ok" and checks["recent"]["matched"] == []
+    assert "unverified_latest_fixture" in {r["reason"] for r in checks["unsupported"]}
+
+
+@pytest.mark.parametrize(
+    "sentence, reason",
+    [
+        ("北城最近一场主场 2-0 负于东城。", "conflicting_report_score"),
+        ("北城最近一场主场 2-0 胜东城。", "unverified_latest_fixture"),
+    ],
+)
+def test_inconsistent_wording_and_future_score_availability_do_not_corroborate_a_claim(
+    case, sentence, reason
+):
+    game = case["material"]["recent"]["home"][1]
+    game["available_utc"] = "2026-11-27T11:58:00Z"  # after the report's 11:50 cutoff
+    case["material"]["recent"]["home"] = [game]
+    case["structure"]["recent"] = []
+    case["report"] += "\n" + sentence
+    status, _, checks = check(case)
+    assert status == "ok" and checks["recent"]["matched"] == []
+    assert reason in {row["reason"] for row in checks["unsupported"]}
+
+
 def identity_context(case, aliases=(), *, fixture_ids=()):
     material = case["material"]
     target = material["identity"]
@@ -508,6 +593,8 @@ def test_no_reliable_tendency_and_optional_probabilities(case):
         "- **研究判断**：**客胜**（客队占优）",
         "1. 研究判断: 平。双方都可能进球。",
         "研究判断：主胜\n研究判断：客胜",
+        "## 研究判断\n\n**客胜**。",
+        "### 研究判断：\n\n无可靠研究倾向。",
     ],
 )
 def test_explicit_original_judgment_cannot_be_changed_by_extraction(case, statement):

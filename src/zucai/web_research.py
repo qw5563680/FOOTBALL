@@ -14,8 +14,10 @@ from zucai import web_research_validation as validation
 from zucai.web_research_provider import DeepSeek, ProviderError
 
 LOG = logging.getLogger(__name__)
-PROMPT_VERSION = "v1"
-PROMPT = Path(__file__).resolve().parents[2] / "data/prompts/web_research_v1.md"
+PROMPT_VERSION = "v2"
+PROMPT = (
+    Path(__file__).resolve().parents[2] / "data" / "prompts" / f"web_research_{PROMPT_VERSION}.md"
+)
 RUN_TIME_BUDGET = timedelta(minutes=8)
 IDENTITY_FIELDS = ("match_id", "jc_num", "league", "home", "away", "kickoff_utc", "kickoff_beijing")
 
@@ -69,6 +71,16 @@ def _step_evidence(step):
         "billed_cost": str(step.billed_cost) if step.billed_cost is not None else None,
         "billed_currency": step.billed_currency,
     }
+
+
+def _used_web_tools(step):
+    if step.tool_calls:
+        return True
+    # Some responses include an empty calls array and only populate the usage counters.
+    usage = (step.usage or {}).get("server_tool_use")
+    return isinstance(usage, dict) and any(
+        type(usage.get(key)) is int and usage[key] > 0 for key in ("tool_search", "tool_fetch")
+    )
 
 
 def _freeze_match(candidate, client, prompt, budget, clock, started):
@@ -133,6 +145,11 @@ def _freeze_match(candidate, client, prompt, budget, clock, started):
         if getattr(step, "finish_reason", "stop") != "stop":
             row.update(status="unparsed", reason="truncated_response")
             return row, artifacts, None
+        if phase == "research" and not _used_web_tools(step):
+            row.update(
+                status="unparsed", checks={"reason": "web_lookup_unconfirmed", "warning_count": 1}
+            )
+            return row, artifacts, None
 
     verification = dict(material)
     for key in ("verification_recent", "identity_context"):
@@ -189,6 +206,7 @@ def run(
         "model": (client or DeepSeek).model,
         "candidate_count": len(candidates),
         "max_matches": max_matches,
+        "valid_record_count": sum(row["status"] == "ok" for row in timely),
         "estimated_cost_limit": str(budget.limit),
         "estimated_spend": str(budget.charged),
         "budget_charged": str(budget.charged),
@@ -228,9 +246,14 @@ def main(argv=None):
     except (OSError, KeyError, ValueError, TypeError):
         LOG.error("联网研究线未冻结，配置或归档校验失败")
         return 1
+    accepted = result.get("valid_record_count")
+    coverage = (
+        f"有效 {accepted}/{result['record_count']}" if accepted is not None else "有效场数未记录"
+    )
     message = (
         f"联网研究线（实验）{result['status']} · 候选 {result['candidate_count']} · "
-        f"请求 {result['provider_requests']} · 已计量费用估算 {result['estimated_spend']} · "
+        f"{coverage} · 请求 {result['provider_requests']} · "
+        f"已计量费用估算 {result['estimated_spend']} · "
         f"停止原因 {result['stop_reason'] or '无'}\n"
     )
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
