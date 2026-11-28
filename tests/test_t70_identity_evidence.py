@@ -1,4 +1,30 @@
+import pytest
+
 from zucai.web_research_identity_evidence import extract_identity_evidence
+
+
+@pytest.mark.parametrize(
+    "pair, when",
+    [
+        ("布莱克本主场对查尔顿", "2026-11-28 12:30 UTC"),
+        ("查尔顿客场对阵布莱克本", "2026-11-28T12:30Z"),
+        ("布莱克本 vs 查尔顿", "2026-11-28 20:30 北京时间"),
+    ],
+)
+def test_equivalent_fixture_wording_means_the_same_home_away_and_instant(pair, when):
+    (claim,) = extract_identity_evidence(
+        f"- **比赛身份核对**：一致。英冠，{pair}，开球时间 {when}。"
+    )
+    assert (claim["home"], claim["away"]) == ("布莱克本", "查尔顿")
+    assert claim["kickoff_utc"] == "2026-11-28T12:30:00+00:00"
+
+
+def test_missing_or_conflicting_zone_does_not_prove_kickoff():
+    for clock in ("20:30", "12:30 UTC（北京时间）"):
+        (claim,) = extract_identity_evidence(
+            f"比赛身份核对：一致。英冠，北城主场对南城，开球时间 2026-11-28 {clock}。"
+        )
+        assert "kickoff_utc" not in claim
 
 
 def test_cites_matchup_and_kickoff_without_borrowing_other_sections():

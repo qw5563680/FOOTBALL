@@ -20,6 +20,7 @@ class Provider:
         self.calls = []
         self.reserve = Decimal("0.02")
         self.research_cost = Decimal("0.01")
+        self.web_calls = 1
 
     def research_reserve(self, prompt, material):
         return self.reserve
@@ -30,7 +31,7 @@ class Provider:
     def research(self, prompt, material):
         self.calls.append("research")
         assert prompt and not {"odds", "identity_context"} & material.keys()
-        return self.step(self.research_cost)
+        return self.step(self.research_cost, self.web_calls)
 
     def structure(self, report, material):
         self.calls.append("structure")
@@ -38,12 +39,12 @@ class Provider:
         return self.step(Decimal("0.01"))
 
     @staticmethod
-    def step(cost):
+    def step(cost, tool_calls=0):
         return SimpleNamespace(
             text="fixture",
             citations=[],
             usage={"prompt_tokens": 5, "completion_tokens": 3},
-            tool_calls=0,
+            tool_calls=tool_calls,
             estimated_cost=cost,
             billed_cost=None,
             billed_currency=None,
@@ -117,7 +118,12 @@ def test_research_then_structure_freezes_originals_and_cost(tmp_path, freeze):
     assert "identity_context" not in result["artifacts"]["jc:1"]["material"]
     assert row["forecast_sha256"] == "a" * 64
     assert row["completed_utc"] == NOW.isoformat()
-    assert result["prompt_version"] == "v1" and len(result["prompt_sha256"]) == 64
+    assert result["prompt_version"] == "v2"
+    assert (
+        result["prompt_sha256"]
+        == "26d1134c00016afd335da511d5596bf5dc75069f09ace329e19c6ddfec21ee54"
+    )
+    assert result["valid_record_count"] == 1
     assert result["artifacts"]["jc:1"]["report_text"] == "fixture"
     assert result["artifacts"]["jc:1"]["structure_response"] == {"content": "fixture"}
 
@@ -190,3 +196,42 @@ def test_existing_run_is_idempotent_and_match_limit_is_explicit(tmp_path, freeze
     monkeypatch.setattr(runner.archive_api, "read_run", lambda *_: result)
     assert run(tmp_path, provider, limit=1) == result
     assert provider.calls == ["research", "structure"]
+
+
+@pytest.mark.parametrize("web_calls", [0, None])
+def test_search_must_happen_before_recording_a_web_prediction(tmp_path, freeze, web_calls):
+    provider = Provider()
+    provider.web_calls = web_calls
+    result = run(tmp_path, provider)
+    assert provider.calls == ["research"] and result["valid_record_count"] == 0
+    (row,) = result["records"]
+    assert row["status"] == "unparsed" and row["checks"]["reason"] == "web_lookup_unconfirmed"
+    assert result["artifacts"][row["match_id"]]["report_text"] == "fixture"
+
+
+def test_server_meter_can_confirm_web_lookup_when_call_array_is_empty():
+    step = Provider.step(Decimal("0.01"))
+    step.usage["server_tool_use"] = {"tool_search": 8, "tool_fetch": 0}
+    assert runner._used_web_tools(step)
+
+
+@pytest.mark.parametrize("count, expected", [(0, "有效 0/1"), (None, "有效场数未记录")])
+def test_action_summary_reports_accepted_records_and_can_read_older_runs(
+    tmp_path, monkeypatch, count, expected
+):
+    manifest = dict(
+        status="partial",
+        candidate_count=2,
+        record_count=1,
+        provider_requests=2,
+        estimated_spend="0.008",
+        stop_reason="match_limit",
+    )
+    if count is not None:
+        manifest["valid_record_count"] = count
+    monkeypatch.setattr(runner, "run", lambda *args, **kwargs: manifest)
+    summary = tmp_path / "summary"
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert runner.main(["--archive", str(tmp_path), "--run-id", "existing", "--max-cost", "1"]) == 0
+    assert expected in summary.read_text(encoding="utf-8")
