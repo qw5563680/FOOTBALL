@@ -29,11 +29,12 @@ class Provider:
 
     def research(self, prompt, material):
         self.calls.append("research")
-        assert prompt and "odds" not in material
+        assert prompt and not {"odds", "identity_context"} & material.keys()
         return self.step(self.research_cost)
 
     def structure(self, report, material):
         self.calls.append("structure")
+        assert not {"odds", "identity_context"} & material.keys()
         return self.step(Decimal("0.01"))
 
     @staticmethod
@@ -71,6 +72,7 @@ def target(number=1, kickoff=None):
         "model_probabilities": {"h": 0.5, "d": 0.3, "a": 0.2},
         "market_probabilities": None,
         "material": {**identity, "odds": {"h": 2, "d": 3, "a": 4}, "recent": {}},
+        "identity_context": {"target": {"match_id": identity["match_id"]}},
     }
 
 
@@ -85,6 +87,7 @@ def freeze(monkeypatch):
 
     def parse(text, material, citations, **_):
         assert text == "fixture" and material["odds"]["h"] == 2
+        assert material["identity_context"]["target"]["match_id"] == material["match_id"]
         return "ok", {"judgment": "h"}, {"warning_count": 0}
 
     monkeypatch.setattr(runner.validation, "parse", parse)
@@ -110,6 +113,8 @@ def test_research_then_structure_freezes_originals_and_cost(tmp_path, freeze):
     assert result["budget_reserved"] == "0"
     (row,) = result["records"]
     assert row["status"] == "ok" and row["structured"] == {"judgment": "h"}
+    assert "identity_context" not in row
+    assert "identity_context" not in result["artifacts"]["jc:1"]["material"]
     assert row["forecast_sha256"] == "a" * 64
     assert row["completed_utc"] == NOW.isoformat()
     assert result["prompt_version"] == "v1" and len(result["prompt_sha256"]) == 64

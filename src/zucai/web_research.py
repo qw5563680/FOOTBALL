@@ -80,7 +80,7 @@ def _freeze_match(candidate, client, prompt, budget, clock, started):
     row = {
         key: value
         for key, value in candidate.items()
-        if key not in {"material", "verification_recent"}
+        if key not in {"material", "verification_recent", "identity_context"}
     }
     row.update(
         identity=identity, cutoff_utc=cutoff, structured=None, checks={}, status="partial", steps={}
@@ -135,8 +135,9 @@ def _freeze_match(candidate, client, prompt, budget, clock, started):
             return row, artifacts, None
 
     verification = dict(material)
-    if "verification_recent" in candidate:
-        verification["verification_recent"] = candidate["verification_recent"]
+    for key in ("verification_recent", "identity_context"):
+        if key in candidate:
+            verification[key] = candidate[key]
     status, structured, checks = validation.parse(
         step.text, verification, artifacts["citations"], report_text=artifacts["report_text"]
     )

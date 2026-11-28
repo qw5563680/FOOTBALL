@@ -18,6 +18,7 @@ _INPUT_TOKEN_RATE = Decimal("0.0000003")
 _OUTPUT_TOKEN_RATE = Decimal("0.0000012")
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _MAX_ERROR_BYTES = 2048
+_STRUCTURE_TARGET_FIELDS = ("match_id", "jc_num", "league", "home", "away", "kickoff_beijing")
 
 
 @dataclass(frozen=True)
@@ -190,9 +191,9 @@ class DeepSeek:
         return payload
 
     def _structuring_payload(self, report, material):
-        numbers = {key: material[key] for key in ("match_id", "jc_num") if key in material}
+        target = {key: material[key] for key in _STRUCTURE_TARGET_FIELDS if key in material}
         return self._payload(
-            "structure", STRUCTURE_INSTRUCTIONS, {"report": report, "target_numbers": numbers}
+            "structure", STRUCTURE_INSTRUCTIONS, {"report": report, "target_identity": target}
         )
 
     def research_reserve(self, prompt, material):

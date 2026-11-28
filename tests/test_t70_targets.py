@@ -14,6 +14,7 @@ from zucai.db import get_engine, init_db, session_scope
 from zucai.forecast_archive import publish_forecasts
 from zucai.models import Match, Odds, Result, Team
 from zucai.report.render import write_report
+from zucai.result_source_links import record_result_link
 from zucai.sources.sporttery import CATALOG_FIELDS
 
 NOW = datetime(2026, 11, 3, 10, tzinfo=UTC)
@@ -142,6 +143,15 @@ def web_target_archive(tmp_path):
             Team(id=i, name=name) for i, name in enumerate(("合成主队", "合成客队", "合成对手"), 1)
         )
         session.flush()
+        session.get(Team, 1).aliases = [
+            "合成主队足球俱乐部",
+            "Home FC",
+            "Home U21",
+            "合成主队女足",
+            "合成主队B队",
+            "apif:测试联赛:team:41",
+        ]
+        session.get(Team, 2).aliases = ["合成客队FC", "jc:team:901"]
         for i, kickoff in enumerate(kickoffs, 1):
             session.add(
                 Match(
@@ -155,6 +165,20 @@ def web_target_archive(tmp_path):
                     status="cancelled" if i == 3 else "scheduled",
                 )
             )
+        for i in (1, 2):
+            provider = Match(
+                match_id=f"apif:{40 + i}",
+                source="apif",
+                league="测试联赛",
+                home_team_id=1,
+                away_team_id=2,
+                kickoff_utc=kickoffs[i - 1],
+                status="scheduled",
+            )
+            session.add(provider)
+            session.flush()
+            verified = NOW + timedelta(minutes=-2 if i == 1 else 1)
+            record_result_link(session, provider, session.get(Match, f"jc:{i}"), verified)
         session.flush()
         for stamp, prices in (
             (OLD_CAPTURE, (2.0, 4.0, 4.0)),
@@ -193,7 +217,7 @@ def web_target_archive(tmp_path):
         writer = csv.DictWriter(output, fieldnames=CATALOG_FIELDS)
         writer.writeheader()
         writer.writerows(catalog_rows)
-    export_feeds(
+    feed = export_feeds(
         database,
         archive,
         date.fromisoformat(DAY),
@@ -202,6 +226,8 @@ def web_target_archive(tmp_path):
             "jc": {"schedule_status": "complete", "schedule_updated_utc": NEW_CAPTURE.isoformat()}
         },
     )
+    feed["created_utc"] = (NOW - timedelta(minutes=1)).isoformat()
+    (archive / "feed_manifest.json").write_text(json.dumps(feed))
     _forecast(
         archive,
         tmp_path / "released-stage",
@@ -259,6 +285,69 @@ def test_recent_and_odds_keep_actual_availability_and_source(web_target_archive)
     assert data["odds"] == {"h": 2.2, "d": 3.5, "a": 3.6}
     assert datetime.fromisoformat(data["odds_snapshot_utc"]) == NEW_CAPTURE
     assert second["market_probabilities"] == {"h": 0.5, "d": 0.25, "a": 0.25}
+
+
+def test_identity_context_keeps_archive_scope_and_timed_fixture_proofs(
+    web_target_archive, monkeypatch
+):
+    from zucai import web_research_targets as targets
+
+    monkeypatch.setattr(
+        targets,
+        "_identity_alias_config",
+        lambda: {
+            "apif": {
+                "测试联赛": {
+                    "41": {
+                        "name": "Home FC",
+                        "canonical": "合成主队",
+                        "status": "approved",
+                        "approved_utc": OLD_CAPTURE.isoformat(),
+                    },
+                    "501": {
+                        "name": "Late FC",
+                        "canonical": "合成客队",
+                        "status": "approved",
+                        "approved_utc": (NOW + timedelta(minutes=5)).isoformat(),
+                    },
+                }
+            }
+        },
+    )
+    first, second = targets.select(web_target_archive, NOW)
+    assert "identity_context" not in first["material"]
+    assert "home_team_id" not in first["material"]["recent"]["home"][0]
+    assert "home_team_id" not in first["verification_recent"]["home"][0]
+    local = second["identity_context"]
+    assert local["target"]["match_id"] == "jc:1"
+    assert (local["target"]["home_team_id"], local["target"]["away_team_id"]) == (1, 2)
+    teams = {team["id"]: team for team in local["teams"]}
+    assert {team["name"] for team in teams.values()} >= {"合成主队", "合成客队", "合成对手"}
+    home_aliases = [row for row in teams[1]["aliases"] if row["name"] == "Home FC"]
+    assert [(row["league"], row["source"]) for row in home_aliases] == [("测试联赛", "apif")]
+    assert {row["name"] for row in teams[1]["aliases"]} == {"合成主队足球俱乐部", "Home FC"}
+    assert any(row["name"] == "合成客队FC" for row in teams[2]["aliases"])
+    assert all(row["name"] != "Late FC" for row in teams[2]["aliases"])
+    assert any(row["source"] == "jc" and row["id"] == "901" for row in teams[2]["provider_ids"])
+    assert not any(row["source"] == "apif" for row in teams[2]["provider_ids"])
+    fixtures = {row["id"]: row for row in local["fixtures"]}
+    assert fixtures["jc:1"]["fixture_ids"] == ["apif:41", "jc:1"]
+    assert fixtures["jc:past-1"]["away_team_id"] == 3
+    other = {row["id"]: row for row in first["identity_context"]["fixtures"]}
+    assert other["jc:2"]["fixture_ids"] == ["jc:2"]
+
+
+def test_future_feed_snapshot_cannot_supply_team_aliases_or_external_links(web_target_archive):
+    from zucai import web_research_targets as targets
+
+    manifest = web_target_archive / "feed_manifest.json"
+    feed = json.loads(manifest.read_bytes())
+    feed["created_utc"] = (NOW + timedelta(minutes=1)).isoformat()
+    manifest.write_text(json.dumps(feed))
+    row = targets.select(web_target_archive, NOW)[1]["identity_context"]
+    assert all(not team["aliases"] and not team["provider_ids"] for team in row["teams"])
+    match = next(match for match in row["fixtures"] if match["id"] == "jc:1")
+    assert match["fixture_ids"] == ["jc:1"]
 
 
 @pytest.mark.parametrize(

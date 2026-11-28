@@ -278,7 +278,7 @@ def test_verified_sale_through_two_mock_requests_archive_and_daily_section(
     evidence_url = "https://example.test/preview"
     research["choices"][0]["message"]["content"] = (
         f"数据截止时间：{quoted_at}\n"
-        "比赛身份核对：一致。测试联赛，2026-11-03，合成主队 VS 合成客队。\n"
+        "比赛身份核对：一致。合成主队 VS 合成客队，测试联赛，2026-11-03 19:00（北京时间）。\n"
         f"主要依据：合成主队在发布会上提到轮换。{evidence_url}\n"
         f"研究判断：{raw_judgment}\n"
     ) + (
