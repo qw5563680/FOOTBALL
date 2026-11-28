@@ -180,11 +180,11 @@ class DeepSeek:
                 {"role": "user", "content": _json(evidence)},
             ],
             "thinking": {"type": "disabled"},
-            "safety_check": {"level": "high"},
             "max_tokens": _OUTPUT_TOKENS[stage],
         }
         if stage == "research":
             payload["tools"] = [{"type": name} for name in _TOOLS]
+            payload["safety_check"] = {"level": "high"}
         else:
             payload["response_format"] = {"type": "json_object"}
         return payload

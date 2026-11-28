@@ -50,9 +50,10 @@ def test_two_distinct_request_stages_preserve_response_evidence(provider):
     for params in (first_params, second_params):
         assert params["model"] == "deepseek-flash"
         assert params["thinking"] == {"type": "disabled"}
-        assert params["safety_check"] == {"level": "high"}
+    assert first_params["safety_check"] == {"level": "high"}
     assert "response_format" not in first_params
     assert "tools" not in second_params
+    assert "safety_check" not in second_params
     assert second_params["response_format"] == {"type": "json_object"}
     assert json.loads(second_params["messages"][1]["content"]) == {
         "report": first.text,
