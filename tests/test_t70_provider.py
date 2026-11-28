@@ -55,6 +55,12 @@ def test_two_distinct_request_stages_preserve_response_evidence(provider):
     assert "tools" not in second_params
     assert "safety_check" not in second_params
     assert second_params["response_format"] == {"type": "json_object"}
+    instructions = second_params["messages"][0]["content"]
+    assert "basis、counterevidence 必须出现" in instructions
+    assert "没有相应内容时写 []" in instructions
+    assert "禁止使用纯字符串" in instructions
+    assert '"published_utc":null}' in instructions
+    assert "逐字沿用" in instructions and "不得自行扩充俱乐部全称" in instructions
     assert json.loads(second_params["messages"][1]["content"]) == {
         "report": first.text,
         "target_numbers": {"match_id": "jc:1", "jc_num": "周五001"},

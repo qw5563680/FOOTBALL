@@ -15,6 +15,16 @@ def case():
     return json.loads(FIXTURE.read_bytes())
 
 
+@pytest.fixture
+def structure_facts(case):
+    case["structure"] = json.loads(FIXTURE.with_name("structure-facts.synthetic.json").read_bytes())
+    case["report"] += (
+        "\n北城公布了训练名单（https://club.example/preview），发布时间未知。"
+        "\n南城于北京时间 19:30 公布赛前名单（https://fixtures.example/match）。"
+    )
+    return case
+
+
 def check(case, *, odds_threshold=0.05):
     return parse(
         json.dumps(case["structure"], ensure_ascii=False),
@@ -23,6 +33,41 @@ def check(case, *, odds_threshold=0.05):
         report_text=case["report"],
         odds_threshold=odds_threshold,
     )
+
+
+def test_complete_structure_accepts_empty_basis_and_counterevidence(structure_facts):
+    status, row, _ = check(structure_facts)
+
+    assert status == "ok"
+    assert row["basis"] == row["counterevidence"] == []
+    facts = structure_facts["structure"]["injuries_lineups"]
+    assert row["injuries_lineups"]["home"] == facts["home"]
+    assert row["injuries_lineups"]["away"][0]["published_utc"] == "2026-11-27T11:30:00+00:00"
+
+
+@pytest.mark.parametrize(
+    "missing", [("basis",), ("counterevidence",), ("basis", "counterevidence")]
+)
+def test_omitted_evidence_fields_are_invalid_structure(structure_facts, missing):
+    for field in missing:
+        del structure_facts["structure"][field]
+
+    status, row, checks = check(structure_facts)
+
+    assert status == "unparsed" and row is None
+    assert checks["reason"] == "invalid_structure"
+
+
+@pytest.mark.parametrize("field", ["home", "away", "basis", "counterevidence"])
+def test_string_facts_are_invalid_structure(structure_facts, field):
+    structure = structure_facts["structure"]
+    arrays = structure["injuries_lineups"] if field in {"home", "away"} else structure
+    arrays[field] = ["合成事实只有字符串"]
+
+    status, row, checks = check(structure_facts)
+
+    assert status == "unparsed" and row is None
+    assert checks["reason"] == "invalid_structure"
 
 
 def test_report_checks_both_teams_and_does_not_change_the_research_judgement(case):
@@ -150,7 +195,14 @@ def test_raw_identity_conflict_cannot_be_overwritten_by_structure_conversion(cas
 
 @pytest.mark.parametrize(
     "field, value",
-    [("away", "西城"), ("date_beijing", "2026-11-26"), ("league", "杯赛"), ("jc_num", "周六001")],
+    [
+        ("away", "西城"),
+        ("home", "北城足球俱乐部"),
+        ("away", "南城FC"),
+        ("date_beijing", "2026-11-26"),
+        ("league", "杯赛"),
+        ("jc_num", "周六001"),
+    ],
 )
 def test_extracted_identity_must_match_canonical_material(case, field, value):
     case["structure"]["identity"][field] = value
