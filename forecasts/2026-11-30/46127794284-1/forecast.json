@@ -1,0 +1,5224 @@
+{
+  "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+  "batch_id": "46127794284-1-2026-11-30",
+  "bet_allowed": false,
+  "generated_utc": "2026-11-28T09:18:28.597542+00:00",
+  "input": {
+    "expected_identities": {},
+    "jc_scope_match_ids": [
+      "jc:2043125",
+      "jc:2043126",
+      "jc:2043127",
+      "jc:2043128",
+      "jc:2043129",
+      "jc:2043130",
+      "jc:2043131",
+      "jc:2043132"
+    ],
+    "kickoff_date_beijing": "2026-11-30",
+    "market_weight": 0,
+    "match_ids": [
+      "jc:2043125",
+      "jc:2043126",
+      "jc:2043127",
+      "jc:2043128",
+      "jc:2043129",
+      "jc:2043130",
+      "jc:2043131",
+      "jc:2043132"
+    ],
+    "scope": "jc_spillover"
+  },
+  "mode": "prematch",
+  "model_definition_schema": 1,
+  "models": [
+    {
+      "artifact_name": "德甲.pkl",
+      "artifact_sha256": "4d6e5ce984e710e475a862e6146b82736af10f484bb6e3bd0134310135d9b69f",
+      "assumed_training_share": 0.95,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "德甲",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "德甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "36d9926c0d7767c8ca22c85f7b555841739a604abefd3c2f0776303b94d34233",
+      "model_name": "dixon-coles",
+      "model_version": "4d6e5ce984e710e475a862e6146b82736af10f484bb6e3bd0134310135d9b69f",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": 0.040601313595669875,
+        "metrics": {
+          "closing": {
+            "log_loss": 0.9704453021122804,
+            "n": 612
+          },
+          "closing_paired_model": {
+            "log_loss": 1.0110466157079503,
+            "n": 612
+          },
+          "model": {
+            "log_loss": 1.0110466157079503,
+            "n": 612
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681096,
+            "n": 612
+          }
+        },
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.08756567296015927
+      },
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "德甲",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "36d9926c0d7767c8ca22c85f7b555841739a604abefd3c2f0776303b94d34233",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "legacy"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "legacy",
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 1620,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 1539,
+        "jc": 81
+      }
+    },
+    {
+      "artifact_name": "意甲.pkl",
+      "artifact_sha256": "f1393d22f594181336e680c65e64da8821229c88e7cfb08c9de6a4c359f334ef",
+      "assumed_training_share": 0.950965824665676,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "意甲",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "意甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "f8fa8f8362ee051858d6d0de2ee82f9f7b75d9bd73b97a6e0a1a6e63c546e143",
+      "model_name": "dixon-coles",
+      "model_version": "f1393d22f594181336e680c65e64da8821229c88e7cfb08c9de6a4c359f334ef",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": 0.021589999310125174,
+        "metrics": {
+          "closing": {
+            "log_loss": 0.966123080490562,
+            "n": 760
+          },
+          "closing_paired_model": {
+            "log_loss": 0.9877130798006871,
+            "n": 760
+          },
+          "model": {
+            "log_loss": 0.9877130798006871,
+            "n": 760
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681093,
+            "n": 760
+          }
+        },
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.11089920886742222
+      },
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "意甲",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "f8fa8f8362ee051858d6d0de2ee82f9f7b75d9bd73b97a6e0a1a6e63c546e143",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "legacy"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "legacy",
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 2019,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 1920,
+        "jc": 99
+      }
+    },
+    {
+      "artifact_name": "西甲.pkl",
+      "artifact_sha256": "2789b128360bc35617817e3598859826cd85266a4f3c7cca7bde1d9b9fb8ccc2",
+      "assumed_training_share": 0.9536031589338598,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "西甲",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "西甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "7bc16af59080b0f8ddb1522a6ed0050b92fa1e0093e468b1318b175029f4fe7e",
+      "model_name": "dixon-coles",
+      "model_version": "2789b128360bc35617817e3598859826cd85266a4f3c7cca7bde1d9b9fb8ccc2",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": 0.022788919219278614,
+        "metrics": {
+          "closing": {
+            "log_loss": 0.9558648435759532,
+            "n": 760
+          },
+          "closing_paired_model": {
+            "log_loss": 0.9786537627952319,
+            "n": 760
+          },
+          "model": {
+            "log_loss": 0.9786537627952319,
+            "n": 760
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681093,
+            "n": 760
+          }
+        },
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.11995852587287748
+      },
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "西甲",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "7bc16af59080b0f8ddb1522a6ed0050b92fa1e0093e468b1318b175029f4fe7e",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "legacy"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "legacy",
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 2026,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 1932,
+        "jc": 94
+      }
+    },
+    {
+      "artifact_name": "英超.pkl",
+      "artifact_sha256": "4bd8aec0f5e8772c863c76749921143e51ba55abaab48a9372ed4d0f201cdcb7",
+      "assumed_training_share": 0.9592039800995025,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "half_life_days": 365.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "英超",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "英超",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "7e4e9c413e585517157d163f2d900a8a867bcea97e6cb4c8b3028ce8afaa2e0e",
+      "model_name": "dixon-coles",
+      "model_version": "4bd8aec0f5e8772c863c76749921143e51ba55abaab48a9372ed4d0f201cdcb7",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": 0.02401824362635141,
+        "metrics": {
+          "closing": {
+            "log_loss": 0.9904484114891507,
+            "n": 760
+          },
+          "closing_paired_model": {
+            "log_loss": 1.0144666551155022,
+            "n": 760
+          },
+          "model": {
+            "log_loss": 1.0144666551155022,
+            "n": 760
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681093,
+            "n": 760
+          }
+        },
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.08414563355260718
+      },
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": true,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 365.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "英超",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "7e4e9c413e585517157d163f2d900a8a867bcea97e6cb4c8b3028ce8afaa2e0e",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "legacy"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "legacy",
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 2010,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 1928,
+        "jc": 82
+      }
+    },
+    {
+      "artifact_name": "法甲.pkl",
+      "artifact_sha256": "9f8bc52c363578fffb0b632879d00768bc564b96307b218985d4a9ae446dc1de",
+      "assumed_training_share": 0.9746049661399548,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "法甲",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "法甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "a4eed49f60f2b4a02a5b9c6e9f4c294e49658f604d5102c1f7974663e5062302",
+      "model_name": "dixon-coles",
+      "model_version": "9f8bc52c363578fffb0b632879d00768bc564b96307b218985d4a9ae446dc1de",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": 0.02169615896768118,
+        "metrics": {
+          "closing": {
+            "log_loss": 0.9662983863406751,
+            "n": 612
+          },
+          "closing_paired_model": {
+            "log_loss": 0.9879945453083563,
+            "n": 612
+          },
+          "model": {
+            "log_loss": 0.9879945453083563,
+            "n": 612
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681096,
+            "n": 612
+          }
+        },
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.11061774335975327
+      },
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "法甲",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "a4eed49f60f2b4a02a5b9c6e9f4c294e49658f604d5102c1f7974663e5062302",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "legacy"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "legacy",
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 1772,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 1727,
+        "jc": 45
+      }
+    },
+    {
+      "artifact_name": "荷甲.pkl",
+      "artifact_sha256": "4ed7d90f7e7172920d29459c684dd69c95a1c15a702036f9eda96c0ba567088e",
+      "assumed_training_share": 0.9732847601700061,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 365.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "荷甲",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "荷甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "fdorg",
+          "jc"
+        ]
+      },
+      "model_definition_id": "b857bc50f97170ba277db5679b1106afec1705c4d9eb0886472983705690ae06",
+      "model_name": "dixon-coles",
+      "model_version": "4ed7d90f7e7172920d29459c684dd69c95a1c15a702036f9eda96c0ba567088e",
+      "p2_evidence": {
+        "p2_ready": false,
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "p2_label": "实验",
+      "p2_ready": false,
+      "paper_eligible": false,
+      "parameter_provenance": {
+        "draw_calibration": true,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 365.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "荷甲",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "fdorg",
+            "jc"
+          ]
+        },
+        "model_definition_id": "b857bc50f97170ba277db5679b1106afec1705c4d9eb0886472983705690ae06",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "expanded"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "expanded",
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 1647,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 1603,
+        "fdorg": 5,
+        "jc": 39
+      }
+    },
+    {
+      "artifact_name": "葡超.pkl",
+      "artifact_sha256": "ba68217003bf64e937431cf4d078731f58a9a48d2bc96b66aed04c20ecac9b9f",
+      "assumed_training_share": 0.9828009828009828,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-10T20:14:29.953697+00:00",
+      "league": "葡超",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "葡超",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "6f5c10c1575e039d90df914a5a68c09115c825ef9f7cdb5ef2524d8e5f9f76a6",
+      "model_name": "dixon-coles",
+      "model_version": "ba68217003bf64e937431cf4d078731f58a9a48d2bc96b66aed04c20ecac9b9f",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": 0.026409459157570203,
+        "metrics": {
+          "closing": {
+            "log_loss": 0.9157944418025815,
+            "n": 612
+          },
+          "closing_paired_model": {
+            "log_loss": 0.9422039009601517,
+            "n": 612
+          },
+          "model": {
+            "log_loss": 0.9422039009601517,
+            "n": 612
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681096,
+            "n": 612
+          }
+        },
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.15640838770795784
+      },
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": true,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "葡超",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "6f5c10c1575e039d90df914a5a68c09115c825ef9f7cdb5ef2524d8e5f9f76a6",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "legacy"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "legacy",
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 1628,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 1600,
+        "jc": 28
+      }
+    },
+    {
+      "artifact_name": "英冠.pkl",
+      "artifact_sha256": "6182026acae906dd37d9d2433a4a6efdaf48405c18b3bfaddf5dbb8fc6adf0fc",
+      "assumed_training_share": 0.9794266441821248,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 180.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "英冠",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "英冠",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "fdorg",
+          "jc"
+        ]
+      },
+      "model_definition_id": "c55c4884bfe035c29fd96f1055737144e3ae507948ea15ca13f0721308f2820c",
+      "model_name": "dixon-coles",
+      "model_version": "6182026acae906dd37d9d2433a4a6efdaf48405c18b3bfaddf5dbb8fc6adf0fc",
+      "p2_evidence": {
+        "p2_ready": false,
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "p2_label": "实验",
+      "p2_ready": false,
+      "paper_eligible": false,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 180.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "英冠",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "fdorg",
+            "jc"
+          ]
+        },
+        "model_definition_id": "c55c4884bfe035c29fd96f1055737144e3ae507948ea15ca13f0721308f2820c",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "expanded"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "expanded",
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 2965,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 2904,
+        "fdorg": 21,
+        "jc": 40
+      }
+    },
+    {
+      "artifact_name": "瑞超.pkl",
+      "artifact_sha256": "0ab05edd93e3f05c1a34c01abbb618728470375d6bbc89454070760ba8bac5b1",
+      "assumed_training_share": 0.9829389102916896,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 365.0,
+      "last_available_utc": "2026-11-24T13:34:09.552694+00:00",
+      "league": "瑞超",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "瑞超",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "d284585a92b6e38813947893c67a005d444f3fb973904a3e15824577b8df0b77",
+      "model_name": "dixon-coles",
+      "model_version": "0ab05edd93e3f05c1a34c01abbb618728470375d6bbc89454070760ba8bac5b1",
+      "p2_evidence": {
+        "p2_ready": false,
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "p2_label": "实验",
+      "p2_ready": false,
+      "paper_eligible": false,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 365.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "瑞超",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "d284585a92b6e38813947893c67a005d444f3fb973904a3e15824577b8df0b77",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "expanded"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "expanded",
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 1817,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 385,
+        "fd": 1406,
+        "jc": 26
+      }
+    },
+    {
+      "artifact_name": "挪超.pkl",
+      "artifact_sha256": "7bb1a56b775ccd95ce758a2a33316f4f22b2b77ee4c1dc5a521c266ef32915a8",
+      "assumed_training_share": 0.9852861035422343,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 180.0,
+      "last_available_utc": "2026-11-23T12:08:39.182019+00:00",
+      "league": "挪超",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "挪超",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "68d59629bed7334e4af2eb09bebae87c7cd21c7f37e85cf9ac4e086a01b48c40",
+      "model_name": "dixon-coles",
+      "model_version": "7bb1a56b775ccd95ce758a2a33316f4f22b2b77ee4c1dc5a521c266ef32915a8",
+      "p2_evidence": {
+        "p2_ready": false,
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "p2_label": "实验",
+      "p2_ready": false,
+      "paper_eligible": false,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 180.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "挪超",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "68d59629bed7334e4af2eb09bebae87c7cd21c7f37e85cf9ac4e086a01b48c40",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "expanded"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "expanded",
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 1835,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 419,
+        "fd": 1394,
+        "jc": 22
+      }
+    },
+    {
+      "artifact_name": "法乙.pkl",
+      "artifact_sha256": "10a29d053b3c8952ebb4edaa1596e6718ed48fd8f6fcdd50763068f2be044ea7",
+      "assumed_training_share": 0.9951456310679612,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 540.0,
+      "last_available_utc": "2026-11-24T13:34:09.552694+00:00",
+      "league": "法乙",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "法乙",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "77fc9a9e19cb242eb8fb16d4878d1a071eb0b823e92e5df9bbb0d811b9bab322",
+      "model_name": "dixon-coles",
+      "model_version": "10a29d053b3c8952ebb4edaa1596e6718ed48fd8f6fcdd50763068f2be044ea7",
+      "p2_evidence": {
+        "p2_ready": false,
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "p2_label": "实验",
+      "p2_ready": false,
+      "paper_eligible": false,
+      "parameter_provenance": {
+        "draw_calibration": true,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 540.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "法乙",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "77fc9a9e19cb242eb8fb16d4878d1a071eb0b823e92e5df9bbb0d811b9bab322",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "expanded"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "expanded",
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 1854,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 1845,
+        "jc": 9
+      }
+    },
+    {
+      "artifact_name": "日职.pkl",
+      "artifact_sha256": "de59eb77b8ffdcfb10cd73d58bed1e16a9d82cc0adeeff6f5f74c6a49e2daa0a",
+      "assumed_training_share": 0.9817578772802653,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 180.0,
+      "last_available_utc": "2026-11-28T08:57:35.944581+00:00",
+      "league": "日职",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "日职",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "f0850a9dd8a8f987f09ea299c0da80a07eff8caea6c3a8c95a276537925c23ef",
+      "model_name": "dixon-coles",
+      "model_version": "de59eb77b8ffdcfb10cd73d58bed1e16a9d82cc0adeeff6f5f74c6a49e2daa0a",
+      "p2_evidence": {
+        "p2_ready": false,
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "p2_label": "实验",
+      "p2_ready": false,
+      "paper_eligible": false,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 180.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "日职",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "f0850a9dd8a8f987f09ea299c0da80a07eff8caea6c3a8c95a276537925c23ef",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "expanded"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "expanded",
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 3015,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 1114,
+        "fd": 1860,
+        "jc": 41
+      }
+    },
+    {
+      "artifact_name": "芬超.pkl",
+      "artifact_sha256": "c7131eaf98f4b1b7cbe0eb4bcb1f5ae2c1ab3243417ad2be78a9a08556b56236",
+      "assumed_training_share": 0.9889078498293515,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 270.0,
+      "last_available_utc": "2026-11-14T08:18:30.380633+00:00",
+      "league": "芬超",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "芬超",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "b3f5edeac72f2630c853bec83fdd4fe67e2a2a72b2a3af044490ee8564d84fff",
+      "model_name": "dixon-coles",
+      "model_version": "c7131eaf98f4b1b7cbe0eb4bcb1f5ae2c1ab3243417ad2be78a9a08556b56236",
+      "p2_evidence": {
+        "p2_ready": false,
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "p2_label": "实验",
+      "p2_ready": false,
+      "paper_eligible": false,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 270.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "芬超",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "b3f5edeac72f2630c853bec83fdd4fe67e2a2a72b2a3af044490ee8564d84fff",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "expanded"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "expanded",
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 1172,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 147,
+        "fd": 1012,
+        "jc": 13
+      }
+    },
+    {
+      "artifact_name": "巴甲.pkl",
+      "artifact_sha256": "bc188d40f4b57b50acbf0303cc85dff81ae81020773b3880b85012b46828b2ee",
+      "assumed_training_share": 0.9817534490431686,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "043ffdcc0cf337a94369fd105a3500033c9e6bbb1c8684410b525eb5fdb31e09",
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-24T13:34:09.552694+00:00",
+      "league": "巴甲",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "巴甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "f0a6e9b68b5f909b06a6e988b26dc9169ce3d0aec5a5a007733b40a91e482c0d",
+      "model_name": "dixon-coles",
+      "model_version": "bc188d40f4b57b50acbf0303cc85dff81ae81020773b3880b85012b46828b2ee",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-01T21:43:52.265829+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": 0.023576530801137197,
+        "metrics": {
+          "closing": {
+            "log_loss": 0.9847110037406773,
+            "n": 758
+          },
+          "closing_paired_model": {
+            "log_loss": 1.0082875345418145,
+            "n": 758
+          },
+          "model": {
+            "log_loss": 1.0082875345418145,
+            "n": 758
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681096,
+            "n": 758
+          }
+        },
+        "p2_ready": true,
+        "reasons": [],
+        "seasons": [
+          "2024",
+          "2025"
+        ],
+        "uniform_log_loss_gain": 0.09032475412629504
+      },
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "巴甲",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "f0a6e9b68b5f909b06a6e988b26dc9169ce3d0aec5a5a007733b40a91e482c0d",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "legacy"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "legacy",
+      "sources": [
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 2247,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "fd": 2206,
+        "jc": 41
+      }
+    },
+    {
+      "artifact_name": "美职.pkl",
+      "artifact_sha256": "c3ac9327f2bad0d83fca3ab5b8f6df69d1e53772bff4abde3a6678e143b5f2ad",
+      "assumed_training_share": 0.9937225360954175,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 270.0,
+      "last_available_utc": "2026-11-28T08:57:35.944581+00:00",
+      "league": "美职",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "美职",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "cf78d498b10501f525c5d21049a6aba47e1c70ce0a8ca2b5e3d56869af02ae77",
+      "model_name": "dixon-coles",
+      "model_version": "c3ac9327f2bad0d83fca3ab5b8f6df69d1e53772bff4abde3a6678e143b5f2ad",
+      "p2_evidence": {
+        "p2_ready": false,
+        "previous_sources": [
+          "fd",
+          "jc"
+        ],
+        "reasons": [
+          "source_corpus_changed"
+        ],
+        "required_action": "rerun_existing_gate_with_current_sources"
+      },
+      "p2_label": "实验",
+      "p2_ready": false,
+      "paper_eligible": false,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 270.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "美职",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "jc"
+          ]
+        },
+        "model_definition_id": "cf78d498b10501f525c5d21049a6aba47e1c70ce0a8ca2b5e3d56869af02ae77",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "expanded"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "expanded",
+      "sources": [
+        "apif",
+        "fd",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 4779,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 1741,
+        "fd": 3014,
+        "jc": 24
+      }
+    },
+    {
+      "artifact_name": "欧战.pkl",
+      "artifact_sha256": "b76d737bad10f6b60b2c26092b9f1f4587c058cafdcc9c4f461e2b8eab631007",
+      "assumed_training_share": 0.974885439238393,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "385035b903b4aa575365a8635f187e7d18bd49b5c24ab46cdfdfd5ed386ea1dd",
+      "fitting_method": "pooled_dc_full_gradient_al_slsqp_v1",
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "欧战",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "pooled_dc_full_gradient_al_slsqp_v1",
+        "league": "欧战",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "fd",
+          "fdorg",
+          "jc"
+        ]
+      },
+      "model_definition_id": "a3076c58108d3fa9c29e1a3d03df6c74ad06eb4620877b2ee0ef172de5385565",
+      "model_name": "dixon-coles",
+      "model_version": "b76d737bad10f6b60b2c26092b9f1f4587c058cafdcc9c4f461e2b8eab631007",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-03T17:21:12.748620+00:00",
+        "bet_allowed": false,
+        "fitting_method": "pooled_dc_full_gradient_al_slsqp_v1",
+        "gate": {
+          "artifact_corpus": "matching_sources_and_cumulative_nonreplayed_policy",
+          "bet_allowed": false,
+          "complete_seasons": 2,
+          "evidence_recency": "latest_two_complete_seasons_at_prediction",
+          "fold": "weekly",
+          "market_source": "jc_pre_kickoff_had",
+          "max_market_log_loss_gap": 0.05,
+          "min_evaluated": 500,
+          "min_market_paired": 300,
+          "min_uniform_log_loss_gain": 0.05,
+          "require_no_skips_or_unavailable_labels": true,
+          "require_two_nonempty_complete_seasons": true
+        },
+        "group": "欧战",
+        "market_log_loss_gap": null,
+        "metrics": {
+          "market": {
+            "log_loss": null,
+            "n": 0
+          },
+          "model": {
+            "log_loss": 1.037793513988135,
+            "n": 1736
+          },
+          "paired_model": {
+            "log_loss": null,
+            "n": 0
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681093,
+            "n": 1736
+          }
+        },
+        "p2_ready": false,
+        "reasons": [
+          "market_paired_n_below_300_or_mismatch",
+          "market_gap_above_0.05_or_missing"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "target_leagues": [
+          "欧冠",
+          "欧协联",
+          "欧罗巴"
+        ],
+        "training_leagues": [
+          "德甲",
+          "意甲",
+          "挪超",
+          "欧冠",
+          "欧协联",
+          "欧罗巴",
+          "法甲",
+          "瑞超",
+          "芬超",
+          "英超",
+          "荷甲",
+          "葡超",
+          "西甲"
+        ],
+        "uniform_log_loss_gain": 0.06081877467997443
+      },
+      "p2_label": "P2 实验",
+      "p2_ready": false,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "pooled_dc_full_gradient_al_slsqp_v1",
+          "league": "欧战",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "fd",
+            "fdorg",
+            "jc"
+          ]
+        },
+        "model_definition_id": "a3076c58108d3fa9c29e1a3d03df6c74ad06eb4620877b2ee0ef172de5385565",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "current"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "pooled": true,
+      "prediction_leagues": [
+        "欧冠",
+        "欧罗巴",
+        "欧协联"
+      ],
+      "source_variant": "current",
+      "sources": [
+        "apif",
+        "fd",
+        "fdorg",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 28151,
+      "training_league_scope": [
+        "德甲",
+        "意甲",
+        "挪超",
+        "欧冠",
+        "欧协联",
+        "欧罗巴",
+        "法甲",
+        "瑞超",
+        "芬超",
+        "英超",
+        "荷甲",
+        "葡超",
+        "西甲"
+      ],
+      "training_leagues": {
+        "德甲": 1621,
+        "意甲": 2021,
+        "挪超": 2625,
+        "欧冠": 588,
+        "欧协联": 2341,
+        "欧罗巴": 4500,
+        "法甲": 1778,
+        "瑞超": 2647,
+        "芬超": 2714,
+        "英超": 2010,
+        "荷甲": 1647,
+        "葡超": 1629,
+        "西甲": 2030
+      },
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 10895,
+        "fd": 16061,
+        "fdorg": 526,
+        "jc": 669
+      }
+    },
+    {
+      "artifact_name": "欧国联.pkl",
+      "artifact_sha256": "6073b9323bfa1ce3d400f0dd7cf81aaec46d4d7468603b37ac3f4f36fdff462e",
+      "assumed_training_share": 0.8728606356968215,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": null,
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-18T03:18:59.717664+00:00",
+      "league": "欧国联",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "unknown",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "欧国联",
+        "model_family": "dixon-coles",
+        "prior_method": "none",
+        "selection_protocol": {
+          "calibration_policy": "unknown",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "Fixed two-year decay for sparse national-team schedules; not tuned or promoted",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "jc"
+        ]
+      },
+      "model_definition_id": "ec34a9f4b55cffcbb0653097cfeab5dc63aaf72e1ced9ff4efdf9516a850d998",
+      "model_name": "dixon-coles",
+      "model_version": "6073b9323bfa1ce3d400f0dd7cf81aaec46d4d7468603b37ac3f4f36fdff462e",
+      "p2_evidence": {},
+      "p2_label": "P2 实验",
+      "p2_ready": false,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "unknown",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "欧国联",
+          "model_family": "dixon-coles",
+          "prior_method": "none",
+          "selection_protocol": {
+            "calibration_policy": "unknown",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "Fixed two-year decay for sparse national-team schedules; not tuned or promoted",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "jc"
+          ]
+        },
+        "model_definition_id": "ec34a9f4b55cffcbb0653097cfeab5dc63aaf72e1ced9ff4efdf9516a850d998",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-11-08T21:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "current"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "current",
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 818,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 726,
+        "jc": 92
+      }
+    },
+    {
+      "artifact_name": "韩职.pkl",
+      "artifact_sha256": "ae6e309a07e8900866f4521aeab30647861c829e94c01700c0f47839d2a61f6a",
+      "assumed_training_share": 0.9839213934792318,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "1f5a99bfad007629272d2272fc0dfb10d4a11b9e0dcad775bb22f7dbc4d5f44f",
+      "half_life_days": 90.0,
+      "last_available_utc": "2026-11-28T08:53:30.904921+00:00",
+      "league": "韩职",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "韩职",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "jc"
+        ]
+      },
+      "model_definition_id": "7fc7f0a46acdda2e2b01766a69eb1b1d9e3de6cb1d52f23fb12cc12adfb6c18c",
+      "model_name": "dixon-coles",
+      "model_version": "ae6e309a07e8900866f4521aeab30647861c829e94c01700c0f47839d2a61f6a",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-14T00:00:00+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": null,
+        "metrics": {
+          "closing": {
+            "log_loss": null,
+            "n": 0
+          },
+          "closing_paired_model": {
+            "log_loss": null,
+            "n": 0
+          },
+          "model": {
+            "log_loss": 1.0901271886001285,
+            "n": 464
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681096,
+            "n": 464
+          }
+        },
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "evaluation_n_below_500",
+          "closing_paired_n_below_500_or_mismatch",
+          "uniform_gain_below_0.05",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2024",
+          "2025"
+        ],
+        "uniform_log_loss_gain": 0.008485100067981088
+      },
+      "p2_label": "P2 实验",
+      "p2_ready": false,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 90.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "韩职",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "jc"
+          ]
+        },
+        "model_definition_id": "7fc7f0a46acdda2e2b01766a69eb1b1d9e3de6cb1d52f23fb12cc12adfb6c18c",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-01-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "current"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "current",
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 2239,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 2212,
+        "jc": 27
+      }
+    },
+    {
+      "artifact_name": "澳超.pkl",
+      "artifact_sha256": "7db9b1b0ab95bd7ec3d42715c91b10b2ca464f8716107be8a0f60090b905646c",
+      "assumed_training_share": 0.9899519440803844,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "1f5a99bfad007629272d2272fc0dfb10d4a11b9e0dcad775bb22f7dbc4d5f44f",
+      "half_life_days": 365.0,
+      "last_available_utc": "2026-11-27T11:03:29.373525+00:00",
+      "league": "澳超",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "澳超",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "jc"
+        ]
+      },
+      "model_definition_id": "85bc5aef2132bf3ff87b5cc2bd7bec9184cd13ea16241f9dbd3666d7582b4344",
+      "model_name": "dixon-coles",
+      "model_version": "7db9b1b0ab95bd7ec3d42715c91b10b2ca464f8716107be8a0f60090b905646c",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-14T00:00:00+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": null,
+        "metrics": {
+          "closing": {
+            "log_loss": null,
+            "n": 0
+          },
+          "closing_paired_model": {
+            "log_loss": null,
+            "n": 0
+          },
+          "model": {
+            "log_loss": 1.0951642960448449,
+            "n": 339
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681096,
+            "n": 339
+          }
+        },
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "evaluation_n_below_500",
+          "closing_paired_n_below_500_or_mismatch",
+          "uniform_gain_below_0.05",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.003447992623264673
+      },
+      "p2_label": "P2 实验",
+      "p2_ready": false,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": true,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 365.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "澳超",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "jc"
+          ]
+        },
+        "model_definition_id": "85bc5aef2132bf3ff87b5cc2bd7bec9184cd13ea16241f9dbd3666d7582b4344",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "current"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "current",
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 2289,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 2274,
+        "jc": 15
+      }
+    },
+    {
+      "artifact_name": "沙职.pkl",
+      "artifact_sha256": "131cb698447a38fb0e4c53b959f79f5e6fa3fb1d0adc03466af6eda5ad32ef74",
+      "assumed_training_share": 0.9938223938223938,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "1dd8b10efce1fc56fb85ddc988fae7e7def8c908d37df16e0dae9ff62417994f",
+      "half_life_days": 270.0,
+      "last_available_utc": "2026-11-28T03:53:23.811197+00:00",
+      "league": "沙职",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "沙职",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "jc"
+        ]
+      },
+      "model_definition_id": "eaf9fb695cb66517df34f798f6ed3f2377d60f77b6edc8c035e669a521dbb8ed",
+      "model_name": "dixon-coles",
+      "model_version": "131cb698447a38fb0e4c53b959f79f5e6fa3fb1d0adc03466af6eda5ad32ef74",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-17T21:00:00+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": null,
+        "metrics": {
+          "closing": {
+            "log_loss": null,
+            "n": 0
+          },
+          "closing_paired_model": {
+            "log_loss": null,
+            "n": 0
+          },
+          "model": {
+            "log_loss": 0.9253741829640701,
+            "n": 612
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681096,
+            "n": 612
+          }
+        },
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "closing_paired_n_below_500_or_mismatch",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.1732381057040394
+      },
+      "p2_label": "P2 实验",
+      "p2_ready": false,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 270.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "沙职",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "jc"
+          ]
+        },
+        "model_definition_id": "eaf9fb695cb66517df34f798f6ed3f2377d60f77b6edc8c035e669a521dbb8ed",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "current"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "current",
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 2590,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 2578,
+        "jc": 12
+      }
+    },
+    {
+      "artifact_name": "德乙.pkl",
+      "artifact_sha256": "408d9bd62c89e861f6711357514ec5fc1f550bb87e8fb906fd827ea5b12f87b6",
+      "assumed_training_share": 0.9959660297239915,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "5f2eb263016233afd55c8d2b880ec21753881e49916b0ae3b4645751c5f325c1",
+      "half_life_days": 540.0,
+      "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+      "league": "德乙",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "德乙",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "jc"
+        ]
+      },
+      "model_definition_id": "2111fe3aadf87b5534f2fd5f8370a8469862264b9089a34d2feffe9cc11d10fc",
+      "model_name": "dixon-coles",
+      "model_version": "408d9bd62c89e861f6711357514ec5fc1f550bb87e8fb906fd827ea5b12f87b6",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-18T07:55:00+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": null,
+        "metrics": {
+          "closing": {
+            "log_loss": null,
+            "n": 0
+          },
+          "closing_paired_model": {
+            "log_loss": null,
+            "n": 0
+          },
+          "model": {
+            "log_loss": 1.0682187191331456,
+            "n": 616
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681096,
+            "n": 616
+          }
+        },
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "closing_paired_n_below_500_or_mismatch",
+          "uniform_gain_below_0.05",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.03039356953496397
+      },
+      "p2_label": "P2 实验",
+      "p2_ready": false,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 540.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "德乙",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "jc"
+          ]
+        },
+        "model_definition_id": "2111fe3aadf87b5534f2fd5f8370a8469862264b9089a34d2feffe9cc11d10fc",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "current"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "current",
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 4710,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 4700,
+        "jc": 10
+      }
+    },
+    {
+      "artifact_name": "荷乙.pkl",
+      "artifact_sha256": "1234e427a933a3d271514f14889b444e8a7672a1c0d305b736fc2a41c50c20cf",
+      "assumed_training_share": 0.9915057915057915,
+      "availability_basis": "mixed",
+      "bet_allowed": false,
+      "evaluation_database_sha256": "e1da97a554d7ef2ba40fe611a7c1c5eb962b8efba2117709bbdb6e9e96385710",
+      "half_life_days": 730.0,
+      "last_available_utc": "2026-11-28T03:53:23.811197+00:00",
+      "league": "荷乙",
+      "model_as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "荷乙",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "apif",
+          "jc"
+        ]
+      },
+      "model_definition_id": "22a49cd9833a3c6c78ceb8715947b2704aa91d12452749b96799ff38355d0758",
+      "model_name": "dixon-coles",
+      "model_version": "1234e427a933a3d271514f14889b444e8a7672a1c0d305b736fc2a41c50c20cf",
+      "p2_evidence": {
+        "as_of_utc": "2026-11-18T20:15:03.926952+00:00",
+        "bet_allowed": false,
+        "closing_log_loss_gap": null,
+        "metrics": {
+          "closing": {
+            "log_loss": null,
+            "n": 0
+          },
+          "closing_paired_model": {
+            "log_loss": null,
+            "n": 0
+          },
+          "model": {
+            "log_loss": 1.0362056884586097,
+            "n": 772
+          },
+          "uniform": {
+            "log_loss": 1.0986122886681093,
+            "n": 772
+          }
+        },
+        "p2_ready": false,
+        "reasons": [
+          "empty_season_evidence",
+          "closing_paired_n_below_500_or_mismatch",
+          "closing_gap_above_0.05"
+        ],
+        "seasons": [
+          "2425",
+          "2526"
+        ],
+        "uniform_log_loss_gain": 0.06240660020949962
+      },
+      "p2_label": "P2 实验",
+      "p2_ready": false,
+      "paper_eligible": true,
+      "parameter_provenance": {
+        "draw_calibration": false,
+        "draw_calibration_source": "params.json",
+        "half_life_days": 730.0,
+        "model_definition": {
+          "calibration_method": "draw_log_odds_intercept",
+          "fitting_method": "penaltyblog_slsqp",
+          "league": "荷乙",
+          "model_family": "dixon-coles",
+          "prior_method": "weakest_quartile_half_shrinkage",
+          "selection_protocol": {
+            "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+            "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+            "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+            "selection_method": "monthly_walk_forward_season_S"
+          },
+          "training_sources": [
+            "apif",
+            "jc"
+          ]
+        },
+        "model_definition_id": "22a49cd9833a3c6c78ceb8715947b2704aa91d12452749b96799ff38355d0758",
+        "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+        "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+        "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+        "source": "params.json",
+        "source_variant": "current"
+      },
+      "parameter_source": "params.json",
+      "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+      "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+      "source_variant": "current",
+      "sources": [
+        "apif",
+        "jc"
+      ],
+      "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+      "training_games": 3885,
+      "training_policy": {
+        "history_scope": "cumulative",
+        "replay_known_after": null,
+        "strict_availability": false
+      },
+      "training_source_counts": {
+        "apif": 3867,
+        "jc": 18
+      }
+    }
+  ],
+  "predictions": [
+    {
+      "away": "雷恩",
+      "ev": {
+        "a": -0.0513498145838317,
+        "d": -0.1677815019804696,
+        "h": -0.1540181518569671
+      },
+      "experimental_blend": {
+        "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+        "market_collected_utc": "2026-11-28T08:57:06.322790Z",
+        "market_dependent": true,
+        "market_snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "market_weight": 1.0,
+        "method_version": "log-linear-v1",
+        "model_name": "team-market-blend-v1",
+        "model_version": "retrospective-v1",
+        "paper_eligible": false,
+        "probabilities": {
+          "a": 0.34559136994680356,
+          "d": 0.2660006302014791,
+          "h": 0.3884079998517173
+        },
+        "protocol_sha256": "0b50f7a83ceb5b04642b21436384bdabd27626420041a7f66366fcb10ce96a6d",
+        "reason": null,
+        "status": "generated"
+      },
+      "half_full_time": {
+        "probabilities": {
+          "aa": 0.22250109990677708,
+          "ad": 0.05497257671365785,
+          "ah": 0.02579283144045705,
+          "da": 0.12523296132729814,
+          "dd": 0.14224227021496608,
+          "dh": 0.12546708954950242,
+          "ha": 0.025750263732920154,
+          "hd": 0.05497257671365784,
+          "hh": 0.2230683304007634
+        },
+        "share": 0.4473264166001596,
+        "share_full_goals": 5012,
+        "share_ht_goals": 2242,
+        "share_ht_matches": 1772,
+        "share_tier": "league",
+        "status": "experimental"
+      },
+      "home": "图卢兹",
+      "jc_num": "周日016",
+      "kickoff_beijing": "2026-11-30T00:15:00+08:00",
+      "kickoff_utc": "2026-11-29T16:15:00.000000Z",
+      "league": "法甲",
+      "market": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 2.54,
+          "d": 3.3,
+          "h": 2.26
+        },
+        "probabilities": {
+          "a": 0.34559136994680356,
+          "d": 0.2660006302014791,
+          "h": 0.3884079998517173
+        },
+        "return_rate": 0.8778020796648811,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "market_missing_reason": null,
+      "market_reference": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 2.54,
+          "d": 3.3,
+          "h": 2.26
+        },
+        "probabilities": {
+          "a": 0.34559136994680356,
+          "d": 0.2660006302014791,
+          "h": 0.3884079998517173
+        },
+        "return_rate": 0.8778020796648811,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "match_id": "jc:2043125",
+      "metadata": {
+        "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+        "assumed_training_share": 0.9746049661399548,
+        "availability_basis": "mixed",
+        "away_unknown_team": false,
+        "calibration_skipped_training_rows": 0,
+        "calibration_training_rows": 0,
+        "draw_calibration": false,
+        "draw_offset": 0.0,
+        "excluded_score_mass": 8.838828560508993e-06,
+        "half_life_days": 730.0,
+        "home_unknown_team": false,
+        "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+        "parameter_source": "params.json",
+        "prior_method": null,
+        "prior_rho_clipped": false,
+        "replay_delay": null,
+        "replayed_eval_share": 0.0,
+        "replayed_training_share": 0.0,
+        "rho_after": -0.046798615138700955,
+        "rho_before": -0.046798615138700955,
+        "rho_clip_reason": null,
+        "rho_clipped": false,
+        "rho_legal_interval": [
+          -0.6604420239090372,
+          0.43673931715757053
+        ],
+        "rho_roundoff_steps": 0,
+        "training_games": 1772,
+        "training_source_counts": {
+          "fd": 1727,
+          "jc": 45
+        },
+        "unknown_team_prior": false
+      },
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "法甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "a4eed49f60f2b4a02a5b9c6e9f4c294e49658f604d5102c1f7974663e5062302",
+      "model_name": "dixon-coles",
+      "model_probabilities": {
+        "a": 0.3734843249669954,
+        "d": 0.25218742364228197,
+        "h": 0.37432825139072257
+      },
+      "model_version": "9f8bc52c363578fffb0b632879d00768bc564b96307b218985d4a9ae446dc1de",
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "probability_type": "P2",
+      "prospective_n": 8,
+      "prospective_verified": false,
+      "reason": null,
+      "score_matrix": [
+        [
+          0.053689040412065216,
+          0.06813514219166064,
+          0.055446253426853734,
+          0.027948812478293502,
+          0.010566125806552168,
+          0.003195642452332326,
+          0.0008054143078011236,
+          0.00017399377439398118,
+          3.28894136599093e-05,
+          5.526192772817322e-06
+        ],
+        [
+          0.06822855832303996,
+          0.11622999851238144,
+          0.0839532486117061,
+          0.04231834357370163,
+          0.015998566753843396,
+          0.00483864190442924,
+          0.0012195079638240185,
+          0.0002634504893618723,
+          4.9799092833679466e-05,
+          8.367415416888198e-06
+        ],
+        [
+          0.05558760831152432,
+          0.08406019585427095,
+          0.0635583787618495,
+          0.03203789435083718,
+          0.012112014510487056,
+          0.0036631844501582383,
+          0.00092325133749513,
+          0.00019945012569199966,
+          3.770133564406427e-05,
+          6.334708508827903e-06
+        ],
+        [
+          0.02805575977863597,
+          0.042426230116174725,
+          0.03207870711883683,
+          0.01616992518697839,
+          0.006113084909809457,
+          0.0018488549171338864,
+          0.0004659764743772521,
+          0.0001006649680424081,
+          1.9028334700708912e-05,
+          3.1972064564344883e-06
+        ],
+        [
+          0.010620069121502516,
+          0.016059785938916153,
+          0.012142892925320205,
+          0.006120872310362505,
+          0.0023140126947204273,
+          0.0006998551160444211,
+          0.00017638810732364566,
+          3.81051494295405e-05,
+          7.202878531291675e-06,
+          1.2102525054019123e-06
+        ],
+        [
+          0.003216048869405447,
+          0.004863344656314019,
+          0.003677201778726501,
+          0.001853568394734838,
+          0.0007007466548007362,
+          0.00021193536774116985,
+          5.341516770227199e-05,
+          1.1539286735269513e-05,
+          2.1812296221428005e-06,
+          3.664977277607644e-07
+        ],
+        [
+          0.0008115900041132633,
+          0.0012272953769983613,
+          0.0009279648189157226,
+          0.0004677595528531785,
+          0.00017683779182037877,
+          5.348321277487323e-05,
+          1.3479650942994513e-05,
+          2.912011026335198e-06,
+          5.50446908580129e-07,
+          9.248798897631472e-08
+        ],
+        [
+          0.00017555125955311148,
+          0.0002654705555561587,
+          0.0002007237545509438,
+          0.00010117889359799933,
+          3.825096037817388e-05,
+          1.1568705035782758e-05,
+          2.9157206094035748e-06,
+          6.298835630242067e-07,
+          1.190646109841348e-07,
+          2.0005646787217496e-08
+        ],
+        [
+          3.32260919955652e-05,
+          5.024486365678369e-05,
+          3.799041915952292e-05,
+          1.914984395585924e-05,
+          7.239651436732736e-06,
+          2.1895761885558258e-06,
+          5.518502199757731e-07,
+          1.1921628625629388e-07,
+          2.2535023263550993e-08,
+          3.786412369099351e-09
+        ],
+        [
+          5.58987445658927e-06,
+          8.45306995379876e-06,
+          6.391412919800541e-06,
+          3.2217217598390952e-06,
+          1.2179808159865333e-06,
+          3.6836881113788355e-07,
+          9.284189813588306e-08,
+          2.0056649257530464e-08,
+          3.7912358436972375e-09,
+          6.370165286656996e-10
+        ]
+      ],
+      "source": "jc",
+      "source_variant": "legacy",
+      "status": "predicted",
+      "team_strengths": {
+        "away_attack_index": 137.47279236733553,
+        "away_default_strength": false,
+        "away_defence_index": 103.35318882393769,
+        "away_expected_goals": 1.5122110558018693,
+        "fitted_teams": 26,
+        "home_attack_index": 105.11415528562931,
+        "home_default_strength": false,
+        "home_defence_index": 111.49853757380622,
+        "home_expected_goals": 1.5141374470406659,
+        "method": "dixon_coles_relative_to_fitted_average"
+      },
+      "top_scores": [
+        {
+          "probability": 0.11622999851238144,
+          "score": "1:1"
+        },
+        {
+          "probability": 0.08406019585427095,
+          "score": "2:1"
+        },
+        {
+          "probability": 0.0839532486117061,
+          "score": "1:2"
+        },
+        {
+          "probability": 0.06822855832303996,
+          "score": "1:0"
+        },
+        {
+          "probability": 0.06813514219166064,
+          "score": "0:1"
+        }
+      ]
+    },
+    {
+      "away": "曼城",
+      "ev": {
+        "a": -0.23499499912634536,
+        "d": -0.020863988760399854,
+        "h": -0.11037656123207895
+      },
+      "experimental_blend": {
+        "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+        "market_collected_utc": "2026-11-28T08:57:06.322790Z",
+        "market_dependent": true,
+        "market_snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "market_weight": 1.0,
+        "method_version": "log-linear-v1",
+        "model_name": "team-market-blend-v1",
+        "model_version": "retrospective-v1",
+        "paper_eligible": false,
+        "probabilities": {
+          "a": 0.2831585170911161,
+          "d": 0.2620272844723761,
+          "h": 0.45481419843650783
+        },
+        "protocol_sha256": "0b50f7a83ceb5b04642b21436384bdabd27626420041a7f66366fcb10ce96a6d",
+        "reason": null,
+        "status": "generated"
+      },
+      "half_full_time": {
+        "probabilities": {
+          "aa": 0.13701855256762466,
+          "ad": 0.052435276032194174,
+          "ah": 0.02309141791908339,
+          "da": 0.09528646942922224,
+          "dd": 0.18740885427579085,
+          "dh": 0.16154479261386012,
+          "ha": 0.014470784736590036,
+          "hd": 0.05243527603219418,
+          "hh": 0.27630857639344036
+        },
+        "share": 0.44332708368842677,
+        "share_full_goals": 5867,
+        "share_ht_goals": 2601,
+        "share_ht_matches": 2010,
+        "share_tier": "league",
+        "status": "experimental"
+      },
+      "home": "阿森纳",
+      "jc_num": "周日017",
+      "kickoff_beijing": "2026-11-30T00:30:00+08:00",
+      "kickoff_utc": "2026-11-29T16:30:00.000000Z",
+      "league": "英超",
+      "market": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-27T03:27:00.465281Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 3.1,
+          "d": 3.35,
+          "h": 1.93
+        },
+        "probabilities": {
+          "a": 0.2831585170911161,
+          "d": 0.2620272844723761,
+          "h": 0.45481419843650783
+        },
+        "return_rate": 0.8777914029824601,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "market_missing_reason": null,
+      "market_reference": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-27T03:27:00.465281Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 3.1,
+          "d": 3.35,
+          "h": 1.93
+        },
+        "probabilities": {
+          "a": 0.2831585170911161,
+          "d": 0.2620272844723761,
+          "h": 0.45481419843650783
+        },
+        "return_rate": 0.8777914029824601,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "match_id": "jc:2043126",
+      "metadata": {
+        "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+        "assumed_training_share": 0.9592039800995025,
+        "availability_basis": "mixed",
+        "away_unknown_team": false,
+        "calibration_skipped_training_rows": 0,
+        "calibration_training_rows": 2010,
+        "draw_calibration": true,
+        "draw_offset": 0.07091637962283534,
+        "excluded_score_mass": 3.615467052742183e-06,
+        "half_life_days": 365.0,
+        "home_unknown_team": false,
+        "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+        "parameter_source": "params.json",
+        "prior_method": null,
+        "prior_rho_clipped": false,
+        "replay_delay": null,
+        "replayed_eval_share": 0.0,
+        "replayed_training_share": 0.0,
+        "rho_after": -0.06244718790116655,
+        "rho_before": -0.06244718790116655,
+        "rho_clip_reason": null,
+        "rho_clipped": false,
+        "rho_legal_interval": [
+          -0.6790762795953335,
+          0.6716234792237483
+        ],
+        "rho_roundoff_steps": 0,
+        "training_games": 2010,
+        "training_source_counts": {
+          "fd": 1928,
+          "jc": 82
+        },
+        "unknown_team_prior": false
+      },
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "英超",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "7e4e9c413e585517157d163f2d900a8a867bcea97e6cb4c8b3028ce8afaa2e0e",
+      "model_name": "dixon-coles",
+      "model_probabilities": {
+        "a": 0.24677580673343696,
+        "d": 0.2922794063401791,
+        "h": 0.46094478692638396
+      },
+      "model_version": "4bd8aec0f5e8772c863c76749921143e51ba55abaab48a9372ed4d0f201cdcb7",
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "probability_type": "P2",
+      "prospective_n": 20,
+      "prospective_verified": false,
+      "reason": null,
+      "score_matrix": [
+        [
+          0.09593635140665045,
+          0.075070748349264,
+          0.041795352303705006,
+          0.014086380849172601,
+          0.0035606732774868884,
+          0.0007200369960040614,
+          0.00012133783772781186,
+          1.7526326658412557e-05,
+          2.215101368240415e-06,
+          2.4885351897362224e-07
+        ],
+        [
+          0.1128050841690338,
+          0.13885217232382502,
+          0.06154736008245078,
+          0.020743444105523437,
+          0.005243406940393677,
+          0.001060318284763439,
+          0.0001786807187553628,
+          2.5809069150311992e-05,
+          3.261933062306948e-06,
+          3.6645885955833405e-07
+        ],
+        [
+          0.08865546012205466,
+          0.0896392426528625,
+          0.04864738115213437,
+          0.015273279842644925,
+          0.003860690689651435,
+          0.0007807063187329192,
+          0.0001315615963363055,
+          1.900307073433032e-05,
+          2.401742749909302e-06,
+          2.69821572752261e-07
+        ],
+        [
+          0.04351767382935984,
+          0.044000576148469986,
+          0.02224441854347372,
+          0.008048057787834776,
+          0.0018950697222370214,
+          0.0003832197462893506,
+          6.457870310470571e-05,
+          9.32790188934022e-06,
+          1.1789263455255808e-06,
+          1.3244539229723928e-07
+        ],
+        [
+          0.016020907789362167,
+          0.016198686904028748,
+          0.008189219389583644,
+          0.0027600308843162462,
+          0.0007489369078058986,
+          0.00014108125913252112,
+          2.3774465787256116e-05,
+          3.4340405377208814e-06,
+          4.3401837943305546e-07,
+          4.875939429667769e-08
+        ],
+        [
+          0.004718441291723264,
+          0.004770800391873994,
+          0.0024118702524740404,
+          0.000812878013044711,
+          0.0002054745679458858,
+          4.46045697313327e-05,
+          7.002001542867467e-06,
+          1.0113858018328225e-06,
+          1.2782610510020766e-07,
+          1.4360505811139148e-08
+        ],
+        [
+          0.0011580538233827028,
+          0.0011709043925367136,
+          0.0005919487802635101,
+          0.00019950581828821718,
+          5.042991833659924e-05,
+          1.019790474385887e-05,
+          1.8448071936114956e-06,
+          2.482258700096536e-07,
+          3.137254457294551e-08,
+          3.524519567398397e-09
+        ],
+        [
+          0.0002436195541711867,
+          0.00024632292586681436,
+          0.0001245281480257389,
+          4.196999960153944e-05,
+          1.0608931963252621e-05,
+          2.145331207423598e-06,
+          3.615228819677302e-07,
+          5.605689432380905e-08,
+          6.5998360074071395e-09,
+          7.414524854890665e-10
+        ],
+        [
+          4.484392282048955e-05,
+          4.5341542119097394e-05,
+          2.292234167344684e-05,
+          7.725567963173008e-06,
+          1.9528240571100775e-06,
+          3.9489878970261174e-07,
+          6.654681013581494e-08,
+          9.612179962626115e-09,
+          1.304136917342219e-09,
+          1.3648181135315587e-10
+        ],
+        [
+          7.337405591805851e-06,
+          7.418826537935198e-06,
+          3.7505754937029184e-06,
+          1.2640648276863426e-06,
+          3.195229421344377e-07,
+          6.461371810312279e-08,
+          1.0888452795754775e-08,
+          1.5727540895461535e-09,
+          1.9877580759269825e-10,
+          2.3972443292580708e-11
+        ]
+      ],
+      "source": "jc",
+      "source_variant": "legacy",
+      "status": "predicted",
+      "team_strengths": {
+        "away_attack_index": 161.434984086368,
+        "away_default_strength": false,
+        "away_defence_index": 147.83760162057033,
+        "away_expected_goals": 1.0110966942075923,
+        "fitted_teams": 29,
+        "home_attack_index": 146.1655703695319,
+        "home_default_strength": false,
+        "home_defence_index": 195.28179558398512,
+        "home_expected_goals": 1.4725886178735434,
+        "method": "dixon_coles_relative_to_fitted_average"
+      },
+      "top_scores": [
+        {
+          "probability": 0.13885217232382502,
+          "score": "1:1"
+        },
+        {
+          "probability": 0.1128050841690338,
+          "score": "1:0"
+        },
+        {
+          "probability": 0.09593635140665045,
+          "score": "0:0"
+        },
+        {
+          "probability": 0.0896392426528625,
+          "score": "2:1"
+        },
+        {
+          "probability": 0.08865546012205466,
+          "score": "2:0"
+        }
+      ]
+    },
+    {
+      "away": "奥格斯堡",
+      "ev": {
+        "a": -0.0251833539984061,
+        "d": -0.001478778618015375,
+        "h": -0.2036320846124321
+      },
+      "experimental_blend": {
+        "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+        "market_collected_utc": "2026-11-28T08:57:06.322790Z",
+        "market_dependent": true,
+        "market_snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "market_weight": 1.0,
+        "method_version": "log-linear-v1",
+        "model_name": "team-market-blend-v1",
+        "model_version": "retrospective-v1",
+        "paper_eligible": false,
+        "probabilities": {
+          "a": 0.2249429657794677,
+          "d": 0.20167300380228137,
+          "h": 0.5733840304182509
+        },
+        "protocol_sha256": "0b50f7a83ceb5b04642b21436384bdabd27626420041a7f66366fcb10ce96a6d",
+        "reason": null,
+        "status": "generated"
+      },
+      "half_full_time": {
+        "probabilities": {
+          "aa": 0.14689297427360543,
+          "ad": 0.0532109612184397,
+          "ah": 0.03469162315459596,
+          "da": 0.08247521968042155,
+          "dd": 0.12312318592679518,
+          "dh": 0.15045852136605595,
+          "ha": 0.02058479220022783,
+          "hd": 0.0532109612184397,
+          "hh": 0.3353517609614182
+        },
+        "share": 0.45875290472501934,
+        "share_full_goals": 5164,
+        "share_ht_goals": 2369,
+        "share_ht_matches": 1619,
+        "share_tier": "league",
+        "status": "experimental"
+      },
+      "home": "霍芬海姆",
+      "jc_num": "周日018",
+      "kickoff_beijing": "2026-11-30T00:30:00+08:00",
+      "kickoff_utc": "2026-11-29T16:30:00.000000Z",
+      "league": "德甲",
+      "market": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 3.9,
+          "d": 4.35,
+          "h": 1.53
+        },
+        "probabilities": {
+          "a": 0.2249429657794677,
+          "d": 0.20167300380228137,
+          "h": 0.5733840304182509
+        },
+        "return_rate": 0.877277566539924,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "market_missing_reason": null,
+      "market_reference": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 3.9,
+          "d": 4.35,
+          "h": 1.53
+        },
+        "probabilities": {
+          "a": 0.2249429657794677,
+          "d": 0.20167300380228137,
+          "h": 0.5733840304182509
+        },
+        "return_rate": 0.877277566539924,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "match_id": "jc:2043127",
+      "metadata": {
+        "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+        "assumed_training_share": 0.95,
+        "availability_basis": "mixed",
+        "away_unknown_team": false,
+        "calibration_skipped_training_rows": 0,
+        "calibration_training_rows": 0,
+        "draw_calibration": false,
+        "draw_offset": 0.0,
+        "excluded_score_mass": 5.3508619784481404e-05,
+        "half_life_days": 730.0,
+        "home_unknown_team": false,
+        "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+        "parameter_source": "params.json",
+        "prior_method": null,
+        "prior_rho_clipped": false,
+        "replay_delay": null,
+        "replayed_eval_share": 0.0,
+        "replayed_training_share": 0.0,
+        "rho_after": -0.07910687264292499,
+        "rho_before": -0.07910687264292499,
+        "rho_clip_reason": null,
+        "rho_clipped": false,
+        "rho_legal_interval": [
+          -0.4935755705151139,
+          0.3614496757128039
+        ],
+        "rho_roundoff_steps": 0,
+        "training_games": 1620,
+        "training_source_counts": {
+          "fd": 1539,
+          "jc": 81
+        },
+        "unknown_team_prior": false
+      },
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "德甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "36d9926c0d7767c8ca22c85f7b555841739a604abefd3c2f0776303b94d34233",
+      "model_name": "dixon-coles",
+      "model_probabilities": {
+        "a": 0.24995298615425485,
+        "d": 0.22954510836367464,
+        "h": 0.5205019054820705
+      },
+      "model_version": "4d6e5ce984e710e475a862e6146b82736af10f484bb6e3bd0134310135d9b69f",
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "probability_type": "P2",
+      "prospective_n": 18,
+      "prospective_verified": false,
+      "reason": null,
+      "score_matrix": [
+        [
+          0.041023628384021536,
+          0.0385943868086347,
+          0.0313806464398603,
+          0.014283888380996417,
+          0.004876320848069009,
+          0.0013317664982567569,
+          0.0003030977078038589,
+          5.912762416118932e-05,
+          1.0092674302103555e-05,
+          1.5313327326688426e-06
+        ],
+        [
+          0.060824673707821755,
+          0.10048398893438298,
+          0.06357820020774183,
+          0.0289396178301313,
+          0.009879583065628429,
+          0.0026982018110557537,
+          0.0006140857163727427,
+          0.00011979447058022245,
+          2.0448083140683938e-05,
+          3.102529428412931e-06
+        ],
+        [
+          0.06907850658309979,
+          0.09432976590682206,
+          0.06440574048406533,
+          0.029316298819174576,
+          0.010008176716807243,
+          0.0027333218783901817,
+          0.0006220787180895723,
+          0.00012135372751046051,
+          2.0714237456427953e-05,
+          3.142912264858465e-06
+        ],
+        [
+          0.04665175960188282,
+          0.0637050477791246,
+          0.043496034738813534,
+          0.019798588484014706,
+          0.006758962770626548,
+          0.0018459327147124834,
+          0.00042011717168277966,
+          8.195551992427503e-05,
+          1.3989237375754364e-05,
+          2.122547152254992e-06
+        ],
+        [
+          0.023629491808719028,
+          0.032267119558125425,
+          0.022031091760386076,
+          0.01002814445584906,
+          0.0034234690564064188,
+          0.000934979780698019,
+          0.00021279272961399287,
+          4.151113062521671e-05,
+          7.085661351287439e-06,
+          1.0750872202000509e-06
+        ],
+        [
+          0.009574822264423832,
+          0.013074844658316567,
+          0.00892714027049338,
+          0.00406346871883603,
+          0.0013872117101879902,
+          0.00037885982878862486,
+          8.622498451125307e-05,
+          1.682057747789023e-05,
+          2.871155614080568e-06,
+          4.356322656237018e-07
+        ],
+        [
+          0.0032331497060761405,
+          0.004415009385719515,
+          0.0030144456100128945,
+          0.001372119746052004,
+          0.00046842259931282086,
+          0.00012793036886368865,
+          2.9115765873253338e-05,
+          5.679838604496987e-06,
+          9.695089551954255e-07,
+          1.471008330663054e-07
+        ],
+        [
+          0.0009357807740715676,
+          0.0012778501696774035,
+          0.0008724805538800726,
+          0.0003971369700779296,
+          0.0001355770386239097,
+          3.702729241938308e-05,
+          8.42706846371991e-06,
+          1.643933702150875e-06,
+          2.806080519120652e-07,
+          4.257586067686962e-08
+        ],
+        [
+          0.00023699024778894322,
+          0.0003236206991423296,
+          0.00022095921222598162,
+          0.0001005765362494193,
+          3.4335430763524306e-05,
+          9.377310849466271e-06,
+          2.134189009528242e-06,
+          4.163328273204454e-07,
+          7.106511866541835e-08,
+          1.0782508095071398e-08
+        ],
+        [
+          5.3349985954219134e-05,
+          7.285177307850118e-05,
+          4.9741164367276636e-05,
+          2.2641255690019456e-05,
+          7.729409821949422e-06,
+          2.1109704166093234e-06,
+          4.804372953919188e-07,
+          9.372263499047817e-08,
+          1.5997802095263554e-08,
+          2.4273009576985273e-09
+        ]
+      ],
+      "source": "jc",
+      "source_variant": "legacy",
+      "status": "predicted",
+      "team_strengths": {
+        "away_attack_index": 101.93615090233288,
+        "away_default_strength": false,
+        "away_defence_index": 96.44581211406806,
+        "away_expected_goals": 1.365544372233143,
+        "fitted_teams": 27,
+        "home_attack_index": 125.27208915231736,
+        "home_default_strength": false,
+        "home_defence_index": 92.60805771790186,
+        "home_expected_goals": 2.0260322020321277,
+        "method": "dixon_coles_relative_to_fitted_average"
+      },
+      "top_scores": [
+        {
+          "probability": 0.10048398893438298,
+          "score": "1:1"
+        },
+        {
+          "probability": 0.09432976590682206,
+          "score": "2:1"
+        },
+        {
+          "probability": 0.06907850658309979,
+          "score": "2:0"
+        },
+        {
+          "probability": 0.06440574048406533,
+          "score": "2:2"
+        },
+        {
+          "probability": 0.0637050477791246,
+          "score": "3:1"
+        }
+      ]
+    },
+    {
+      "away": "勒沃库森",
+      "ev": {
+        "a": -0.18971250442821352,
+        "d": -0.10472829988728571,
+        "h": -0.08889467837505682
+      },
+      "experimental_blend": {
+        "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+        "market_collected_utc": "2026-11-28T08:57:06.322790Z",
+        "market_dependent": true,
+        "market_snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "market_weight": 1.0,
+        "method_version": "log-linear-v1",
+        "model_name": "team-market-blend-v1",
+        "model_version": "retrospective-v1",
+        "paper_eligible": false,
+        "probabilities": {
+          "a": 0.29743186250248527,
+          "d": 0.23335744531444985,
+          "h": 0.4692106921830649
+        },
+        "protocol_sha256": "0b50f7a83ceb5b04642b21436384bdabd27626420041a7f66366fcb10ce96a6d",
+        "reason": null,
+        "status": "generated"
+      },
+      "half_full_time": {
+        "probabilities": {
+          "aa": 0.16246054588582662,
+          "ad": 0.05446869335592318,
+          "ah": 0.03282188384971679,
+          "da": 0.09041145071053204,
+          "dd": 0.12916678885004576,
+          "dh": 0.1447802517623547,
+          "ha": 0.02180173071611166,
+          "hd": 0.05446869335592318,
+          "hh": 0.309619961513566
+        },
+        "share": 0.45875290472501934,
+        "share_full_goals": 5164,
+        "share_ht_goals": 2369,
+        "share_ht_matches": 1619,
+        "share_tier": "league",
+        "status": "experimental"
+      },
+      "home": "多特蒙德",
+      "jc_num": "周日019",
+      "kickoff_beijing": "2026-11-30T02:30:00+08:00",
+      "kickoff_utc": "2026-11-29T18:30:00.000000Z",
+      "league": "德甲",
+      "market": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 2.95,
+          "d": 3.76,
+          "h": 1.87
+        },
+        "probabilities": {
+          "a": 0.29743186250248527,
+          "d": 0.23335744531444985,
+          "h": 0.4692106921830649
+        },
+        "return_rate": 0.8774239943823315,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "market_missing_reason": null,
+      "market_reference": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 2.95,
+          "d": 3.76,
+          "h": 1.87
+        },
+        "probabilities": {
+          "a": 0.29743186250248527,
+          "d": 0.23335744531444985,
+          "h": 0.4692106921830649
+        },
+        "return_rate": 0.8774239943823315,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "match_id": "jc:2043128",
+      "metadata": {
+        "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+        "assumed_training_share": 0.95,
+        "availability_basis": "mixed",
+        "away_unknown_team": false,
+        "calibration_skipped_training_rows": 0,
+        "calibration_training_rows": 0,
+        "draw_calibration": false,
+        "draw_offset": 0.0,
+        "excluded_score_mass": 3.367849748359131e-05,
+        "half_life_days": 730.0,
+        "home_unknown_team": false,
+        "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+        "parameter_source": "params.json",
+        "prior_method": null,
+        "prior_rho_clipped": false,
+        "replay_delay": null,
+        "replayed_eval_share": 0.0,
+        "replayed_training_share": 0.0,
+        "rho_after": -0.07910687264292499,
+        "rho_before": -0.07910687264292499,
+        "rho_clip_reason": null,
+        "rho_clipped": false,
+        "rho_legal_interval": [
+          -0.5242354834410831,
+          0.3750322773746512
+        ],
+        "rho_roundoff_steps": 0,
+        "training_games": 1620,
+        "training_source_counts": {
+          "fd": 1539,
+          "jc": 81
+        },
+        "unknown_team_prior": false
+      },
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "德甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "36d9926c0d7767c8ca22c85f7b555841739a604abefd3c2f0776303b94d34233",
+      "model_name": "dixon-coles",
+      "model_probabilities": {
+        "a": 0.27467372731247,
+        "d": 0.23810417556189212,
+        "h": 0.487222097125638
+      },
+      "model_version": "4d6e5ce984e710e475a862e6146b82736af10f484bb6e3bd0134310135d9b69f",
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "probability_type": "P2",
+      "prospective_n": 18,
+      "prospective_verified": false,
+      "reason": null,
+      "score_matrix": [
+        [
+          0.0444248871058025,
+          0.043543456408692234,
+          0.03584194539292372,
+          0.016700446605166678,
+          0.005836142132238043,
+          0.0016315997191187251,
+          0.0003801194897686395,
+          7.590665676611345e-05,
+          1.3263179367101282e-05,
+          2.0599795054535415e-06
+        ],
+        [
+          0.0622425084999209,
+          0.10556059963207794,
+          0.06836993398015925,
+          0.03185676500862724,
+          0.01113267284757146,
+          0.0031123412486482225,
+          0.0007250930197886152,
+          0.00014479496173716046,
+          2.530004127160897e-05,
+          3.929492700364025e-06
+        ],
+        [
+          0.06674568814089148,
+          0.09329985764183467,
+          0.06520918188461686,
+          0.030384022080610945,
+          0.010618007745771586,
+          0.0029684572553338126,
+          0.0006915718629241796,
+          0.00013810106937699637,
+          2.413041664553059e-05,
+          3.7478316753482857e-06
+        ],
+        [
+          0.042440016779464976,
+          0.05932439434114238,
+          0.041463034548636826,
+          0.01931957618306068,
+          0.006751423791508704,
+          0.001887483360117004,
+          0.0004397335960452353,
+          8.781109109625102e-05,
+          1.53432426252025e-05,
+          2.3830459108106086e-06
+        ],
+        [
+          0.02023900428338453,
+          0.028290909436221718,
+          0.01977309618402466,
+          0.009213214668457257,
+          0.0032196522387192964,
+          0.0009001123634972008,
+          0.00020970232363842618,
+          4.187578572508043e-05,
+          7.316961131898879e-06,
+          1.1364386740708051e-06
+        ],
+        [
+          0.007721340856416533,
+          0.010793206614142226,
+          0.007543593216633874,
+          0.0035149145601444973,
+          0.0012283228970253947,
+          0.0003434000146609158,
+          8.00031017595145e-05,
+          1.597594479877924e-05,
+          2.791478777388486e-06,
+          4.3356037886303273e-07
+        ],
+        [
+          0.002454794044632269,
+          0.003431411695400571,
+          0.0023982839312076923,
+          0.0011174731811591583,
+          0.000390512449660561,
+          0.00010917486050570167,
+          2.5434848869307722e-05,
+          5.079124840969399e-06,
+          8.874761010914448e-07,
+          1.378389396107329e-07
+        ],
+        [
+          0.0006689453014835992,
+          0.0009350791509834956,
+          0.0006535459750332457,
+          0.00030451778050583073,
+          0.00010641685763516492,
+          2.97507687600557e-05,
+          6.931140590907549e-06,
+          1.3840903294696094e-06,
+          2.4184227157559307e-07,
+          3.756189290735142e-08
+        ],
+        [
+          0.00015950496547196695,
+          0.00022296257610359403,
+          0.00015583311214059948,
+          7.260996969028476e-05,
+          2.5374297666919723e-05,
+          7.093846587026969e-06,
+          1.6526782356975151e-06,
+          3.3002590753310806e-07,
+          5.766546695488343e-08,
+          8.956350269537994e-09
+        ],
+        [
+          3.38068949949693e-05,
+          4.7256662987503055e-05,
+          3.30286498811375e-05,
+          1.538960002683288e-05,
+          5.378053368171869e-06,
+          1.5035326703994722e-06,
+          3.502832617741705e-07,
+          6.994861362828297e-08,
+          1.2222129765121574e-08,
+          1.898288195633952e-09
+        ]
+      ],
+      "source": "jc",
+      "source_variant": "legacy",
+      "status": "predicted",
+      "team_strengths": {
+        "away_attack_index": 156.1858476526966,
+        "away_default_strength": false,
+        "away_defence_index": 125.13816985519422,
+        "away_expected_goals": 1.3978409728114687,
+        "fitted_teams": 27,
+        "home_attack_index": 153.03402038117747,
+        "home_default_strength": false,
+        "home_defence_index": 138.61501447726545,
+        "home_expected_goals": 1.9075397060801713,
+        "method": "dixon_coles_relative_to_fitted_average"
+      },
+      "top_scores": [
+        {
+          "probability": 0.10556059963207794,
+          "score": "1:1"
+        },
+        {
+          "probability": 0.09329985764183467,
+          "score": "2:1"
+        },
+        {
+          "probability": 0.06836993398015925,
+          "score": "1:2"
+        },
+        {
+          "probability": 0.06674568814089148,
+          "score": "2:0"
+        },
+        {
+          "probability": 0.06520918188461686,
+          "score": "2:2"
+        }
+      ]
+    },
+    {
+      "away": "尤文图斯",
+      "ev": {
+        "a": 0.03651032859019954,
+        "d": -0.006197431580795887,
+        "h": -0.2772974275547573
+      },
+      "experimental_blend": {
+        "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+        "market_collected_utc": "2026-11-28T08:57:06.322790Z",
+        "market_dependent": true,
+        "market_snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "market_weight": 1.0,
+        "method_version": "log-linear-v1",
+        "model_name": "team-market-blend-v1",
+        "model_version": "retrospective-v1",
+        "paper_eligible": false,
+        "probabilities": {
+          "a": 0.2703526432143547,
+          "d": 0.2622824150587023,
+          "h": 0.467364941726943
+        },
+        "protocol_sha256": "0b50f7a83ceb5b04642b21436384bdabd27626420041a7f66366fcb10ce96a6d",
+        "reason": null,
+        "status": "generated"
+      },
+      "half_full_time": {
+        "probabilities": {
+          "aa": 0.17770324701339166,
+          "ad": 0.04884501448194906,
+          "ah": 0.018175452782303977,
+          "da": 0.12547710337212692,
+          "dd": 0.198967454146312,
+          "dh": 0.14703822351201343,
+          "ha": 0.015745904565312087,
+          "hd": 0.048845014481949056,
+          "hh": 0.21920258564464162
+        },
+        "share": 0.4405633802816901,
+        "share_full_goals": 5325,
+        "share_ht_goals": 2346,
+        "share_ht_matches": 2019,
+        "share_tier": "league",
+        "status": "experimental"
+      },
+      "home": "科莫",
+      "jc_num": "周日020",
+      "kickoff_beijing": "2026-11-30T03:45:00+08:00",
+      "kickoff_utc": "2026-11-29T19:45:00.000000Z",
+      "league": "意甲",
+      "market": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 3.25,
+          "d": 3.35,
+          "h": 1.88
+        },
+        "probabilities": {
+          "a": 0.2703526432143547,
+          "d": 0.2622824150587023,
+          "h": 0.467364941726943
+        },
+        "return_rate": 0.8786460904466528,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "market_missing_reason": null,
+      "market_reference": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 3.25,
+          "d": 3.35,
+          "h": 1.88
+        },
+        "probabilities": {
+          "a": 0.2703526432143547,
+          "d": 0.2622824150587023,
+          "h": 0.467364941726943
+        },
+        "return_rate": 0.8786460904466528,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "match_id": "jc:2043129",
+      "metadata": {
+        "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+        "assumed_training_share": 0.950965824665676,
+        "availability_basis": "mixed",
+        "away_unknown_team": false,
+        "calibration_skipped_training_rows": 0,
+        "calibration_training_rows": 0,
+        "draw_calibration": false,
+        "draw_offset": 0.0,
+        "excluded_score_mass": 6.743500433614713e-07,
+        "half_life_days": 730.0,
+        "home_unknown_team": false,
+        "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+        "parameter_source": "params.json",
+        "prior_method": null,
+        "prior_rho_clipped": false,
+        "replay_delay": null,
+        "replayed_eval_share": 0.0,
+        "replayed_training_share": 0.0,
+        "rho_after": -0.03233897442747594,
+        "rho_before": -0.03233897442747594,
+        "rho_clip_reason": null,
+        "rho_clipped": false,
+        "rho_legal_interval": [
+          -0.84657948596414,
+          0.8060795475322177
+        ],
+        "rho_roundoff_steps": 0,
+        "training_games": 2019,
+        "training_source_counts": {
+          "fd": 1920,
+          "jc": 99
+        },
+        "unknown_team_prior": false
+      },
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "意甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "f8fa8f8362ee051858d6d0de2ee82f9f7b75d9bd73b97a6e0a1a6e63c546e143",
+      "model_name": "dixon-coles",
+      "model_probabilities": {
+        "a": 0.31892625495083066,
+        "d": 0.2966574831102102,
+        "h": 0.3844162619389589
+      },
+      "model_version": "f1393d22f594181336e680c65e64da8821229c88e7cfb08c9de6a4c359f334ef",
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "probability_type": "P2",
+      "prospective_n": 20,
+      "prospective_verified": false,
+      "reason": null,
+      "score_matrix": [
+        [
+          0.11167845792297904,
+          0.10845791490184162,
+          0.05921559916450271,
+          0.0207302582212953,
+          0.005442952684575655,
+          0.0011432847043302578,
+          0.00020012114607995883,
+          3.002512194406947e-05,
+          3.941709658066498e-06,
+          4.599725984256949e-07
+        ],
+        [
+          0.12252144599237748,
+          0.13750891911163277,
+          0.06994688643685254,
+          0.024487078372429878,
+          0.006429346298625302,
+          0.001350475322501124,
+          0.00023638789906661604,
+          3.546639440462569e-05,
+          4.656042017811737e-06,
+          5.433306689469896e-07
+        ],
+        [
+          0.07490675260498766,
+          0.07867030035647801,
+          0.04131147021427791,
+          0.014462362234387474,
+          0.003797249050573876,
+          0.0007976069258063313,
+          0.00013961352890414186,
+          2.0946877991163607e-05,
+          2.7499142697210128e-06,
+          3.208976108889582e-07
+        ],
+        [
+          0.029493884447908226,
+          0.03097574874767297,
+          0.016266033254683974,
+          0.005694429751002369,
+          0.0014951338941116758,
+          0.0003140508123297934,
+          5.497161665221187e-05,
+          8.247651613917046e-06,
+          1.082754903826989e-06,
+          1.2635065232474854e-07
+        ],
+        [
+          0.008709720982170583,
+          0.009147324398132494,
+          0.00480345718398762,
+          0.0016815992607348562,
+          0.00044152200676375944,
+          9.274108856185308e-05,
+          1.6233448117871235e-05,
+          2.4355809911115676e-06,
+          3.197440174781335e-07,
+          3.73121054843575e-08
+        ],
+        [
+          0.0020576262776439438,
+          0.002161007808431579,
+          0.0011347917741042662,
+          0.00039726907835942686,
+          0.00010430727748167093,
+          2.190959977165841e-05,
+          3.835067678112593e-06,
+          5.753933402574169e-07,
+          7.553786095206128e-08,
+          8.814790838420573e-09
+        ],
+        [
+          0.00040508625430498997,
+          0.0004254390450552284,
+          0.00022340721159255962,
+          7.821062777643197e-05,
+          2.0535043117831394e-05,
+          4.3133574844237905e-06,
+          7.550123254217072e-07,
+          1.1327806972984574e-07,
+          1.4871188944145395e-08,
+          1.7353737372106122e-09
+        ],
+        [
+          6.835680034794053e-05,
+          7.179125816785457e-05,
+          3.769913690437111e-05,
+          1.319775285185429e-05,
+          3.465212229801054e-06,
+          7.278630495569992e-07,
+          1.2740552472616994e-07,
+          1.911525339117825e-08,
+          2.5094578815949856e-09,
+          2.9283787051004863e-10
+        ],
+        [
+          1.009308657386307e-05,
+          1.0600194570934756e-05,
+          5.566390623887614e-06,
+          1.948687788723084e-06,
+          5.116489779241818e-07,
+          1.0747116213311922e-07,
+          1.8811807815817803e-08,
+          2.822424489976941e-09,
+          3.705289820980378e-10,
+          4.3238389803490436e-11
+        ],
+        [
+          1.3246884461006997e-06,
+          1.3912449052898753e-06,
+          7.305726837855642e-07,
+          2.557596410065245e-07,
+          6.715244980366606e-08,
+          1.4105279462818322e-08,
+          2.468995413990865e-09,
+          3.704350581462513e-10,
+          4.86308581560952e-11,
+          5.674913712620569e-12
+        ]
+      ],
+      "source": "jc",
+      "source_variant": "legacy",
+      "status": "predicted",
+      "team_strengths": {
+        "away_attack_index": 127.26000939230464,
+        "away_default_strength": false,
+        "away_defence_index": 147.4665314050132,
+        "away_expected_goals": 1.050243103867244,
+        "fitted_teams": 27,
+        "home_attack_index": 133.4103282345099,
+        "home_default_strength": false,
+        "home_defence_index": 139.89886886063215,
+        "home_expected_goals": 1.1812239920521281,
+        "method": "dixon_coles_relative_to_fitted_average"
+      },
+      "top_scores": [
+        {
+          "probability": 0.13750891911163277,
+          "score": "1:1"
+        },
+        {
+          "probability": 0.12252144599237748,
+          "score": "1:0"
+        },
+        {
+          "probability": 0.11167845792297904,
+          "score": "0:0"
+        },
+        {
+          "probability": 0.10845791490184162,
+          "score": "0:1"
+        },
+        {
+          "probability": 0.07867030035647801,
+          "score": "2:1"
+        }
+      ]
+    },
+    {
+      "away": "摩纳哥",
+      "ev": {
+        "a": -0.05503497408461966,
+        "d": -0.24646321576570773,
+        "h": -0.08314736982400961
+      },
+      "experimental_blend": {
+        "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+        "market_collected_utc": "2026-11-28T08:57:06.322790Z",
+        "market_dependent": true,
+        "market_snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "market_weight": 1.0,
+        "method_version": "log-linear-v1",
+        "model_name": "team-market-blend-v1",
+        "model_version": "retrospective-v1",
+        "paper_eligible": false,
+        "probabilities": {
+          "a": 0.2979405034324943,
+          "d": 0.2835240274599542,
+          "h": 0.41853546910755146
+        },
+        "protocol_sha256": "0b50f7a83ceb5b04642b21436384bdabd27626420041a7f66366fcb10ce96a6d",
+        "reason": null,
+        "status": "generated"
+      },
+      "half_full_time": {
+        "probabilities": {
+          "aa": 0.1883180204897704,
+          "ad": 0.054761146976701716,
+          "ah": 0.030086573884824275,
+          "da": 0.10799230574655509,
+          "dd": 0.13355408805765867,
+          "dh": 0.13940338380587505,
+          "ha": 0.02401680119261685,
+          "hd": 0.054761146976701716,
+          "hh": 0.2671065328692959
+        },
+        "share": 0.4473264166001596,
+        "share_full_goals": 5012,
+        "share_ht_goals": 2242,
+        "share_ht_matches": 1772,
+        "share_tier": "league",
+        "status": "experimental"
+      },
+      "home": "里昂",
+      "jc_num": "周日021",
+      "kickoff_beijing": "2026-11-30T03:45:00+08:00",
+      "kickoff_utc": "2026-11-29T19:45:00.000000Z",
+      "league": "法甲",
+      "market": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 2.95,
+          "d": 3.1,
+          "h": 2.1
+        },
+        "probabilities": {
+          "a": 0.2979405034324943,
+          "d": 0.2835240274599542,
+          "h": 0.41853546910755146
+        },
+        "return_rate": 0.8789244851258581,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "market_missing_reason": null,
+      "market_reference": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 2.95,
+          "d": 3.1,
+          "h": 2.1
+        },
+        "probabilities": {
+          "a": 0.2979405034324943,
+          "d": 0.2835240274599542,
+          "h": 0.41853546910755146
+        },
+        "return_rate": 0.8789244851258581,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "match_id": "jc:2043130",
+      "metadata": {
+        "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+        "assumed_training_share": 0.9746049661399548,
+        "availability_basis": "mixed",
+        "away_unknown_team": false,
+        "calibration_skipped_training_rows": 0,
+        "calibration_training_rows": 0,
+        "draw_calibration": false,
+        "draw_offset": 0.0,
+        "excluded_score_mass": 1.6316032056540308e-05,
+        "half_life_days": 730.0,
+        "home_unknown_team": false,
+        "last_available_utc": "2026-11-28T03:59:06.918969+00:00",
+        "parameter_source": "params.json",
+        "prior_method": null,
+        "prior_rho_clipped": false,
+        "replay_delay": null,
+        "replayed_eval_share": 0.0,
+        "replayed_training_share": 0.0,
+        "rho_after": -0.046798615138700955,
+        "rho_before": -0.046798615138700955,
+        "rho_clip_reason": null,
+        "rho_clipped": false,
+        "rho_legal_interval": [
+          -0.5810896892493365,
+          0.40098698979450753
+        ],
+        "rho_roundoff_steps": 0,
+        "training_games": 1772,
+        "training_source_counts": {
+          "fd": 1727,
+          "jc": 45
+        },
+        "unknown_team_prior": false
+      },
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "法甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "a4eed49f60f2b4a02a5b9c6e9f4c294e49658f604d5102c1f7974663e5062302",
+      "model_name": "dixon-coles",
+      "model_probabilities": {
+        "a": 0.3203271274289425,
+        "d": 0.24307638201106202,
+        "h": 0.4365964905599954
+      },
+      "model_version": "9f8bc52c363578fffb0b632879d00768bc564b96307b218985d4a9ae446dc1de",
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "probability_type": "P2",
+      "prospective_n": 8,
+      "prospective_verified": false,
+      "reason": null,
+      "score_matrix": [
+        [
+          0.04690404621806448,
+          0.05596520512918804,
+          0.04410280807015658,
+          0.021303839184112314,
+          0.007718106576012425,
+          0.0022369364922022474,
+          0.0005402755219026101,
+          0.0001118484935285374,
+          2.0260634385174033e-05,
+          3.2622964054294064e-06
+        ],
+        [
+          0.06737952419921156,
+          0.10964865793931705,
+          0.0758967314101365,
+          0.03666187781034809,
+          0.01328212618259125,
+          0.0038495546102219904,
+          0.0009297627059956081,
+          0.00019248060256072611,
+          3.486662172813139e-05,
+          5.6141013440519095e-06
+        ],
+        [
+          0.06219480756076059,
+          0.09012951122660012,
+          0.06530552237829367,
+          0.03154579963181643,
+          0.011428636945657536,
+          0.0033123583858413698,
+          0.0008000165234360762,
+          0.000165620390553975,
+          3.0001067282034212e-05,
+          4.830666804038737e-06
+        ],
+        [
+          0.03567711302369698,
+          0.051701434330519776,
+          0.03746152764739678,
+          0.018095772027073218,
+          0.006555865159944175,
+          0.0019000844144618147,
+          0.000458917408813749,
+          9.500563832519945e-05,
+          1.720965962000932e-05,
+          2.7710391318301143e-06
+        ],
+        [
+          0.01534922821887676,
+          0.02224331083782812,
+          0.016116930114433086,
+          0.007785274959210558,
+          0.0028205048554609423,
+          0.0008174660683260369,
+          0.00019743828590668497,
+          4.0873913305848565e-05,
+          7.404046199064859e-06,
+          1.1921735934644612e-06
+        ],
+        [
+          0.005282911916301668,
+          0.007655723806272484,
+          0.005547140282338607,
+          0.002679543314309272,
+          0.0009707640344142154,
+          0.0002813562461870753,
+          6.795449637447185e-05,
+          1.4068022221716007e-05,
+          2.5483316383154414e-06,
+          4.103234373353055e-07
+        ],
+        [
+          0.001515231358727153,
+          0.0021957952297525433,
+          0.001591016666608017,
+          0.000768539797981605,
+          0.00027843207120868273,
+          8.069788290069791e-05,
+          1.949053580760681e-05,
+          4.03495435156472e-06,
+          7.309059988104497e-07,
+          1.1768792463729358e-07
+        ],
+        [
+          0.0003725098322686418,
+          0.0005398220595292554,
+          0.0003911411601939316,
+          0.0001889405400627373,
+          6.845072440375326e-05,
+          1.9839052729891726e-05,
+          4.791622205216616e-06,
+          9.919674378806565e-07,
+          1.796885138714003e-07,
+          2.8932815318387968e-08
+        ],
+        [
+          8.013174195834071e-05,
+          0.00011612279255604424,
+          8.413958452334951e-05,
+          4.064358384736066e-05,
+          1.4724647001605571e-05,
+          4.267639982461273e-06,
+          1.030740670043236e-06,
+          2.1338518309499268e-07,
+          3.865335188263398e-08,
+          6.223827374170923e-09
+        ],
+        [
+          1.5322121608734523e-05,
+          2.22040293347743e-05,
+          1.60884677490899e-05,
+          7.771526227993578e-06,
+          2.8155238672033542e-06,
+          8.160224300073773e-07,
+          1.9708961152599903e-07,
+          4.0801730312855686e-08,
+          7.390970714686671e-09,
+          1.1900682247541198e-09
+        ]
+      ],
+      "source": "jc",
+      "source_variant": "legacy",
+      "status": "predicted",
+      "team_strengths": {
+        "away_attack_index": 137.84700997481258,
+        "away_default_strength": false,
+        "away_defence_index": 111.55763811268918,
+        "away_expected_goals": 1.449148486206811,
+        "fitted_teams": 26,
+        "home_attack_index": 128.95202451882548,
+        "home_default_strength": false,
+        "home_defence_index": 116.66733799052365,
+        "home_expected_goals": 1.7209047389772487,
+        "method": "dixon_coles_relative_to_fitted_average"
+      },
+      "top_scores": [
+        {
+          "probability": 0.10964865793931705,
+          "score": "1:1"
+        },
+        {
+          "probability": 0.09012951122660012,
+          "score": "2:1"
+        },
+        {
+          "probability": 0.0758967314101365,
+          "score": "1:2"
+        },
+        {
+          "probability": 0.06737952419921156,
+          "score": "1:0"
+        },
+        {
+          "probability": 0.06530552237829367,
+          "score": "2:2"
+        }
+      ]
+    },
+    {
+      "away": "里斯本",
+      "ev": {
+        "a": 0.11126352877263268,
+        "d": -0.04842248301426022,
+        "h": -0.272580127795615
+      },
+      "experimental_blend": {
+        "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+        "market_collected_utc": "2026-11-28T08:57:06.322790Z",
+        "market_dependent": true,
+        "market_snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "market_weight": 1.0,
+        "method_version": "log-linear-v1",
+        "model_name": "team-market-blend-v1",
+        "model_version": "retrospective-v1",
+        "paper_eligible": false,
+        "probabilities": {
+          "a": 0.24042832609354478,
+          "d": 0.25810687948277605,
+          "h": 0.5014647944236791
+        },
+        "protocol_sha256": "0b50f7a83ceb5b04642b21436384bdabd27626420041a7f66366fcb10ce96a6d",
+        "reason": null,
+        "status": "generated"
+      },
+      "half_full_time": {
+        "probabilities": {
+          "aa": 0.17100588340550243,
+          "ad": 0.05480600085392837,
+          "ah": 0.022278690765486962,
+          "da": 0.1159564870869023,
+          "dd": 0.1702637385820669,
+          "dh": 0.1498947945301642,
+          "ha": 0.017493390815165537,
+          "hd": 0.054806000853928366,
+          "hh": 0.2434950131068548
+        },
+        "share": 0.4424860853432282,
+        "share_full_goals": 4312,
+        "share_ht_goals": 1908,
+        "share_ht_matches": 1628,
+        "share_tier": "league",
+        "status": "experimental"
+      },
+      "home": "波尔图",
+      "jc_num": "周日022",
+      "kickoff_beijing": "2026-11-30T04:30:00+08:00",
+      "kickoff_utc": "2026-11-29T20:30:00.000000Z",
+      "league": "葡超",
+      "market": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-27T03:27:00.465281Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 3.65,
+          "d": 3.4,
+          "h": 1.75
+        },
+        "probabilities": {
+          "a": 0.24042832609354478,
+          "d": 0.25810687948277605,
+          "h": 0.5014647944236791
+        },
+        "return_rate": 0.8775633902414385,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "market_missing_reason": null,
+      "market_reference": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-27T03:27:00.465281Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 3.65,
+          "d": 3.4,
+          "h": 1.75
+        },
+        "probabilities": {
+          "a": 0.24042832609354478,
+          "d": 0.25810687948277605,
+          "h": 0.5014647944236791
+        },
+        "return_rate": 0.8775633902414385,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "match_id": "jc:2043131",
+      "metadata": {
+        "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+        "assumed_training_share": 0.9828009828009828,
+        "availability_basis": "mixed",
+        "away_unknown_team": false,
+        "calibration_skipped_training_rows": 0,
+        "calibration_training_rows": 1628,
+        "draw_calibration": true,
+        "draw_offset": 0.16436998067220596,
+        "excluded_score_mass": 2.8565262442104e-06,
+        "half_life_days": 730.0,
+        "home_unknown_team": false,
+        "last_available_utc": "2026-11-10T20:14:29.953697+00:00",
+        "parameter_source": "params.json",
+        "prior_method": null,
+        "prior_rho_clipped": false,
+        "replay_delay": null,
+        "replayed_eval_share": 0.0,
+        "replayed_training_share": 0.0,
+        "rho_after": 0.05980193731374578,
+        "rho_before": 0.05980193731374578,
+        "rho_clip_reason": null,
+        "rho_clipped": false,
+        "rho_legal_interval": [
+          -0.7083954892791624,
+          0.6085149087948445
+        ],
+        "rho_roundoff_steps": 0,
+        "training_games": 1628,
+        "training_source_counts": {
+          "fd": 1600,
+          "jc": 28
+        },
+        "unknown_team_prior": false
+      },
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "葡超",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "6f5c10c1575e039d90df914a5a68c09115c825ef9f7cdb5ef2524d8e5f9f76a6",
+      "model_name": "dixon-coles",
+      "model_probabilities": {
+        "a": 0.3044557613075706,
+        "d": 0.27987574028992346,
+        "h": 0.4156684984025057
+      },
+      "model_version": "ba68217003bf64e937431cf4d078731f58a9a48d2bc96b66aed04c20ecac9b9f",
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "probability_type": "P2",
+      "prospective_n": 4,
+      "prospective_verified": false,
+      "reason": null,
+      "score_matrix": [
+        [
+          0.0774440478112333,
+          0.0919878969067969,
+          0.049375123786453506,
+          0.019159823622725277,
+          0.00557617095060314,
+          0.0012982867935577623,
+          0.00025189755557741936,
+          4.189194042095862e-05,
+          6.096001347389238e-06,
+          7.885098248058688e-07
+        ],
+        [
+          0.11002259100575816,
+          0.13269732538337004,
+          0.06969994097039753,
+          0.027046789417337503,
+          0.007871550616841517,
+          0.0018327146533341874,
+          0.0003555888756910933,
+          5.9136373755832826e-05,
+          8.605364432221765e-06,
+          1.1130926674988117e-06
+        ],
+        [
+          0.07260181784107951,
+          0.08451855415333397,
+          0.05798445814030177,
+          0.01909017619865094,
+          0.005555901142772184,
+          0.0012935674217795284,
+          0.00025098188869957926,
+          4.1739660013933645e-05,
+          6.07384191631307e-06,
+          7.856435312931302e-07
+        ],
+        [
+          0.03416256358669389,
+          0.0397699474528167,
+          0.02314885878493973,
+          0.010587608418509182,
+          0.002614312309463212,
+          0.0006086841984721539,
+          0.00011809876097835751,
+          1.9640469504968393e-05,
+          2.8580277581447216e-06,
+          3.6968216351037327e-07
+        ],
+        [
+          0.012056317446860245,
+          0.014035220457602412,
+          0.008169468586147817,
+          0.003170130324714875,
+          0.00108744340786549,
+          0.00021481086754643534,
+          4.167825839014393e-05,
+          6.9313221929722524e-06,
+          1.0086271727439095e-06,
+          1.3046460949608397e-07
+        ],
+        [
+          0.00340383800555487,
+          0.003962538065250571,
+          0.0023064710912997985,
+          0.0008950170837312041,
+          0.00026048090842944804,
+          7.148179228799225e-05,
+          1.17669462950856e-05,
+          1.956907489635576e-06,
+          2.8476386086824254e-07,
+          3.683383405753758e-08
+        ],
+        [
+          0.0008008327873973549,
+          0.0009322800905284099,
+          0.0005426514628729916,
+          0.00021057377723704884,
+          6.128424784637929e-05,
+          1.426866757438076e-05,
+          3.2630348289503384e-06,
+          4.6040842044953665e-07,
+          6.699738238922811e-08,
+          8.666024044237946e-09
+        ],
+        [
+          0.00016149832352874223,
+          0.0001880063779217583,
+          0.000109432709166694,
+          4.24649346755886e-05,
+          1.2358763828933205e-05,
+          2.8774619727301993e-06,
+          5.582939307357807e-07,
+          1.0943453737474456e-07,
+          1.3510891545585281e-08,
+          1.7476162025691076e-09
+        ],
+        [
+          2.8497203534757995e-05,
+          3.3174685039473265e-05,
+          1.9309960118120015e-05,
+          7.4931544804864855e-06,
+          2.180766961388516e-06,
+          5.077428527350942e-07,
+          9.851381382027858e-08,
+          1.638338573687401e-08,
+          2.8099798735693177e-09,
+          3.08375799432923e-10
+        ],
+        [
+          4.469757354791203e-06,
+          5.203415565573199e-06,
+          3.028747580562373e-06,
+          1.1752936497397115e-06,
+          3.42051077147376e-07,
+          7.963894940032498e-08,
+          1.5451791377867944e-08,
+          2.569717369090468e-09,
+          3.739382894889202e-10,
+          5.700946525524555e-11
+        ]
+      ],
+      "source": "jc",
+      "source_variant": "legacy",
+      "status": "predicted",
+      "team_strengths": {
+        "away_attack_index": 210.72425929881385,
+        "away_default_strength": false,
+        "away_defence_index": 157.93716868104633,
+        "away_expected_goals": 1.1641382635671655,
+        "fitted_teams": 27,
+        "home_attack_index": 171.9550275333136,
+        "home_default_strength": false,
+        "home_defence_index": 195.28186509813844,
+        "home_expected_goals": 1.411640835005265,
+        "method": "dixon_coles_relative_to_fitted_average"
+      },
+      "top_scores": [
+        {
+          "probability": 0.13269732538337004,
+          "score": "1:1"
+        },
+        {
+          "probability": 0.11002259100575816,
+          "score": "1:0"
+        },
+        {
+          "probability": 0.0919878969067969,
+          "score": "0:1"
+        },
+        {
+          "probability": 0.08451855415333397,
+          "score": "2:1"
+        },
+        {
+          "probability": 0.0774440478112333,
+          "score": "0:0"
+        }
+      ]
+    },
+    {
+      "away": "格雷米奥",
+      "ev": {
+        "a": 0.12845785613142136,
+        "d": 0.02118377458384879,
+        "h": -0.25800993257668403
+      },
+      "experimental_blend": {
+        "as_of_utc": "2026-11-28T09:18:12.991377+00:00",
+        "market_collected_utc": "2026-11-28T08:57:06.322790Z",
+        "market_dependent": true,
+        "market_snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "market_weight": 1.0,
+        "method_version": "log-linear-v1",
+        "model_name": "team-market-blend-v1",
+        "model_version": "retrospective-v1",
+        "paper_eligible": false,
+        "probabilities": {
+          "a": 0.18677231565329883,
+          "d": 0.2280077619663648,
+          "h": 0.5852199223803363
+        },
+        "protocol_sha256": "0b50f7a83ceb5b04642b21436384bdabd27626420041a7f66366fcb10ce96a6d",
+        "reason": null,
+        "status": "generated"
+      },
+      "half_full_time": {
+        "probabilities": {
+          "aa": 0.1308183390052265,
+          "ad": 0.047338132212558275,
+          "ah": 0.023822610133143764,
+          "da": 0.09554878724595678,
+          "dd": 0.17056627442783132,
+          "dh": 0.17543579393439038,
+          "ha": 0.013730289946991431,
+          "hd": 0.04733813221255827,
+          "hh": 0.29540164088134324
+        },
+        "share": 0.43890102245057394,
+        "share_full_goals": 175363,
+        "share_ht_goals": 76967,
+        "share_ht_matches": 62367,
+        "share_tier": "all",
+        "status": "experimental"
+      },
+      "home": "科林蒂安",
+      "jc_num": "周日023",
+      "kickoff_beijing": "2026-11-30T05:30:00+08:00",
+      "kickoff_utc": "2026-11-29T21:30:00.000000Z",
+      "league": "巴甲",
+      "market": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 4.7,
+          "d": 3.85,
+          "h": 1.5
+        },
+        "probabilities": {
+          "a": 0.18677231565329883,
+          "d": 0.2280077619663648,
+          "h": 0.5852199223803363
+        },
+        "return_rate": 0.8778298835705045,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "market_missing_reason": null,
+      "market_reference": {
+        "collected_utc": "2026-11-28T08:57:06.322790Z",
+        "execution_verified": false,
+        "first_capture_utc": "2026-11-28T03:58:36.918446Z",
+        "method_version": "market-reference-v1",
+        "opening_odds": "来源未提供初盘",
+        "operator": "竞彩官方",
+        "prices": {
+          "a": 4.7,
+          "d": 3.85,
+          "h": 1.5
+        },
+        "probabilities": {
+          "a": 0.18677231565329883,
+          "d": 0.2280077619663648,
+          "h": 0.5852199223803363
+        },
+        "return_rate": 0.8778298835705045,
+        "snapshot_id": "2026-11-28T08:57:06.322790Z",
+        "snapshot_utc": "2026-11-28T08:57:06.322790Z",
+        "source": "stored_had_snapshot",
+        "source_quote_time": "来源未提供",
+        "supplier": "中国体育彩票（竞彩官网）",
+        "type": "P3"
+      },
+      "match_id": "jc:2043132",
+      "metadata": {
+        "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+        "assumed_training_share": 0.9817534490431686,
+        "availability_basis": "mixed",
+        "away_unknown_team": false,
+        "calibration_skipped_training_rows": 0,
+        "calibration_training_rows": 0,
+        "draw_calibration": false,
+        "draw_offset": 0.0,
+        "excluded_score_mass": 4.1508496949616e-06,
+        "half_life_days": 730.0,
+        "home_unknown_team": false,
+        "last_available_utc": "2026-11-24T13:34:09.552694+00:00",
+        "parameter_source": "params.json",
+        "prior_method": null,
+        "prior_rho_clipped": false,
+        "replay_delay": null,
+        "replayed_eval_share": 0.0,
+        "replayed_training_share": 0.0,
+        "rho_after": -0.018876285130597473,
+        "rho_before": -0.018876285130597473,
+        "rho_clip_reason": null,
+        "rho_clipped": false,
+        "rho_legal_interval": [
+          -0.6671333411015169,
+          0.6936674424603586
+        ],
+        "rho_roundoff_steps": 0,
+        "training_games": 2247,
+        "training_source_counts": {
+          "fd": 2206,
+          "jc": 41
+        },
+        "unknown_team_prior": false
+      },
+      "model_definition": {
+        "calibration_method": "draw_log_odds_intercept",
+        "fitting_method": "penaltyblog_slsqp",
+        "league": "巴甲",
+        "model_family": "dixon-coles",
+        "prior_method": "weakest_quartile_half_shrinkage",
+        "selection_protocol": {
+          "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+          "evaluation_method": "weekly_walk_forward_season_S_plus_1",
+          "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+          "selection_method": "monthly_walk_forward_season_S"
+        },
+        "training_sources": [
+          "fd",
+          "jc"
+        ]
+      },
+      "model_definition_id": "f0a6e9b68b5f909b06a6e988b26dc9169ce3d0aec5a5a007733b40a91e482c0d",
+      "model_name": "dixon-coles",
+      "model_probabilities": {
+        "a": 0.24009741619817476,
+        "d": 0.26524253885294774,
+        "h": 0.49466004494887733
+      },
+      "model_version": "bc188d40f4b57b50acbf0303cc85dff81ae81020773b3880b85012b46828b2ee",
+      "p2_label": "可用（旧规，考核中）",
+      "p2_ready": true,
+      "paper_eligible": true,
+      "probability_type": "P2",
+      "prospective_n": 12,
+      "prospective_verified": false,
+      "reason": null,
+      "score_matrix": [
+        [
+          0.08769889016220592,
+          0.07978657610344561,
+          0.03948449252943974,
+          0.012658045152699793,
+          0.0030434627018757136,
+          0.0005854088909286602,
+          9.383598090619846e-05,
+          1.2892367977915718e-05,
+          1.5499012922731785e-06,
+          1.656238460807863e-07
+        ],
+        [
+          0.12565058480864946,
+          0.12540187494266955,
+          0.059185308388644046,
+          0.01897378585786141,
+          0.004562000599236418,
+          0.0008774990768143595,
+          0.00014065551086273704,
+          1.932502422473576e-05,
+          2.3232256533815352e-06,
+          2.482619828403742e-07
+        ],
+        [
+          0.09591324838919034,
+          0.09224438388923945,
+          0.04435793022345579,
+          0.014220384958225456,
+          0.003419107034662673,
+          0.0006576639351928533,
+          0.0001054178394310933,
+          1.4483629459163165e-05,
+          1.741200379481568e-06,
+          1.8606623859516898e-07
+        ],
+        [
+          0.047923077481944916,
+          0.046089928457646825,
+          0.022163450438166553,
+          0.007105218743200522,
+          0.0017083576470721322,
+          0.00032860194240778086,
+          5.2672048667730016e-05,
+          7.2367489210122816e-06,
+          8.699911857733658e-07,
+          9.296804058588515e-08
+        ],
+        [
+          0.017958582838484054,
+          0.017271632827384573,
+          0.008305479981547636,
+          0.002662593182447214,
+          0.0006401859800064218,
+          0.00012313952929755384,
+          1.9738201279508146e-05,
+          2.711882496032781e-06,
+          3.26018477931603e-07,
+          3.483862777431563e-08
+        ],
+        [
+          0.005383806124524458,
+          0.005177865282183931,
+          0.0024899010347269697,
+          0.0007982191919986954,
+          0.000191921446752878,
+          3.691601714710759e-05,
+          5.917318192167707e-06,
+          8.129956423869147e-07,
+          9.773712625224444e-08,
+          1.0444277216543516e-08
+        ],
+        [
+          0.0013450100084527697,
+          0.0012935608129040225,
+          0.0006220398235570728,
+          0.00019941520503251014,
+          4.794679837067071e-05,
+          9.222548395436413e-06,
+          1.4782947245092724e-06,
+          2.0310673351661133e-07,
+          2.4417189246073034e-08,
+          2.6092428037696234e-09
+        ],
+        [
+          0.0002880148166550501,
+          0.0002769977011466917,
+          0.000133201005649038,
+          4.270193779579183e-05,
+          1.0267126828157202e-05,
+          1.9748779328858198e-06,
+          3.1655584818394813e-07,
+          4.349242626267571e-08,
+          5.228594761186368e-09,
+          5.587323388029687e-10
+        ],
+        [
+          5.396500199261193e-05,
+          5.190073784375231e-05,
+          2.4957717865874277e-05,
+          8.001012534706661e-06,
+          1.9237396401154477e-06,
+          3.700305866937068e-07,
+          5.931270195199587e-08,
+          8.14912544148679e-09,
+          9.796757332936856e-10,
+          1.0468902998470181e-10
+        ],
+        [
+          8.987875381272583e-06,
+          8.644072022819653e-06,
+          4.1567098989479955e-06,
+          1.332569275097747e-06,
+          3.2039899032596986e-07,
+          6.162862369425159e-08,
+          9.878535235560358e-09,
+          1.357237491522164e-09,
+          1.6316507143103518e-10,
+          1.7435966284549133e-11
+        ]
+      ],
+      "source": "jc",
+      "source_variant": "legacy",
+      "status": "predicted",
+      "team_strengths": {
+        "away_attack_index": 106.51424171173645,
+        "away_default_strength": false,
+        "away_defence_index": 97.55077357696373,
+        "away_expected_goals": 0.9617480946421122,
+        "fitted_teams": 30,
+        "home_attack_index": 103.81007420262476,
+        "home_default_strength": false,
+        "home_defence_index": 111.22191682062443,
+        "home_expected_goals": 1.4989507170318912,
+        "method": "dixon_coles_relative_to_fitted_average"
+      },
+      "top_scores": [
+        {
+          "probability": 0.12565058480864946,
+          "score": "1:0"
+        },
+        {
+          "probability": 0.12540187494266955,
+          "score": "1:1"
+        },
+        {
+          "probability": 0.09591324838919034,
+          "score": "2:0"
+        },
+        {
+          "probability": 0.09224438388923945,
+          "score": "2:1"
+        },
+        {
+          "probability": 0.08769889016220592,
+          "score": "0:0"
+        }
+      ]
+    }
+  ],
+  "probability_type": "P2",
+  "prospective_evidence": {
+    "as_of_utc": "2026-11-28T04:24:04.437048+00:00",
+    "generated_utc": "2026-11-28T04:24:04.437048+00:00",
+    "leagues": {
+      "巴甲": {
+        "model_ll": 0.9371805959015643,
+        "n": 12,
+        "uniform_ll": 1.0986122886681098
+      },
+      "德乙": {
+        "model_ll": 0.9093302150360532,
+        "n": 4,
+        "uniform_ll": 1.0986122886681098
+      },
+      "德甲": {
+        "model_ll": 0.8680325740440445,
+        "n": 18,
+        "uniform_ll": 1.0986122886681098
+      },
+      "意甲": {
+        "model_ll": 1.000082694514199,
+        "n": 20,
+        "uniform_ll": 1.0986122886681098
+      },
+      "挪超": {
+        "model_ll": 0.7012011735517238,
+        "n": 3,
+        "uniform_ll": 1.0986122886681098
+      },
+      "日职": {
+        "model_ll": 1.3267844763312453,
+        "n": 8,
+        "uniform_ll": 1.0986122886681098
+      },
+      "欧冠": {
+        "model_ll": 0.8086230873598335,
+        "n": 31,
+        "uniform_ll": 1.0986122886681098
+      },
+      "欧协联": {
+        "model_ll": 0.34819690528568437,
+        "n": 3,
+        "uniform_ll": 1.0986122886681098
+      },
+      "欧国联": {
+        "model_ll": 0.8903517754571771,
+        "n": 40,
+        "uniform_ll": 1.0986122886681098
+      },
+      "欧罗巴": {
+        "model_ll": 1.198988736547127,
+        "n": 19,
+        "uniform_ll": 1.0986122886681098
+      },
+      "法乙": {
+        "model_ll": 1.2844864881778733,
+        "n": 3,
+        "uniform_ll": 1.0986122886681098
+      },
+      "法甲": {
+        "model_ll": 1.2762572175857818,
+        "n": 8,
+        "uniform_ll": 1.0986122886681098
+      },
+      "澳超": {
+        "model_ll": 1.0897491239001238,
+        "n": 3,
+        "uniform_ll": 1.0986122886681098
+      },
+      "瑞超": {
+        "model_ll": 0.6769436145668871,
+        "n": 5,
+        "uniform_ll": 1.0986122886681098
+      },
+      "美职": {
+        "model_ll": 1.1609096855669452,
+        "n": 4,
+        "uniform_ll": 1.0986122886681098
+      },
+      "芬超": {
+        "model_ll": 1.3030880053478744,
+        "n": 1,
+        "uniform_ll": 1.0986122886681098
+      },
+      "英冠": {
+        "model_ll": 0.987209163756536,
+        "n": 16,
+        "uniform_ll": 1.0986122886681098
+      },
+      "英超": {
+        "model_ll": 1.0276132992956744,
+        "n": 20,
+        "uniform_ll": 1.0986122886681098
+      },
+      "荷乙": {
+        "model_ll": 1.147383631369872,
+        "n": 5,
+        "uniform_ll": 1.0986122886681098
+      },
+      "荷甲": {
+        "model_ll": 0.9118764984174537,
+        "n": 8,
+        "uniform_ll": 1.0986122886681098
+      },
+      "葡超": {
+        "model_ll": 0.6799896221684251,
+        "n": 4,
+        "uniform_ll": 1.0986122886681098
+      },
+      "西甲": {
+        "model_ll": 1.0623233610005467,
+        "n": 17,
+        "uniform_ll": 1.0986122886681098
+      },
+      "韩职": {
+        "model_ll": 1.003066911334607,
+        "n": 2,
+        "uniform_ll": 1.0986122886681098
+      }
+    },
+    "summary_sha256": "89f31abe716818a3c2b04fc8cbf586ea65f50b1da41ef862e1921be5fcdb162a"
+  },
+  "schema_version": 2,
+  "validation_status": "league_gated"
+}

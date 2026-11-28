@@ -1,0 +1,2183 @@
+{
+  "model_definition_id": "85bc5aef2132bf3ff87b5cc2bd7bec9184cd13ea16241f9dbd3666d7582b4344",
+  "model_definition": {
+    "league": "澳超",
+    "model_family": "dixon-coles",
+    "training_sources": [
+      "apif",
+      "jc"
+    ],
+    "fitting_method": "penaltyblog_slsqp",
+    "prior_method": "weakest_quartile_half_shrinkage",
+    "calibration_method": "draw_log_odds_intercept",
+    "selection_protocol": {
+      "selection_basis": "minimum season-S walk-forward model log loss; complete equal samples; tie: shorter half-life",
+      "calibration_policy": "enable in S+1 only if selected uncalibrated monthly S draw bias exceeds 3pp",
+      "selection_method": "monthly_walk_forward_season_S",
+      "evaluation_method": "weekly_walk_forward_season_S_plus_1"
+    }
+  },
+  "source_variant": "current",
+  "model_name": "dixon-coles",
+  "engine": "penaltyblog 1.13.1",
+  "league": "澳超",
+  "sources": [
+    "apif",
+    "jc"
+  ],
+  "training_source_counts": {
+    "apif": 2274,
+    "jc": 15
+  },
+  "training_rows": 2289,
+  "half_share_training": {
+    "share": 0.443791329904482,
+    "ht_matches": 2289,
+    "ht_goals": 3020,
+    "full_goals": 6805
+  },
+  "availability_basis": "mixed",
+  "assumed_training_share": 0.9899519440803844,
+  "replayed_training_share": 0.0,
+  "replayed_eval_share": 0.0,
+  "replay_delay": null,
+  "strict_availability": false,
+  "cutoff_utc": "2026-11-28T09:03:43.139757+00:00",
+  "last_available_utc": "2026-11-27T11:03:29.373525+00:00",
+  "half_life_days": 365.0,
+  "parameter_source": "params.json",
+  "parameter_provenance": {
+    "half_life_days": 365.0,
+    "source": "params.json",
+    "params_path": "/home/runner/work/FOOTBALL/FOOTBALL/app/data/model/params.json",
+    "params_sha256": "12cafa6c60adc19a6629da74f6cc40d360cb8c34ef3997da1f26a01099dfa888",
+    "selection_as_of_utc": "2026-07-01T00:00:00+00:00",
+    "draw_calibration": true,
+    "draw_calibration_source": "params.json"
+  },
+  "draw_calibration": true,
+  "draw_calibration_source": "params.json",
+  "draw_offset": 0.14923584702943607,
+  "calibration_training_rows": 2289,
+  "evaluation_parameters": {
+    "2425": 270.0,
+    "2526": 90.0,
+    "2627": 365.0
+  },
+  "evaluation_calibration": {
+    "2425": true,
+    "2526": false,
+    "2627": true
+  },
+  "evaluation_fallback_half_life_days": 90,
+  "database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+  "training_database_sha256": "796cb7a06be274a752a22ca79273dbcb21212533ec753310614d4192eb597f50",
+  "evaluation_database_sha256": "1f5a99bfad007629272d2272fc0dfb10d4a11b9e0dcad775bb22f7dbc4d5f44f",
+  "market_source": "pre-kickoff had snapshots",
+  "closing_source": "publisher closing; B365 > PS > Avg; comparison only",
+  "model_path": "models/46127794284-1/澳超.pkl",
+  "backtest": {
+    "model": {
+      "n": 28,
+      "log_loss": 1.1661495407406999,
+      "brier": 0.7171354290684222,
+      "calibration": [
+        {
+          "lower": 0.1,
+          "n": 1,
+          "mean_p": 0.18668580380863406,
+          "observed": 0.0
+        },
+        {
+          "lower": 0.2,
+          "n": 43,
+          "mean_p": 0.263808020942454,
+          "observed": 0.3953488372093023
+        },
+        {
+          "lower": 0.3,
+          "n": 16,
+          "mean_p": 0.33537059920864365,
+          "observed": 0.25
+        },
+        {
+          "lower": 0.4,
+          "n": 20,
+          "mean_p": 0.4501591273433297,
+          "observed": 0.35
+        },
+        {
+          "lower": 0.5,
+          "n": 4,
+          "mean_p": 0.5251142903652378,
+          "observed": 0.0
+        }
+      ],
+      "draw_mean": 0.27666234369154225,
+      "draw_rate": 0.42857142857142855,
+      "draw_bias": -0.1519090848798863
+    },
+    "uniform": {
+      "n": 28,
+      "log_loss": 1.0986122886681098,
+      "brier": 0.6666666666666669,
+      "calibration": [
+        {
+          "lower": 0.3,
+          "n": 84,
+          "mean_p": 0.3333333333333333,
+          "observed": 0.3333333333333333
+        }
+      ],
+      "draw_mean": 0.3333333333333334,
+      "draw_rate": 0.42857142857142855,
+      "draw_bias": -0.09523809523809512
+    },
+    "without_prior": {
+      "n": 28,
+      "log_loss": 1.1661495407406999,
+      "brier": 0.7171354290684222,
+      "calibration": [
+        {
+          "lower": 0.1,
+          "n": 1,
+          "mean_p": 0.18668580380863406,
+          "observed": 0.0
+        },
+        {
+          "lower": 0.2,
+          "n": 43,
+          "mean_p": 0.263808020942454,
+          "observed": 0.3953488372093023
+        },
+        {
+          "lower": 0.3,
+          "n": 16,
+          "mean_p": 0.33537059920864365,
+          "observed": 0.25
+        },
+        {
+          "lower": 0.4,
+          "n": 20,
+          "mean_p": 0.4501591273433297,
+          "observed": 0.35
+        },
+        {
+          "lower": 0.5,
+          "n": 4,
+          "mean_p": 0.5251142903652378,
+          "observed": 0.0
+        }
+      ],
+      "draw_mean": 0.27666234369154225,
+      "draw_rate": 0.42857142857142855,
+      "draw_bias": -0.1519090848798863
+    },
+    "unknown_team": {
+      "n": 0,
+      "log_loss": null,
+      "brier": null,
+      "calibration": [],
+      "draw_mean": null,
+      "draw_rate": null,
+      "draw_bias": null
+    },
+    "jc_linked": {
+      "n": 15,
+      "log_loss": 1.1171669737514487,
+      "brier": 0.6811711612022394,
+      "calibration": [
+        {
+          "lower": 0.2,
+          "n": 23,
+          "mean_p": 0.2664121756286821,
+          "observed": 0.391304347826087
+        },
+        {
+          "lower": 0.3,
+          "n": 10,
+          "mean_p": 0.3443134982364676,
+          "observed": 0.1
+        },
+        {
+          "lower": 0.4,
+          "n": 11,
+          "mean_p": 0.4461963251736893,
+          "observed": 0.45454545454545453
+        },
+        {
+          "lower": 0.5,
+          "n": 1,
+          "mean_p": 0.521225401265052,
+          "observed": 0.0
+        }
+      ],
+      "draw_mean": 0.2742745273863447,
+      "draw_rate": 0.4666666666666667,
+      "draw_bias": -0.19239213928032195
+    },
+    "unknown_team_share": 0.0,
+    "market": {
+      "n": 6,
+      "log_loss": 0.9285185568639127,
+      "brier": 0.5391625950552891,
+      "calibration": [
+        {
+          "lower": 0.1,
+          "n": 1,
+          "mean_p": 0.14278890317839427,
+          "observed": 0.0
+        },
+        {
+          "lower": 0.2,
+          "n": 7,
+          "mean_p": 0.2340562703635429,
+          "observed": 0.2857142857142857
+        },
+        {
+          "lower": 0.3,
+          "n": 5,
+          "mean_p": 0.3408200479465814,
+          "observed": 0.2
+        },
+        {
+          "lower": 0.4,
+          "n": 3,
+          "mean_p": 0.4298805648996687,
+          "observed": 0.3333333333333333
+        },
+        {
+          "lower": 0.5,
+          "n": 1,
+          "mean_p": 0.5697381395858442,
+          "observed": 1.0
+        },
+        {
+          "lower": 0.6,
+          "n": 1,
+          "mean_p": 0.6553371302590482,
+          "observed": 1.0
+        }
+      ],
+      "draw_mean": 0.2379135359785324,
+      "draw_rate": 0.3333333333333333,
+      "draw_bias": -0.09541979735480091
+    },
+    "paired_model": {
+      "n": 6,
+      "log_loss": 1.0932213411578158,
+      "brier": 0.6641212436509322,
+      "calibration": [
+        {
+          "lower": 0.2,
+          "n": 9,
+          "mean_p": 0.27206751129114,
+          "observed": 0.3333333333333333
+        },
+        {
+          "lower": 0.3,
+          "n": 4,
+          "mean_p": 0.3413456153645592,
+          "observed": 0.25
+        },
+        {
+          "lower": 0.4,
+          "n": 5,
+          "mean_p": 0.43720198738430066,
+          "observed": 0.4
+        }
+      ],
+      "draw_mean": 0.2833767169959422,
+      "draw_rate": 0.3333333333333333,
+      "draw_bias": -0.049956616337391124
+    },
+    "closing": {
+      "n": 0,
+      "log_loss": null,
+      "brier": null,
+      "calibration": [],
+      "draw_mean": null,
+      "draw_rate": null,
+      "draw_bias": null
+    },
+    "closing_paired_model": {
+      "n": 0,
+      "log_loss": null,
+      "brier": null,
+      "calibration": [],
+      "draw_mean": null,
+      "draw_rate": null,
+      "draw_bias": null
+    },
+    "half_full_time": {
+      "model": {
+        "n": 28,
+        "log_loss": 2.2647515108968768,
+        "brier": 0.9193221660418125,
+        "calibration": [
+          {
+            "lower": 0.0,
+            "n": 130,
+            "mean_p": 0.04775403064269818,
+            "observed": 0.09230769230769231
+          },
+          {
+            "lower": 0.1,
+            "n": 90,
+            "mean_p": 0.14714167479564624,
+            "observed": 0.14444444444444443
+          },
+          {
+            "lower": 0.2,
+            "n": 24,
+            "mean_p": 0.2504538636619229,
+            "observed": 0.125
+          },
+          {
+            "lower": 0.3,
+            "n": 8,
+            "mean_p": 0.31729156961936533,
+            "observed": 0.0
+          }
+        ],
+        "outcomes": [
+          {
+            "outcome": "hh",
+            "label": "胜/胜",
+            "n": 28,
+            "mean_p": 0.23851390874959372,
+            "actual": 5,
+            "observed": 0.17857142857142858
+          },
+          {
+            "outcome": "hd",
+            "label": "胜/平",
+            "n": 28,
+            "mean_p": 0.05850272559329635,
+            "actual": 4,
+            "observed": 0.14285714285714285
+          },
+          {
+            "outcome": "ha",
+            "label": "胜/负",
+            "n": 28,
+            "mean_p": 0.021874123873266087,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "dh",
+            "label": "平/胜",
+            "n": 28,
+            "mean_p": 0.1315578664124454,
+            "actual": 5,
+            "observed": 0.17857142857142858
+          },
+          {
+            "outcome": "dd",
+            "label": "平/平",
+            "n": 28,
+            "mean_p": 0.15965689250494955,
+            "actual": 6,
+            "observed": 0.21428571428571427
+          },
+          {
+            "outcome": "da",
+            "label": "平/负",
+            "n": 28,
+            "mean_p": 0.11283394638655864,
+            "actual": 1,
+            "observed": 0.03571428571428571
+          },
+          {
+            "outcome": "ah",
+            "label": "负/胜",
+            "n": 28,
+            "mean_p": 0.025124666608541298,
+            "actual": 3,
+            "observed": 0.10714285714285714
+          },
+          {
+            "outcome": "ad",
+            "label": "负/平",
+            "n": 28,
+            "mean_p": 0.05850272559329635,
+            "actual": 2,
+            "observed": 0.07142857142857142
+          },
+          {
+            "outcome": "aa",
+            "label": "负/负",
+            "n": 28,
+            "mean_p": 0.19343314427805264,
+            "actual": 2,
+            "observed": 0.07142857142857142
+          }
+        ]
+      },
+      "fixed_half_share": {
+        "n": 28,
+        "log_loss": 2.282422524490493,
+        "brier": 0.9269152561437318,
+        "calibration": [
+          {
+            "lower": 0.0,
+            "n": 135,
+            "mean_p": 0.04753772547001013,
+            "observed": 0.08888888888888889
+          },
+          {
+            "lower": 0.1,
+            "n": 83,
+            "mean_p": 0.1453704792932032,
+            "observed": 0.1566265060240964
+          },
+          {
+            "lower": 0.2,
+            "n": 23,
+            "mean_p": 0.2556823126976753,
+            "observed": 0.08695652173913043
+          },
+          {
+            "lower": 0.3,
+            "n": 11,
+            "mean_p": 0.33054218983329436,
+            "observed": 0.09090909090909091
+          }
+        ],
+        "outcomes": [
+          {
+            "outcome": "hh",
+            "label": "胜/胜",
+            "n": 28,
+            "mean_p": 0.25501683332942254,
+            "actual": 5,
+            "observed": 0.17857142857142858
+          },
+          {
+            "outcome": "hd",
+            "label": "胜/平",
+            "n": 28,
+            "mean_p": 0.05902477298652585,
+            "actual": 4,
+            "observed": 0.14285714285714285
+          },
+          {
+            "outcome": "ha",
+            "label": "胜/负",
+            "n": 28,
+            "mean_p": 0.01965874882659535,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "dh",
+            "label": "平/胜",
+            "n": 28,
+            "mean_p": 0.11767425344260775,
+            "actual": 5,
+            "observed": 0.17857142857142858
+          },
+          {
+            "outcome": "dd",
+            "label": "平/平",
+            "n": 28,
+            "mean_p": 0.15861279771849054,
+            "actual": 6,
+            "observed": 0.21428571428571427
+          },
+          {
+            "outcome": "da",
+            "label": "平/负",
+            "n": 28,
+            "mean_p": 0.101374946261036,
+            "actual": 1,
+            "observed": 0.03571428571428571
+          },
+          {
+            "outcome": "ah",
+            "label": "负/胜",
+            "n": 28,
+            "mean_p": 0.02250535499855017,
+            "actual": 3,
+            "observed": 0.10714285714285714
+          },
+          {
+            "outcome": "ad",
+            "label": "负/平",
+            "n": 28,
+            "mean_p": 0.05902477298652585,
+            "actual": 2,
+            "observed": 0.07142857142857142
+          },
+          {
+            "outcome": "aa",
+            "label": "负/负",
+            "n": 28,
+            "mean_p": 0.207107519450246,
+            "actual": 2,
+            "observed": 0.07142857142857142
+          }
+        ]
+      },
+      "market_benchmark": {
+        "n": 6,
+        "log_loss": 1.9490081586752266,
+        "brier": 0.7965180575502422,
+        "calibration": [
+          {
+            "lower": 0.0,
+            "n": 27,
+            "mean_p": 0.048631770765296185,
+            "observed": 0.07407407407407407
+          },
+          {
+            "lower": 0.1,
+            "n": 21,
+            "mean_p": 0.144641034894559,
+            "observed": 0.09523809523809523
+          },
+          {
+            "lower": 0.2,
+            "n": 4,
+            "mean_p": 0.22265513262016579,
+            "observed": 0.25
+          },
+          {
+            "lower": 0.3,
+            "n": 1,
+            "mean_p": 0.3392175990429053,
+            "observed": 0.0
+          },
+          {
+            "lower": 0.4,
+            "n": 1,
+            "mean_p": 0.4196423270276952,
+            "observed": 1.0
+          }
+        ],
+        "outcomes": [
+          {
+            "outcome": "hh",
+            "label": "胜/胜",
+            "n": 6,
+            "mean_p": 0.26434598772512247,
+            "actual": 3,
+            "observed": 0.5
+          },
+          {
+            "outcome": "hd",
+            "label": "胜/平",
+            "n": 6,
+            "mean_p": 0.0579131925376325,
+            "actual": 1,
+            "observed": 0.16666666666666666
+          },
+          {
+            "outcome": "ha",
+            "label": "胜/负",
+            "n": 6,
+            "mean_p": 0.03136604826561734,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "dh",
+            "label": "平/胜",
+            "n": 6,
+            "mean_p": 0.1516089865049448,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "dd",
+            "label": "平/平",
+            "n": 6,
+            "mean_p": 0.1277322174072019,
+            "actual": 1,
+            "observed": 0.16666666666666666
+          },
+          {
+            "outcome": "da",
+            "label": "平/负",
+            "n": 6,
+            "mean_p": 0.10697920829622039,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "ah",
+            "label": "负/胜",
+            "n": 6,
+            "mean_p": 0.0374246579952727,
+            "actual": 1,
+            "observed": 0.16666666666666666
+          },
+          {
+            "outcome": "ad",
+            "label": "负/平",
+            "n": 6,
+            "mean_p": 0.0579131925376325,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "aa",
+            "label": "负/负",
+            "n": 6,
+            "mean_p": 0.1647165087303554,
+            "actual": 0,
+            "observed": 0.0
+          }
+        ]
+      },
+      "market_paired_model": {
+        "n": 6,
+        "log_loss": 2.095394515624657,
+        "brier": 0.854881734413729,
+        "calibration": [
+          {
+            "lower": 0.0,
+            "n": 27,
+            "mean_p": 0.048162274074608144,
+            "observed": 0.07407407407407407
+          },
+          {
+            "lower": 0.1,
+            "n": 19,
+            "mean_p": 0.14360282019613302,
+            "observed": 0.10526315789473684
+          },
+          {
+            "lower": 0.2,
+            "n": 8,
+            "mean_p": 0.24639562703238166,
+            "observed": 0.25
+          }
+        ],
+        "outcomes": [
+          {
+            "outcome": "hh",
+            "label": "胜/胜",
+            "n": 6,
+            "mean_p": 0.20486009067526756,
+            "actual": 3,
+            "observed": 0.5
+          },
+          {
+            "outcome": "hd",
+            "label": "胜/平",
+            "n": 6,
+            "mean_p": 0.06040439967588557,
+            "actual": 1,
+            "observed": 0.16666666666666666
+          },
+          {
+            "outcome": "ha",
+            "label": "胜/负",
+            "n": 6,
+            "mean_p": 0.025254753843833615,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "dh",
+            "label": "平/胜",
+            "n": 6,
+            "mean_p": 0.1154135890686352,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "dd",
+            "label": "平/平",
+            "n": 6,
+            "mean_p": 0.16256791764417097,
+            "actual": 1,
+            "observed": 0.16666666666666666
+          },
+          {
+            "outcome": "da",
+            "label": "平/负",
+            "n": 6,
+            "mean_p": 0.12362322911726653,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "ah",
+            "label": "负/胜",
+            "n": 6,
+            "mean_p": 0.023884159248627898,
+            "actual": 1,
+            "observed": 0.16666666666666666
+          },
+          {
+            "outcome": "ad",
+            "label": "负/平",
+            "n": 6,
+            "mean_p": 0.06040439967588557,
+            "actual": 0,
+            "observed": 0.0
+          },
+          {
+            "outcome": "aa",
+            "label": "负/负",
+            "n": 6,
+            "mean_p": 0.22358746105042707,
+            "actual": 0,
+            "observed": 0.0
+          }
+        ]
+      },
+      "excluded": {},
+      "note": "半全场九分类计分：Log Loss 为主、Brier 为辅；固定占比 1/2 与开赛前最后一次竞彩半全场赔率去水隐含概率仅作对照基准，不进入任何估计或模型。回测折内带半场比分的训练行不足 300 场时整折不计分（fold_share_insufficient）；线上每日预测在同类情况下会回退到当次运行全部模型的训练行，因此低覆盖联赛的线上回退路径在回测里没有被评估。"
+    },
+    "availability_basis": "mixed",
+    "assumed_training_share": 0.9963335044364596,
+    "assumed_eval_share": 0.17857142857142858,
+    "replayed_training_share": 0.0,
+    "replayed_eval_share": 0.0,
+    "replay_delay": null,
+    "since_utc": "2026-10-03T09:03:43.139757+00:00",
+    "as_of_utc": "2026-11-28T09:03:43.139757+00:00",
+    "fold": "weekly",
+    "in_period": 28,
+    "unavailable_labels": 0,
+    "skipped": {},
+    "folds": [
+      {
+        "season": "2627",
+        "cutoff_utc": "2026-10-11T23:59:59.999999+00:00",
+        "half_life_days": 365.0,
+        "draw_calibration": true,
+        "eligible": 5,
+        "skipped": {},
+        "status": "fitted",
+        "training_games": 2261,
+        "last_available_utc": "2026-05-23T11:10:00+00:00",
+        "assumed_training_share": 1.0,
+        "replayed_training_share": 0.0,
+        "draw_offset": 0.18368450542981313,
+        "calibration_training_rows": 2261,
+        "calibration_skipped_training_rows": 0,
+        "half_share": {
+          "tier": "league",
+          "share": 0.4443453707831773,
+          "ht_matches": 2261,
+          "ht_goals": 2990,
+          "full_goals": 6729
+        },
+        "model": {
+          "n": 5,
+          "log_loss": 1.1036107643831587,
+          "brier": 0.6681530420726043,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 8,
+              "mean_p": 0.2616477900855053,
+              "observed": 0.375
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.3189732582124027,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 5,
+              "mean_p": 0.4537742325782303,
+              "observed": 0.4
+            }
+          ],
+          "draw_mean": 0.2756635643025722,
+          "draw_rate": 0.4,
+          "draw_bias": -0.1243364356974278
+        },
+        "uniform": {
+          "n": 5,
+          "log_loss": 1.0986122886681098,
+          "brier": 0.6666666666666667,
+          "calibration": [
+            {
+              "lower": 0.3,
+              "n": 15,
+              "mean_p": 0.33333333333333326,
+              "observed": 0.3333333333333333
+            }
+          ],
+          "draw_mean": 0.3333333333333333,
+          "draw_rate": 0.4,
+          "draw_bias": -0.06666666666666671
+        },
+        "without_prior": {
+          "n": 5,
+          "log_loss": 1.1036107643831587,
+          "brier": 0.6681530420726043,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 8,
+              "mean_p": 0.2616477900855053,
+              "observed": 0.375
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.3189732582124027,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 5,
+              "mean_p": 0.4537742325782303,
+              "observed": 0.4
+            }
+          ],
+          "draw_mean": 0.2756635643025722,
+          "draw_rate": 0.4,
+          "draw_bias": -0.1243364356974278
+        },
+        "unknown_team": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "jc_linked": {
+          "n": 3,
+          "log_loss": 1.1139864035472244,
+          "brier": 0.6747742285696064,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 5,
+              "mean_p": 0.25766188448725186,
+              "observed": 0.4
+            },
+            {
+              "lower": 0.3,
+              "n": 1,
+              "mean_p": 0.32786413764999783,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 3,
+              "mean_p": 0.4612754799712475,
+              "observed": 0.3333333333333333
+            }
+          ],
+          "draw_mean": 0.26237445842425494,
+          "draw_rate": 0.6666666666666666,
+          "draw_bias": -0.4042922082424117
+        },
+        "unknown_team_share": 0.0,
+        "market": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing_paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "assumed_eval_share": 0.4,
+        "replayed_eval_share": 0.0,
+        "availability_basis": "mixed"
+      },
+      {
+        "season": "2627",
+        "cutoff_utc": "2026-10-18T23:59:59.999999+00:00",
+        "half_life_days": 365.0,
+        "draw_calibration": true,
+        "eligible": 5,
+        "skipped": {},
+        "status": "fitted",
+        "training_games": 2263,
+        "last_available_utc": "2026-10-18T05:00:00+00:00",
+        "assumed_training_share": 1.0,
+        "replayed_training_share": 0.0,
+        "draw_offset": 0.1718281852383274,
+        "calibration_training_rows": 2263,
+        "calibration_skipped_training_rows": 0,
+        "half_share": {
+          "tier": "league",
+          "share": 0.4444774346793349,
+          "ht_matches": 2263,
+          "ht_goals": 2994,
+          "full_goals": 6736
+        },
+        "model": {
+          "n": 5,
+          "log_loss": 1.1650969137361484,
+          "brier": 0.7093892274596589,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 8,
+              "mean_p": 0.2657038901595065,
+              "observed": 0.375
+            },
+            {
+              "lower": 0.3,
+              "n": 3,
+              "mean_p": 0.33524493079200807,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 3,
+              "mean_p": 0.4520085723638055,
+              "observed": 0.6666666666666666
+            },
+            {
+              "lower": 0.5,
+              "n": 1,
+              "mean_p": 0.5126083692565069,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.27050673161885536,
+          "draw_rate": 0.4,
+          "draw_bias": -0.12949326838114467
+        },
+        "uniform": {
+          "n": 5,
+          "log_loss": 1.0986122886681098,
+          "brier": 0.6666666666666667,
+          "calibration": [
+            {
+              "lower": 0.3,
+              "n": 15,
+              "mean_p": 0.33333333333333326,
+              "observed": 0.3333333333333333
+            }
+          ],
+          "draw_mean": 0.3333333333333333,
+          "draw_rate": 0.4,
+          "draw_bias": -0.06666666666666671
+        },
+        "without_prior": {
+          "n": 5,
+          "log_loss": 1.1650969137361484,
+          "brier": 0.7093892274596589,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 8,
+              "mean_p": 0.2657038901595065,
+              "observed": 0.375
+            },
+            {
+              "lower": 0.3,
+              "n": 3,
+              "mean_p": 0.33524493079200807,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 3,
+              "mean_p": 0.4520085723638055,
+              "observed": 0.6666666666666666
+            },
+            {
+              "lower": 0.5,
+              "n": 1,
+              "mean_p": 0.5126083692565069,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.27050673161885536,
+          "draw_rate": 0.4,
+          "draw_bias": -0.12949326838114467
+        },
+        "unknown_team": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "jc_linked": {
+          "n": 3,
+          "log_loss": 0.9674226713610471,
+          "brier": 0.5727311946329227,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 4,
+              "mean_p": 0.28385939293578066,
+              "observed": 0.25
+            },
+            {
+              "lower": 0.3,
+              "n": 3,
+              "mean_p": 0.33524493079200807,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 2,
+              "mean_p": 0.4294138179404265,
+              "observed": 1.0
+            }
+          ],
+          "draw_mean": 0.28306523951250245,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": -0.05026809382083086
+        },
+        "unknown_team_share": 0.0,
+        "market": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing_paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "assumed_eval_share": 0.4,
+        "replayed_eval_share": 0.0,
+        "availability_basis": "mixed"
+      },
+      {
+        "season": "2627",
+        "cutoff_utc": "2026-10-25T23:59:59.999999+00:00",
+        "half_life_days": 365.0,
+        "draw_calibration": true,
+        "eligible": 6,
+        "skipped": {},
+        "status": "fitted",
+        "training_games": 2265,
+        "last_available_utc": "2026-10-24T09:00:00+00:00",
+        "assumed_training_share": 1.0,
+        "replayed_training_share": 0.0,
+        "draw_offset": 0.17901367809341878,
+        "calibration_training_rows": 2265,
+        "calibration_skipped_training_rows": 0,
+        "half_share": {
+          "tier": "league",
+          "share": 0.44432913269088214,
+          "ht_matches": 2265,
+          "ht_goals": 2997,
+          "full_goals": 6745
+        },
+        "model": {
+          "n": 6,
+          "log_loss": 1.2783403950657293,
+          "brier": 0.8008161848273049,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 9,
+              "mean_p": 0.24991456334744214,
+              "observed": 0.5555555555555556
+            },
+            {
+              "lower": 0.3,
+              "n": 5,
+              "mean_p": 0.34883071817608363,
+              "observed": 0.2
+            },
+            {
+              "lower": 0.4,
+              "n": 2,
+              "mean_p": 0.4837750092472469,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.5,
+              "n": 2,
+              "mean_p": 0.5195326602490542,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2681328161926735,
+          "draw_rate": 0.5,
+          "draw_bias": -0.23186718380732652
+        },
+        "uniform": {
+          "n": 6,
+          "log_loss": 1.0986122886681098,
+          "brier": 0.6666666666666669,
+          "calibration": [
+            {
+              "lower": 0.3,
+              "n": 18,
+              "mean_p": 0.33333333333333326,
+              "observed": 0.3333333333333333
+            }
+          ],
+          "draw_mean": 0.3333333333333333,
+          "draw_rate": 0.5,
+          "draw_bias": -0.16666666666666669
+        },
+        "without_prior": {
+          "n": 6,
+          "log_loss": 1.2783403950657293,
+          "brier": 0.8008161848273049,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 9,
+              "mean_p": 0.24991456334744214,
+              "observed": 0.5555555555555556
+            },
+            {
+              "lower": 0.3,
+              "n": 5,
+              "mean_p": 0.34883071817608363,
+              "observed": 0.2
+            },
+            {
+              "lower": 0.4,
+              "n": 2,
+              "mean_p": 0.4837750092472469,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.5,
+              "n": 2,
+              "mean_p": 0.5195326602490542,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2681328161926735,
+          "draw_rate": 0.5,
+          "draw_bias": -0.23186718380732652
+        },
+        "unknown_team": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "jc_linked": {
+          "n": 3,
+          "log_loss": 1.3179831115333405,
+          "brier": 0.8301078955068038,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 5,
+              "mean_p": 0.25102508873200924,
+              "observed": 0.6
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.3720767954402091,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 1,
+              "mean_p": 0.4794955641944833,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.5,
+              "n": 1,
+              "mean_p": 0.521225401265052,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.259179505003082,
+          "draw_rate": 0.6666666666666666,
+          "draw_bias": -0.4074871616635846
+        },
+        "unknown_team_share": 0.0,
+        "market": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing_paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "assumed_eval_share": 0.16666666666666666,
+        "replayed_eval_share": 0.0,
+        "availability_basis": "mixed"
+      },
+      {
+        "season": "2627",
+        "cutoff_utc": "2026-11-01T23:59:59.999999+00:00",
+        "half_life_days": 365.0,
+        "draw_calibration": true,
+        "eligible": 6,
+        "skipped": {},
+        "status": "fitted",
+        "training_games": 2277,
+        "last_available_utc": "2026-11-01T20:42:04.907539+00:00",
+        "assumed_training_share": 0.9951690821256038,
+        "replayed_training_share": 0.0,
+        "draw_offset": 0.16512574014635534,
+        "calibration_training_rows": 2277,
+        "calibration_skipped_training_rows": 0,
+        "half_share": {
+          "tier": "league",
+          "share": 0.44405078240330675,
+          "ht_matches": 2277,
+          "ht_goals": 3008,
+          "full_goals": 6774
+        },
+        "model": {
+          "n": 6,
+          "log_loss": 1.1197463870871252,
+          "brier": 0.6867537082806514,
+          "calibration": [
+            {
+              "lower": 0.1,
+              "n": 1,
+              "mean_p": 0.18668580380863406,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.2,
+              "n": 10,
+              "mean_p": 0.26955121724481756,
+              "observed": 0.4
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.36367641974683895,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 4,
+              "mean_p": 0.4604164281357941,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.5,
+              "n": 1,
+              "mean_p": 0.5487834717063358,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2779580857117959,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": -0.05537524762153739
+        },
+        "uniform": {
+          "n": 6,
+          "log_loss": 1.0986122886681098,
+          "brier": 0.6666666666666669,
+          "calibration": [
+            {
+              "lower": 0.3,
+              "n": 18,
+              "mean_p": 0.33333333333333326,
+              "observed": 0.3333333333333333
+            }
+          ],
+          "draw_mean": 0.3333333333333333,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": 0.0
+        },
+        "without_prior": {
+          "n": 6,
+          "log_loss": 1.1197463870871252,
+          "brier": 0.6867537082806514,
+          "calibration": [
+            {
+              "lower": 0.1,
+              "n": 1,
+              "mean_p": 0.18668580380863406,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.2,
+              "n": 10,
+              "mean_p": 0.26955121724481756,
+              "observed": 0.4
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.36367641974683895,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 4,
+              "mean_p": 0.4604164281357941,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.5,
+              "n": 1,
+              "mean_p": 0.5487834717063358,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2779580857117959,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": -0.05537524762153739
+        },
+        "unknown_team": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "jc_linked": {
+          "n": 3,
+          "log_loss": 1.0962379579375587,
+          "brier": 0.6623162435377065,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 5,
+              "mean_p": 0.27102970020895395,
+              "observed": 0.4
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.36367641974683895,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 2,
+              "mean_p": 0.45874932973077637,
+              "observed": 0.5
+            }
+          ],
+          "draw_mean": 0.27724233080953337,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": -0.05609100252379995
+        },
+        "unknown_team_share": 0.0,
+        "market": {
+          "n": 3,
+          "log_loss": 0.8611127371174104,
+          "brier": 0.4886116735454902,
+          "calibration": [
+            {
+              "lower": 0.1,
+              "n": 1,
+              "mean_p": 0.14278890317839427,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.2,
+              "n": 3,
+              "mean_p": 0.22787295249165138,
+              "observed": 0.3333333333333333
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.3233125392843569,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 2,
+              "mean_p": 0.43581501525944477,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.6,
+              "n": 1,
+              "mean_p": 0.6553371302590482,
+              "observed": 1.0
+            }
+          ],
+          "draw_mean": 0.22787295249165138,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": -0.10546038084168194
+        },
+        "paired_model": {
+          "n": 3,
+          "log_loss": 1.0962379579375587,
+          "brier": 0.6623162435377065,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 5,
+              "mean_p": 0.27102970020895395,
+              "observed": 0.4
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.36367641974683895,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.4,
+              "n": 2,
+              "mean_p": 0.45874932973077637,
+              "observed": 0.5
+            }
+          ],
+          "draw_mean": 0.27724233080953337,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": -0.05609100252379995
+        },
+        "closing": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing_paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "assumed_eval_share": 0.0,
+        "replayed_eval_share": 0.0,
+        "availability_basis": "mixed"
+      },
+      {
+        "season": "2627",
+        "cutoff_utc": "2026-11-15T23:59:59.999999+00:00",
+        "half_life_days": 365.0,
+        "draw_calibration": true,
+        "eligible": 5,
+        "skipped": {},
+        "status": "fitted",
+        "training_games": 2283,
+        "last_available_utc": "2026-11-08T09:53:22.228399+00:00",
+        "assumed_training_share": 0.9925536574682435,
+        "replayed_training_share": 0.0,
+        "draw_offset": 0.16003522726866226,
+        "calibration_training_rows": 2283,
+        "calibration_skipped_training_rows": 0,
+        "half_share": {
+          "tier": "league",
+          "share": 0.44375736160188456,
+          "ht_matches": 2283,
+          "ht_goals": 3014,
+          "full_goals": 6792
+        },
+        "model": {
+          "n": 5,
+          "log_loss": 1.1359023707530411,
+          "brier": 0.7004154291828776,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 6,
+              "mean_p": 0.2656075178437481,
+              "observed": 0.16666666666666666
+            },
+            {
+              "lower": 0.3,
+              "n": 4,
+              "mean_p": 0.31268546204084313,
+              "observed": 0.75
+            },
+            {
+              "lower": 0.4,
+              "n": 5,
+              "mean_p": 0.4311226089548277,
+              "observed": 0.2
+            }
+          ],
+          "draw_mean": 0.2883623153426405,
+          "draw_rate": 0.6,
+          "draw_bias": -0.31163768465735947
+        },
+        "uniform": {
+          "n": 5,
+          "log_loss": 1.0986122886681098,
+          "brier": 0.6666666666666667,
+          "calibration": [
+            {
+              "lower": 0.3,
+              "n": 15,
+              "mean_p": 0.33333333333333326,
+              "observed": 0.3333333333333333
+            }
+          ],
+          "draw_mean": 0.3333333333333333,
+          "draw_rate": 0.6,
+          "draw_bias": -0.26666666666666666
+        },
+        "without_prior": {
+          "n": 5,
+          "log_loss": 1.1359023707530411,
+          "brier": 0.7004154291828776,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 6,
+              "mean_p": 0.2656075178437481,
+              "observed": 0.16666666666666666
+            },
+            {
+              "lower": 0.3,
+              "n": 4,
+              "mean_p": 0.31268546204084313,
+              "observed": 0.75
+            },
+            {
+              "lower": 0.4,
+              "n": 5,
+              "mean_p": 0.4311226089548277,
+              "observed": 0.2
+            }
+          ],
+          "draw_mean": 0.2883623153426405,
+          "draw_rate": 0.6,
+          "draw_bias": -0.31163768465735947
+        },
+        "unknown_team": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "jc_linked": {
+          "n": 2,
+          "log_loss": 1.0149989848367442,
+          "brier": 0.6165972848000465,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 2,
+              "mean_p": 0.2534579958238535,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.31901481098227946,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.4,
+              "n": 2,
+              "mean_p": 0.427527193193867,
+              "observed": 0.5
+            }
+          ],
+          "draw_mean": 0.2855980769655132,
+          "draw_rate": 0.5,
+          "draw_bias": -0.2144019230344868
+        },
+        "unknown_team_share": 0.0,
+        "market": {
+          "n": 2,
+          "log_loss": 0.9358238689641336,
+          "brier": 0.5387361771047392,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 3,
+              "mean_p": 0.23344438417514246,
+              "observed": 0.3333333333333333
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.3649643539443642,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.5,
+              "n": 1,
+              "mean_p": 0.5697381395858442,
+              "observed": 1.0
+            }
+          ],
+          "draw_mean": 0.24471023792591082,
+          "draw_rate": 0.5,
+          "draw_bias": -0.25528976207408915
+        },
+        "paired_model": {
+          "n": 2,
+          "log_loss": 1.0149989848367442,
+          "brier": 0.6165972848000465,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 2,
+              "mean_p": 0.2534579958238535,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.3,
+              "n": 2,
+              "mean_p": 0.31901481098227946,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.4,
+              "n": 2,
+              "mean_p": 0.427527193193867,
+              "observed": 0.5
+            }
+          ],
+          "draw_mean": 0.2855980769655132,
+          "draw_rate": 0.5,
+          "draw_bias": -0.2144019230344868
+        },
+        "closing": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing_paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "assumed_eval_share": 0.0,
+        "replayed_eval_share": 0.0,
+        "availability_basis": "mixed"
+      },
+      {
+        "season": "2627",
+        "cutoff_utc": "2026-11-22T23:59:59.999999+00:00",
+        "half_life_days": 365.0,
+        "draw_calibration": true,
+        "eligible": 1,
+        "skipped": {},
+        "status": "fitted",
+        "training_games": 2288,
+        "last_available_utc": "2026-11-22T10:17:23.178950+00:00",
+        "assumed_training_share": 0.9903846153846154,
+        "replayed_training_share": 0.0,
+        "draw_offset": 0.1587228470267102,
+        "calibration_training_rows": 2288,
+        "calibration_skipped_training_rows": 0,
+        "half_share": {
+          "tier": "league",
+          "share": 0.4436278112597383,
+          "ht_matches": 2288,
+          "ht_goals": 3018,
+          "full_goals": 6803
+        },
+        "model": {
+          "n": 1,
+          "log_loss": 1.2406162034607293,
+          "brier": 0.7645841616923801,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 2,
+              "mean_p": 0.2932715544638917,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.4,
+              "n": 1,
+              "mean_p": 0.4134568910722166,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2973371556160264,
+          "draw_rate": 0.0,
+          "draw_bias": 0.2973371556160264
+        },
+        "uniform": {
+          "n": 1,
+          "log_loss": 1.0986122886681098,
+          "brier": 0.6666666666666667,
+          "calibration": [
+            {
+              "lower": 0.3,
+              "n": 3,
+              "mean_p": 0.3333333333333333,
+              "observed": 0.3333333333333333
+            }
+          ],
+          "draw_mean": 0.3333333333333333,
+          "draw_rate": 0.0,
+          "draw_bias": 0.3333333333333333
+        },
+        "without_prior": {
+          "n": 1,
+          "log_loss": 1.2406162034607293,
+          "brier": 0.7645841616923801,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 2,
+              "mean_p": 0.2932715544638917,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.4,
+              "n": 1,
+              "mean_p": 0.4134568910722166,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2973371556160264,
+          "draw_rate": 0.0,
+          "draw_bias": 0.2973371556160264
+        },
+        "unknown_team": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "jc_linked": {
+          "n": 1,
+          "log_loss": 1.2406162034607293,
+          "brier": 0.7645841616923801,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 2,
+              "mean_p": 0.2932715544638917,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.4,
+              "n": 1,
+              "mean_p": 0.4134568910722166,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2973371556160264,
+          "draw_rate": 0.0,
+          "draw_bias": 0.2973371556160264
+        },
+        "unknown_team_share": 0.0,
+        "market": {
+          "n": 1,
+          "log_loss": 1.1161253919029777,
+          "brier": 0.6916681954857855,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 1,
+              "mean_p": 0.25444188254441885,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.3,
+              "n": 1,
+              "mean_p": 0.3275464532754645,
+              "observed": 1.0
+            },
+            {
+              "lower": 0.4,
+              "n": 1,
+              "mean_p": 0.4180116641801166,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.25444188254441885,
+          "draw_rate": 0.0,
+          "draw_bias": 0.25444188254441885
+        },
+        "paired_model": {
+          "n": 1,
+          "log_loss": 1.2406162034607293,
+          "brier": 0.7645841616923801,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 2,
+              "mean_p": 0.2932715544638917,
+              "observed": 0.5
+            },
+            {
+              "lower": 0.4,
+              "n": 1,
+              "mean_p": 0.4134568910722166,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2973371556160264,
+          "draw_rate": 0.0,
+          "draw_bias": 0.2973371556160264
+        },
+        "closing": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing_paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "assumed_eval_share": 0.0,
+        "replayed_eval_share": 0.0,
+        "availability_basis": "mixed"
+      }
+    ],
+    "seasons": {
+      "2627": {
+        "model": {
+          "n": 28,
+          "log_loss": 1.1661495407406999,
+          "brier": 0.7171354290684222,
+          "calibration": [
+            {
+              "lower": 0.1,
+              "n": 1,
+              "mean_p": 0.18668580380863406,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.2,
+              "n": 43,
+              "mean_p": 0.263808020942454,
+              "observed": 0.3953488372093023
+            },
+            {
+              "lower": 0.3,
+              "n": 16,
+              "mean_p": 0.33537059920864365,
+              "observed": 0.25
+            },
+            {
+              "lower": 0.4,
+              "n": 20,
+              "mean_p": 0.4501591273433297,
+              "observed": 0.35
+            },
+            {
+              "lower": 0.5,
+              "n": 4,
+              "mean_p": 0.5251142903652378,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.27666234369154225,
+          "draw_rate": 0.42857142857142855,
+          "draw_bias": -0.1519090848798863
+        },
+        "uniform": {
+          "n": 28,
+          "log_loss": 1.0986122886681098,
+          "brier": 0.6666666666666669,
+          "calibration": [
+            {
+              "lower": 0.3,
+              "n": 84,
+              "mean_p": 0.3333333333333333,
+              "observed": 0.3333333333333333
+            }
+          ],
+          "draw_mean": 0.3333333333333334,
+          "draw_rate": 0.42857142857142855,
+          "draw_bias": -0.09523809523809512
+        },
+        "without_prior": {
+          "n": 28,
+          "log_loss": 1.1661495407406999,
+          "brier": 0.7171354290684222,
+          "calibration": [
+            {
+              "lower": 0.1,
+              "n": 1,
+              "mean_p": 0.18668580380863406,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.2,
+              "n": 43,
+              "mean_p": 0.263808020942454,
+              "observed": 0.3953488372093023
+            },
+            {
+              "lower": 0.3,
+              "n": 16,
+              "mean_p": 0.33537059920864365,
+              "observed": 0.25
+            },
+            {
+              "lower": 0.4,
+              "n": 20,
+              "mean_p": 0.4501591273433297,
+              "observed": 0.35
+            },
+            {
+              "lower": 0.5,
+              "n": 4,
+              "mean_p": 0.5251142903652378,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.27666234369154225,
+          "draw_rate": 0.42857142857142855,
+          "draw_bias": -0.1519090848798863
+        },
+        "unknown_team": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "jc_linked": {
+          "n": 15,
+          "log_loss": 1.1171669737514487,
+          "brier": 0.6811711612022394,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 23,
+              "mean_p": 0.2664121756286821,
+              "observed": 0.391304347826087
+            },
+            {
+              "lower": 0.3,
+              "n": 10,
+              "mean_p": 0.3443134982364676,
+              "observed": 0.1
+            },
+            {
+              "lower": 0.4,
+              "n": 11,
+              "mean_p": 0.4461963251736893,
+              "observed": 0.45454545454545453
+            },
+            {
+              "lower": 0.5,
+              "n": 1,
+              "mean_p": 0.521225401265052,
+              "observed": 0.0
+            }
+          ],
+          "draw_mean": 0.2742745273863447,
+          "draw_rate": 0.4666666666666667,
+          "draw_bias": -0.19239213928032195
+        },
+        "unknown_team_share": 0.0,
+        "market": {
+          "n": 6,
+          "log_loss": 0.9285185568639127,
+          "brier": 0.5391625950552891,
+          "calibration": [
+            {
+              "lower": 0.1,
+              "n": 1,
+              "mean_p": 0.14278890317839427,
+              "observed": 0.0
+            },
+            {
+              "lower": 0.2,
+              "n": 7,
+              "mean_p": 0.2340562703635429,
+              "observed": 0.2857142857142857
+            },
+            {
+              "lower": 0.3,
+              "n": 5,
+              "mean_p": 0.3408200479465814,
+              "observed": 0.2
+            },
+            {
+              "lower": 0.4,
+              "n": 3,
+              "mean_p": 0.4298805648996687,
+              "observed": 0.3333333333333333
+            },
+            {
+              "lower": 0.5,
+              "n": 1,
+              "mean_p": 0.5697381395858442,
+              "observed": 1.0
+            },
+            {
+              "lower": 0.6,
+              "n": 1,
+              "mean_p": 0.6553371302590482,
+              "observed": 1.0
+            }
+          ],
+          "draw_mean": 0.2379135359785324,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": -0.09541979735480091
+        },
+        "paired_model": {
+          "n": 6,
+          "log_loss": 1.0932213411578158,
+          "brier": 0.6641212436509322,
+          "calibration": [
+            {
+              "lower": 0.2,
+              "n": 9,
+              "mean_p": 0.27206751129114,
+              "observed": 0.3333333333333333
+            },
+            {
+              "lower": 0.3,
+              "n": 4,
+              "mean_p": 0.3413456153645592,
+              "observed": 0.25
+            },
+            {
+              "lower": 0.4,
+              "n": 5,
+              "mean_p": 0.43720198738430066,
+              "observed": 0.4
+            }
+          ],
+          "draw_mean": 0.2833767169959422,
+          "draw_rate": 0.3333333333333333,
+          "draw_bias": -0.049956616337391124
+        },
+        "closing": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "closing_paired_model": {
+          "n": 0,
+          "log_loss": null,
+          "brier": null,
+          "calibration": [],
+          "draw_mean": null,
+          "draw_rate": null,
+          "draw_bias": null
+        },
+        "complete": false,
+        "skipped": {},
+        "in_period": 28,
+        "unavailable_labels": 0
+      }
+    },
+    "closing_note": "收盘价是赛前最后报价，由出版方赛后发布，仅作参照上限"
+  },
+  "strict_backtest": null,
+  "smoke_backtest_since_utc": "2026-10-03T09:03:43.139757+00:00",
+  "smoke_backtest_is_p2_evidence": false
+}
