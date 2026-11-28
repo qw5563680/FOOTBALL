@@ -5,6 +5,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+import responses
 
 from zucai import web_research as runner
 
@@ -105,6 +106,8 @@ def test_research_then_structure_freezes_originals_and_cost(tmp_path, freeze):
     result = run(tmp_path, provider)
     assert provider.calls == ["research", "structure"]
     assert (result["status"], result["estimated_spend"]) == ("complete", "0.02")
+    assert result["budget_charged"] == "0.02"
+    assert result["budget_reserved"] == "0"
     (row,) = result["records"]
     assert row["status"] == "ok" and row["structured"] == {"judgment": "h"}
     assert row["forecast_sha256"] == "a" * 64
@@ -132,20 +135,35 @@ def test_budget_stops_before_next_provider_request(
     assert provider.calls == expected_calls
     assert (result["status"], result["stop_reason"]) == ("partial", reason)
     assert [row["status"] for row in result["records"]] == ([row_status] if row_status else [])
+    assert Decimal(result["estimated_spend"]) == Decimal(result["budget_charged"])
+    assert result["budget_reserved"] == ("0.02" if reason == "unknown_cost" else "0")
 
 
-def test_failed_request_is_counted_and_never_retried(tmp_path, freeze):
-    provider = Provider()
-
-    def failed(*_):
-        provider.calls.append("research")
-        raise runner.ProviderError("http_error")
-
-    provider.research = failed
+@responses.activate
+def test_failed_request_preserves_diagnostics_and_reservation_without_charging(
+    tmp_path, freeze, monkeypatch
+):
+    key = "synthetic-credential-not-production"
+    monkeypatch.setenv("DEEPSEEK_API_KEY", key)
+    responses.post(
+        "https://api.deepseek.com/chat/completions",
+        status=422,
+        body=f'{{"error":"invalid tools, key={key}"}}',
+    )
+    provider = runner.DeepSeek()
     result = run(tmp_path, provider)
-    assert provider.calls == ["research"]
-    assert result["status"] == "partial" and result["budget_charged"] == "0.02"
-    assert result["records"][0]["status"] == "failed"
+    assert len(responses.calls) == 1
+    assert result["status"] == "partial" and result["estimated_spend"] == "0"
+    assert result["budget_charged"] == "0"
+    assert Decimal(result["budget_reserved"]) > 0
+    (row,) = result["records"]
+    assert row["status"] == "failed"
+    assert row["provider_error"] == {
+        "code": "http",
+        "http_status": 422,
+        "detail": '{"error":"invalid tools, key=[redacted]"}',
+    }
+    assert key not in repr(result)
 
 
 def test_expiration_during_request_refuses_artifacts_after_kickoff(tmp_path, freeze, monkeypatch):

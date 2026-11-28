@@ -38,24 +38,26 @@ class CostBudget:
     def __init__(self, limit):
         self.limit = _positive_decimal(limit)
         self.charged = Decimal(0)
-        self.measured = Decimal(0)
+        self.reserved = Decimal(0)
         self.requests = 0
 
     def request(self, reserve, call):
-        if self.charged + reserve > self.limit:
+        if self.charged + self.reserved + reserve > self.limit:
             return None, "cost_limit", None
         self.requests += 1
         try:
             step = call()
         except ProviderError as exc:
-            self.charged += reserve
-            return None, "provider_failed", {"code": exc.code, "http_status": exc.status_code}
+            self.reserved += reserve
+            error = {"code": exc.code, "http_status": exc.status_code}
+            if exc.detail:
+                error["detail"] = exc.detail
+            return None, "provider_failed", error
         estimate = step.estimated_cost
         if estimate is None:
-            self.charged += reserve
+            self.reserved += reserve
             return step, "unknown_cost", None
         self.charged += estimate
-        self.measured += estimate
         return step, "reserve_exceeded" if estimate > reserve else None, None
 
 
@@ -187,8 +189,9 @@ def run(
         "candidate_count": len(candidates),
         "max_matches": max_matches,
         "estimated_cost_limit": str(budget.limit),
-        "estimated_spend": str(budget.measured),
+        "estimated_spend": str(budget.charged),
         "budget_charged": str(budget.charged),
+        "budget_reserved": str(budget.reserved),
         "provider_requests": budget.requests,
         "records": timely,
     }

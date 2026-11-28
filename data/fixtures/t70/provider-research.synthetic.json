@@ -8,6 +8,10 @@
       "message": {
         "role": "assistant",
         "content": "比赛身份核对：一致\n关键伤停与首发：没有查到。\n主要依据：主队赛前发布会提到轮换。https://example.test/preview\n研究判断：无可靠倾向\n",
+        "server_tool_calls": [
+          {"calls": [{"type": "deepseek_web_search"}, {"type": "deepseek_web_search"}]},
+          {"calls": [{"type": "deepseek_read_url"}]}
+        ],
         "annotations": [
           {"type": "url_citation", "url_citation": {"url": "https://example.test/preview"}}
         ]
@@ -18,6 +22,6 @@
     "prompt_tokens": 825,
     "completion_tokens": 378,
     "total_tokens": 1203,
-    "tool_calls": {"deepseek_web_search": 2, "deepseek_read_url": 1}
+    "server_tool_use": {"tool_search": 2, "tool_fetch": 1, "tool_image_search": 0}
   }
 }

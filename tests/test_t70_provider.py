@@ -43,10 +43,14 @@ def test_two_distinct_request_stages_preserve_response_evidence(provider):
     assert all(TEST_KEY.encode() not in r.body for r in (first_request, second_request))
     assert first_params["messages"][0] == {"role": "system", "content": prompt}
     assert json.loads(first_params["messages"][1]["content"]) == MATERIAL
-    assert {tool["function"]["name"] for tool in first_params["tools"]} == {
-        "deepseek_web_search",
-        "deepseek_read_url",
-    }
+    assert first_params["tools"] == [
+        {"type": "deepseek_web_search"},
+        {"type": "deepseek_read_url"},
+    ]
+    for params in (first_params, second_params):
+        assert params["model"] == "deepseek-flash"
+        assert params["thinking"] == {"type": "disabled"}
+        assert params["safety_check"] == {"level": "high"}
     assert "response_format" not in first_params
     assert "tools" not in second_params
     assert second_params["response_format"] == {"type": "json_object"}
@@ -61,7 +65,7 @@ def test_two_distinct_request_stages_preserve_response_evidence(provider):
     assert first.citations == research["choices"][0]["message"]["annotations"]
     assert first.usage == research["usage"]
     assert first.tool_calls == 3 and second.tool_calls == 0
-    assert first.estimated_cost == Decimal("0.0029511")
+    assert first.estimated_cost == Decimal("0.0007011")
     assert second.estimated_cost == Decimal("0.0000942")
     assert provider.research_reserve(prompt, MATERIAL) > first.estimated_cost
     assert provider.structure_reserve(first.text, MATERIAL) > second.estimated_cost
@@ -71,14 +75,16 @@ def test_two_distinct_request_stages_preserve_response_evidence(provider):
 def test_missing_citations_and_tool_accounting_remain_unknown(provider):
     payload = fixture("research")
     del payload["choices"][0]["message"]["annotations"]
-    del payload["usage"]["tool_calls"]
+    del payload["choices"][0]["message"]["server_tool_calls"]
+    del payload["usage"]["server_tool_use"]
+    payload["usage"]["tool_calls"] = 99
     responses.post(URL, json=payload)
 
     result = provider.research("test", MATERIAL)
 
     assert result.citations == []
     assert result.tool_calls is None
-    assert result.estimated_cost is None
+    assert result.estimated_cost == Decimal("0.0007011")
     assert result.raw == payload
 
 
@@ -91,21 +97,103 @@ def test_no_annotations_is_distinct_from_unknown_usage(provider):
     responses.post(URL, json=payload)
     result = provider.research("test", MATERIAL)
     assert result.citations == [] and result.tool_calls == 3
-    assert result.estimated_cost == Decimal("0.0029511")
+    assert result.estimated_cost == Decimal("0.0007011")
     assert (result.billed_cost, result.billed_currency) == (Decimal("0.0031"), "CNY")
+
+
+@pytest.mark.parametrize(
+    ("steps", "counts", "expected"),
+    [
+        ([{"calls": [{}]}, {"calls": [{}, {}]}], {"tool_search": 10}, 3),
+        ([], {"tool_search": 10}, 0),
+        (None, {"tool_search": 2, "tool_fetch": 1, "tool_image_search": 4}, 7),
+        (None, {"tool_fetch": 1}, 1),
+        ([{"calls": "bad"}], {"tool_fetch": 3}, 3),
+        (None, {"tool_search": True, "tool_fetch": 1}, None),
+        (None, {"tool_fetch": -1}, None),
+    ],
+)
+@responses.activate
+def test_tool_steps_are_authoritative_with_usage_fallback(provider, steps, counts, expected):
+    payload = fixture("research")
+    message = payload["choices"][0]["message"]
+    if steps is None:
+        del message["server_tool_calls"]
+    else:
+        message["server_tool_calls"] = steps
+    payload["usage"]["server_tool_use"] = counts
+    responses.post(URL, json=payload)
+    result = provider.research("test", MATERIAL)
+    assert result.tool_calls == expected
+    assert result.estimated_cost == Decimal("0.0007011")
+
+
+@responses.activate
+def test_official_annotations_take_priority_and_legacy_citations_still_parse(provider):
+    payload = fixture("research")
+    message = payload["choices"][0]["message"]
+    message["citations"] = ["https://example.test/legacy"]
+    responses.post(URL, json=payload)
+    assert provider.research("test", MATERIAL).citations == message["annotations"]
+
+    del message["annotations"]
+    responses.post(URL, json=payload)
+    assert provider.research("test", MATERIAL).citations == message["citations"]
 
 
 @pytest.mark.parametrize(
     ("status", "code"), [(401, "http"), (429, "http"), (503, "http"), (302, "http")]
 )
 @responses.activate
-def test_unsuccessful_status_has_no_external_body_no_retry_and_no_redirect(provider, status, code):
+def test_unsuccessful_status_redacts_detail_and_does_not_retry_or_redirect(provider, status, code):
     responses.post(URL, status=status, body=f"echo {TEST_KEY}", headers={"Location": URL + "x"})
     with pytest.raises(ProviderError) as caught:
         provider.research("test", MATERIAL)
     assert (caught.value.code, caught.value.status_code) == (code, status)
     assert TEST_KEY not in str(caught.value)
+    assert caught.value.detail == "echo [redacted]"
     assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_422_preserves_bounded_utf8_detail_and_redacts_a_key_at_the_cutoff(provider):
+    prefix = '{"error":"invalid tools: '
+    body = prefix + "错" * 670 + TEST_KEY + "多" * 4000 + '"}'
+    responses.post(URL, status=422, body=body.encode("utf-8"))
+    with pytest.raises(ProviderError) as caught:
+        provider.research("test", MATERIAL)
+    error = caught.value
+    assert (error.code, error.status_code, str(error)) == ("http", 422, "http 422")
+    assert error.detail.startswith(prefix)
+    assert len(error.detail.encode("utf-8")) <= 2048
+    assert "[redacted]" in error.detail
+    assert TEST_KEY not in error.detail
+
+
+@responses.activate
+def test_422_redacts_json_escaped_and_unicode_escaped_key(monkeypatch):
+    key = 'test-/"\\-credential'
+    monkeypatch.setenv("DEEPSEEK_API_KEY", key)
+    escaped = json.dumps(key)[1:-1].replace("test-", r"\u0074est-").replace("/", r"\/")
+    body = '{"error":"bad payload, credential=' + escaped + '"}'
+    responses.post(URL, status=422, body=body)
+    with pytest.raises(ProviderError) as caught:
+        DeepSeek().research("test", MATERIAL)
+    assert caught.value.detail == '{"error":"bad payload, credential=[redacted]"}'
+
+
+@responses.activate
+def test_422_status_survives_an_unreadable_error_body(provider, monkeypatch):
+    responses.post(URL, status=422)
+
+    def failed_body(*args, **kwargs):
+        raise requests.exceptions.ChunkedEncodingError(TEST_KEY)
+
+    monkeypatch.setattr(requests.Response, "iter_content", failed_body)
+    with pytest.raises(ProviderError) as caught:
+        provider.research("test", MATERIAL)
+    assert (caught.value.code, caught.value.status_code, caught.value.detail) == ("http", 422, None)
+    assert TEST_KEY not in str(caught.value)
 
 
 @responses.activate
